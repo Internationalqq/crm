@@ -1,0 +1,75 @@
+<section class="page-head">
+    <div>
+        <p class="eyebrow">Ежедневный контроль</p>
+        <h2>Журнал работ</h2>
+        <p>Дневные отчёты по объектам: что сделали, сколько людей было на смене, какие есть блокеры и что показывать заказчику.</p>
+    </div>
+</section>
+
+<section class="stats-grid log-stats" data-logs-stats></section>
+
+<section class="grid-2 logs-layout">
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <span class="section-label">Отчёты</span>
+                <h3>Лента по объекту</h3>
+            </div>
+            <select class="search" data-logs-project></select>
+        </div>
+        <div class="logs-list" data-logs-list></div>
+    </section>
+
+    <section class="card" data-log-create-card>
+        <div class="card-head">
+            <div>
+                <span class="section-label">Прораб</span>
+                <h3>Добавить дневной отчёт</h3>
+            </div>
+            <span class="muted">Можно скрыть от заказчика</span>
+        </div>
+        <form class="log-form" data-log-form>
+            <label>
+                <span>Объект</span>
+                <select name="project_id" required data-log-projects></select>
+            </label>
+            <label>
+                <span>Дата</span>
+                <input name="report_date" type="date" required>
+            </label>
+            <label class="wide">
+                <span>Заголовок</span>
+                <input name="title" required placeholder="Например: Монтаж инженерных сетей — смена 2">
+            </label>
+            <label class="wide">
+                <span>Что сделали</span>
+                <textarea name="work_done" rows="4" required placeholder="Кратко и понятно: какие работы выполнены, какой участок закрыли, что приняли."></textarea>
+            </label>
+            <label>
+                <span>Людей на смене</span>
+                <input name="workers_count" type="number" min="0" step="1" value="0">
+            </label>
+            <label>
+                <span>Видно заказчику</span>
+                <select name="is_client_visible">
+                    <option value="1">Да, показывать</option>
+                    <option value="0">Нет, внутренний отчёт</option>
+                </select>
+            </label>
+            <label class="wide">
+                <span>Техника / инструмент</span>
+                <input name="equipment" placeholder="Например: лазерный уровень, перфораторы, вышка-тура">
+            </label>
+            <label class="wide">
+                <span>Блокеры</span>
+                <input name="blockers" placeholder="Что мешает: нехватка материала, доступ, погода, ожидание решения">
+            </label>
+            <label class="wide">
+                <span>Следующие шаги</span>
+                <input name="next_steps" placeholder="Что делаем дальше">
+            </label>
+            <div class="form-error" data-log-error></div>
+            <button class="primary" type="submit">Сохранить отчёт</button>
+        </form>
+    </section>
+</section>

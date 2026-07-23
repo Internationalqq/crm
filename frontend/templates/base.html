@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <title>{{title}} — PM.bi</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <script defer src="/assets/app.js"></script>
+</head>
+<body data-page="{{page}}">
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar">
+            <a class="brand" href="/app/dashboard">
+                <img src="/assets/logo.png" alt="PM.bi">
+                <span>PM.bi</span>
+            </a>
+            <nav class="nav">
+                <a href="/app/dashboard" data-nav="dashboard">Панель</a>
+                <a href="/app/projects" data-nav="projects">Объекты</a>
+                <a href="/app/schedule" data-nav="schedule">График работ</a>
+                <a href="/app/logs" data-nav="logs">Журнал работ</a>
+                <a href="/app/warehouse" data-nav="warehouse">Склад</a>
+                <a href="/app/chats" data-nav="chats">Чаты</a>
+                <a href="/app/users" data-nav="users" data-director-only>Пользователи</a>
+                <a href="/app/reports" data-nav="reports" data-director-only>Отчётность</a>
+            </nav>
+        </aside>
+
+        <div class="main">
+            <header class="topbar">
+                <button class="menu-btn" type="button" data-menu-toggle>☰</button>
+                <div>
+                    <div class="page-kicker">Строительная CRM</div>
+                    <h1>{{title}}</h1>
+                </div>
+                <div class="topbar-user">
+                    <span data-current-user>Загрузка...</span>
+                    <button type="button" data-logout>Выйти</button>
+                </div>
+            </header>
+            <main class="content">
+                {{content}}
+            </main>
+        </div>
+    </div>
+</body>
+</html>

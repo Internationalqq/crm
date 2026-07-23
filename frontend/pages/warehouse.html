@@ -1,0 +1,123 @@
+<section class="page-head">
+    <div>
+        <p class="eyebrow">Смета и склад</p>
+        <h2>Материалы и остатки</h2>
+        <p>Система сравнивает смету, закупки, поступления, списания и показывает нехватку.</p>
+    </div>
+</section>
+
+<section class="card">
+    <div class="card-head">
+        <div>
+            <span class="section-label">Ведомость склада</span>
+            <h3>Все материалы по объектам</h3>
+        </div>
+        <input class="search" placeholder="Поиск: труба, объект, единица..." data-warehouse-search>
+    </div>
+    <div class="analysis-strip" data-warehouse-analysis></div>
+    <div data-warehouse-summary class="warehouse-ledger"></div>
+</section>
+
+<section class="card" data-director-action>
+    <div class="card-head">
+        <div>
+            <span class="section-label">Позиция склада</span>
+            <h3>Добавить материал / предмет</h3>
+        </div>
+        <span class="muted">Создаёт позицию в смете и складской ведомости</span>
+    </div>
+    <form class="warehouse-form" data-material-create-form>
+        <label>
+            <span>Объект</span>
+            <select name="project_id" required data-material-projects></select>
+        </label>
+        <label>
+            <span>Название</span>
+            <input name="title" required placeholder="Например: Труба ПНД 110">
+        </label>
+        <label>
+            <span>Ед. изм.</span>
+            <input name="unit" required value="шт">
+        </label>
+        <label>
+            <span>Кол-во по смете</span>
+            <input name="planned_qty" type="number" step="0.01" min="0.01" required>
+        </label>
+        <label>
+            <span>Плановая цена</span>
+            <input name="planned_price" type="number" step="0.01" min="0">
+        </label>
+        <div class="form-error" data-material-create-error></div>
+        <button class="primary" type="submit">Добавить позицию</button>
+    </form>
+</section>
+
+<section class="card" data-director-action>
+    <div class="card-head">
+        <div>
+            <span class="section-label">Операции</span>
+            <h3>Добавить движение склада</h3>
+        </div>
+        <span class="muted">Закупка, поступление, использование или списание</span>
+    </div>
+    <form class="warehouse-form" data-stock-move-form>
+        <label>
+            <span>Объект</span>
+            <select name="project_id" required data-stock-projects></select>
+        </label>
+        <label>
+            <span>Материал</span>
+            <select name="estimate_item_id" required data-stock-materials></select>
+        </label>
+        <label>
+            <span>Операция</span>
+            <select name="move_type" required>
+                <option value="purchase">Закупка</option>
+                <option value="receipt">Поступление</option>
+                <option value="use">Использовано</option>
+                <option value="writeoff">Списание</option>
+            </select>
+        </label>
+        <label>
+            <span>Количество</span>
+            <input name="qty" type="number" step="0.01" min="0.01" required>
+        </label>
+        <label>
+            <span>Цена</span>
+            <input name="price" type="number" step="0.01" min="0">
+        </label>
+        <label class="wide">
+            <span>Комментарий</span>
+            <input name="comment" placeholder="Например: поступило на объект или списано в монтаж">
+        </label>
+        <div class="form-error" data-stock-move-error></div>
+        <button class="primary" type="submit">Сохранить операцию</button>
+    </form>
+</section>
+
+<section class="card" data-director-action>
+    <div class="card-head">
+        <div>
+            <span class="section-label">Смета</span>
+            <h3>Импорт сметы от бота</h3>
+        </div>
+        <span class="muted">JSON из сканера сметы</span>
+    </div>
+    <form class="estimate-import" data-estimate-import-form>
+        <label>
+            <span>Объект для импорта</span>
+            <select name="project_id" required data-estimate-projects></select>
+        </label>
+        <label>
+            <span>JSON</span>
+            <textarea name="json" rows="8" spellcheck="false">{
+  "replace": false,
+  "items": [
+    { "title": "Труба ПНД 110", "unit": "м", "planned_qty": 1000, "planned_price": 420 }
+  ]
+}</textarea>
+        </label>
+        <div class="form-error" data-estimate-import-error></div>
+        <button class="primary" type="submit">Импортировать смету</button>
+    </form>
+</section>

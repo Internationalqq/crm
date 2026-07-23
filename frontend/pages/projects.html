@@ -1,0 +1,88 @@
+<section class="page-head">
+    <div>
+        <p class="eyebrow">Центр работы</p>
+        <h2>Объекты строительства</h2>
+        <p>Живой прогресс объекта, материалы по смете, остатки и нехватка.</p>
+    </div>
+    <button class="primary" type="button" data-open-project-create data-director-action>Создать объект</button>
+</section>
+
+<section class="card" data-project-create-card data-director-action hidden>
+    <div class="card-head">
+        <h3>Новый объект</h3>
+        <button class="ghost" type="button" data-close-project-create>Закрыть</button>
+    </div>
+    <form class="project-form" data-project-create-form>
+        <label>
+            <span>Название</span>
+            <input name="title" required placeholder="Например: ЖК Северный — инженерные сети">
+        </label>
+        <label>
+            <span>Заказчик</span>
+            <input name="client_name" required placeholder="ООО Заказчик">
+        </label>
+        <label class="wide">
+            <span>Адрес</span>
+            <input name="address" required placeholder="Город, улица, дом">
+        </label>
+        <label>
+            <span>Договор</span>
+            <input name="contract_no" placeholder="PM-2026-001">
+        </label>
+        <label>
+            <span>Бюджет</span>
+            <input name="budget" type="number" min="0" step="1">
+        </label>
+        <label>
+            <span>Старт</span>
+            <input name="started_at" type="date">
+        </label>
+        <label>
+            <span>Дедлайн</span>
+            <input name="deadline_at" type="date">
+        </label>
+        <div class="form-error" data-project-create-error></div>
+        <button class="primary" type="submit">Создать</button>
+    </form>
+</section>
+
+<section class="stats-grid" data-project-stats></section>
+
+<section class="card compact-alerts" data-project-critical-card hidden>
+    <div class="card-head">
+        <h3>Что горит</h3>
+        <span class="muted">Критичные нехватки по объектам</span>
+    </div>
+    <div data-project-critical></div>
+</section>
+
+<section class="card">
+    <div class="card-head">
+        <h3>Список объектов</h3>
+        <input class="search" placeholder="Поиск по объектам" data-project-search>
+    </div>
+    <div class="projects-grid" data-projects-list></div>
+</section>
+
+<section class="card" data-project-detail hidden>
+    <div class="card-head">
+        <h3 data-detail-title>Карточка объекта</h3>
+        <button class="ghost" type="button" data-close-detail>Закрыть</button>
+    </div>
+    <div class="tabs">
+        <button class="tab active" data-tab="overview">Обзор</button>
+        <button class="tab" data-tab="materials">Материалы</button>
+        <button class="tab" data-tab="schedule">График</button>
+        <button class="tab" data-tab="tasks">Задачи</button>
+        <button class="tab" data-tab="documents">Документы</button>
+        <button class="tab" data-tab="chat">Чат</button>
+        <button class="tab" data-tab="ai">AI-анализ</button>
+    </div>
+    <div class="tab-panel active" data-panel="overview"></div>
+    <div class="tab-panel" data-panel="materials"></div>
+    <div class="tab-panel" data-panel="schedule"></div>
+    <div class="tab-panel" data-panel="tasks"></div>
+    <div class="tab-panel" data-panel="documents"></div>
+    <div class="tab-panel" data-panel="chat"></div>
+    <div class="tab-panel" data-panel="ai"></div>
+</section>
