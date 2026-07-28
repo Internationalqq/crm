@@ -10987,6 +10987,46 @@ function renderLogsDayView(project, logs) {
             '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
     };
 
+    function scheduleMilestonePercent(isoDate, startDate, endDate) {
+        var start = isoTime(startDate);
+        var end = isoTime(endDate);
+        var point = isoTime(isoDate);
+        if (Number.isNaN(start) || Number.isNaN(end) || Number.isNaN(point) || end <= start) return 0;
+        return Math.max(0, Math.min(100, Math.round(((point - start) / (end - start)) * 1000) / 10));
+    }
+
+    function renderScheduleSectionMilestones(project, sections, startDate, endDate) {
+        var rows = (sections || []).map(function (section, index) {
+            var progress = scheduleSectionProgress(project.id, section);
+            var done = progress.total > 0 && progress.percent >= 100;
+            var left = scheduleMilestonePercent(section.endDate || endDate, startDate, endDate);
+            return '<span class="schedule-progress-milestone' + (done ? ' is-done' : ' is-open') + '" style="left:' + left + '%" title="' + escapeHtml((section.title || '') + ' - ' + finalGraphDate(section.endDate)) + '">' +
+                '<i></i><b>' + escapeHtml('Р' + String(index + 1)) + '</b><em>' + escapeHtml(section.title || '') + '</em>' +
+            '</span>';
+        }).join('');
+        return rows ? '<div class="schedule-progress-milestones">' + rows + '</div>' : '';
+    }
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Считаем длительность по рабочим позициям.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Считаем длительность по рабочим позициям.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var scheduleEndDate = deadline || summary.finishDate;
+        var daysLeft = scheduleEndDate ? daysBetween(APP_TODAY, scheduleEndDate) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, scheduleEndDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Общий прогресс, контрольные разделы и факт выполнения работ.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(scheduleEndDate)) + stat('Осталось дней', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + stat('Чел.-ч', String(Math.round(Number(summary.totalHours || 0)))) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Общий прогресс</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div>' +
+                '<div class="section-schedule-progress section-schedule-progress-mapped"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span>' + renderScheduleSectionMilestones(project, sections, summary.startDate, scheduleEndDate) + '</div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div>' +
+                '<div class="schedule-progress-legend"><span><i class="is-done"></i> раздел закрыт</span><span><i class="is-open"></i> раздел в работе</span></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
+
     function materialChecklistStorageKey(projectId) {
         return 'pmbi.material.checklist.' + String(projectId || '');
     }
@@ -11256,6 +11296,8 @@ function renderLogsDayView(project, logs) {
         return {
             className: deadlineState.kind ? (' work-section-' + deadlineState.kind) : '',
             kind: deadlineState.kind,
+            section: section,
+            deadlineState: deadlineState,
             heading: materialSectionLabel(index),
             html: '<span class="work-section-date">' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</span>' + scheduleDeadlineBadge(deadlineState)
         };

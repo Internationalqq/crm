@@ -5639,6 +5639,112 @@ body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
     transition: width .24s ease;
 }
 
+.section-schedule-progress-mapped {
+    gap: 28px;
+}
+
+.section-schedule-progress-mapped .section-schedule-progress-bar {
+    height: 14px;
+    margin: 30px 0 18px;
+    overflow: visible;
+}
+
+.schedule-progress-milestones {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.schedule-progress-milestone {
+    position: absolute;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform: translate(-50%, -50%);
+}
+
+.schedule-progress-milestone i {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 18px;
+    height: 18px;
+    border: 3px solid #ffffff;
+    border-radius: 999px;
+    background: #b9473f;
+    box-shadow: 0 4px 12px rgba(34, 55, 88, .18);
+    transform: translate(-50%, -50%);
+}
+
+.schedule-progress-milestone.is-done i {
+    background: #2f9a5f;
+}
+
+.schedule-progress-milestone b {
+    position: absolute;
+    left: 0;
+    top: -34px;
+    min-width: 30px;
+    padding: 4px 7px;
+    border-radius: 999px;
+    background: #fff;
+    color: #173863;
+    font-size: 11px;
+    font-weight: 950;
+    text-align: center;
+    box-shadow: 0 5px 14px rgba(24, 50, 89, .12);
+    transform: translateX(-50%);
+}
+
+.schedule-progress-milestone em {
+    position: absolute;
+    left: 12px;
+    top: 13px;
+    width: 138px;
+    color: #607792;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.schedule-progress-milestone.is-open em {
+    color: #9f4a43;
+}
+
+.schedule-progress-milestone.is-done em {
+    color: #28754b;
+}
+
+.schedule-progress-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    color: #607792;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.schedule-progress-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.schedule-progress-legend i {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #b9473f;
+}
+
+.schedule-progress-legend i.is-done {
+    background: #2f9a5f;
+}
+
 .section-schedule-progress-meta {
     display: flex;
     align-items: baseline;
@@ -7057,4 +7163,63 @@ body.sidebar-collapsed .sidebar-toggle-lines i:nth-child(3),
 html.sidebar-pref-collapsed .sidebar-toggle-lines i:nth-child(3) {
     width: 14px;
     transform: translateX(1px);
+}
+
+/* Light login screen */
+.login-page {
+    background:
+        radial-gradient(circle at 18% 12%, rgba(94, 161, 255, .18), transparent 32%),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%) !important;
+}
+
+.login-card {
+    border: 1px solid var(--line);
+    background: #ffffff !important;
+    box-shadow: var(--shadow) !important;
+}
+
+.login-hero {
+    background: linear-gradient(180deg, #ffffff 0%, #eef5ff 100%) !important;
+    color: var(--ink) !important;
+    border-right: 1px solid var(--line);
+}
+
+.login-brand {
+    color: #183256;
+}
+
+.login-hero h1 {
+    color: var(--ink);
+}
+
+.login-hero p {
+    color: var(--muted) !important;
+}
+
+.login-points span {
+    border: 1px solid #d8e5f5 !important;
+    background: #ffffff !important;
+    color: #355277;
+    box-shadow: 0 8px 18px rgba(24, 50, 89, .05);
+}
+
+.login-form {
+    background: #ffffff;
+}
+
+.login-form input {
+    border-color: var(--line) !important;
+    background: #fbfdff !important;
+}
+
+.login-form button {
+    background: var(--green) !important;
+    box-shadow: 0 10px 22px rgba(47,111,237,.18);
+}
+
+@media (max-width: 980px) {
+    .login-hero {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
 }
