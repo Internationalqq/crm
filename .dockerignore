@@ -1,0 +1,9 @@
+.git
+.agents
+.vscode
+analysis_transcripts
+data
+__pycache__
+*.pyc
+*.pyo
+*.log

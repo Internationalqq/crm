@@ -2,7 +2,24 @@
     <div>
         <p class="eyebrow">Контроль директора</p>
         <h2>Отчётность</h2>
-        <p>Финансы, прогресс объектов, нехватки материалов и открытые задачи.</p>
+        <p>Финансы, прогресс объектов, нехватки материалов, сроки, отчёты и открытые задачи.</p>
+    </div>
+</section>
+
+<section class="card">
+    <div class="card-head">
+        <div>
+            <span class="section-label">Оперативный контроль</span>
+            <h3>Фокус дня и выгрузки</h3>
+        </div>
+        <div class="report-export-actions">
+            <button class="ghost" type="button" data-report-export="digest">CSV: Сводка</button>
+            <button class="ghost" type="button" data-report-export="deadlines">CSV: Сроки</button>
+            <button class="ghost" type="button" data-report-export="people">CSV: Люди</button>
+        </div>
+    </div>
+    <div class="report-focus-list" data-report-focus>
+        <p class="muted">Собираем фокус дня...</p>
     </div>
 </section>
 
@@ -14,6 +31,38 @@
         <span class="muted">Что нужно докупить, чтобы не остановить объект</span>
     </div>
     <div data-dashboard-critical></div>
+</section>
+
+<section class="card">
+    <div class="card-head">
+        <h3>Ежедневная сводка директора</h3>
+        <span class="muted">Кто отчитался, что горит и где нужно вмешаться сегодня</span>
+    </div>
+    <div class="report-digest" data-report-digest>
+        <p class="muted">Собираем сводку по объектам...</p>
+    </div>
+</section>
+
+<section class="grid-2">
+    <section class="card">
+        <div class="card-head">
+            <h3>Календарь горящих сроков</h3>
+            <span class="muted">Ближайшие даты по объектам, этапам и задачам</span>
+        </div>
+        <div class="deadline-list" data-report-deadlines>
+            <p class="muted">Загрузка сроков...</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-head">
+            <h3>Люди и ответственность</h3>
+            <span class="muted">По кому есть задачи, отчёты и критичные точки</span>
+        </div>
+        <div class="people-summary" data-report-people>
+            <p class="muted">Загрузка сводки по людям...</p>
+        </div>
+    </section>
 </section>
 
 <section class="card">

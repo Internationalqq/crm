@@ -2,7 +2,7 @@
     <div>
         <p class="eyebrow">Администрирование</p>
         <h2>Пользователи и роли</h2>
-        <p>Директор создаёт сотрудников, закупщиков и заказчиков с ограниченным доступом.</p>
+        <p>Директор создает сотрудников, закупщиков и заказчиков с ограниченным доступом.</p>
     </div>
 </section>
 
@@ -14,22 +14,42 @@
             <input name="name" required>
         </label>
         <label>
-            <span>Логин</span>
+            <span>Внутренний логин</span>
             <input name="login" required>
         </label>
         <label>
-            <span>Пароль</span>
+            <span>Email для входа и восстановления</span>
+            <input name="email" type="email" required>
+        </label>
+        <label>
+            <span>Телефон</span>
+            <input name="phone">
+        </label>
+        <label>
+            <span>Стартовый пароль Clerk</span>
             <input name="password" type="password" minlength="10" required>
         </label>
         <label>
-            <span>Роль</span>
+            <span>Основная роль</span>
             <select name="role" required>
-                <option value="foreman">Прораб</option>
-                <option value="buyer">Закупщик</option>
-                <option value="client">Заказчик</option>
                 <option value="director">Директор</option>
+                <option value="foreman">Прораб</option>
+                <option value="purchaser">Закупщик/снабженец</option>
+                <option value="financier">Ответственный за финплан</option>
+                <option value="accountant">Бухгалтер</option>
+                <option value="customer">Заказчик</option>
+                <option value="admin">Администратор</option>
             </select>
         </label>
+        <fieldset class="role-checks">
+            <legend>Дополнительные роли</legend>
+            <label><input type="checkbox" name="roles" value="director"> Директор</label>
+            <label><input type="checkbox" name="roles" value="foreman"> Прораб</label>
+            <label><input type="checkbox" name="roles" value="purchaser"> Закупщик/снабженец</label>
+            <label><input type="checkbox" name="roles" value="financier"> Ответственный за финплан</label>
+            <label><input type="checkbox" name="roles" value="accountant"> Бухгалтер</label>
+            <label><input type="checkbox" name="roles" value="customer"> Заказчик</label>
+        </fieldset>
         <div class="form-error" data-user-create-error></div>
         <button class="primary" type="submit">Создать</button>
     </form>

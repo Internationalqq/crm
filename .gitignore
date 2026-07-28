@@ -1,4 +1,6 @@
 data/
+.env
+.env.docker
 *.sqlite3
 __pycache__/
 *.pyc

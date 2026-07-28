@@ -1,0 +1,72 @@
+<section class="page-head">
+    <div>
+        <p class="eyebrow">Справочники</p>
+        <h2>Компании и контрагенты</h2>
+        <p>Собственные юридические лица, заказчики, поставщики, подрядчики и прочие контрагенты.</p>
+    </div>
+</section>
+
+<section class="grid-2">
+    <form class="card form-card" data-company-create-form>
+        <h3>Создать компанию</h3>
+        <label>
+            <span>Тип</span>
+            <select name="type" required>
+                <option value="own_legal_entity">Наше юридическое лицо</option>
+                <option value="client">Заказчик</option>
+                <option value="supplier">Поставщик</option>
+                <option value="contractor">Подрядчик</option>
+                <option value="other">Другое</option>
+            </select>
+        </label>
+        <label>
+            <span>Название</span>
+            <input name="name" required>
+        </label>
+        <label>
+            <span>ИНН</span>
+            <input name="inn">
+        </label>
+        <label>
+            <span>КПП</span>
+            <input name="kpp">
+        </label>
+        <label>
+            <span>ОГРН</span>
+            <input name="ogrn">
+        </label>
+        <label>
+            <span>Телефон</span>
+            <input name="phone">
+        </label>
+        <label>
+            <span>Email</span>
+            <input name="email" type="email">
+        </label>
+        <label>
+            <span>Адрес</span>
+            <input name="address">
+        </label>
+        <label>
+            <span>Заметки</span>
+            <textarea name="notes" rows="3"></textarea>
+        </label>
+        <div class="form-error" data-company-create-error></div>
+        <button class="primary" type="submit">Создать</button>
+    </form>
+
+    <section class="card">
+        <div class="card-head">
+            <h3>Список компаний</h3>
+            <select class="search" data-company-type-filter>
+                <option value="">Все типы</option>
+                <option value="own_legal_entity">Наши юрлица</option>
+                <option value="client">Заказчики</option>
+                <option value="supplier">Поставщики</option>
+                <option value="contractor">Подрядчики</option>
+                <option value="other">Другое</option>
+            </select>
+        </div>
+        <div data-companies-list></div>
+    </section>
+</section>

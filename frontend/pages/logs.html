@@ -8,6 +8,24 @@
 
 <section class="stats-grid log-stats" data-logs-stats></section>
 
+<section class="logs-alerts" data-logs-alerts></section>
+
+<section class="card">
+    <div class="card-head">
+        <div>
+            <span class="section-label">Календарь объекта</span>
+            <h3>Дневные отчеты по датам</h3>
+        </div>
+        <span class="muted">Нажми на день, чтобы открыть отчет и факт прогресса</span>
+    </div>
+    <div class="logs-calendar-shell">
+        <div data-logs-calendar></div>
+        <div data-logs-day-view>
+            <p class="muted">Выбери день в календаре.</p>
+        </div>
+    </div>
+</section>
+
 <section class="grid-2 logs-layout">
     <section class="card">
         <div class="card-head">
@@ -37,6 +55,10 @@
                 <span>Дата</span>
                 <input name="report_date" type="date" required>
             </label>
+            <label>
+                <span>Прогресс объекта, %</span>
+                <input name="progress_percent" type="number" min="0" max="100" step="1" placeholder="Например: 64">
+            </label>
             <label class="wide">
                 <span>Заголовок</span>
                 <input name="title" required placeholder="Например: Монтаж инженерных сетей — смена 2">
@@ -44,6 +66,10 @@
             <label class="wide">
                 <span>Что сделали</span>
                 <textarea name="work_done" rows="4" required placeholder="Кратко и понятно: какие работы выполнены, какой участок закрыли, что приняли."></textarea>
+            </label>
+            <label class="wide">
+                <span>Быстрый ввод от прораба</span>
+                <textarea name="raw_input" rows="3" placeholder="Можно диктовать или писать простым текстом. Этот текст сохраняем как исходный факт дня, а структурированный отчет заполняем ниже."></textarea>
             </label>
             <label>
                 <span>Людей на смене</span>

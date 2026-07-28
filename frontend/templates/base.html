@@ -5,22 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow,noarchive">
     <title>{{title}} — PM.bi</title>
-    <link rel="stylesheet" href="/assets/app.css">
-    <script defer src="/assets/app.js"></script>
+    <link rel="icon" type="image/png" href="/assets/logo.png?v=20260728-textfix2">
+    <script>
+        (function () {
+            try {
+                if (window.innerWidth > 720 && window.localStorage.getItem('pmbi_sidebar_collapsed') === '1') {
+                    document.documentElement.classList.add('sidebar-pref-collapsed');
+                }
+            } catch (error) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="/assets/app.css?v=20260728-textfix2">
+    <script defer src="/assets/app.js?v=20260728-textfix2"></script>
 </head>
 <body data-page="{{page}}">
     <div class="app-shell">
         <aside class="sidebar" id="sidebar">
-            <a class="brand" href="/app/dashboard">
-                <img src="/assets/logo.png" alt="PM.bi">
-                <span>PM.bi</span>
-            </a>
+            <div class="sidebar-head">
+                <a class="brand" href="/app/dashboard">
+                    <img src="/assets/logo.png?v=20260728-textfix2" alt="PM.bi">
+                    <span>PM.bi</span>
+                </a>
+                <button class="sidebar-toggle" type="button" data-sidebar-toggle aria-label="Свернуть сайдбар" title="Свернуть сайдбар">
+                    <span class="sidebar-toggle-lines" aria-hidden="true">
+                        <i></i>
+                        <i></i>
+                        <i></i>
+                    </span>
+                </button>
+            </div>
             <nav class="nav">
                 <a href="/app/dashboard" data-nav="dashboard">Панель</a>
                 <a href="/app/projects" data-nav="projects">Объекты</a>
+                <a href="/app/autobot" data-nav="autobot">AutoBot</a>
                 <a href="/app/schedule" data-nav="schedule">График работ</a>
                 <a href="/app/logs" data-nav="logs">Журнал работ</a>
                 <a href="/app/warehouse" data-nav="warehouse">Склад</a>
+                <a href="/app/suppliers" data-nav="suppliers">Поставщики</a>
                 <a href="/app/chats" data-nav="chats">Чаты</a>
                 <a href="/app/users" data-nav="users" data-director-only>Пользователи</a>
                 <a href="/app/reports" data-nav="reports" data-director-only>Отчётность</a>
@@ -30,19 +51,73 @@
         <div class="main">
             <header class="topbar">
                 <button class="menu-btn" type="button" data-menu-toggle>☰</button>
-                <div>
-                    <div class="page-kicker">Строительная CRM</div>
-                    <h1>{{title}}</h1>
-                </div>
-                <div class="topbar-user">
-                    <span data-current-user>Загрузка...</span>
-                    <button type="button" data-logout>Выйти</button>
+                <div class="topbar-spacer" aria-hidden="true"></div>
+                <div class="topbar-actions">
+                    <button class="topbar-circle ai-circle" type="button" data-ai-open aria-label="Открыть AI помощника" title="AI помощник">
+                        <span class="topbar-circle-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 13a8 8 0 0 1 16 0"></path>
+                                <path d="M7 13v2a1 1 0 0 0 1 1h1"></path>
+                                <path d="M17 13v2a1 1 0 0 1-1 1h-1"></path>
+                                <path d="M10 18h4"></path>
+                                <path d="M12 18v2"></path>
+                                <path d="M9 9h6"></path>
+                            </svg>
+                        </span>
+                    </button>
+                    <div class="topbar-profile-wrap">
+                        <button class="topbar-circle profile-circle" type="button" data-user-toggle aria-label="Открыть личный кабинет" title="Личный кабинет">
+                            <span class="topbar-circle-text" data-user-badge>U</span>
+                        </button>
+                        <div class="user-popover" data-user-popover hidden>
+                            <div class="user-popover-head">
+                                <strong data-current-user>Загрузка...</strong>
+                                <span data-current-role>Роль</span>
+                            </div>
+                            <button class="ghost" type="button" data-logout>Выйти</button>
+                        </div>
+                    </div>
                 </div>
             </header>
             <main class="content">
                 {{content}}
             </main>
         </div>
+    </div>
+
+    <div class="ai-shell" data-ai-shell hidden>
+        <button class="ai-backdrop" type="button" data-ai-close aria-label="Закрыть AI помощника"></button>
+        <section class="ai-panel" aria-label="AI помощник">
+            <div class="ai-panel-head">
+                <div>
+                    <span class="section-label">AI помощник</span>
+                    <h3>Рабочий чат по CRM</h3>
+                </div>
+                <button class="ghost ai-close-btn" type="button" data-ai-close>Закрыть</button>
+            </div>
+            <div class="ai-status-row">
+                <span class="badge">Сценарий готов</span>
+                <small>Пока это интерфейс и локальная логика. Подключение агента и действий добавим следующим слоем.</small>
+            </div>
+            <div class="ai-quick-actions">
+                <button class="ghost" type="button" data-ai-prompt="Заполни дневной отчет по объекту">Дневной отчет</button>
+                <button class="ghost" type="button" data-ai-prompt="Создай задачу по просроченному этапу">Создать задачу</button>
+                <button class="ghost" type="button" data-ai-prompt="Разбери нехватки материалов по объекту">Нехватки</button>
+            </div>
+            <div class="ai-conversation" data-ai-messages>
+                <article class="ai-message ai-message-assistant">
+                    <b>AI помощник</b>
+                    <p>Я уже встроен в интерфейс. Можно писать текстом или надиктовать голосом, а потом подключим реальные действия по CRM.</p>
+                </article>
+            </div>
+            <form class="ai-compose" data-ai-form>
+                <textarea name="message" rows="3" placeholder="Например: создай задачу по объекту, заполни отчет, проверь сроки материалов"></textarea>
+                <div class="ai-compose-actions">
+                    <button class="ghost" type="button" data-ai-voice>Голос</button>
+                    <button class="primary" type="submit">Отправить</button>
+                </div>
+            </form>
+        </section>
     </div>
 </body>
 </html>

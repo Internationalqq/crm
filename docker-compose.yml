@@ -1,0 +1,55 @@
+services:
+  crm:
+    build:
+      context: .
+    container_name: pmbi-crm
+    environment:
+      PMBI_HOST: 0.0.0.0
+      PMBI_PORT: 8080
+      PMBI_ADMIN_PASSWORD: ${PMBI_ADMIN_PASSWORD:-}
+      PMBI_PUBLIC_BASE_URL: ${PMBI_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      CLERK_JWT_KEY: ${CLERK_JWT_KEY:-}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-http://127.0.0.1:8080}
+      CLERK_ADMIN_EMAILS: ${CLERK_ADMIN_EMAILS:-}
+      CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: ${CLERK_SIGN_IN_FALLBACK_REDIRECT_URL:-/app/dashboard}
+      CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: ${CLERK_SIGN_UP_FALLBACK_REDIRECT_URL:-/app/dashboard}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  autobot:
+    build:
+      context: ../code/auto_bot
+    container_name: pmbi-autobot
+    depends_on:
+      - crm
+    environment:
+      WEB_UI_HOST: 0.0.0.0
+      WEB_UI_PORT: 8765
+      PMBI_CRM_URL: http://crm:8080
+      PMBI_CRM_LOGIN: ${PMBI_CRM_LOGIN:-admin}
+      PMBI_CRM_PASSWORD: ${PMBI_CRM_PASSWORD:-}
+      PMBI_CRM_MAX_MATERIALS: ${PMBI_CRM_MAX_MATERIALS:-2000}
+      REPORT_SITE_PUBLIC_BASE_URL: ${REPORT_SITE_PUBLIC_BASE_URL:-http://127.0.0.1:8765}
+      WEB_UI_PUBLIC_BASE_URL: ${WEB_UI_PUBLIC_BASE_URL:-http://127.0.0.1:8765}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_SPOOL_ON_FAIL: ${TELEGRAM_SPOOL_ON_FAIL:-1}
+      SKIP_PERPLEXITY_TXT: ${SKIP_PERPLEXITY_TXT:-1}
+      RUN_MARKET: ${RUN_MARKET:-1}
+      MARKET_MAX_ROWS: ${MARKET_MAX_ROWS:-0}
+      MARKET_PAUSE_SEC: ${MARKET_PAUSE_SEC:-18}
+      MARKET_SOURCES: ${MARKET_SOURCES:-avito,web}
+      MARKET_AVITO_HEADLESS: ${MARKET_AVITO_HEADLESS:-1}
+      MAIN_MAX_PAGES: ${MAIN_MAX_PAGES:-2}
+      MAIN_MAX_TENDERS: ${MAIN_MAX_TENDERS:-15}
+      MAIN_DAYS_BACK: ${MAIN_DAYS_BACK:-60}
+    ports:
+      - "8765:8765"
+    volumes:
+      - ../code/auto_bot/data:/app/data
+    restart: unless-stopped

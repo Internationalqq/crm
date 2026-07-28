@@ -1,0 +1,113 @@
+<section class="page-head">
+    <div>
+        <p class="eyebrow">Закупщик и подрядчики</p>
+        <h2>Поставщики и предложения</h2>
+        <p>Кандидаты, обзвон, просчёт, сравнение со сметой и выбор лучшего варианта по объекту.</p>
+    </div>
+</section>
+
+<section class="stats-grid" data-suppliers-stats></section>
+
+<section class="card suppliers-context" data-suppliers-context hidden></section>
+
+<section class="grid-2">
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <span class="section-label">Воронка закупки</span>
+                <h3>Все предложения по объекту</h3>
+            </div>
+            <select class="search" data-suppliers-project></select>
+        </div>
+        <div class="suppliers-list" data-suppliers-list>
+            <p class="muted">Загрузка предложений...</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <span class="section-label">Новый кандидат</span>
+                <h3>Добавить поставщика или подрядчика</h3>
+            </div>
+            <span class="muted">Можно указывать ручной контакт или ссылку на Avito</span>
+        </div>
+        <form class="supplier-form" data-supplier-create-form>
+            <label>
+                <span>Объект</span>
+                <select name="project_id" required data-supplier-projects></select>
+            </label>
+            <label>
+                <span>Тип</span>
+                <select name="candidate_type">
+                    <option value="supplier">Поставщик</option>
+                    <option value="contractor">Подрядчик</option>
+                </select>
+            </label>
+            <label class="wide">
+                <span>Название кандидата</span>
+                <input name="candidate_name" required placeholder="Например: ООО Стройснаб или Бригада Иванова">
+            </label>
+            <label>
+                <span>Компания из справочника</span>
+                <select name="company_id" data-supplier-companies>
+                    <option value="">Без привязки</option>
+                </select>
+            </label>
+            <label>
+                <span>Материал / предмет</span>
+                <select name="estimate_item_id" data-supplier-materials>
+                    <option value="">Без привязки к смете</option>
+                </select>
+            </label>
+            <label>
+                <span>Источник</span>
+                <select name="source_type">
+                    <option value="manual">Ручной ввод</option>
+                    <option value="avito">Avito</option>
+                    <option value="other">Другой источник</option>
+                </select>
+            </label>
+            <label>
+                <span>Ссылка</span>
+                <input name="source_url" placeholder="Ссылка на объявление или карточку">
+            </label>
+            <label>
+                <span>Контакт</span>
+                <input name="contact_name" placeholder="Имя контакта">
+            </label>
+            <label>
+                <span>Телефон</span>
+                <input name="phone" placeholder="+7...">
+            </label>
+            <label>
+                <span>Цена за единицу</span>
+                <input name="price" type="number" min="0" step="0.01">
+            </label>
+            <label>
+                <span>Количество</span>
+                <input name="qty" type="number" min="0" step="0.01">
+            </label>
+            <label>
+                <span>Ед. изм.</span>
+                <input name="unit" placeholder="шт / м / м2">
+            </label>
+            <label>
+                <span>Статус</span>
+                <select name="status">
+                    <option value="new">Новый</option>
+                    <option value="called">Обзвонён</option>
+                    <option value="quoted">Просчитан</option>
+                    <option value="selected">Выбран</option>
+                    <option value="rejected">Отклонён</option>
+                </select>
+            </label>
+            <label class="wide">
+                <span>Комментарий</span>
+                <textarea name="notes" rows="4" placeholder="Что ответил, какие условия, сроки поставки, что смутило"></textarea>
+            </label>
+            <div class="form-error" data-supplier-create-error></div>
+            <button class="primary" type="submit">Сохранить кандидата</button>
+        </form>
+    </section>
+</section>
