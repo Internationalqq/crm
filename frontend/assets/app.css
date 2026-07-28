@@ -7165,6 +7165,202 @@ html.sidebar-pref-collapsed .sidebar-toggle-lines i:nth-child(3) {
     transform: translateX(1px);
 }
 
+/* Cleaner chat-style report composer */
+.report-chat-intake .card-head {
+    margin-bottom: 6px;
+}
+
+.report-chat-simple-form {
+    gap: 12px !important;
+}
+
+.report-chat-header-compact {
+    grid-template-columns: minmax(160px, 220px) !important;
+}
+
+.report-main-input {
+    border-color: #c9dcf4 !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f2f7ff 100%) !important;
+}
+
+.report-main-input textarea {
+    min-height: 126px !important;
+    font-size: 15px;
+}
+
+.report-output-input {
+    border-color: #d8e5f5 !important;
+    background: #fbfdff !important;
+}
+
+.report-output-input textarea[readonly] {
+    min-height: 104px !important;
+    color: #34445c;
+    cursor: default;
+}
+
+.report-output-input textarea[readonly]::placeholder {
+    color: #8a99ad;
+}
+
+.report-apply-preview {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.report-preview-empty {
+    padding: 14px;
+    border: 1px dashed #d7e4f3;
+    border-radius: 8px;
+    background: #fbfdff;
+    color: #607792;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.report-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.report-preview-card {
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid #d8e5f5;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.report-preview-card-main {
+    grid-column: 1 / -1;
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+}
+
+.report-preview-card strong {
+    color: #173863;
+    font-size: 13px;
+}
+
+.report-preview-card p {
+    margin: 0;
+    color: #34445c;
+    line-height: 1.5;
+}
+
+.report-preview-sections {
+    display: grid;
+    gap: 8px;
+}
+
+.report-preview-section {
+    display: grid;
+    gap: 5px;
+    padding: 9px 10px;
+    border: 1px solid #e3edf8;
+    border-radius: 8px;
+    background: #fbfdff;
+}
+
+.report-preview-section b {
+    color: #355d8d;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.report-preview-section span {
+    padding-left: 0 !important;
+    color: #34445c;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.report-preview-section span::before,
+.report-apply-preview span::before {
+    display: none !important;
+}
+
+.report-preview-muted {
+    padding: 10px;
+    border: 1px dashed #d7e4f3;
+    border-radius: 8px;
+    color: #7a8ca3;
+    background: #fbfdff;
+    font-size: 13px;
+}
+
+.report-confirm-card {
+    border-style: solid;
+    background: #f8fbff;
+}
+
+.report-confirm {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 24px;
+    align-items: center !important;
+    justify-content: stretch;
+    gap: 14px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #d8e5f5;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #173863;
+    font-weight: 900;
+}
+
+.report-confirm span {
+    min-width: 0;
+    line-height: 1.35;
+}
+
+.report-confirm input {
+    appearance: none;
+    -webkit-appearance: none;
+    justify-self: end;
+    width: 22px;
+    height: 22px;
+    margin: 0 !important;
+    border: 1.5px solid #9eb6d3;
+    border-radius: 7px;
+    background: #fff;
+    position: relative;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.report-confirm input:before {
+    content: '';
+    position: absolute;
+    inset: 4px 7px 5px 6px;
+    border-right: 2px solid transparent;
+    border-bottom: 2px solid transparent;
+    transform: rotate(45deg) scale(.7);
+}
+
+.report-confirm input:checked {
+    background: linear-gradient(180deg, #2f6fed 0%, #4f8eff 100%);
+    border-color: #2f6fed;
+}
+
+.report-confirm input:checked:before {
+    border-color: #fff;
+    transform: rotate(45deg) scale(1);
+}
+
+.report-chat-simple-form .report-intake-actions {
+    justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+    .report-preview-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Light login screen */
 .login-page {
     background:

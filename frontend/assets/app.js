@@ -11568,6 +11568,137 @@ function renderLogsDayView(project, logs) {
         };
     }
 
+    ensureReportPreviewRoot = function (form) {
+        var root = qs('[data-report-preview]', form);
+        if (root) return root;
+        var confirmCard = qs('.assistant-confirm-card', form);
+        if (!confirmCard) return null;
+        root = document.createElement('div');
+        root.className = 'report-apply-preview';
+        root.setAttribute('data-report-preview', '');
+        confirmCard.insertBefore(root, qs('.report-confirm', confirmCard) || null);
+        return root;
+    };
+
+    renderReportPreviewHtml = function (projectId, draft) {
+        if (!draft.text && !draft.workMatches.length && !draft.materialMatches.length) {
+            return '<div class="report-preview-empty">Напиши в поле выше, что сделали или закупили. Здесь появится текст отчета и список изменений.</div>';
+        }
+        var html = ['<div class="report-preview-grid">'];
+        if (draft.text) {
+            html.push('<section class="report-preview-card report-preview-card-main"><strong>Будет сохранен отчет</strong><p>' + escapeHtml(draft.text) + '</p></section>');
+        }
+        html.push('<section class="report-preview-card"><strong>Работы</strong>');
+        if (draft.workMatches.length) {
+            var workGroups = {};
+            var workOrder = [];
+            draft.workMatches.forEach(function (entry) {
+                var sectionTitle = String(entry.sectionTitle || entry.item.sectionTitle || entry.item.stageTitle || 'Без раздела').trim() || 'Без раздела';
+                if (!workGroups[sectionTitle]) {
+                    workGroups[sectionTitle] = [];
+                    workOrder.push(sectionTitle);
+                }
+                workGroups[sectionTitle].push(entry);
+            });
+            html.push('<div class="report-preview-sections">' + workOrder.map(function (sectionTitle) {
+                return '<div class="report-preview-section"><b>' + escapeHtml(sectionTitle) + '</b>' + workGroups[sectionTitle].map(function (entry) {
+                    return '<span>' + escapeHtml(entry.item.title + (entry.partial ? ' - частично' : '')) + '</span>';
+                }).join('') + '</div>';
+            }).join('') + '</div>');
+        } else {
+            html.push('<div class="report-preview-muted">Пока не найдены явные совпадения.</div>');
+        }
+        html.push('</section><section class="report-preview-card"><strong>Материалы</strong>');
+        if (draft.materialMatches.length) {
+            html.push('<div class="report-preview-sections">' + draft.materialMatches.map(function (entry) {
+                var bits = [];
+                if (entry.purchasedQty > 0) bits.push('куплено ' + finalSectionSummaryNumber(entry.purchasedQty));
+                if (entry.usedQty > 0) bits.push('в работу ' + finalSectionSummaryNumber(entry.usedQty));
+                var sectionTitle = String(entry.item.sectionTitle || entry.item.stageTitle || 'Материалы').trim() || 'Материалы';
+                return '<div class="report-preview-section"><b>' + escapeHtml(sectionTitle) + '</b><span>' + escapeHtml(entry.item.title + ' - ' + bits.join(', ') + ' ' + (entry.item.unit || '')) + '</span></div>';
+            }).join('') + '</div>');
+        } else {
+            html.push('<div class="report-preview-muted">Пока не найдены явные совпадения.</div>');
+        }
+        html.push('</section></div>');
+        return html.join('');
+    };
+
+    renderProjectReportForm = function (project) {
+        if (!canCreateProjectReport()) return '';
+        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || APP_TODAY;
+        return '<section class="subsection report-intake-card">' +
+            '<div class="report-drawer-caption">Новый отчет</div>' +
+            '<div class="card-head"><div><h3>Отчет по объекту за день</h3><span class="muted">Напиши одной фразой, что сделали или закупили. Система покажет текст отчета и изменения перед сохранением.</span></div></div>' +
+            '<form class="project-form report-intake-form report-chat-form report-chat-simple-form" data-log-form>' +
+                '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
+                '<input type="hidden" name="title" value="">' +
+                '<input type="hidden" name="workers_count" value="0">' +
+                '<input type="hidden" name="progress_percent" value="">' +
+                '<input type="hidden" name="is_client_visible" value="1">' +
+                '<input type="hidden" name="equipment" value="">' +
+                '<input type="hidden" name="blockers" value="">' +
+                '<input type="hidden" name="next_steps" value="">' +
+                '<div class="report-chat-header report-chat-header-compact">' +
+                    '<label><span>Дата</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
+                '</div>' +
+                '<div class="report-chat-composer report-chat-composer-assistant">' +
+                    '<div class="report-chat-role">Быстрый ввод</div>' +
+                    '<label class="report-chat-bubble-input assistant report-main-input">' +
+                        '<span>Что сделали сегодня</span>' +
+                        '<textarea name="raw_input" rows="5" required placeholder="Например: демонтировали стены полностью, поставили розетки половину, купили все розетки."></textarea>' +
+                    '</label>' +
+                '</div>' +
+                '<div class="report-chat-composer">' +
+                    '<div class="report-chat-role">Текст отчета</div>' +
+                    '<label class="report-chat-bubble-input report-output-input">' +
+                        '<span>Так будет сохранено</span>' +
+                        '<textarea name="work_done" rows="4" readonly required placeholder="Здесь автоматически появится готовый текст отчета."></textarea>' +
+                    '</label>' +
+                '</div>' +
+                '<div class="assistant-confirm-card report-confirm-card">' +
+                    '<b>Предпросмотр применения</b>' +
+                    '<label class="report-confirm"><span>Подтверждаю сохранение отчета и применение изменений</span><input type="checkbox" name="confirm_report" required></label>' +
+                '</div>' +
+                '<div class="form-error" data-log-error></div>' +
+                '<div class="report-intake-actions">' +
+                    '<button class="primary" type="submit">Сохранить отчет</button>' +
+                '</div>' +
+            '</form>' +
+        '</section>';
+    };
+
+    bindReportPreview = function () {
+        qsa('[data-log-form]').forEach(function (form) {
+            if (form.dataset.reportPreviewBound === '1') return;
+            form.dataset.reportPreviewBound = '1';
+            var previewRoot = ensureReportPreviewRoot(form);
+            var workDone = form.work_done;
+            var rawInput = form.raw_input;
+            var titleInput = form.title;
+            function refreshPreview() {
+                var rawText = rawInput ? rawInput.value.trim() : '';
+                var projectId = Number(form.project_id && form.project_id.value || 0);
+                var draft = buildProjectReportDraft(projectId, {
+                    raw_input: rawText,
+                    work_done: ''
+                });
+                if (workDone) {
+                    workDone.value = rawText ? draft.text : '';
+                    workDone.dataset.autogenerated = '1';
+                }
+                if (titleInput) {
+                    titleInput.value = 'Отчет за ' + (form.report_date && form.report_date.value ? form.report_date.value : APP_TODAY);
+                    titleInput.dataset.autogenerated = '1';
+                }
+                if (previewRoot) previewRoot.innerHTML = renderReportPreviewHtml(projectId, rawText ? draft : { text: '', workMatches: [], materialMatches: [] });
+            }
+            if (rawInput) rawInput.addEventListener('input', refreshPreview);
+            if (form.report_date) form.report_date.addEventListener('change', refreshPreview);
+            refreshPreview();
+        });
+    };
+
     if (page === 'login') initLogin();
     else initShell();
 })();
