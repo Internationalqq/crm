@@ -10987,6 +10987,545 @@ function renderLogsDayView(project, logs) {
             '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
     };
 
+    function materialChecklistStorageKey(projectId) {
+        return 'pmbi.material.checklist.' + String(projectId || '');
+    }
+
+    function materialCompletionKey(item) {
+        return [
+            normalizedWorkKeyPart(item && item.id),
+            normalizedWorkKeyPart(item && item.title),
+            normalizedWorkQty(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty)),
+            normalizedWorkKeyPart(item && item.unit)
+        ].join('|');
+    }
+
+    function isMaterialManuallyDone(projectId, item) {
+        var map = readStoredJson(materialChecklistStorageKey(projectId));
+        return map[materialCompletionKey(item)] === 1;
+    }
+
+    function setMaterialManuallyDone(projectId, item, isDone) {
+        var map = readStoredJson(materialChecklistStorageKey(projectId));
+        var key = materialCompletionKey(item);
+        if (isDone) map[key] = 1;
+        else delete map[key];
+        writeStoredJson(materialChecklistStorageKey(projectId), map);
+    }
+
+    function materialEffectiveForProgress(projectId, item) {
+        var effective = effectiveMaterialFromReports(projectId, item);
+        if (isMaterialManuallyDone(projectId, item)) {
+            var planned = Number(effective.plannedQty || effective.planned_qty || 0);
+            effective.manualClosed = true;
+            effective.supplyStatus = 'in_stock';
+            if (planned > 0) {
+                effective.purchasedQty = finalSectionSummaryNumber(Math.max(Number(effective.purchasedQty || 0), planned));
+                effective.stockQty = finalSectionSummaryNumber(Math.max(Number(effective.stockQty || 0), planned));
+                effective.missingQty = 0;
+            }
+        }
+        return effective;
+    }
+
+    function isMaterialDone(projectId, item) {
+        if (isMaterialManuallyDone(projectId, item)) return true;
+        var effective = effectiveMaterialFromReports(projectId, item);
+        var planned = Number(effective.plannedQty || effective.planned_qty || 0);
+        var purchased = Number(effective.purchasedQty || 0);
+        var stock = Number(effective.stockQty || 0);
+        var used = Number(effective.usedQty || 0);
+        if (planned > 0 && Math.max(purchased, stock, used) >= planned) return true;
+        return String(effective.supplyStatus || '') === 'in_stock' && planned > 0;
+    }
+
+    function materialProgress(projectId, items) {
+        var rows = (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
+        var done = rows.filter(function (item) {
+            return isMaterialDone(projectId, item);
+        }).length;
+        return {
+            total: rows.length,
+            done: done,
+            left: Math.max(0, rows.length - done),
+            percent: rows.length ? Math.round((done / rows.length) * 100) : 0
+        };
+    }
+
+    function workProgressForRows(projectId, sectionTitle, rows) {
+        var workRows = rows || [];
+        var done = projectId ? workRows.filter(function (item) {
+            return isScheduleWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        return {
+            total: workRows.length,
+            done: done,
+            left: Math.max(0, workRows.length - done),
+            percent: workRows.length ? Math.round((done / workRows.length) * 100) : 0
+        };
+    }
+
+    function sectionProgressBadge(kind, progress, label) {
+        return '<span class="estimate-section-progress estimate-section-progress-' + kind + (progress.total && progress.done >= progress.total ? ' is-complete' : '') + '">' +
+            '<strong>' + escapeHtml(String(progress.done) + ' \u0438\u0437 ' + String(progress.total)) + '</strong>' +
+            (label ? '<small>' + escapeHtml(label) + '</small>' : '') +
+        '</span>';
+    }
+
+    function sectionProgressStrip(workProgress, materialProgressValue) {
+        var total = workProgress.total + materialProgressValue.total;
+        var done = workProgress.done + materialProgressValue.done;
+        var percentValue = total ? Math.round((done / total) * 100) : 0;
+        return '<div class="estimate-section-progress-strip">' +
+            '<div class="section-schedule-progress-bar"><span style="width:' + percentValue + '%"></span></div>' +
+            '<span>' + escapeHtml(total ? (String(done) + ' \u0438\u0437 ' + String(total) + ' \u0437\u0430\u043a\u0440\u044b\u0442\u043e') : '\u041f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442') + '</span>' +
+        '</div>';
+    }
+
+    function unitMultiplierInfo(unit) {
+        var raw = String(unit || '').trim();
+        var match = raw.match(/^(\d+(?:[\.,]\d+)?)\s+(.+)$/);
+        if (!match) return null;
+        var multiplier = Number(String(match[1]).replace(',', '.'));
+        if (!Number.isFinite(multiplier) || multiplier <= 1) return null;
+        return {
+            multiplier: multiplier,
+            unit: match[2].trim()
+        };
+    }
+
+    function calculatedWorkVolume(item) {
+        var qty = Number(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty));
+        var info = unitMultiplierInfo(item && item.unit);
+        if (!Number.isFinite(qty) || !info) return null;
+        return {
+            qty: qty * info.multiplier,
+            unit: info.unit
+        };
+    }
+
+    function formatCalculatedWorkVolume(item) {
+        var calculated = calculatedWorkVolume(item);
+        if (!calculated) return '';
+        return finalSectionSummaryNumber(calculated.qty) + ' ' + calculated.unit;
+    }
+
+    function renderWorkManualCheck(item, sectionTitle, projectId) {
+        var isDone = projectId ? isScheduleWorkDone(projectId, sectionTitle, item) : false;
+        return '<label class="section-work-check work-list-check' + (isDone ? ' is-done' : '') + '">' +
+            '<input type="checkbox" data-section-work-check data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || '\u041e\u0431\u044a\u0435\u043c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</small></span>' +
+        '</label>';
+    }
+
+    function renderMaterialManualCheck(item, sectionTitle, projectId) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var isDone = isMaterialDone(projectId, item);
+        var planned = Number(effectiveItem.plannedQty || effectiveItem.planned_qty || 0);
+        var unitLabel = String(effectiveItem.unit || '').trim() || '\u0435\u0434.';
+        var meta = [
+            '\u041f\u043e \u0441\u043c\u0435\u0442\u0435: ' + finalSectionSummaryNumber(planned) + ' ' + unitLabel,
+            '\u043a\u0443\u043f\u043b\u0435\u043d\u043e: ' + finalSectionSummaryNumber(effectiveItem.purchasedQty || 0),
+            '\u043e\u0441\u0442\u0430\u0442\u043e\u043a: ' + finalSectionSummaryNumber(effectiveItem.stockQty || 0),
+            effectiveItem.manualClosed ? '\u0437\u0430\u043a\u0440\u044b\u0442\u043e \u0432\u0440\u0443\u0447\u043d\u0443\u044e' : (effectiveItem.reportApplied ? '\u0437\u0430\u043a\u0440\u044b\u0442\u043e \u043f\u043e \u043e\u0442\u0447\u0435\u0442\u0443' : '')
+        ].filter(Boolean).join(' \u2022 ');
+        return '<label class="section-work-check section-material-check' + (isDone ? ' is-done' : '') + '">' +
+            '<input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(meta) + '</small></span>' +
+        '</label>';
+    }
+
+    function renderSectionMaterialsBlock(materialRows, sectionTitle, projectId) {
+        if (!materialRows.length) return '';
+        return '<div class="work-section-materials">' +
+            '<div class="work-section-subhead"><strong>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</strong><span>' + escapeHtml(String(materialRows.length) + ' \u043f\u043e\u0437.') + '</span></div>' +
+            '<div class="section-schedule-details material-check-list">' +
+                materialRows.map(function (item) { return renderMaterialManualCheck(item, sectionTitle, projectId); }).join('') +
+            '</div>' +
+        '</div>';
+    }
+
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var missing = Number(effectiveItem.missingQty) || 0;
+        var stock = Number(effectiveItem.stockQty) || 0;
+        var planned = Number(effectiveItem.plannedQty) || 0;
+        var unitLabel = String(effectiveItem.unit || '').trim() || '\u0435\u0434.';
+        var isDone = isMaterialDone(projectId, item);
+        var meta = [
+            '\u041f\u043e \u0441\u043c\u0435\u0442\u0435: ' + finalSectionSummaryNumber(effectiveItem.plannedQty) + ' ' + unitLabel,
+            '\u043a\u0443\u043f\u043b\u0435\u043d\u043e: ' + finalSectionSummaryNumber(effectiveItem.purchasedQty),
+            '\u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u043e: ' + finalSectionSummaryNumber(effectiveItem.usedQty),
+            '\u043e\u0441\u0442\u0430\u0442\u043e\u043a: ' + finalSectionSummaryNumber(effectiveItem.stockQty),
+            effectiveItem.needByDate ? ('\u043d\u0443\u0436\u043d\u043e \u043a ' + effectiveItem.needByDate) : '',
+            effectiveItem.stageTitle ? ('\u044d\u0442\u0430\u043f: ' + effectiveItem.stageTitle) : ''
+        ].filter(Boolean).join(' \u2022 ');
+        var supplyNote = '';
+        if (insight) {
+            supplyNote = insight.selectedName
+                ? '\u0412\u044b\u0431\u0440\u0430\u043d \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a: ' + insight.selectedName
+                : insight.quoted
+                    ? '\u041f\u0440\u043e\u0441\u0447\u0438\u0442\u0430\u043d\u043e \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0439: ' + insight.quoted
+                    : insight.called
+                        ? '\u0423\u0436\u0435 \u0432 \u043e\u0431\u0437\u0432\u043e\u043d\u0435: ' + insight.called
+                        : '\u0412 \u0440\u0430\u0431\u043e\u0442\u0435 \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432: ' + insight.total;
+        } else if (canManageSuppliers()) {
+            supplyNote = '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a \u043f\u043e \u044d\u0442\u043e\u0439 \u043f\u043e\u0437\u0438\u0446\u0438\u0438 \u0435\u0449\u0435 \u043d\u0435 \u0432\u044b\u0431\u0440\u0430\u043d.';
+        }
+        var completionQty = Math.max(
+            stock,
+            Number(effectiveItem.purchasedQty || 0),
+            Number(effectiveItem.usedQty || 0),
+            isDone ? planned : 0
+        );
+        var completionLabel = planned > 0
+            ? (finalSectionSummaryNumber(completionQty) + '/' + finalSectionSummaryNumber(planned) + ' ' + unitLabel)
+            : (isDone ? '\u0417\u0430\u043a\u0440\u044b\u0442\u043e' : finalSectionSummaryNumber(stock) + ' ' + unitLabel);
+        var closeMark = effectiveItem.manualClosed ? '\u0417\u0430\u043a\u0440\u044b\u0442\u043e \u0432\u0440\u0443\u0447\u043d\u0443\u044e' : (effectiveItem.reportApplied && isDone ? '\u0417\u0430\u043a\u0440\u044b\u0442\u043e \u043f\u043e \u043e\u0442\u0447\u0435\u0442\u0430\u043c' : '');
+        return '<div class="material-row material-row-linked' + (isDone ? ' material-row-done' : '') + '">' +
+            '<label class="material-row-check" title="' + escapeHtml(isDone ? '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b \u0437\u0430\u043a\u0440\u044b\u0442' : '\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b \u0432\u0440\u0443\u0447\u043d\u0443\u044e') + '"><input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '><span></span></label>' +
+            '<div><b>' + escapeHtml(effectiveItem.title) + '</b><small>' + escapeHtml(meta) + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + (closeMark ? '<br><span class="material-report-mark">' + escapeHtml(closeMark) + '</span>' : '') + '</small></div>' +
+            '<div class="material-chain-side"><span class="badge material-complete-badge ' + planningStatusClass(effectiveItem.supplyStatus || (missing > 0 ? 'required' : 'in_stock')) + '">' + escapeHtml(completionLabel) + '</span><div class="material-chain-actions">' + renderMaterialSupplierPicker(projectId, effectiveItem, insight) + '</div></div>' +
+        '</div>';
+    };
+
+    renderGroupedMaterials = function (groups, projectId, insights) {
+        insights = insights || {};
+        return '<div class="estimate-section-list">' + (groups || []).map(function (group, index) {
+            var originalTitle = String(group.title || '').trim();
+            var progress = materialProgress(projectId, group.items || []);
+            return '<section class="estimate-section">' +
+                '<div class="card-head estimate-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(materialSectionLabel(index)) + '</h3>' + sectionProgressBadge('materials', progress, '') + '</div>' + (originalTitle ? '<small>' + escapeHtml(originalTitle) + '</small>' : '') + '</div>' +
+                sectionProgressStrip({ total: 0, done: 0 }, progress) +
+                '<div class="materials-list">' + group.items.map(function (item) {
+                    return materialRow(item, projectId, insights[Number(item.id)] || null);
+                }).join('') + '</div>' +
+            '</section>';
+        }).join('') + '</div>';
+    };
+
+    renderMaterials = function (items, projectId, insights) {
+        var materials = (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
+        if (!materials.length) return '<p class="muted">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
+        var effectiveMaterials = materials.map(function (item) {
+            return materialEffectiveForProgress(projectId, item);
+        });
+        var required = effectiveMaterials.filter(function (item) { return item.supplyStatus === 'required'; }).length;
+        var soon = effectiveMaterials.filter(function (item) { return item.supplyStatus === 'soon'; }).length;
+        var planned = effectiveMaterials.filter(function (item) { return item.supplyStatus === 'planned'; }).length;
+        var progress = materialProgress(projectId, materials);
+        var groups = groupMaterialsBySection(materials);
+        return '<div class="execution-summary material-progress-summary">' +
+            stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(materials.length)) +
+            stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(groups.length)) +
+            stat('\u0417\u0430\u043a\u0440\u044b\u0442\u043e', String(progress.done) + ' \u0438\u0437 ' + String(progress.total), progress.total && progress.done >= progress.total ? 'success' : '') +
+            stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c', String(progress.left), progress.left ? 'warn' : '') +
+            stat('\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f', String(required), required ? 'danger' : '') +
+            stat('\u0421\u043a\u043e\u0440\u043e', String(soon), soon ? 'warn' : '') +
+            stat('\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c', String(planned), planned ? 'warn' : '') +
+        '</div>' + renderGroupedMaterials(groups, projectId, insights || {});
+    };
+
+    function workScheduleSections(projectId) {
+        var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[projectId];
+        return Array.isArray(summary && summary.sections) ? summary.sections : [];
+    }
+
+    function workScheduleSectionForTitle(projectId, title) {
+        var normalizedTitle = normalizedWorkKeyPart(title);
+        return workScheduleSections(projectId).find(function (section) {
+            return normalizedWorkKeyPart(section && section.title) === normalizedTitle;
+        }) || null;
+    }
+
+    function workSectionScheduleMeta(projectId, title, index, progress) {
+        var section = workScheduleSectionForTitle(projectId, title);
+        if (!section) {
+            return {
+                className: '',
+                kind: '',
+                heading: materialSectionLabel(index),
+                html: '<span class="work-section-date is-empty">\u0421\u0440\u043e\u043a \u043d\u0435 \u0437\u0430\u0434\u0430\u043d</span>'
+            };
+        }
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return {
+            className: deadlineState.kind ? (' work-section-' + deadlineState.kind) : '',
+            kind: deadlineState.kind,
+            heading: materialSectionLabel(index),
+            html: '<span class="work-section-date">' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</span>' + scheduleDeadlineBadge(deadlineState)
+        };
+    }
+
+    renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
+        var isDone = projectId ? isScheduleWorkDone(projectId, sectionTitle, item) : false;
+        var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
+        var calculatedVolume = formatCalculatedWorkVolume(item);
+        var meta = [
+            item.unit ? ('\u0415\u0434.: ' + item.unit) : '',
+            plannedQty != null && plannedQty !== '' ? ('\u041e\u0431\u044a\u0435\u043c: ' + formattedWorkQty(plannedQty)) : '',
+            calculatedVolume ? ('\u0418\u0442\u043e\u0433\u043e: ' + calculatedVolume) : '',
+            item.stageTitle ? ('\u042d\u0442\u0430\u043f: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' \u2022 ');
+        var hours = Number(item.estimated_hours || item.estimatedHours || 0);
+        var badges = [];
+        if (calculatedVolume) badges.push('<span class="badge work-total-badge success">' + escapeHtml(calculatedVolume) + '</span>');
+        else badges.push('<span class="badge work-amount-badge">' + escapeHtml(formattedWorkQty(plannedQty || 0) + ' ' + (item.unit || '\u0435\u0434.')) + '</span>');
+        if (hours > 0) badges.push('<span class="badge work-hours-badge">' + escapeHtml(finalSectionSummaryNumber(hours) + ' \u0447\u0435\u043b.-\u0447') + '</span>');
+        if (isDone) badges.push('<span class="badge success">\u0413\u043e\u0442\u043e\u0432\u043e</span>');
+        return '<div class="material-row work-row' + (isDone ? ' work-row-done' : '') + (!isDone && riskKind ? (' work-row-' + riskKind) : '') + '">' +
+            '<div class="work-row-main">' + renderWorkManualCheck(item, sectionTitle, projectId) + '</div>' +
+            '<div class="work-row-side">' + badges.join('') + '</div>' +
+        '</div>';
+    };
+
+    renderWorksPanel = function (stages, items) {
+        var projectId = state.selectedProject ? state.selectedProject.id : null;
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) return '<p class="muted">\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
+        var groups = {};
+        var order = [];
+        function ensureGroup(title) {
+            var sectionTitle = String(title || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            return groups[sectionTitle];
+        }
+        workStages.forEach(function (stage) {
+            ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage);
+        });
+        estimateWorks.forEach(function (item) {
+            ensureGroup(item.sectionTitle || item.stageTitle).estimateRows.push(item);
+        });
+        var scheduleOrder = workScheduleSections(projectId).map(function (section) {
+            return String(section.title || '').trim();
+        }).filter(Boolean);
+        if (scheduleOrder.length) {
+            var scheduledMap = {};
+            order = scheduleOrder.filter(function (title) {
+                if (!groups[title]) return false;
+                scheduledMap[title] = 1;
+                return true;
+            }).concat(order.filter(function (title) {
+                return !scheduledMap[title];
+            }));
+        }
+        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
+            return isScheduleWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        return '<div class="execution-summary work-progress-summary">' +
+            stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(order.length)) +
+            stat('\u0420\u0430\u0431\u043e\u0442', String(estimateWorks.length || workStages.length)) +
+            stat('\u0420\u0430\u0431\u043e\u0442 \u0433\u043e\u0442\u043e\u0432\u043e', String(doneEstimateWorks) + ' \u0438\u0437 ' + String(estimateWorks.length), estimateWorks.length && doneEstimateWorks >= estimateWorks.length ? 'success' : '') +
+            stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c', String(Math.max(0, estimateWorks.length - doneEstimateWorks)), estimateWorks.length - doneEstimateWorks ? 'warn' : '') +
+        '</div><div class="estimate-section-list">' + order.map(function (title, index) {
+            var group = groups[title];
+            var workProgress = workProgressForRows(projectId, title, group.estimateRows);
+            var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
+            var activeRows = group.estimateRows.filter(function (item) {
+                return !projectId || !isScheduleWorkDone(projectId, title, item);
+            });
+            var doneRows = group.estimateRows.filter(function (item) {
+                return projectId && isScheduleWorkDone(projectId, title, item);
+            });
+            var completedBlock = doneRows.length
+                ? '<details class="work-completed-fold"><summary>\u0417\u0430\u043a\u0440\u044b\u0442\u044b\u0435 \u0440\u0430\u0431\u043e\u0442\u044b: ' + escapeHtml(String(doneRows.length)) + '</summary><div class="materials-list work-completed-list">' + doneRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId); }).join('') + '</div></details>'
+                : '';
+            return '<section class="estimate-section work-section-card' + scheduleMeta.className + '">' +
+                '<div class="card-head estimate-section-head work-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(scheduleMeta.heading) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : '') + '</div><div class="work-section-head-side">' + scheduleMeta.html + '</div><small>' + escapeHtml(title) + '</small></div>' +
+                sectionProgressStrip(workProgress, { total: 0, done: 0 }) +
+                '<div class="materials-list">' +
+                    group.stageRows.map(function (stage) {
+                        var meta = [
+                            stagePathLabel(stage, stageMap),
+                            stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '',
+                            stage.responsible || ''
+                        ].filter(Boolean).join(' \u2022 ');
+                        return '<div class="material-row work-row"><div><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</small></div><div class="material-chain-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' \u2022 ' + percent(stage.progress) + '%</span></div></div>';
+                    }).join('') +
+                    activeRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('') +
+                    (!activeRows.length && doneRows.length ? '<div class="section-schedule-empty inline">\u0412\u0441\u0435 \u0440\u0430\u0431\u043e\u0442\u044b \u0440\u0430\u0437\u0434\u0435\u043b\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b.</div>' : '') +
+                '</div>' + completedBlock +
+            '</section>';
+        }).join('') + '</div>';
+    };
+
+    function rerenderProjectMaterialAndWorkViews(projectId) {
+        var project = state.projects.find(function (item) {
+            return Number(item.id) === Number(projectId);
+        }) || state.selectedProject;
+        if (!project || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+        var stages = state.stagesByProject[projectId] || [];
+        var materials = state.materialsByProject[projectId] || [];
+        var insights = state.materialInsightsByProject[projectId] || {};
+        var materialsPanel = qs('[data-panel="materials"]');
+        var worksPanel = qs('[data-panel="works"]');
+        var overviewMaterials = qs('[data-project-overview-materials]');
+        if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(project, materials, insights);
+        if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(materials, project.id, insights);
+        if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, stages, materials);
+        bindProjectMarketToggles(projectId);
+        bindProjectChainActions();
+        bindSectionScheduleRefresh(projectId);
+    }
+
+    function bindMaterialManualChecks(projectId) {
+        qsa('[data-section-material-check]').forEach(function (input) {
+            if (input.dataset.materialBound === '1') return;
+            input.dataset.materialBound = '1';
+            input.addEventListener('change', function () {
+                var project = state.selectedProject;
+                if (!project || Number(project.id) !== Number(projectId)) return;
+                setMaterialManuallyDone(projectId, {
+                    id: input.getAttribute('data-material-id') || '',
+                    title: input.getAttribute('data-material-title') || '',
+                    unit: input.getAttribute('data-material-unit') || '',
+                    plannedQty: input.getAttribute('data-material-qty') || ''
+                }, input.checked);
+                rerenderProjectMaterialAndWorkViews(projectId);
+            });
+        });
+    }
+
+    var baseBindProjectChainActionsFinal = bindProjectChainActions;
+    bindProjectChainActions = function () {
+        baseBindProjectChainActionsFinal();
+        if (state.selectedProject && state.selectedProject.id) bindMaterialManualChecks(state.selectedProject.id);
+    };
+
+    var baseBindSectionScheduleRefreshFinal = bindSectionScheduleRefresh;
+    bindSectionScheduleRefresh = function (projectId) {
+        baseBindSectionScheduleRefreshFinal(projectId);
+        bindMaterialManualChecks(projectId);
+    };
+
+    var baseLoadMaterialsForManualChecks = loadMaterials;
+    loadMaterials = function (projectId, callback) {
+        baseLoadMaterialsForManualChecks(projectId, function (items) {
+            callback(items || []);
+            setTimeout(function () {
+                if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                    bindMaterialManualChecks(projectId);
+                }
+            }, 0);
+        });
+    };
+
+    function reportHasWholeIntent(text) {
+        var normalized = normalizeReportText(text);
+        return /(^|\s)(100%|все|всё|весь|вся|всю|полностью|целиком|закрыли|закрыто|закрыт|докупили|дозакупили)(\s|$)/.test(normalized)
+            || /РІСЃРµ\b|РІРµСЃСЊ\b|РїРѕР»РЅРѕСЃС‚|Р·Р°РєСЂС‹Р»Рё/.test(normalized);
+    }
+
+    function reportHasPartialIntent(text) {
+        var normalized = normalizeReportText(text);
+        return /(50%|половин|наполовину|частич|часть|не все|не всё)/.test(normalized)
+            || /РїРѕР»РѕРІРёРЅ|50%|С‡Р°СЃС‚РёС‡/.test(normalized);
+    }
+
+    function reportHasPurchaseIntent(text) {
+        return clauseHasAnyStem(text, [
+            'куп', 'закуп', 'зака', 'заве', 'дост', 'полу', 'прив', 'приобр',
+            'РєСѓРї', 'Р·Р°РєСѓ', 'Р·Р°РєР°', 'Р·Р°РІРµ', 'РґРѕСЃС‚', 'РїРѕР»Сѓ', 'РїСЂРёРІ'
+        ]);
+    }
+
+    function reportHasUseIntent(text) {
+        return clauseHasAnyStem(text, [
+            'уста', 'смон', 'пост', 'улож', 'испо', 'приме', 'перед', 'прове', 'смонт', 'монта', 'сдел',
+            'СѓСЃС‚Р°', 'СЃРјРѕРЅ', 'РїРѕСЃС‚', 'СѓР»РѕР¶', 'РёСЃРїРѕ', 'РїСЂРёРјРµ', 'РїРµСЂРµРґ', 'РїСЂРѕРІРµ'
+        ]);
+    }
+
+    function reportTextClauses(value) {
+        return String(value || '')
+            .split(/\n|[.!?;]+|,(?=\s*(?:там\s+)?(?:демонт|постав|куп|закуп|сдел|смонт|монт|установ|улож|использ|примен|перед|привез|завез|получ|закры))/i)
+            .map(function (part) { return part.trim(); })
+            .filter(Boolean);
+    }
+
+    function normalizeReportText(value) {
+        return String(value || '')
+            .toLowerCase()
+            .replace(/ё/g, 'е')
+            .replace(/С‘/g, 'Рµ')
+            .replace(/[^a-z\u0400-\u04ff0-9%]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function reportQuantityFromClause(clauseText, item) {
+        var raw = String(clauseText || '');
+        var normalized = normalizeReportText(raw);
+        var planned = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
+        var unit = String(item.unit || '').trim();
+        var percentMatch = normalized.match(/(\d+(?:[\.,]\d+)?)%/);
+        if (percentMatch && planned > 0) {
+            return planned * Math.max(0, Math.min(100, Number(String(percentMatch[1]).replace(',', '.')) || 0)) / 100;
+        }
+        if (unit) {
+            var unitMatch = raw.match(new RegExp('(\\d+(?:[\\.,]\\d+)?)\\s*' + escapeRegex(unit), 'i'));
+            if (unitMatch) return Number(String(unitMatch[1]).replace(',', '.')) || 0;
+        }
+        if (reportHasPartialIntent(normalized) && planned > 0) return planned * 0.5;
+        if (reportHasWholeIntent(normalized) && planned > 0) return planned;
+        var numberMatch = normalized.match(/(^|\s)(\d+(?:[\.,]\d+)?)(\s|$)/);
+        if (numberMatch) return Number(String(numberMatch[2]).replace(',', '.')) || 0;
+        return 0;
+    }
+
+    function reportWorkResultFromClause(clauseText, candidate) {
+        var clauseTokens = reportTokens(clauseText);
+        var score = reportClauseMatchScore(candidate.tokens, clauseTokens);
+        var needed = candidate.tokens.length >= 4 ? 2 : 1;
+        if (score < needed) return null;
+        var planned = Number(candidate.item.planned_qty != null ? candidate.item.planned_qty : candidate.item.plannedQty || 0);
+        var qty = reportQuantityFromClause(clauseText, candidate.item);
+        var partial = reportHasPartialIntent(clauseText);
+        if (planned > 0 && qty > 0 && qty < planned) partial = true;
+        return {
+            sectionTitle: candidate.sectionTitle,
+            item: candidate.item,
+            score: score,
+            done: !partial,
+            partial: partial
+        };
+    }
+
+    function reportMaterialResultFromClause(clauseText, candidate) {
+        var clauseTokens = reportTokens(clauseText);
+        var score = reportClauseMatchScore(candidate.tokens, clauseTokens);
+        var needed = candidate.tokens.length >= 4 ? 2 : 1;
+        if (score < needed) return null;
+        var normalized = normalizeReportText(clauseText);
+        var qty = reportQuantityFromClause(clauseText, candidate.item);
+        var planned = Number(candidate.item.plannedQty || candidate.item.planned_qty || 0);
+        var purchase = reportHasPurchaseIntent(normalized);
+        var used = reportHasUseIntent(normalized);
+        if (!purchase && !used) used = true;
+        if (!qty && planned > 0 && reportHasPartialIntent(normalized)) qty = planned * 0.5;
+        if (!qty && planned > 0 && reportHasWholeIntent(normalized)) qty = planned;
+        return {
+            item: candidate.item,
+            score: score,
+            purchasedQty: purchase ? qty : 0,
+            usedQty: used ? qty : 0
+        };
+    }
+
     if (page === 'login') initLogin();
     else initShell();
 })();
