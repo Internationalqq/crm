@@ -8794,6 +8794,53 @@ function renderLogsDayView(project, logs) {
         '</div>';
     };
 
+    renderSectionScheduleRow = function (project, section) {
+        var items = Array.isArray(section.items) ? section.items : [];
+        var progress = scheduleSectionProgress(project.id, section);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+                    '<div class="section-schedule-summary-head">' +
+                        '<div class="section-schedule-summary-copy">' +
+                            '<div class="section-schedule-heading">' +
+                                '<span class="section-schedule-label">Раздел</span>' +
+                                '<div class="section-schedule-title"><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                            '</div>' +
+                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
+                        '</div>' +
+                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
+                    '</div>' +
+                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
+                    '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
+                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                '</div>' +
+                (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
+                    var workDone = isScheduleWorkDone(project.id, section.title, item);
+                    return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '"><input type="checkbox" data-section-work-check data-project-id="' + project.id + '" data-section-title="' + escapeHtml(section.title) + '" data-work-title="' + escapeHtml(item.title) + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '><span class="section-work-check-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>';
+                }).join('') + (items.length ? '' : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>') + '</div>' : '') +
+            '</div></article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Фактический прогресс по разделам и отмеченным работам.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('До дедлайна', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + stat('Чел.-ч', String(Math.round(Number(summary.totalHours || 0)))) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Прогресс по разделам</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div><div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
+
     materialRow = function (item, projectId, insight) {
         var missing = Number(item.missingQty) || 0;
         var stock = Number(item.stockQty) || 0;
@@ -9544,7 +9591,7 @@ function renderLogsDayView(project, logs) {
         qsa('[data-section-schedule-toggle]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
-            button.addEventListener('click', function () {
+            var toggleSection = function () {
                 var sectionKey = button.getAttribute('data-section-key') || '';
                 var project = state.selectedProject;
                 if (!project || Number(project.id) !== Number(projectId)) return;
@@ -9557,6 +9604,12 @@ function renderLogsDayView(project, logs) {
                 var openNow = button.getAttribute('aria-expanded') === 'true';
                 setScheduleSectionOpen(projectId, section, !openNow);
                 rerenderProjectWorkProgress(projectId);
+            };
+            button.addEventListener('click', toggleSection);
+            button.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                toggleSection();
             });
         });
 
@@ -9694,11 +9747,10 @@ function renderLogsDayView(project, logs) {
         '</article>';
     };
 
-    renderSectionScheduleRow = function (project, section, range, index) {
-        var planStyle = scheduleBarStyle(section.startDate, section.endDate, range);
+    renderSectionScheduleRow = function (project, section, index) {
         var items = Array.isArray(section.items) ? section.items : [];
         var progress = scheduleSectionProgress(project.id, section);
-        var isOpen = isScheduleSectionOpen(project.id, section, index === 0);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
         var digest = finalSectionWorkDigest(section);
         var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
         return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
@@ -10726,11 +10778,10 @@ function renderLogsDayView(project, logs) {
         '</article>';
     };
 
-    renderSectionScheduleRow = function (project, section, range, index) {
-        var planStyle = scheduleBarStyle(section.startDate, section.endDate, range);
+    renderSectionScheduleRow = function (project, section, index) {
         var items = Array.isArray(section.items) ? section.items : [];
         var progress = scheduleSectionProgress(project.id, section);
-        var isOpen = isScheduleSectionOpen(project.id, section, index === 0);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
         var digest = finalSectionWorkDigest(section);
         var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
         return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
@@ -10870,6 +10921,70 @@ function renderLogsDayView(project, logs) {
                 group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId); }).join('') +
             '</div></section>';
         }).join('') + '</div>';
+    };
+
+    renderSectionScheduleRow = function (project, section) {
+        var items = Array.isArray(section.items) ? section.items : [];
+        var progress = scheduleSectionProgress(project.id, section);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+                    '<div class="section-schedule-summary-head">' +
+                        '<div class="section-schedule-summary-copy">' +
+                            '<div class="section-schedule-heading">' +
+                                '<span class="section-schedule-label">Раздел</span>' +
+                                '<div class="section-schedule-title"><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                            '</div>' +
+                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
+                        '</div>' +
+                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
+                    '</div>' +
+                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
+                    '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
+                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                '</div>' +
+                (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
+                    var workDone = isScheduleWorkDone(project.id, section.title, item);
+                    return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '"><input type="checkbox" data-section-work-check data-project-id="' + project.id + '" data-section-title="' + escapeHtml(section.title) + '" data-work-title="' + escapeHtml(item.title) + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '><span class="section-work-check-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>';
+                }).join('') + (items.length ? '' : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>') + '</div>' : '') +
+            '</div></article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Фактический прогресс по разделам и отмеченным работам.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('До дедлайна', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + stat('Чел.-ч', String(Math.round(Number(summary.totalHours || 0)))) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Прогресс по разделам</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div><div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Фактический прогресс по разделам и отмеченным работам.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('Осталось дней', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + stat('Чел.-ч', String(Math.round(Number(summary.totalHours || 0)))) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Прогресс по разделам</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div><div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
     };
 
     if (page === 'login') initLogin();
