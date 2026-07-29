@@ -248,7 +248,7 @@ def now_ts() -> int:
     return int(time.time())
 
 
-TODAY_ISO = "2026-07-27"
+TODAY_ISO = "2026-07-29"
 
 
 def normalize_estimate_item_kind(value: object) -> str:

@@ -2,7 +2,7 @@
     'use strict';
 
     var page = document.body.dataset.page;
-    var APP_TODAY = '2026-07-27';
+    var APP_TODAY = '2026-07-29';
     var state = {
         user: null,
         projects: [],
@@ -5690,7 +5690,7 @@ function renderLogsDayView(project, logs) {
             '</section>' +
             '<section class="subsection">' +
                 '<div class="card-head"><div><h3>Архив отчетов</h3><span class="muted">Полный дневник по объекту. Нажми на день в календаре, чтобы увидеть отчет именно за эту дату.</span></div></div>' +
-                '<div data-logs-list></div>' +
+                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Загружаем архив</b><span>Собираем сохраненные отчеты.</span></div></div>' +
             '</section>' +
             (canCreateProjectReport() ? '<section class="subsection report-intake-card" data-project-report-create-card hidden>' + renderProjectReportForm(project).replace('<section class="subsection report-intake-card">', '').replace(/<\/section>$/, '') + '</section>' : '') +
         '</div>';
@@ -7956,6 +7956,7 @@ function renderLogsDayView(project, logs) {
                     });
                 });
                 closeSideDrawer(qs('[data-drawer-id="log-create"]'));
+                closeSideDrawer(qs('[data-drawer-id="project-report-create"]'));
             }).catch(function (err) {
                 if (error) {
                     error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить отчёт';
@@ -8806,7 +8807,6 @@ function renderLogsDayView(project, logs) {
                     '<div class="section-schedule-summary-head">' +
                         '<div class="section-schedule-summary-copy">' +
                             '<div class="section-schedule-heading">' +
-                                '<span class="section-schedule-label">Раздел</span>' +
                                 '<div class="section-schedule-title"><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
                             '</div>' +
                             '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
@@ -10532,7 +10532,7 @@ function renderLogsDayView(project, logs) {
             '</section>' +
             '<section class="subsection">' +
                 '<div class="card-head"><div><h3>Архив отчетов</h3><span class="muted">Все сохраненные отчеты по объекту в одном месте.</span></div></div>' +
-                '<div data-logs-list></div>' +
+                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Загружаем архив</b><span>Собираем сохраненные отчеты.</span></div></div>' +
             '</section>' +
             (canCreateProjectReport() ? '<section class="subsection report-intake-card" data-project-report-create-card hidden>' + renderProjectReportForm(project).replace('<section class="subsection report-intake-card">', '').replace(/<\/section>$/, '') + '</section>' : '') +
         '</div>';
@@ -10935,7 +10935,6 @@ function renderLogsDayView(project, logs) {
                     '<div class="section-schedule-summary-head">' +
                         '<div class="section-schedule-summary-copy">' +
                             '<div class="section-schedule-heading">' +
-                                '<span class="section-schedule-label">Раздел</span>' +
                                 '<div class="section-schedule-title"><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
                             '</div>' +
                             '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
@@ -11001,7 +11000,7 @@ function renderLogsDayView(project, logs) {
             var done = progress.total > 0 && progress.percent >= 100;
             var left = scheduleMilestonePercent(section.endDate || endDate, startDate, endDate);
             return '<span class="schedule-progress-milestone' + (done ? ' is-done' : ' is-open') + '" style="left:' + left + '%" title="' + escapeHtml((section.title || '') + ' - ' + finalGraphDate(section.endDate)) + '">' +
-                '<i></i><b>' + escapeHtml('Р' + String(index + 1)) + '</b><em>' + escapeHtml(section.title || '') + '</em>' +
+                '<i></i><b>' + escapeHtml('Р' + String(index + 1)) + '</b>' +
             '</span>';
         }).join('');
         return rows ? '<div class="schedule-progress-milestones">' + rows + '</div>' : '';
@@ -11094,10 +11093,18 @@ function renderLogsDayView(project, logs) {
         };
     }
 
+    function isProjectWorkDone(projectId, sectionTitle, item) {
+        if (!projectId) return false;
+        if (isScheduleWorkDone(projectId, sectionTitle, item)) return true;
+        return workScheduleSections(projectId).some(function (section) {
+            return section && section.title !== sectionTitle && isScheduleWorkDone(projectId, section.title, item);
+        });
+    }
+
     function workProgressForRows(projectId, sectionTitle, rows) {
         var workRows = rows || [];
         var done = projectId ? workRows.filter(function (item) {
-            return isScheduleWorkDone(projectId, sectionTitle, item);
+            return isProjectWorkDone(projectId, sectionTitle, item);
         }).length : 0;
         return {
             total: workRows.length,
@@ -11153,7 +11160,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderWorkManualCheck(item, sectionTitle, projectId) {
-        var isDone = projectId ? isScheduleWorkDone(projectId, sectionTitle, item) : false;
+        var isDone = projectId ? isProjectWorkDone(projectId, sectionTitle, item) : false;
         return '<label class="section-work-check work-list-check' + (isDone ? ' is-done' : '') + '">' +
             '<input type="checkbox" data-section-work-check data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
             '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || '\u041e\u0431\u044a\u0435\u043c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</small></span>' +
@@ -11304,7 +11311,7 @@ function renderLogsDayView(project, logs) {
     }
 
     renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
-        var isDone = projectId ? isScheduleWorkDone(projectId, sectionTitle, item) : false;
+        var isDone = projectId ? isProjectWorkDone(projectId, sectionTitle, item) : false;
         var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
         var calculatedVolume = formatCalculatedWorkVolume(item);
         var meta = [
@@ -11366,7 +11373,7 @@ function renderLogsDayView(project, logs) {
         }
         var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
             var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
-            return isScheduleWorkDone(projectId, sectionTitle, item);
+            return isProjectWorkDone(projectId, sectionTitle, item);
         }).length : 0;
         return '<div class="execution-summary work-progress-summary">' +
             stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(order.length)) +
@@ -11378,10 +11385,10 @@ function renderLogsDayView(project, logs) {
             var workProgress = workProgressForRows(projectId, title, group.estimateRows);
             var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
             var activeRows = group.estimateRows.filter(function (item) {
-                return !projectId || !isScheduleWorkDone(projectId, title, item);
+                return !projectId || !isProjectWorkDone(projectId, title, item);
             });
             var doneRows = group.estimateRows.filter(function (item) {
-                return projectId && isScheduleWorkDone(projectId, title, item);
+                return projectId && isProjectWorkDone(projectId, title, item);
             });
             var completedBlock = doneRows.length
                 ? '<details class="work-completed-fold"><summary>\u0417\u0430\u043a\u0440\u044b\u0442\u044b\u0435 \u0440\u0430\u0431\u043e\u0442\u044b: ' + escapeHtml(String(doneRows.length)) + '</summary><div class="materials-list work-completed-list">' + doneRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId); }).join('') + '</div></details>'
@@ -11697,6 +11704,489 @@ function renderLogsDayView(project, logs) {
             if (form.report_date) form.report_date.addEventListener('change', refreshPreview);
             refreshPreview();
         });
+    };
+
+    renderLogsList = function (project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        if (!logs.length) {
+            root.innerHTML = '<p class="muted">По объекту "' + escapeHtml(project.title) + '" пока нет сохраненных отчетов.</p>';
+            return;
+        }
+        root.innerHTML = '<div class="report-archive-list">' + logs.map(function (log) {
+            return '<article class="report-archive-card">' +
+                '<div class="report-archive-head">' +
+                    '<div><span>Сохраненный отчет</span><h4>' + escapeHtml(log.title || ('Отчет за ' + (log.report_date || 'дату'))) + '</h4></div>' +
+                    '<div class="report-archive-side"><span class="badge success">' + escapeHtml(finalGraphDate(log.report_date)) + '</span>' + renderProjectReportDeleteButton(project.id, log, true) + '</div>' +
+                '</div>' +
+                '<p>' + escapeHtml(log.work_done || 'Текст отчета не указан') + '</p>' +
+                (log.raw_input ? '<small>Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                '<small>Автор: ' + escapeHtml(log.author_name || 'Без автора') + '</small>' +
+            '</article>';
+        }).join('') + '</div>';
+        bindProjectReportDeleteActions();
+    };
+
+    renderProjectReportsPanel = function (project) {
+        return '<div class="project-reports-shell">' +
+            '<section class="subsection report-calendar-top">' +
+                '<div class="card-head"><div><h3>Календарь отчетов</h3><span class="muted">Отчеты по дням, контроль пропусков и быстрый вход в нужную дату.</span></div>' +
+                    (canCreateProjectReport() ? '<button class="primary compact" type="button" data-open-project-report-create>Новый отчет</button>' : '') +
+                '</div>' +
+                '<section class="stats-grid" data-logs-stats></section>' +
+                '<div data-logs-alerts></div>' +
+                '<div data-logs-calendar></div>' +
+            '</section>' +
+            '<section class="project-reports-grid">' +
+                '<div data-logs-day-view></div>' +
+                '<section class="subsection report-archive-panel">' +
+                    '<div class="card-head"><div><h3>Архив отчетов</h3><span class="muted">Все сохраненные отчеты по объекту.</span></div></div>' +
+                    '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Загружаем архив</b><span>Собираем сохраненные отчеты.</span></div></div>' +
+                '</section>' +
+            '</section>' +
+            (canCreateProjectReport() ? '<section class="subsection report-intake-card" data-project-report-create-card hidden>' + renderProjectReportForm(project).replace('<section class="subsection report-intake-card">', '').replace(/<\/section>$/, '') + '</section>' : '') +
+        '</div>';
+    };
+
+    refreshProjectReportsTab = function (projectId) {
+        var panel = qs('[data-panel="reports"]');
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        if (!panel || !project) return;
+        var oldDrawer = qs('[data-drawer-id="project-report-create"]');
+        if (oldDrawer) oldDrawer.remove();
+        panel.innerHTML = renderProjectReportsPanel(project);
+        ensureProjectReportDrawer();
+        bindLogForm();
+        bindProjectReportAssistantActions();
+        loadProjectLogs(projectId, function (logs) {
+            loadProjectNotifications(projectId, function (notifications) {
+                if (!state.logsSelectedDateByProject[projectId]) {
+                    state.logsSelectedDateByProject[projectId] = (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+                }
+                renderLogsStats(logs, notifications);
+                renderLogsAlerts(notifications);
+                renderLogsCalendar(project, logs);
+                renderLogsList(project, logs);
+            });
+        });
+    };
+
+    renderLogsList = function (project, logs) {
+        var roots = qsa('[data-report-archive-list]');
+        if (!roots.length) roots = qsa('[data-panel="reports"] [data-logs-list]');
+        if (!roots.length) roots = qsa('[data-logs-list]');
+        if (!roots.length) return;
+        project = project || {};
+        logs = Array.isArray(logs) ? logs : [];
+        var canBindDelete = typeof bindProjectReportDeleteActions === 'function';
+        function archiveDate(value) {
+            if (!value) return '-';
+            try {
+                return typeof finalGraphDate === 'function' ? finalGraphDate(value) : value;
+            } catch (error) {
+                return value;
+            }
+        }
+        var html = '';
+        try {
+            html = !logs.length
+                ? '<div class="report-archive-empty"><b>Архив пока пустой</b><span>После сохранения отчета он появится здесь отдельной карточкой.</span></div>'
+                : '<div class="report-archive-list">' + logs.map(function (log) {
+                    log = log || {};
+                    var reportTitle = log.title || ('Отчет за ' + (log.report_date || 'дату'));
+                    var reportText = log.work_done || log.raw_input || 'Текст отчета не указан';
+                    return '<article class="report-archive-card">' +
+                        '<div class="report-archive-head">' +
+                            '<div><span>Сохраненный отчет</span><h4>' + escapeHtml(reportTitle) + '</h4></div>' +
+                            '<div class="report-archive-side"><span class="badge success">' + escapeHtml(archiveDate(log.report_date)) + '</span></div>' +
+                        '</div>' +
+                        '<p>' + escapeHtml(reportText) + '</p>' +
+                        (log.raw_input ? '<small>Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                        '<small>Автор: ' + escapeHtml(log.author_name || 'Без автора') + '</small>' +
+                    '</article>';
+                }).join('') + '</div>';
+        } catch (error) {
+            html = '<div class="report-archive-empty"><b>Отчеты найдены: ' + escapeHtml(String(logs.length)) + '</b><span>Не удалось собрать карточки архива: ' + escapeHtml(error && error.message ? error.message : 'ошибка интерфейса') + '</span></div>';
+        }
+        roots.forEach(function (root) {
+            root.innerHTML = html;
+        });
+        if (canBindDelete) bindProjectReportDeleteActions();
+    };
+
+    renderReportPreviewHtml = function (projectId, draft) {
+        draft = draft || { text: '', workMatches: [], materialMatches: [] };
+        var workMatches = Array.isArray(draft.workMatches) ? draft.workMatches : [];
+        var materialMatches = Array.isArray(draft.materialMatches) ? draft.materialMatches : [];
+        if (!draft.text && !workMatches.length && !materialMatches.length) {
+            return '<div class="report-preview-empty">Напиши в поле выше, что сделали или купили. Тут появится готовый текст отчета, работы по разделам и материалы, которые будут обновлены.</div>';
+        }
+        function groupedBySection(entries, fallback) {
+            var groups = {};
+            var order = [];
+            entries.forEach(function (entry) {
+                var item = entry.item || {};
+                var title = String(entry.sectionTitle || item.sectionTitle || item.stageTitle || fallback || 'Без раздела').trim() || fallback || 'Без раздела';
+                if (!groups[title]) {
+                    groups[title] = [];
+                    order.push(title);
+                }
+                groups[title].push(entry);
+            });
+            return order.map(function (title) {
+                return { title: title, entries: groups[title] };
+            });
+        }
+        var html = ['<div class="report-preview-board">'];
+        html.push('<section class="report-preview-card report-preview-card-main"><div class="report-preview-title"><strong>Текст отчета</strong><span>Будет сохранено автоматически</span></div><p>' + escapeHtml(draft.text || 'Текст появится после ввода.') + '</p></section>');
+        html.push('<section class="report-preview-card"><div class="report-preview-title"><strong>Работы</strong><span>Что отметится в графике и работах</span></div>');
+        if (workMatches.length) {
+            html.push('<div class="report-preview-sections">' + groupedBySection(workMatches, 'Работы').map(function (group) {
+                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
+                    var item = entry.item || {};
+                    return '<span class="' + (entry.partial ? 'is-partial' : 'is-done') + '">' + escapeHtml((entry.partial ? 'Частично: ' : 'Закрыть: ') + (item.title || 'Работа')) + '</span>';
+                }).join('') + '</div></div>';
+            }).join('') + '</div>');
+        } else {
+            html.push('<div class="report-preview-muted">Пока не нашел работы из графика. Можно написать точнее название работы или раздел.</div>');
+        }
+        html.push('</section><section class="report-preview-card"><div class="report-preview-title"><strong>Материалы</strong><span>Что изменится в материалах</span></div>');
+        if (materialMatches.length) {
+            html.push('<div class="report-preview-sections">' + groupedBySection(materialMatches, 'Материалы').map(function (group) {
+                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
+                    var item = entry.item || {};
+                    var bits = [];
+                    if (entry.purchasedQty > 0) bits.push('куплено ' + finalSectionSummaryNumber(entry.purchasedQty));
+                    if (entry.usedQty > 0) bits.push('в работу ' + finalSectionSummaryNumber(entry.usedQty));
+                    return '<span class="is-material">' + escapeHtml((item.title || 'Материал') + (bits.length ? ' - ' + bits.join(', ') + ' ' + (item.unit || '') : '')) + '</span>';
+                }).join('') + '</div></div>';
+            }).join('') + '</div>');
+        } else {
+            html.push('<div class="report-preview-muted">Материалы пока не найдены. Если надо обновить закупку, напиши например: “купили все розетки”.</div>');
+        }
+        html.push('</section></div>');
+        return html.join('');
+    };
+
+    renderProjectReportForm = function (project) {
+        if (!canCreateProjectReport()) return '';
+        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || APP_TODAY;
+        return '<section class="subsection report-intake-card report-chat-intake">' +
+            '<div class="report-drawer-caption">Новый отчет</div>' +
+            '<div class="card-head"><div><h3>Отчет по объекту</h3><span class="muted">Один ввод как в чате. Ниже сразу видно, какой отчет сохранится и что изменится.</span></div></div>' +
+            '<form class="project-form report-intake-form report-chat-form report-chat-simple-form" data-log-form>' +
+                '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
+                '<input type="hidden" name="title" value="">' +
+                '<input type="hidden" name="workers_count" value="0">' +
+                '<input type="hidden" name="progress_percent" value="">' +
+                '<input type="hidden" name="is_client_visible" value="1">' +
+                '<input type="hidden" name="equipment" value="">' +
+                '<input type="hidden" name="blockers" value="">' +
+                '<input type="hidden" name="next_steps" value="">' +
+                '<div class="report-chat-header report-chat-header-compact">' +
+                    '<label><span>Дата</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
+                '</div>' +
+                '<label class="report-chat-inputbox">' +
+                    '<span>Что сделали сегодня</span>' +
+                    '<textarea name="raw_input" rows="5" required placeholder="Например: демонтировали стены полностью, поставили розетки наполовину, купили все розетки."></textarea>' +
+                '</label>' +
+                '<label class="report-generated-box">' +
+                    '<span>Текст отчета</span>' +
+                    '<textarea name="work_done" rows="4" readonly required tabindex="-1" placeholder="Пример: За день выполнен демонтаж стен, частично смонтированы розетки, закуплены розетки по смете."></textarea>' +
+                '</label>' +
+                '<div class="assistant-confirm-card report-confirm-card">' +
+                    '<b>Что применится после сохранения</b>' +
+                    '<div data-report-preview></div>' +
+                    '<label class="report-confirm"><span>Подтверждаю сохранение отчета и применение изменений</span><input type="checkbox" name="confirm_report" required></label>' +
+                '</div>' +
+                '<div class="form-error" data-log-error></div>' +
+                '<div class="report-intake-actions">' +
+                    '<button class="primary" type="submit">Сохранить отчет</button>' +
+                '</div>' +
+            '</form>' +
+        '</section>';
+    };
+
+    function financePlanBucket(item) {
+        var dateText = String(item.planned_date || item.paid_date || '').trim();
+        var today = new Date(APP_TODAY + 'T00:00:00');
+        var due = dateText ? new Date(dateText + 'T00:00:00') : null;
+        if (!due || isNaN(due.getTime())) return { key: 'no-date', title: 'Без даты оплаты', kind: 'warn' };
+        var days = Math.round((due.getTime() - today.getTime()) / 86400000);
+        if (days < 0) return { key: 'overdue', title: 'Просрочено', kind: 'danger' };
+        if (days === 0) return { key: 'today', title: 'Оплатить сегодня', kind: 'danger' };
+        if (days <= 7) return { key: 'week', title: 'На этой неделе', kind: 'warn' };
+        return { key: 'later', title: 'Позже', kind: '' };
+    }
+
+    function renderFinancePlanFromInvoices(items, summary) {
+        var invoices = (Array.isArray(items) ? items : []).filter(function (item) {
+            return item && item.direction === 'expense' && item.status !== 'paid' && item.status !== 'cancelled';
+        });
+        var total = invoices.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0);
+        var overdue = invoices.filter(function (item) { return financePlanBucket(item).key === 'overdue'; });
+        var week = invoices.filter(function (item) {
+            var key = financePlanBucket(item).key;
+            return key === 'today' || key === 'week';
+        });
+        var order = ['overdue', 'today', 'week', 'later', 'no-date'];
+        var groups = {};
+        invoices.forEach(function (item) {
+            var bucket = financePlanBucket(item);
+            if (!groups[bucket.key]) groups[bucket.key] = { bucket: bucket, items: [] };
+            groups[bucket.key].items.push(item);
+        });
+        var planRows = order.filter(function (key) { return groups[key] && groups[key].items.length; }).map(function (key) {
+            var group = groups[key];
+            var groupTotal = group.items.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0);
+            return '<section class="finance-plan-group">' +
+                '<div class="finance-plan-group-head"><div><b>' + escapeHtml(group.bucket.title) + '</b><span>' + escapeHtml(String(group.items.length) + ' счетов') + '</span></div><strong>' + escapeHtml(money(groupTotal)) + '</strong></div>' +
+                '<div class="finance-plan-items">' + group.items.map(function (item) {
+                    var title = item.category || item.notes || 'Счет к оплате';
+                    var dateText = item.planned_date || 'дата не указана';
+                    return '<form class="finance-plan-item ' + (group.bucket.kind ? 'is-' + group.bucket.kind : '') + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+                        '<div><b>' + escapeHtml(title) + '</b><small>' + escapeHtml((item.counterparty_name || 'Контрагент не указан') + ' • ' + financePaymentLabel(item.payment_kind)) + '</small></div>' +
+                        '<div><span>Оплатить</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></div>' +
+                        '<input name="paid_date" type="hidden" value="' + escapeHtml(item.paid_date || '') + '">' +
+                        '<div><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>' + escapeHtml(dateText) + '</small></div>' +
+                        '<select name="status">' +
+                            '<option value="planned"' + (item.status === 'planned' ? ' selected' : '') + '>Запланировано</option>' +
+                            '<option value="approved"' + (item.status === 'approved' ? ' selected' : '') + '>Согласовано</option>' +
+                            '<option value="paid"' + (item.status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
+                            '<option value="cancelled"' + (item.status === 'cancelled' ? ' selected' : '') + '>Отменено</option>' +
+                        '</select>' +
+                        '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
+                        '<button class="ghost compact" type="submit">Сохранить</button>' +
+                    '</form>';
+                }).join('') + '</div>' +
+            '</section>';
+        }).join('');
+        return '<section class="subsection finance-plan-board">' +
+            '<div class="card-head"><div><h3>Финплан от счетов</h3><span class="muted">Все неоплаченные счета раскладываются по срокам оплаты.</span></div></div>' +
+            '<section class="stats-grid finance-plan-stats">' +
+                stat('К оплате', money(total), total ? 'warn' : '') +
+                stat('Просрочено', money(overdue.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0)), overdue.length ? 'danger' : '') +
+                stat('7 дней', money(week.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0)), week.length ? 'warn' : '') +
+                stat('Оплачено', money(summary.paidExpense || 0)) +
+            '</section>' +
+            (planRows || '<div class="finance-plan-empty">Неоплаченных счетов нет. Добавь счет ниже, и он появится в плане.</div>') +
+        '</section>';
+    }
+
+    function renderFinanceInvoiceForm() {
+        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>Добавить счет в финплан</h3><span class="muted">Быстро заносим счет, сумму и срок оплаты.</span></div></div>' +
+            '<form class="finance-invoice-form" data-finance-invoice-form>' +
+                '<label><span>Счет / назначение</span><input name="category" placeholder="Счет за розетки, кабель, подрядчик" required></label>' +
+                '<label><span>Контрагент</span><input name="counterparty_name" placeholder="Поставщик"></label>' +
+                '<label><span>Сумма</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
+                '<label><span>Оплатить до</span><input name="planned_date" type="date"></label>' +
+                '<label><span>Оплата</span><select name="payment_kind"><option value="bank_no_vat">Безнал без НДС</option><option value="bank_vat">Безнал с НДС</option><option value="cash">Наличные</option></select></label>' +
+                '<label><span>Статус</span><select name="status"><option value="planned">Запланировано</option><option value="approved">Согласовано</option></select></label>' +
+                '<label class="wide"><span>Комментарий</span><input name="notes" placeholder="Номер счета, что именно покупаем"></label>' +
+                '<div class="form-error" data-finance-invoice-error></div>' +
+                '<button class="primary" type="submit">Добавить счет</button>' +
+            '</form></section>';
+    }
+
+    renderProjectFinances = function (projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        root.innerHTML =
+            '<section class="stats-grid">' +
+                stat('План расходов', money(summary.plannedExpense || 0)) +
+                stat('Оплачено расходов', money(summary.paidExpense || 0), summary.paidExpense > (summary.plannedExpense || 0) ? 'danger' : '') +
+                stat('Поступило', money(summary.paidIncome || 0)) +
+                stat('Баланс', money(summary.balance || 0), (summary.balance || 0) < 0 ? 'danger' : '') +
+            '</section>' +
+            renderFinancePlanFromInvoices(items, summary) +
+            renderFinanceInvoiceForm() +
+            '<section class="subsection"><div class="card-head"><h3>Все финансовые операции</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">По объекту пока нет финансовых операций.</p>') +
+            '</div></section>';
+        bindFinanceInvoiceForm(projectId);
+        bindFinanceEditors(projectId);
+    };
+
+    function bindFinanceInvoiceForm(projectId) {
+        var form = qs('[data-finance-invoice-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-finance-invoice-error]');
+            if (error) error.classList.remove('active');
+            api('/api/projects/' + projectId + '/finances', {
+                method: 'POST',
+                body: JSON.stringify({
+                    direction: 'expense',
+                    category: form.category.value.trim(),
+                    payment_kind: form.payment_kind.value,
+                    amount: Number(form.amount.value || 0),
+                    vat_percent: form.payment_kind.value === 'bank_vat' ? 20 : 0,
+                    planned_date: form.planned_date.value,
+                    paid_date: '',
+                    counterparty_name: form.counterparty_name.value.trim(),
+                    status: form.status.value,
+                    notes: form.notes.value.trim()
+                })
+            }).then(function () {
+                form.reset();
+                form.payment_kind.value = 'bank_no_vat';
+                form.status.value = 'planned';
+                loadProjectFinances(projectId);
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось добавить счет';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
+
+    bindFinanceEditors = function (projectId) {
+        qsa('[data-finance-edit-form]').forEach(function (form) {
+            if (form.dataset.bound === '1') return;
+            form.dataset.bound = '1';
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                api('/api/finances/' + form.dataset.financeId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        planned_date: form.planned_date ? form.planned_date.value : '',
+                        paid_date: form.paid_date ? form.paid_date.value : '',
+                        status: form.status ? form.status.value : 'planned',
+                        notes: form.notes ? form.notes.value.trim() : ''
+                    })
+                }).then(function () {
+                    loadProjectFinances(projectId);
+                });
+            });
+        });
+    };
+
+    function reminderProjectTitle(projectId) {
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        return project ? project.title : 'Объект';
+    }
+
+    function buildReminderItemsForProject(project, notifications) {
+        var projectId = Number(project.id);
+        var title = project.title || 'Объект';
+        var items = [];
+        if (!notifications) return items;
+        if (notifications.missingDailyReport) {
+            items.push({ kind: 'danger', label: 'Нет отчета сегодня', title: title, text: 'Нужно добавить дневной отчет по объекту.', href: '/app/projects?openProject=' + projectId });
+        }
+        (notifications.overdueTasks || []).forEach(function (task) {
+            items.push({ kind: 'danger', label: 'Просрочена задача', title: title, text: (task.title || 'Задача') + (task.due_at ? ' • срок ' + task.due_at : ''), href: '/app/projects?openProject=' + projectId });
+        });
+        (notifications.dueSoonTasks || []).forEach(function (task) {
+            items.push({ kind: 'warn', label: 'Скоро срок', title: title, text: (task.title || 'Задача') + (task.due_at ? ' • до ' + task.due_at : ''), href: '/app/projects?openProject=' + projectId });
+        });
+        (notifications.blockerLogs || []).forEach(function (log) {
+            items.push({ kind: 'danger', label: 'Блокер', title: title, text: (log.blockers || log.title || 'Есть блокер') + (log.report_date ? ' • ' + log.report_date : ''), href: '/app/projects?openProject=' + projectId });
+        });
+        (notifications.problemStages || []).forEach(function (stage) {
+            items.push({ kind: 'warn', label: 'Проблемный этап', title: title, text: stage.title || 'Этап требует внимания', href: '/app/projects?openProject=' + projectId });
+        });
+        (notifications.procurementAlerts || []).slice(0, 4).forEach(function (alert) {
+            var kind = alert.status === 'critical' ? 'danger' : 'warn';
+            items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, text: (alert.title || 'Материал') + (alert.orderByDate ? ' • заказать до ' + alert.orderByDate : ''), href: '/app/projects?openProject=' + projectId });
+        });
+        return items;
+    }
+
+    function renderReminderBell(items, loading) {
+        var button = qs('[data-reminder-toggle]');
+        var count = qs('[data-reminder-count]');
+        var list = qs('[data-reminder-list]');
+        var subtitle = qs('[data-reminder-subtitle]');
+        if (!button || !count || !list) return;
+        items = Array.isArray(items) ? items : [];
+        button.classList.toggle('has-alerts', items.length > 0);
+        count.hidden = !items.length;
+        count.textContent = String(Math.min(99, items.length));
+        if (subtitle) subtitle.textContent = loading ? 'Проверяем объекты...' : (items.length ? String(items.length) + ' активных напоминаний' : 'Сейчас ничего не горит');
+        if (loading) {
+            list.innerHTML = '<div class="reminder-empty">Загружаем напоминания...</div>';
+            return;
+        }
+        if (!items.length) {
+            list.innerHTML = '<div class="reminder-empty"><b>Все спокойно</b><span>Просрочек, блокеров и срочных закупок нет.</span></div>';
+            return;
+        }
+        list.innerHTML = '<div class="reminder-list">' + items.slice(0, 20).map(function (item) {
+            return '<a class="reminder-item is-' + escapeHtml(item.kind || 'info') + '" href="' + escapeHtml(item.href || '/app/projects') + '">' +
+                '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b><small>' + escapeHtml(item.text || '') + '</small></div>' +
+            '</a>';
+        }).join('') + '</div>';
+    }
+
+    function refreshReminderBell() {
+        if (!qsa('[data-reminder-toggle]').length) return;
+        if (!state.projects.length) {
+            renderReminderBell([], false);
+            return;
+        }
+        renderReminderBell([], true);
+        Promise.all(state.projects.map(function (project) {
+            return api('/api/projects/' + project.id + '/notifications').then(function (notifications) {
+                state.notificationsByProject[project.id] = notifications || {};
+                return buildReminderItemsForProject(project, notifications || {});
+            }).catch(function () { return []; });
+        })).then(function (groups) {
+            var items = [];
+            groups.forEach(function (group) { items = items.concat(group); });
+            renderReminderBell(items, false);
+        });
+    }
+
+    function initReminderBell() {
+        var button = qs('[data-reminder-toggle]');
+        var popover = qs('[data-reminder-popover]');
+        var refresh = qs('[data-reminder-refresh]');
+        if (!button || !popover || button.dataset.bound === '1') return;
+        button.dataset.bound = '1';
+        button.addEventListener('click', function (event) {
+            event.preventDefault();
+            popover.hidden = !popover.hidden;
+            if (!popover.hidden) refreshReminderBell();
+        });
+        if (refresh) {
+            refresh.addEventListener('click', function (event) {
+                event.preventDefault();
+                refreshReminderBell();
+            });
+        }
+        document.addEventListener('click', function (event) {
+            if (popover.hidden) return;
+            if (event.target.closest('[data-reminder-popover]') || event.target.closest('[data-reminder-toggle]')) return;
+            popover.hidden = true;
+        });
+    }
+
+    var baseLoadProjectsForReminders = loadProjects;
+    loadProjects = function (callback) {
+        return baseLoadProjectsForReminders(function () {
+            refreshReminderBell();
+            if (callback) callback();
+        });
+    };
+
+    var baseInitShellForReminders = initShell;
+    initShell = function () {
+        baseInitShellForReminders();
+        initReminderBell();
+    };
+
+    var baseRenderLogsStatsForArchive = renderLogsStats;
+    renderLogsStats = function (logs, notifications) {
+        baseRenderLogsStatsForArchive(logs, notifications);
+        if (qsa('[data-report-archive-list]').length) {
+            renderLogsList(state.selectedProject || {}, logs);
+        }
     };
 
     if (page === 'login') initLogin();
