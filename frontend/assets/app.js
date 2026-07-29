@@ -11384,15 +11384,6 @@ function renderLogsDayView(project, logs) {
             var group = groups[title];
             var workProgress = workProgressForRows(projectId, title, group.estimateRows);
             var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
-            var activeRows = group.estimateRows.filter(function (item) {
-                return !projectId || !isProjectWorkDone(projectId, title, item);
-            });
-            var doneRows = group.estimateRows.filter(function (item) {
-                return projectId && isProjectWorkDone(projectId, title, item);
-            });
-            var completedBlock = doneRows.length
-                ? '<details class="work-completed-fold"><summary>\u0417\u0430\u043a\u0440\u044b\u0442\u044b\u0435 \u0440\u0430\u0431\u043e\u0442\u044b: ' + escapeHtml(String(doneRows.length)) + '</summary><div class="materials-list work-completed-list">' + doneRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId); }).join('') + '</div></details>'
-                : '';
             return '<section class="estimate-section work-section-card' + scheduleMeta.className + '">' +
                 '<div class="card-head estimate-section-head work-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(scheduleMeta.heading) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : '') + '</div><div class="work-section-head-side">' + scheduleMeta.html + '</div><small>' + escapeHtml(title) + '</small></div>' +
                 sectionProgressStrip(workProgress, { total: 0, done: 0 }) +
@@ -11405,9 +11396,8 @@ function renderLogsDayView(project, logs) {
                         ].filter(Boolean).join(' \u2022 ');
                         return '<div class="material-row work-row"><div><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</small></div><div class="material-chain-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' \u2022 ' + percent(stage.progress) + '%</span></div></div>';
                     }).join('') +
-                    activeRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('') +
-                    (!activeRows.length && doneRows.length ? '<div class="section-schedule-empty inline">\u0412\u0441\u0435 \u0440\u0430\u0431\u043e\u0442\u044b \u0440\u0430\u0437\u0434\u0435\u043b\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b.</div>' : '') +
-                '</div>' + completedBlock +
+                    group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('') +
+                '</div>' +
             '</section>';
         }).join('') + '</div>';
     };
@@ -12066,9 +12056,275 @@ function renderLogsDayView(project, logs) {
         });
     };
 
+    function financeEstimateTotal(projectId, summary) {
+        var apiTotal = Number(summary && summary.estimateTotal);
+        if (Number.isFinite(apiTotal) && apiTotal > 0) return apiTotal;
+        var items = state.materialsByProject && state.materialsByProject[projectId] ? state.materialsByProject[projectId] : [];
+        var total = (items || []).reduce(function (sum, item) {
+            var qty = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
+            var price = Number(item.plannedPrice != null ? item.plannedPrice : item.planned_price || 0);
+            return sum + (Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0);
+        }, 0);
+        if (total > 0) return total;
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        return Number(project && project.budget || 0);
+    }
+
+    function financeSuggestionItems(projectId) {
+        var items = state.materialsByProject && state.materialsByProject[projectId] ? state.materialsByProject[projectId] : [];
+        return (items || []).map(function (item) {
+            var qty = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
+            var price = Number(item.plannedPrice != null ? item.plannedPrice : item.planned_price || 0);
+            var amount = Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0;
+            var kind = String(item.itemKind || 'material').toLowerCase() === 'work' ? 'Работа' : 'Материал';
+            return {
+                title: item.title || '',
+                section: item.sectionTitle || item.stageTitle || '',
+                kind: kind,
+                amount: amount,
+                unit: item.unit || '',
+                qty: qty
+            };
+        }).filter(function (item) { return item.title; });
+    }
+
+    function financeRatioMoney(current, total) {
+        return money(current || 0).replace(/\s?₽$/, '') + ' / ' + money(total || 0);
+    }
+
+    function renderFinanceHero(projectId, summary) {
+        var estimateTotal = financeEstimateTotal(projectId, summary);
+        var plannedExpense = Number(summary && summary.plannedExpense || 0);
+        var paidExpense = Number(summary && summary.paidExpense || 0);
+        var paidIncome = Number(summary && summary.paidIncome || 0);
+        var balance = Number(summary && summary.balance || 0);
+        var leftByEstimate = Math.max(0, estimateTotal - paidExpense);
+        var paidPercent = estimateTotal ? Math.min(100, Math.round((paidExpense / estimateTotal) * 100)) : 0;
+        var incomePercent = estimateTotal ? Math.min(100, Math.round((paidIncome / estimateTotal) * 100)) : 0;
+        return '<section class="finance-hero finance-hero-v2">' +
+            '<div class="finance-hero-main"><span>Всего по смете</span><h3>' + escapeHtml(money(estimateTotal || 0)) + '</h3><p>Поступления сразу попадают в баланс, расходы уменьшают остаток после оплаты счетов.</p></div>' +
+            '<div class="finance-balance-panel ' + (balance < 0 ? 'is-danger' : 'is-positive') + '">' +
+                '<span>Текущий баланс</span>' +
+                '<strong>' + escapeHtml(money(balance)) + '</strong>' +
+                '<small>Поступления: <b>' + escapeHtml(financeRatioMoney(paidIncome, estimateTotal)) + '</b></small>' +
+            '</div>' +
+            '<div class="finance-hero-progress"><div><b>' + escapeHtml(String(paidPercent) + '%') + '</b><span>оплачено от сметы</span></div><i><em style="width:' + paidPercent + '%"></em></i></div>' +
+            '<div class="finance-hero-grid">' +
+                '<article class="is-income"><span>Поступило</span><strong class="finance-ratio-value">' + escapeHtml(financeRatioMoney(paidIncome, estimateTotal)) + '</strong><small>' + escapeHtml(String(incomePercent) + '% от сметы') + '</small></article>' +
+                '<article class="is-expense"><span>Оплачено расходов</span><strong class="finance-ratio-value">' + escapeHtml(financeRatioMoney(paidExpense, estimateTotal)) + '</strong><small>уходит из баланса</small></article>' +
+                '<article><span>План счетов</span><strong>' + escapeHtml(money(plannedExpense)) + '</strong><small>ожидает оплаты</small></article>' +
+                '<article><span>Остаток по смете</span><strong>' + escapeHtml(money(leftByEstimate)) + '</strong><small>смета минус оплачено</small></article>' +
+            '</div>' +
+        '</section>';
+    }
+
+    renderFinanceInvoiceForm = function () {
+        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>Добавить счет в финплан</h3><span class="muted">Начни писать назначение, и CRM подскажет материалы или работы из сметы.</span></div></div>' +
+            '<form class="finance-invoice-form" data-finance-invoice-form>' +
+                '<label class="finance-suggest-field"><span>На что уходят деньги</span><input name="category" autocomplete="off" placeholder="Например: розетки, кабель, демонтаж..." required><div class="finance-suggestion-list" data-finance-suggestions hidden></div></label>' +
+                '<label><span>Контрагент</span><input name="counterparty_name" placeholder="Поставщик / подрядчик"></label>' +
+                '<label><span>Сумма</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
+                '<label><span>Оплатить до</span><input name="planned_date" type="date"></label>' +
+                '<label><span>Оплата</span><select name="payment_kind"><option value="bank_no_vat">Безнал без НДС</option><option value="bank_vat">Безнал с НДС</option><option value="cash">Наличные</option></select></label>' +
+                '<label><span>Статус</span><select name="status"><option value="planned">Запланировано</option><option value="approved">Согласовано</option></select></label>' +
+                '<label class="wide"><span>Комментарий</span><input name="notes" placeholder="Номер счета, уточнение или поставка"></label>' +
+                '<div class="form-error" data-finance-invoice-error></div>' +
+                '<button class="primary" type="submit">Добавить счет</button>' +
+            '</form></section>';
+    };
+
+    function renderFinanceIncomeForm() {
+        return '<section class="subsection finance-income-card"><div class="card-head"><div><h3>Поступление денег</h3><span class="muted">Сюда заносим оплату от заказчика, аванс или другое пополнение баланса.</span></div></div>' +
+            '<form class="finance-income-form" data-finance-income-form>' +
+                '<label><span>Источник</span><input name="counterparty_name" placeholder="Заказчик / инвестор / касса"></label>' +
+                '<label><span>Сумма поступления</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
+                '<label><span>Дата</span><input name="paid_date" type="date" value="' + escapeHtml(APP_TODAY) + '"></label>' +
+                '<label><span>Тип оплаты</span><select name="payment_kind"><option value="bank_no_vat">Безнал без НДС</option><option value="bank_vat">Безнал с НДС</option><option value="cash">Наличные</option></select></label>' +
+                '<label class="wide"><span>Комментарий</span><input name="notes" placeholder="Например: аванс по договору, доплата за этап"></label>' +
+                '<div class="form-error" data-finance-income-error></div>' +
+                '<button class="primary" type="submit">Добавить поступление</button>' +
+            '</form></section>';
+    }
+
+    renderProjectFinances = function (projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        root.innerHTML =
+            renderFinanceHero(projectId, summary) +
+            renderFinancePlanFromInvoices(items, summary) +
+            '<div class="finance-entry-grid">' + renderFinanceIncomeForm() + renderFinanceInvoiceForm() + '</div>' +
+            '<section class="subsection finance-history-card"><div class="card-head"><h3>Все финансовые операции</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">По объекту пока нет финансовых операций.</p>') +
+            '</div></section>';
+        bindFinanceIncomeForm(projectId);
+        bindFinanceInvoiceForm(projectId);
+        bindFinanceEditors(projectId);
+    };
+
+    function bindFinanceIncomeForm(projectId) {
+        var form = qs('[data-finance-income-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-finance-income-error]');
+            if (error) error.classList.remove('active');
+            var date = form.paid_date.value || APP_TODAY;
+            api('/api/projects/' + projectId + '/finances', {
+                method: 'POST',
+                body: JSON.stringify({
+                    direction: 'income',
+                    category: 'Поступление',
+                    payment_kind: form.payment_kind.value,
+                    amount: Number(form.amount.value || 0),
+                    vat_percent: form.payment_kind.value === 'bank_vat' ? 20 : 0,
+                    planned_date: date,
+                    paid_date: date,
+                    counterparty_name: form.counterparty_name.value.trim(),
+                    status: 'paid',
+                    notes: form.notes.value.trim()
+                })
+            }).then(function () {
+                form.reset();
+                form.paid_date.value = APP_TODAY;
+                form.payment_kind.value = 'bank_no_vat';
+                loadProjectFinances(projectId);
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось добавить поступление';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
+
+    renderFinanceRow = function (item) {
+        var direction = item.direction === 'income' ? 'income' : 'expense';
+        var status = item.status || 'planned';
+        var title = item.category || financeDirectionLabel(direction);
+        var counterparty = item.counterparty_name || 'Контрагент не указан';
+        var meta = financeDirectionLabel(direction) + ' • ' + financePaymentLabel(item.payment_kind);
+        return '<form class="finance-row finance-history-row is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+            '<div class="finance-row-top">' +
+                '<div class="finance-row-title">' +
+                    '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
+                    '<b>' + escapeHtml(title) + '</b>' +
+                    '<small>' + escapeHtml(meta) + '</small>' +
+                    '<small>' + escapeHtml(counterparty) + '</small>' +
+                    (item.notes ? '<em>' + escapeHtml(item.notes) + '</em>' : '') +
+                '</div>' +
+                '<div class="finance-row-amount"><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>НДС ' + escapeHtml(Number(item.vat_percent || 0)) + '%</small></div>' +
+            '</div>' +
+            '<div class="finance-row-controls">' +
+                '<label><span>План</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                '<label><span>Факт</span><input name="paid_date" type="date" value="' + escapeHtml(item.paid_date || '') + '"></label>' +
+                '<label><span>Статус</span><select name="status">' +
+                    '<option value="planned"' + (status === 'planned' ? ' selected' : '') + '>Запланировано</option>' +
+                    '<option value="approved"' + (status === 'approved' ? ' selected' : '') + '>Согласовано</option>' +
+                    '<option value="paid"' + (status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
+                    '<option value="cancelled"' + (status === 'cancelled' ? ' selected' : '') + '>Отменено</option>' +
+                '</select></label>' +
+                '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
+                '<button class="ghost compact" type="submit">Сохранить</button>' +
+            '</div>' +
+        '</form>';
+    };
+
+    function bindFinanceSuggestions(projectId, form) {
+        var input = form && form.category;
+        var amount = form && form.amount;
+        var notes = form && form.notes;
+        var root = qs('[data-finance-suggestions]', form);
+        if (!input || !root) return;
+        function renderList() {
+            var query = normalizeReportText(input.value);
+            var suggestions = financeSuggestionItems(projectId);
+            if (!query) {
+                root.hidden = true;
+                root.innerHTML = '';
+                return;
+            }
+            var matches = suggestions.filter(function (item) {
+                return normalizeReportText(item.title + ' ' + item.section).indexOf(query) !== -1;
+            }).slice(0, 8);
+            if (!matches.length) {
+                root.hidden = true;
+                root.innerHTML = '';
+                return;
+            }
+            root.hidden = false;
+            root.innerHTML = matches.map(function (item, index) {
+                var meta = [item.kind, item.section, item.qty ? (finalSectionSummaryNumber(item.qty) + ' ' + item.unit) : '', item.amount ? money(item.amount) : ''].filter(Boolean).join(' • ');
+                return '<button type="button" data-finance-suggestion-index="' + index + '"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta) + '</small></button>';
+            }).join('');
+            qsa('[data-finance-suggestion-index]', root).forEach(function (button) {
+                button.addEventListener('click', function () {
+                    var item = matches[Number(button.dataset.financeSuggestionIndex || 0)];
+                    if (!item) return;
+                    input.value = item.title;
+                    if (amount && item.amount > 0 && !Number(amount.value || 0)) amount.value = String(Math.round(item.amount * 100) / 100);
+                    if (notes && !notes.value.trim()) notes.value = [item.kind, item.section].filter(Boolean).join(': ');
+                    root.hidden = true;
+                });
+            });
+        }
+        input.addEventListener('input', renderList);
+        input.addEventListener('focus', renderList);
+        document.addEventListener('click', function (event) {
+            if (event.target === input || event.target.closest('[data-finance-suggestions]')) return;
+            root.hidden = true;
+        });
+    }
+
+    var baseBindFinanceInvoiceFormSuggest = bindFinanceInvoiceForm;
+    bindFinanceInvoiceForm = function (projectId) {
+        baseBindFinanceInvoiceFormSuggest(projectId);
+        var form = qs('[data-finance-invoice-form]');
+        if (form) bindFinanceSuggestions(projectId, form);
+    };
+
     function reminderProjectTitle(projectId) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         return project ? project.title : 'Объект';
+    }
+
+    function reminderScopeText(scope, detail) {
+        var cleanScope = String(scope || '').trim();
+        var cleanDetail = String(detail || '').trim();
+        if (cleanScope && cleanDetail && normalizeReportText(cleanScope) !== normalizeReportText(cleanDetail)) return cleanScope + ' / ' + cleanDetail;
+        return cleanScope || cleanDetail || 'Объект';
+    }
+
+    function reminderTaskText(task, stateText) {
+        var bits = [
+            reminderScopeText('Задачи объекта', task.assignee_name ? ('исполнитель: ' + task.assignee_name) : ''),
+            task.title || 'Задача',
+            task.due_at ? stateText + ' ' + task.due_at : ''
+        ];
+        return bits.filter(Boolean).join(' • ');
+    }
+
+    function reminderStageText(stage) {
+        var bits = [
+            reminderScopeText('График работ', stage.title || 'Этап'),
+            stage.progress != null ? ('готовность ' + percent(stage.progress) + '%') : '',
+            stage.planned_end ? ('план до ' + stage.planned_end) : '',
+            stage.status_code ? ('статус: ' + statusLabel(stage.status_code)) : ''
+        ];
+        return bits.filter(Boolean).join(' • ');
+    }
+
+    function reminderProcurementText(alert) {
+        var bits = [
+            reminderScopeText(alert.sectionTitle || 'Материалы', alert.stageTitle || ''),
+            alert.title || 'Материал',
+            alert.orderByDate ? ('заказать до ' + alert.orderByDate) : '',
+            alert.startDate ? ('нужно к старту ' + alert.startDate) : '',
+            alert.leadDays ? ('срок поставки ' + alert.leadDays + ' дн.') : ''
+        ];
+        return bits.filter(Boolean).join(' • ');
     }
 
     function buildReminderItemsForProject(project, notifications) {
@@ -12077,23 +12333,23 @@ function renderLogsDayView(project, logs) {
         var items = [];
         if (!notifications) return items;
         if (notifications.missingDailyReport) {
-            items.push({ kind: 'danger', label: 'Нет отчета сегодня', title: title, text: 'Нужно добавить дневной отчет по объекту.', href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'danger', label: 'Нет отчета сегодня', title: title, scope: 'Отчеты', text: 'Отчеты / дневной журнал • нужно добавить отчет за сегодня.', href: '/app/projects?openProject=' + projectId });
         }
         (notifications.overdueTasks || []).forEach(function (task) {
-            items.push({ kind: 'danger', label: 'Просрочена задача', title: title, text: (task.title || 'Задача') + (task.due_at ? ' • срок ' + task.due_at : ''), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'danger', label: 'Просрочена задача', title: title, scope: 'Задачи объекта', text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.dueSoonTasks || []).forEach(function (task) {
-            items.push({ kind: 'warn', label: 'Скоро срок', title: title, text: (task.title || 'Задача') + (task.due_at ? ' • до ' + task.due_at : ''), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'warn', label: 'Скоро срок', title: title, scope: 'Задачи объекта', text: reminderTaskText(task, 'до'), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.blockerLogs || []).forEach(function (log) {
-            items.push({ kind: 'danger', label: 'Блокер', title: title, text: (log.blockers || log.title || 'Есть блокер') + (log.report_date ? ' • ' + log.report_date : ''), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'danger', label: 'Блокер', title: title, scope: 'Отчеты / блокеры', text: 'Отчеты / блокеры • ' + (log.blockers || log.title || 'есть блокер') + (log.report_date ? ' • отчет от ' + log.report_date : ''), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.problemStages || []).forEach(function (stage) {
-            items.push({ kind: 'warn', label: 'Проблемный этап', title: title, text: stage.title || 'Этап требует внимания', href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'warn', label: 'Проблемный этап', title: title, scope: 'График работ', text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.procurementAlerts || []).slice(0, 4).forEach(function (alert) {
             var kind = alert.status === 'critical' ? 'danger' : 'warn';
-            items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, text: (alert.title || 'Материал') + (alert.orderByDate ? ' • заказать до ' + alert.orderByDate : ''), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, scope: alert.sectionTitle || alert.stageTitle || 'Материалы', text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId });
         });
         return items;
     }
@@ -12119,7 +12375,7 @@ function renderLogsDayView(project, logs) {
         }
         list.innerHTML = '<div class="reminder-list">' + items.slice(0, 20).map(function (item) {
             return '<a class="reminder-item is-' + escapeHtml(item.kind || 'info') + '" href="' + escapeHtml(item.href || '/app/projects') + '">' +
-                '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b><small>' + escapeHtml(item.text || '') + '</small></div>' +
+                '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b>' + (item.scope ? '<strong class="reminder-scope">' + escapeHtml(item.scope) + '</strong>' : '') + '<small>' + escapeHtml(item.text || '') + '</small></div>' +
             '</a>';
         }).join('') + '</div>';
     }
@@ -12187,6 +12443,74 @@ function renderLogsDayView(project, logs) {
         if (qsa('[data-report-archive-list]').length) {
             renderLogsList(state.selectedProject || {}, logs);
         }
+    };
+
+    function removeProjectAssignmentsBlock() {
+        qsa('[data-project-assignments]').forEach(function (root) {
+            var section = root.closest('.subsection');
+            if (section) section.remove();
+            else root.remove();
+        });
+    }
+
+    loadProjectAssignments = function () {
+        removeProjectAssignmentsBlock();
+    };
+
+    function sameWorkForScheduleSync(left, right) {
+        if (!left || !right) return false;
+        var leftTitle = normalizedWorkKeyPart(left.title);
+        var rightTitle = normalizedWorkKeyPart(right.title);
+        if (!leftTitle || leftTitle !== rightTitle) return false;
+        var leftUnit = normalizedWorkKeyPart(left.unit);
+        var rightUnit = normalizedWorkKeyPart(right.unit);
+        var leftQty = normalizedWorkQty(left.planned_qty != null ? left.planned_qty : left.plannedQty);
+        var rightQty = normalizedWorkQty(right.planned_qty != null ? right.planned_qty : right.plannedQty);
+        if (leftUnit && rightUnit && leftUnit !== rightUnit) return false;
+        if (leftQty && rightQty && leftQty !== rightQty) return false;
+        return true;
+    }
+
+    var baseIsScheduleWorkDoneInlineSync = isScheduleWorkDone;
+    isScheduleWorkDone = function (projectId, sectionTitle, item) {
+        if (baseIsScheduleWorkDoneInlineSync(projectId, sectionTitle, item)) return true;
+        var map = readStoredJson(scheduleChecklistStorageKey(projectId));
+        var target = {
+            title: item && item.title,
+            unit: item && item.unit,
+            planned_qty: item && (item.planned_qty != null ? item.planned_qty : item.plannedQty)
+        };
+        return Object.keys(map).some(function (key) {
+            if (map[key] !== 1) return false;
+            var parts = key.split('|');
+            return sameWorkForScheduleSync(target, {
+                title: parts[1] || '',
+                planned_qty: parts[2] || '',
+                unit: parts[3] || ''
+            });
+        });
+    };
+
+    setScheduleWorkDone = function (projectId, sectionTitle, item, isDone) {
+        var map = readStoredJson(scheduleChecklistStorageKey(projectId));
+        var target = {
+            title: item && item.title,
+            unit: item && item.unit,
+            planned_qty: item && (item.planned_qty != null ? item.planned_qty : item.plannedQty)
+        };
+        var keys = [scheduleWorkKey(sectionTitle, target)];
+        workScheduleSections(projectId).forEach(function (section) {
+            (Array.isArray(section.items) ? section.items : []).forEach(function (sectionItem) {
+                if (sameWorkForScheduleSync(target, sectionItem)) {
+                    keys.push(scheduleWorkKey(section.title, sectionItem));
+                }
+            });
+        });
+        keys.forEach(function (key) {
+            if (isDone) map[key] = 1;
+            else delete map[key];
+        });
+        writeStoredJson(scheduleChecklistStorageKey(projectId), map);
     };
 
     if (page === 'login') initLogin();

@@ -5360,8 +5360,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 """,
                 (project_id,),
             ).fetchall()
+            estimate_total = con.execute(
+                """
+                SELECT COALESCE(SUM(planned_qty * planned_price), 0)
+                FROM estimate_items
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            ).fetchone()[0]
         items = [dict(row) for row in rows]
         summary = {
+            "estimateTotal": float(estimate_total or 0),
             "plannedExpense": sum(float(item["amount"] or 0) for item in items if item["direction"] == "expense" and item["status"] != "cancelled"),
             "paidExpense": sum(float(item["amount"] or 0) for item in items if item["direction"] == "expense" and item["status"] == "paid"),
             "paidIncome": sum(float(item["amount"] or 0) for item in items if item["direction"] == "income" and item["status"] == "paid"),
