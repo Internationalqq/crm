@@ -9980,7 +9980,7 @@ function renderLogsDayView(project, logs) {
                 var result = reportWorkResultFromClause(clause, candidate);
                 if (!result) return;
                 var key = scheduleWorkKey(result.sectionTitle, result.item);
-                if (!workMatchesMap[key] || result.score > workMatchesMap[key].score || (result.done && !workMatchesMap[key].done)) {
+                if (!workMatchesMap[key] || result.score > workMatchesMap[key].score || (result.done && !workMatchesMap[key].done) || Number(result.actualQty || 0) > Number(workMatchesMap[key].actualQty || 0)) {
                     workMatchesMap[key] = result;
                 }
             });
@@ -10004,7 +10004,7 @@ function renderLogsDayView(project, logs) {
         var workMatches = Object.keys(workMatchesMap).map(function (key) { return workMatchesMap[key]; });
         var materialMatches = Object.keys(materialMatchesMap).map(function (key) {
             var entry = materialMatchesMap[key];
-            var planned = Number(entry.item.plannedQty || 0);
+            var planned = quantityPlanInfo(entry.item).totalQty;
             if (planned > 0) {
                 entry.purchasedQty = Math.min(planned, entry.purchasedQty);
                 entry.usedQty = Math.min(planned, entry.usedQty);
@@ -10029,12 +10029,12 @@ function renderLogsDayView(project, logs) {
         }
         if (purchasedMaterials.length) {
             generatedParts.push('\u0417\u0430\u043a\u0443\u043f\u043b\u0435\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b: ' + purchasedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + (entry.item.unit || '');
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + quantityPlanInfo(entry.item).unit;
             }).join(', ') + '.');
         }
         if (usedMaterials.length) {
             generatedParts.push('\u0412 \u0440\u0430\u0431\u043e\u0442\u0443/\u043c\u043e\u043d\u0442\u0430\u0436 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u044b: ' + usedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + (entry.item.unit || '');
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + quantityPlanInfo(entry.item).unit;
             }).join(', ') + '.');
         }
 
@@ -10057,7 +10057,9 @@ function renderLogsDayView(project, logs) {
                 work_done: log.work_done || ''
             });
             draft.workMatches.forEach(function (entry) {
-                if (entry.done) works[scheduleWorkKey(entry.sectionTitle, entry.item)] = 1;
+                var key = scheduleWorkKey(entry.sectionTitle, entry.item);
+                if (entry.done) works[key] = 1;
+                else if (Number(entry.actualQty || 0) > 0) works[key] = { qty: Number(entry.actualQty || 0) };
             });
             draft.materialMatches.forEach(function (entry) {
                 var materialId = Number(entry.item.id);
@@ -11612,7 +11614,7 @@ function renderLogsDayView(project, logs) {
                 if (entry.purchasedQty > 0) bits.push('куплено ' + finalSectionSummaryNumber(entry.purchasedQty));
                 if (entry.usedQty > 0) bits.push('в работу ' + finalSectionSummaryNumber(entry.usedQty));
                 var sectionTitle = String(entry.item.sectionTitle || entry.item.stageTitle || 'Материалы').trim() || 'Материалы';
-                return '<div class="report-preview-section"><b>' + escapeHtml(sectionTitle) + '</b><span>' + escapeHtml(entry.item.title + ' - ' + bits.join(', ') + ' ' + (entry.item.unit || '')) + '</span></div>';
+                return '<div class="report-preview-section"><b>' + escapeHtml(sectionTitle) + '</b><span>' + escapeHtml(entry.item.title + ' - ' + bits.join(', ') + ' ' + quantityPlanInfo(entry.item).unit) + '</span></div>';
             }).join('') + '</div>');
         } else {
             html.push('<div class="report-preview-muted">Пока не найдены явные совпадения.</div>');
@@ -11848,7 +11850,7 @@ function renderLogsDayView(project, logs) {
                     var bits = [];
                     if (entry.purchasedQty > 0) bits.push('куплено ' + finalSectionSummaryNumber(entry.purchasedQty));
                     if (entry.usedQty > 0) bits.push('в работу ' + finalSectionSummaryNumber(entry.usedQty));
-                    return '<span class="is-material">' + escapeHtml((item.title || 'Материал') + (bits.length ? ' - ' + bits.join(', ') + ' ' + (item.unit || '') : '')) + '</span>';
+                    return '<span class="is-material">' + escapeHtml((item.title || 'Материал') + (bits.length ? ' - ' + bits.join(', ') + ' ' + quantityPlanInfo(item).unit : '')) + '</span>';
                 }).join('') + '</div></div>';
             }).join('') + '</div>');
         } else {
@@ -12511,6 +12513,484 @@ function renderLogsDayView(project, logs) {
             else delete map[key];
         });
         writeStoredJson(scheduleChecklistStorageKey(projectId), map);
+    };
+
+    function normalizedQuantityNumber(value) {
+        var number = Number(String(value == null ? '' : value).replace(',', '.').replace(/[^\d.\-]/g, ''));
+        return Number.isFinite(number) ? number : 0;
+    }
+
+    function unitTextParts(unit) {
+        var raw = String(unit || '').trim();
+        var compact = raw.replace(/\s+/g, ' ');
+        var numericOnly = compact.match(/^(\d+(?:[\.,]\d+)?)$/);
+        if (numericOnly) {
+            return { multiplier: normalizedQuantityNumber(numericOnly[1]), unit: 'штук', rawUnit: raw, hasMultiplier: true };
+        }
+        var withUnit = compact.match(/^(\d+(?:[\.,]\d+)?)\s+(.+)$/);
+        if (withUnit) {
+            var multiplier = normalizedQuantityNumber(withUnit[1]);
+            return {
+                multiplier: multiplier > 0 ? multiplier : 1,
+                unit: withUnit[2].trim() || 'штук',
+                rawUnit: raw,
+                hasMultiplier: multiplier > 0 && multiplier !== 1
+            };
+        }
+        return { multiplier: 1, unit: raw || 'штук', rawUnit: raw, hasMultiplier: false };
+    }
+
+    function quantityPlanInfo(item) {
+        var qty = normalizedQuantityNumber(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty));
+        var parts = unitTextParts(item && item.unit);
+        var total = Math.max(0, qty * (parts.multiplier || 1));
+        return {
+            rawQty: qty,
+            totalQty: total,
+            unit: parts.unit || 'штук',
+            rawUnit: parts.rawUnit || '',
+            multiplier: parts.multiplier || 1,
+            hasMultiplier: !!parts.hasMultiplier
+        };
+    }
+
+    function quantityText(value) {
+        return finalSectionSummaryNumber(Math.max(0, normalizedQuantityNumber(value)));
+    }
+
+    unitMultiplierInfo = function (unit) {
+        var parts = unitTextParts(unit);
+        if (!parts.hasMultiplier) return null;
+        return { multiplier: parts.multiplier, unit: parts.unit };
+    };
+
+    calculatedWorkVolume = function (item) {
+        var info = quantityPlanInfo(item);
+        if (!info.hasMultiplier) return null;
+        return { qty: info.totalQty, unit: info.unit };
+    };
+
+    formatCalculatedWorkVolume = function (item) {
+        var info = quantityPlanInfo(item);
+        if (!info.totalQty) return '';
+        return quantityText(info.totalQty) + ' ' + info.unit;
+    };
+
+    function storedActualQty(value, totalQty) {
+        if (value === 1) return totalQty;
+        if (value && typeof value === 'object') return normalizedQuantityNumber(value.qty);
+        return normalizedQuantityNumber(value);
+    }
+
+    function clampActualQty(value, totalQty) {
+        var qty = normalizedQuantityNumber(value);
+        if (!Number.isFinite(qty) || qty <= 0) return 0;
+        return totalQty > 0 ? Math.min(qty, totalQty) : qty;
+    }
+
+    function materialManualActualQty(projectId, item) {
+        var plan = quantityPlanInfo(item);
+        var map = readStoredJson(materialChecklistStorageKey(projectId));
+        return clampActualQty(storedActualQty(map[materialCompletionKey(item)], plan.totalQty), plan.totalQty);
+    }
+
+    function setMaterialManualActualQty(projectId, item, qty) {
+        var map = readStoredJson(materialChecklistStorageKey(projectId));
+        var key = materialCompletionKey(item);
+        var plan = quantityPlanInfo(item);
+        var actual = clampActualQty(qty, plan.totalQty);
+        if (!actual) delete map[key];
+        else if (plan.totalQty > 0 && actual >= plan.totalQty) map[key] = 1;
+        else map[key] = { qty: actual };
+        writeStoredJson(materialChecklistStorageKey(projectId), map);
+    }
+
+    setMaterialManuallyDone = function (projectId, item, isDone) {
+        setMaterialManualActualQty(projectId, item, isDone ? quantityPlanInfo(item).totalQty : 0);
+    };
+
+    isMaterialManuallyDone = function (projectId, item) {
+        var plan = quantityPlanInfo(item);
+        return plan.totalQty > 0 && materialManualActualQty(projectId, item) >= plan.totalQty;
+    };
+
+    function effectiveQtyInFinalUnits(item, rawQty) {
+        return normalizedQuantityNumber(rawQty) * (quantityPlanInfo(item).multiplier || 1);
+    }
+
+    function materialActualProgress(projectId, item) {
+        var effective = effectiveMaterialFromReports(projectId, item);
+        var plan = quantityPlanInfo(effective);
+        var actual = Math.max(
+            materialManualActualQty(projectId, item),
+            effectiveQtyInFinalUnits(effective, effective.stockQty),
+            effectiveQtyInFinalUnits(effective, effective.purchasedQty),
+            effectiveQtyInFinalUnits(effective, effective.usedQty)
+        );
+        return {
+            actual: clampActualQty(actual, plan.totalQty),
+            total: plan.totalQty,
+            unit: plan.unit,
+            rawQty: plan.rawQty,
+            rawUnit: plan.rawUnit,
+            multiplier: plan.multiplier,
+            hasMultiplier: plan.hasMultiplier
+        };
+    }
+
+    materialEffectiveForProgress = function (projectId, item) {
+        var effective = effectiveMaterialFromReports(projectId, item);
+        var progress = materialActualProgress(projectId, item);
+        if (progress.actual > 0) effective.manualPartial = materialManualActualQty(projectId, item) > 0 && progress.actual < progress.total;
+        if (progress.total > 0 && progress.actual >= progress.total) {
+            effective.manualClosed = materialManualActualQty(projectId, item) > 0;
+            effective.supplyStatus = 'in_stock';
+            effective.missingQty = 0;
+        }
+        return effective;
+    };
+
+    isMaterialDone = function (projectId, item) {
+        var progress = materialActualProgress(projectId, item);
+        if (progress.total > 0 && progress.actual >= progress.total) return true;
+        var effective = effectiveMaterialFromReports(projectId, item);
+        return String(effective.supplyStatus || '') === 'in_stock' && progress.total > 0;
+    };
+
+    function workMatchingKeys(projectId, sectionTitle, item) {
+        var target = {
+            title: item && item.title,
+            unit: item && item.unit,
+            planned_qty: item && (item.planned_qty != null ? item.planned_qty : item.plannedQty)
+        };
+        var keys = [scheduleWorkKey(sectionTitle, target)];
+        workScheduleSections(projectId).forEach(function (section) {
+            (Array.isArray(section.items) ? section.items : []).forEach(function (sectionItem) {
+                if (sameWorkForScheduleSync(target, sectionItem)) keys.push(scheduleWorkKey(section.title, sectionItem));
+            });
+        });
+        return keys.filter(function (key, index, arr) { return key && arr.indexOf(key) === index; });
+    }
+
+    function reportWorkDoneQty(projectId, sectionTitle, item) {
+        var plan = quantityPlanInfo(item);
+        var effects = reportEffectsState(projectId);
+        return effects.works[scheduleWorkKey(sectionTitle, item)] === 1 ? plan.totalQty : 0;
+    }
+
+    function workManualActualQty(projectId, sectionTitle, item) {
+        var plan = quantityPlanInfo(item);
+        var map = readStoredJson(scheduleChecklistStorageKey(projectId));
+        return workMatchingKeys(projectId, sectionTitle, item).reduce(function (maxQty, key) {
+            return Math.max(maxQty, storedActualQty(map[key], plan.totalQty));
+        }, 0);
+    }
+
+    function workActualProgress(projectId, sectionTitle, item) {
+        var plan = quantityPlanInfo(item);
+        var actual = Math.max(
+            workManualActualQty(projectId, sectionTitle, item),
+            reportWorkDoneQty(projectId, sectionTitle, item)
+        );
+        return {
+            actual: clampActualQty(actual, plan.totalQty),
+            total: plan.totalQty,
+            unit: plan.unit,
+            rawQty: plan.rawQty,
+            rawUnit: plan.rawUnit,
+            multiplier: plan.multiplier,
+            hasMultiplier: plan.hasMultiplier
+        };
+    }
+
+    function setWorkActualQty(projectId, sectionTitle, item, qty) {
+        var map = readStoredJson(scheduleChecklistStorageKey(projectId));
+        var plan = quantityPlanInfo(item);
+        var actual = clampActualQty(qty, plan.totalQty);
+        workMatchingKeys(projectId, sectionTitle, item).forEach(function (key) {
+            if (!actual) delete map[key];
+            else if (plan.totalQty > 0 && actual >= plan.totalQty) map[key] = 1;
+            else map[key] = { qty: actual };
+        });
+        writeStoredJson(scheduleChecklistStorageKey(projectId), map);
+    }
+
+    setScheduleWorkDone = function (projectId, sectionTitle, item, isDone) {
+        setWorkActualQty(projectId, sectionTitle, item, isDone ? quantityPlanInfo(item).totalQty : 0);
+    };
+
+    isScheduleWorkDone = function (projectId, sectionTitle, item) {
+        var progress = workActualProgress(projectId, sectionTitle, item);
+        return progress.total > 0 && progress.actual >= progress.total;
+    };
+
+    isProjectWorkDone = function (projectId, sectionTitle, item) {
+        if (!projectId) return false;
+        if (isScheduleWorkDone(projectId, sectionTitle, item)) return true;
+        return workScheduleSections(projectId).some(function (section) {
+            return section && section.title !== sectionTitle && isScheduleWorkDone(projectId, section.title, item);
+        });
+    };
+
+    workProgressForRows = function (projectId, sectionTitle, rows) {
+        var workRows = rows || [];
+        var done = 0;
+        var totalQty = 0;
+        var actualQty = 0;
+        workRows.forEach(function (item) {
+            var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty };
+            totalQty += progress.total || 0;
+            actualQty += Math.min(progress.actual || 0, progress.total || 0);
+            if (progress.total > 0 && progress.actual >= progress.total) done += 1;
+        });
+        return {
+            total: workRows.length,
+            done: done,
+            left: Math.max(0, workRows.length - done),
+            percent: totalQty ? Math.round((actualQty / totalQty) * 100) : (workRows.length ? Math.round((done / workRows.length) * 100) : 0)
+        };
+    };
+
+    function renderActualQtyEditor(kind, projectId, sectionTitle, item, progress) {
+        var itemId = kind === 'material' ? (item && item.id || '') : '';
+        var stepValue = Math.abs((progress.total || 0) - Math.round(progress.total || 0)) < 0.0001 ? '1' : '0.1';
+        return '<label class="quantity-actual-editor quantity-actual-' + escapeHtml(kind) + '">' +
+            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> из ' + escapeHtml(quantityText(progress.total)) + '</span>' +
+            '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || 'штук') + '</em></div>' +
+        '</label>';
+    }
+
+    renderWorkManualCheck = function (item, sectionTitle, projectId) {
+        var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty, unit: quantityPlanInfo(item).unit };
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        return '<div class="section-work-check work-list-check quantity-work-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
+            '<label class="quantity-check-main"><input type="checkbox" data-section-work-check data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + (progress.hasMultiplier ? (' • пересчет: ' + quantityText(progress.rawQty) + ' x ' + quantityText(progress.multiplier) + ' = ' + quantityText(progress.total) + ' ' + progress.unit) : '') + '</small></span></label>' +
+            renderActualQtyEditor('work', projectId, sectionTitle, item, progress) +
+        '</div>';
+    };
+
+    renderMaterialManualCheck = function (item, sectionTitle, projectId) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var progress = materialActualProgress(projectId, item);
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        var meta = [
+            'по смете: ' + quantityText(progress.total) + ' ' + progress.unit,
+            progress.hasMultiplier ? ('пересчет: ' + quantityText(progress.rawQty) + ' x ' + quantityText(progress.multiplier)) : '',
+            effectiveItem.manualClosed ? 'закрыто вручную' : (effectiveItem.manualPartial ? 'частично вручную' : (effectiveItem.reportApplied ? 'обновлено по отчету' : ''))
+        ].filter(Boolean).join(' • ');
+        return '<div class="section-work-check section-material-check quantity-work-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
+            '<label class="quantity-check-main"><input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(meta) + '</small></span></label>' +
+            renderActualQtyEditor('material', projectId, sectionTitle, item, progress) +
+        '</div>';
+    };
+
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var progress = materialActualProgress(projectId, item);
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        var meta = [
+            'по смете: ' + quantityText(progress.total) + ' ' + progress.unit,
+            progress.hasMultiplier ? ('из сметы: ' + quantityText(progress.rawQty) + ' x ' + quantityText(progress.multiplier) + (progress.rawUnit ? (' ' + progress.rawUnit) : '')) : '',
+            effectiveItem.needByDate ? ('нужно к ' + effectiveItem.needByDate) : '',
+            effectiveItem.stageTitle ? ('этап: ' + effectiveItem.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var supplyNote = insight && insight.selectedName ? ('Выбран поставщик: ' + insight.selectedName) : '';
+        return '<div class="material-row material-row-linked' + (isDone ? ' material-row-done' : '') + (progress.actual > 0 && !isDone ? ' material-row-partial' : '') + '">' +
+            '<label class="material-row-check" title="' + escapeHtml(isDone ? 'Материал закрыт' : 'Закрыть материал полностью') + '"><input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '><span></span></label>' +
+            '<div><b>' + escapeHtml(effectiveItem.title) + '</b><small>' + escapeHtml(meta) + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + '</small></div>' +
+            '<div class="material-chain-side">' + renderActualQtyEditor('material', projectId, '', item, progress) + '<div class="material-chain-actions">' + renderMaterialSupplierPicker(projectId, effectiveItem, insight) + '</div></div>' +
+        '</div>';
+    };
+
+    renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
+        var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty, unit: quantityPlanInfo(item).unit };
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
+        var calculatedVolume = formatCalculatedWorkVolume(item);
+        var meta = [
+            item.unit ? ('Ед.: ' + item.unit) : '',
+            plannedQty != null && plannedQty !== '' ? ('Объем: ' + formattedWorkQty(plannedQty)) : '',
+            calculatedVolume ? ('Итого: ' + calculatedVolume) : '',
+            item.stageTitle ? ('Этап: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var hours = Number(item.estimated_hours || item.estimatedHours || 0);
+        var badges = [];
+        if (hours > 0) badges.push('<span class="badge work-hours-badge">' + escapeHtml(finalSectionSummaryNumber(hours) + ' чел.-ч') + '</span>');
+        if (isDone) badges.push('<span class="badge success">Готово</span>');
+        else if (progress.actual > 0) badges.push('<span class="badge warn">Частично</span>');
+        return '<div class="material-row work-row' + (isDone ? ' work-row-done' : '') + (progress.actual > 0 && !isDone ? ' work-row-partial' : '') + (!isDone && riskKind ? (' work-row-' + riskKind) : '') + '">' +
+            '<div class="work-row-main">' + renderWorkManualCheck(item, sectionTitle, projectId) + '</div>' +
+            '<div class="work-row-side">' + badges.join('') + '</div>' +
+        '</div>';
+    };
+
+    var baseRenderSectionScheduleRowQuantity = renderSectionScheduleRow;
+    renderSectionScheduleRow = function (project, section, index) {
+        var html = baseRenderSectionScheduleRowQuantity(project, section, index);
+        if (!section || !Array.isArray(section.items) || !section.items.length) return html;
+        return html.replace(/<div class="section-schedule-details">[\s\S]*?<\/div>(?=<\/div><\/article>)/, function () {
+            return '<div class="section-schedule-details">' + section.items.map(function (item) {
+                return renderWorkManualCheck(item, section.title, project.id);
+            }).join('') + '</div>';
+        });
+    };
+
+    function bindActualQuantityInputs(projectId) {
+        qsa('[data-actual-qty-input]').forEach(function (input) {
+            if (input.dataset.actualBound === '1') return;
+            input.dataset.actualBound = '1';
+            input.addEventListener('click', function (event) { event.stopPropagation(); });
+            input.addEventListener('change', function () {
+                var project = state.selectedProject;
+                if (!project || Number(project.id) !== Number(projectId)) return;
+                var item = {
+                    id: input.getAttribute('data-item-id') || '',
+                    title: input.getAttribute('data-item-title') || '',
+                    unit: input.getAttribute('data-item-unit') || '',
+                    plannedQty: input.getAttribute('data-item-qty') || ''
+                };
+                if (input.getAttribute('data-actual-kind') === 'work') {
+                    setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, input.value);
+                } else {
+                    setMaterialManualActualQty(projectId, item, input.value);
+                }
+                rerenderProjectMaterialAndWorkViews(projectId);
+                rerenderProjectWorkProgress(projectId);
+            });
+        });
+    }
+
+    function reportUnitPattern(unit) {
+        var normalized = normalizeReportText(unit);
+        if (!normalized) return '';
+        if (normalized === 'м2' || normalized.indexOf('квадрат') !== -1) return '(?:м2|м²|кв\\.?\\s*м|м\\s*кв\\.?|метр(?:ов|а)?\\s+квадрат\\w*)';
+        if (normalized === 'м3' || normalized.indexOf('куб') !== -1) return '(?:м3|м³|куб\\.?\\s*м|м\\s*куб\\.?|метр(?:ов|а)?\\s+куб\\w*)';
+        if (normalized === 'м' || normalized.indexOf('метр') !== -1) return '(?:м|метр(?:ов|а)?)';
+        if (normalized === 'шт' || normalized.indexOf('штук') !== -1 || normalized.indexOf('ед') !== -1) return '(?:шт\\.?|штук[аи]?|ед\\.?)';
+        return escapeRegex(unit);
+    }
+
+    function reportQuantityUnitPatterns(item) {
+        var plan = quantityPlanInfo(item);
+        var patterns = [];
+        [plan.unit, plan.rawUnit].forEach(function (unit) {
+            var parts = unitTextParts(unit);
+            [parts.unit, unit].forEach(function (candidate) {
+                var pattern = reportUnitPattern(candidate);
+                if (pattern && patterns.indexOf(pattern) === -1) patterns.push(pattern);
+            });
+        });
+        return patterns;
+    }
+
+    reportQuantityFromClause = function (clauseText, item) {
+        var raw = String(clauseText || '');
+        var normalized = normalizeReportText(raw);
+        var plan = quantityPlanInfo(item);
+        var percentMatch = normalized.match(/(\d+(?:[\.,]\d+)?)%/);
+        if (percentMatch && plan.totalQty > 0) {
+            return plan.totalQty * Math.max(0, Math.min(100, normalizedQuantityNumber(percentMatch[1]))) / 100;
+        }
+        var unitPatterns = reportQuantityUnitPatterns(item);
+        for (var i = 0; i < unitPatterns.length; i += 1) {
+            var unitMatch = raw.match(new RegExp('(\\d+(?:[\\.,]\\d+)?)\\s*' + unitPatterns[i], 'i'));
+            if (unitMatch) return normalizedQuantityNumber(unitMatch[1]);
+        }
+        if (reportHasPartialIntent(normalized) && plan.totalQty > 0) return plan.totalQty * 0.5;
+        if (reportHasWholeIntent(normalized) && plan.totalQty > 0) return plan.totalQty;
+        var numberMatch = normalized.match(/(^|\s)(\d+(?:[\.,]\d+)?)(\s|$)/);
+        if (numberMatch) return normalizedQuantityNumber(numberMatch[2]);
+        return 0;
+    };
+
+    reportWorkResultFromClause = function (clauseText, candidate) {
+        var clauseTokens = reportTokens(clauseText);
+        var score = reportClauseMatchScore(candidate.tokens, clauseTokens);
+        var needed = candidate.tokens.length >= 4 ? 2 : 1;
+        if (score < needed) return null;
+        var plan = quantityPlanInfo(candidate.item);
+        var qty = clampActualQty(reportQuantityFromClause(clauseText, candidate.item), plan.totalQty);
+        var partial = reportHasPartialIntent(clauseText) || (plan.totalQty > 0 && qty > 0 && qty < plan.totalQty);
+        var done = plan.totalQty > 0 ? qty >= plan.totalQty : !partial;
+        return {
+            sectionTitle: candidate.sectionTitle,
+            item: candidate.item,
+            score: score,
+            done: done,
+            partial: partial,
+            actualQty: done ? plan.totalQty : qty
+        };
+    };
+
+    reportMaterialResultFromClause = function (clauseText, candidate) {
+        var clauseTokens = reportTokens(clauseText);
+        var score = reportClauseMatchScore(candidate.tokens, clauseTokens);
+        var needed = candidate.tokens.length >= 4 ? 2 : 1;
+        if (score < needed) return null;
+        var normalized = normalizeReportText(clauseText);
+        var plan = quantityPlanInfo(candidate.item);
+        var qty = clampActualQty(reportQuantityFromClause(clauseText, candidate.item), plan.totalQty);
+        var purchase = reportHasPurchaseIntent(normalized);
+        var used = reportHasUseIntent(normalized);
+        if (!purchase && !used) used = true;
+        if (!qty && plan.totalQty > 0 && reportHasPartialIntent(normalized)) qty = plan.totalQty * 0.5;
+        if (!qty && plan.totalQty > 0 && reportHasWholeIntent(normalized)) qty = plan.totalQty;
+        qty = clampActualQty(qty, plan.totalQty);
+        return {
+            item: candidate.item,
+            score: score,
+            purchasedQty: purchase ? qty : 0,
+            usedQty: used ? qty : 0
+        };
+    };
+
+    effectiveMaterialFromReports = function (projectId, item) {
+        var effective = Object.assign({}, item || {});
+        var effects = reportEffectsState(projectId);
+        var materialEffect = effects.materials[Number(item && item.id)];
+        if (!materialEffect) return effective;
+        var plan = quantityPlanInfo(effective);
+        var multiplier = plan.multiplier || 1;
+        var basePurchased = Number(effective.purchasedQty || 0);
+        var baseUsed = Number(effective.usedQty || 0);
+        var baseStock = Number(effective.stockQty || 0);
+        var purchasedRaw = Number(materialEffect.purchasedQty || 0) / multiplier;
+        var usedRaw = Number(materialEffect.usedQty || 0) / multiplier;
+        var purchased = basePurchased + purchasedRaw;
+        var used = baseUsed + usedRaw;
+        if (plan.rawQty > 0) {
+            purchased = Math.min(plan.rawQty, purchased);
+            used = Math.min(plan.rawQty, used);
+        }
+        var stock = Math.max(0, baseStock + purchasedRaw - usedRaw);
+        if (plan.rawQty > 0) stock = Math.min(plan.rawQty, stock);
+        effective.purchasedQty = finalSectionSummaryNumber(purchased);
+        effective.usedQty = finalSectionSummaryNumber(used);
+        effective.stockQty = finalSectionSummaryNumber(stock);
+        effective.missingQty = Math.max(0, plan.rawQty - Math.max(purchased, stock));
+        effective.reportApplied = purchased > basePurchased || used > baseUsed;
+        if (plan.rawQty > 0 && purchased >= plan.rawQty) effective.supplyStatus = 'in_stock';
+        return effective;
+    };
+
+    reportWorkDoneQty = function (projectId, sectionTitle, item) {
+        var plan = quantityPlanInfo(item);
+        var effects = reportEffectsState(projectId);
+        return storedActualQty(effects.works[scheduleWorkKey(sectionTitle, item)], plan.totalQty);
+    };
+
+    var baseBindProjectChainActionsForQuantities = bindProjectChainActions;
+    bindProjectChainActions = function () {
+        baseBindProjectChainActionsForQuantities();
+        if (state.selectedProject && state.selectedProject.id) bindActualQuantityInputs(state.selectedProject.id);
+    };
+
+    var baseBindSectionScheduleRefreshForQuantities = bindSectionScheduleRefresh;
+    bindSectionScheduleRefresh = function (projectId) {
+        baseBindSectionScheduleRefreshForQuantities(projectId);
+        bindActualQuantityInputs(projectId);
     };
 
     if (page === 'login') initLogin();

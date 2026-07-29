@@ -8631,3 +8631,126 @@ html.sidebar-pref-collapsed .sidebar-toggle-lines i:nth-child(3) {
         min-width: 0;
     }
 }
+
+.quantity-work-check {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+}
+
+.quantity-check-main {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.quantity-actual-editor {
+    display: grid;
+    gap: 6px;
+    justify-items: end;
+    min-width: 142px;
+    color: #58708a;
+    font-weight: 900;
+}
+
+.quantity-actual-editor span {
+    color: #607792;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.quantity-actual-editor span b {
+    color: #173863;
+    font-size: 18px;
+}
+
+.quantity-actual-editor div {
+    display: grid;
+    grid-template-columns: 78px auto;
+    gap: 7px;
+    align-items: center;
+}
+
+.section-work-check input[type="number"].quantity-actual-input,
+.quantity-actual-input {
+    appearance: auto;
+    -webkit-appearance: auto;
+    width: 78px;
+    height: 38px;
+    min-height: 38px;
+    margin: 0;
+    padding: 0 9px;
+    border: 1px solid #bfd0e3;
+    border-radius: 10px;
+    background: #fff;
+    color: #173863;
+    box-shadow: none;
+    font-size: 16px;
+    font-weight: 950;
+    text-align: center;
+}
+
+.section-work-check input[type="number"].quantity-actual-input:before {
+    display: none;
+}
+
+.quantity-actual-editor em {
+    color: #607792;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 950;
+}
+
+.quantity-work-check.is-partial,
+.work-row-partial,
+.material-row-partial {
+    border-color: #e6d39e !important;
+    background: #fffaf0 !important;
+}
+
+.quantity-work-check.is-partial .quantity-actual-editor span b,
+.work-row-partial .quantity-actual-editor span b,
+.material-row-partial .quantity-actual-editor span b {
+    color: #9f641e;
+}
+
+.material-chain-side .quantity-actual-editor {
+    justify-items: end;
+}
+
+.material-chain-side .quantity-actual-editor span {
+    font-size: 13px;
+}
+
+.material-chain-side .quantity-actual-editor span b {
+    font-size: 20px;
+}
+
+.work-row-side:empty {
+    display: none;
+}
+
+@media (max-width: 760px) {
+    .quantity-work-check,
+    .quantity-check-main {
+        grid-template-columns: 1fr;
+    }
+
+    .quantity-actual-editor,
+    .material-chain-side .quantity-actual-editor {
+        justify-items: stretch;
+        width: 100%;
+    }
+
+    .quantity-actual-editor div {
+        grid-template-columns: minmax(90px, 1fr) auto;
+    }
+
+    .section-work-check input[type="number"].quantity-actual-input,
+    .quantity-actual-input {
+        width: 100%;
+    }
+}
