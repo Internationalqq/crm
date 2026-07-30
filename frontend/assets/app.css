@@ -6858,27 +6858,70 @@ body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
 
 .report-calendar-top {
     display: grid;
-    gap: 14px;
+    gap: 8px;
+    padding: 8px 12px !important;
+}
+
+[data-project-detail] .report-calendar-top > .card-head {
+    margin-bottom: 2px;
+    padding-bottom: 6px;
+}
+
+[data-project-detail] .report-calendar-top > .card-head h3 {
+    font-size: 14px;
+}
+
+[data-project-detail] .report-calendar-top > .card-head .muted {
+    font-size: 12px;
+    line-height: 1.25;
+}
+
+.stats-grid[data-logs-stats] {
+    grid-template-columns: repeat(2, minmax(132px, 168px));
+    justify-content: flex-start;
+    margin-bottom: 0;
+}
+
+.stats-grid[data-logs-stats] .stat-card {
+    min-height: 50px;
+    padding: 6px 10px;
+}
+
+.stats-grid[data-logs-stats] .stat-card strong {
+    margin-top: 3px;
+    font-size: 20px;
+}
+
+.report-create-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-top: 0;
+}
+
+.report-create-row .primary.compact {
+    min-height: 38px;
+    padding: 9px 16px;
 }
 
 .project-reports-grid {
     display: grid;
-    grid-template-columns: minmax(0, min(920px, 100%));
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
     align-items: start;
-    justify-content: center;
+    justify-content: stretch;
 }
 
 .project-reports-side {
     display: grid;
     gap: 14px;
-    width: min(920px, 100%);
-    justify-self: center;
+    width: 100%;
+    justify-self: stretch;
 }
 
 .report-archive-panel {
-    width: min(920px, 100%);
-    justify-self: center;
+    width: 100%;
+    justify-self: stretch;
     border-color: #b9d1f0;
     background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
     box-shadow: 0 12px 30px rgba(39, 84, 138, .08);
@@ -7061,6 +7104,45 @@ body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
     font-size: 12px !important;
 }
 
+[data-project-detail] .report-calendar-top {
+    gap: 8px !important;
+    padding: 8px 12px !important;
+}
+
+[data-project-detail] .report-calendar-top > .card-head {
+    margin-bottom: 0 !important;
+    padding-bottom: 5px !important;
+}
+
+[data-project-detail] .report-calendar-top .stats-grid[data-logs-stats] {
+    gap: 8px !important;
+    margin: 0 !important;
+}
+
+[data-project-detail] .report-calendar-top .stats-grid[data-logs-stats] .stat-card {
+    min-height: 48px !important;
+    padding: 6px 10px !important;
+}
+
+[data-project-detail] .report-calendar-top .stats-grid[data-logs-stats] .stat-card strong {
+    margin-top: 2px !important;
+    font-size: 20px !important;
+}
+
+[data-project-detail] .report-create-row {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+[data-project-detail] .report-create-row .primary.compact {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 42px !important;
+    padding: 0 18px !important;
+    font-size: 13px !important;
+}
+
 .project-report-drawer-panel {
     width: min(980px, max(64vw, 760px)) !important;
 }
@@ -7185,6 +7267,7 @@ body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
     }
 
     .project-reports-grid,
+    .stats-grid[data-logs-stats],
     .report-intake-grid,
     .report-chat-header,
     .report-facts-grid {
@@ -9328,5 +9411,568 @@ html.sidebar-pref-collapsed .sidebar-toggle-lines i:nth-child(3) {
         display: grid !important;
         width: 100% !important;
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+
+body[data-page="schedule"] .section-schedule-card,
+[data-project-detail] [data-panel="schedule"] .section-schedule-card {
+    padding: 7px 9px !important;
+    border-bottom: 4px solid #3f83f8 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+body[data-page="schedule"] .section-schedule-card.is-current,
+[data-project-detail] [data-panel="schedule"] .section-schedule-card.is-current {
+    border-bottom-color: #1f6feb !important;
+}
+
+body[data-page="schedule"] .section-schedule-card.is-past,
+body[data-page="schedule"] .section-schedule-card.is-done,
+[data-project-detail] [data-panel="schedule"] .section-schedule-card.is-past,
+[data-project-detail] [data-panel="schedule"] .section-schedule-card.is-done {
+    border-bottom-color: #22a060 !important;
+}
+
+body[data-page="schedule"] .section-schedule-main,
+body[data-page="schedule"] .section-schedule-summary,
+body[data-page="schedule"] .section-schedule-summary-copy,
+[data-project-detail] [data-panel="schedule"] .section-schedule-main,
+[data-project-detail] [data-panel="schedule"] .section-schedule-summary,
+[data-project-detail] [data-panel="schedule"] .section-schedule-summary-copy {
+    gap: 4px !important;
+}
+
+body[data-page="schedule"] .section-schedule-title h4,
+[data-project-detail] [data-panel="schedule"] .section-schedule-title h4 {
+    font-size: 14px !important;
+    line-height: 1.12 !important;
+}
+
+body[data-page="schedule"] .section-schedule-title small,
+[data-project-detail] [data-panel="schedule"] .section-schedule-title small {
+    display: inline-block !important;
+    width: fit-content !important;
+    margin-top: 3px !important;
+    padding-bottom: 3px !important;
+    border-bottom: 2px solid #1f6feb !important;
+    color: #183d6f !important;
+    font-size: 13px !important;
+    font-weight: 950 !important;
+    line-height: 1.1 !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta strong,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-meta strong {
+    font-size: 12px !important;
+    line-height: 1 !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta span,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-meta span {
+    color: #173863 !important;
+    font-size: 13px !important;
+    font-weight: 950 !important;
+    line-height: 1.15 !important;
+}
+
+body[data-page="schedule"] .section-schedule-meta strong,
+[data-project-detail] [data-panel="schedule"] .section-schedule-meta strong {
+    font-size: 12px !important;
+    line-height: 1 !important;
+}
+
+body[data-page="schedule"] .section-schedule-caption,
+[data-project-detail] [data-panel="schedule"] .section-schedule-caption {
+    display: none !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-bar,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-bar {
+    height: 7px !important;
+}
+
+body[data-page="schedule"] .section-schedule-board .execution-summary,
+[data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary {
+    display: inline-grid !important;
+    width: auto !important;
+    grid-template-columns: repeat(5, 132px) !important;
+    gap: 8px !important;
+    justify-content: flex-start !important;
+    justify-items: stretch !important;
+    align-items: stretch !important;
+    margin: 0 0 6px !important;
+}
+
+body[data-page="schedule"] .section-schedule-board .execution-summary .stat-card,
+[data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary .stat-card {
+    min-height: 58px !important;
+    padding: 9px 10px !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    text-align: left !important;
+}
+
+body[data-page="schedule"] .section-schedule-board .execution-summary .stat-card span,
+[data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary .stat-card span {
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    letter-spacing: .06em !important;
+    white-space: nowrap !important;
+    text-align: left !important;
+}
+
+body[data-page="schedule"] .section-schedule-board .execution-summary .stat-card strong,
+[data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary .stat-card strong {
+    margin-top: 5px !important;
+    font-size: 17px !important;
+    line-height: 1.1 !important;
+    text-align: left !important;
+    white-space: nowrap !important;
+}
+
+@media (max-width: 760px) {
+    body[data-page="schedule"] .section-schedule-board .execution-summary,
+    [data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary {
+        display: grid !important;
+        width: 100% !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+body[data-page="schedule"] .content {
+    padding: 14px;
+}
+
+body[data-page="schedule"] .page-head {
+    margin-bottom: 12px;
+}
+
+body[data-page="schedule"] .page-head h2 {
+    font-size: 26px;
+}
+
+body[data-page="schedule"] .page-head p:not(.eyebrow) {
+    margin-top: 3px;
+    font-size: 12px;
+}
+
+body[data-page="schedule"] .schedule-project-list {
+    gap: 8px;
+}
+
+body[data-page="schedule"] .schedule-project-accordion {
+    box-shadow: 0 6px 14px rgba(24, 50, 89, .05);
+}
+
+body[data-page="schedule"] .schedule-project-toggle {
+    grid-template-columns: minmax(0, 1fr) auto 28px;
+    gap: 10px;
+    padding: 8px 10px;
+}
+
+body[data-page="schedule"] .schedule-project-toggle-main {
+    gap: 2px;
+}
+
+body[data-page="schedule"] .schedule-project-toggle-main b {
+    font-size: 14px;
+}
+
+body[data-page="schedule"] .schedule-project-toggle-main small {
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .schedule-project-accordion .project-badges {
+    gap: 4px;
+}
+
+body[data-page="schedule"] .schedule-project-accordion .badge,
+body[data-page="schedule"] .section-schedule-board .project-badges .badge {
+    padding: 4px 7px;
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .section-schedule-chevron {
+    width: 24px;
+    height: 24px;
+    font-size: 15px;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact {
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+    gap: 6px;
+    padding: 7px 10px 9px;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card,
+body[data-page="schedule"] .schedule-object-info .data-item,
+body[data-page="schedule"] .section-schedule-board .execution-summary .stat-card {
+    min-height: 50px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card span,
+body[data-page="schedule"] .schedule-object-info .data-item span,
+body[data-page="schedule"] .section-schedule-board .execution-summary .stat-card span {
+    font-size: 8px;
+    letter-spacing: .05em;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card strong,
+body[data-page="schedule"] .schedule-object-info .data-item strong,
+body[data-page="schedule"] .section-schedule-board .execution-summary .stat-card strong {
+    margin-top: 3px;
+    font-size: 15px;
+    line-height: 1.1;
+}
+
+body[data-page="schedule"] .schedule-project-body {
+    gap: 8px;
+    padding: 0 10px 10px;
+}
+
+body[data-page="schedule"] .schedule-object-info {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 6px;
+}
+
+body[data-page="schedule"] .section-schedule-board {
+    gap: 8px;
+    padding: 10px;
+}
+
+body[data-page="schedule"] .section-schedule-board .card-head {
+    margin-bottom: 4px;
+}
+
+body[data-page="schedule"] .section-schedule-board .card-head h3 {
+    font-size: 15px;
+}
+
+body[data-page="schedule"] .section-schedule-board .card-head .muted {
+    font-size: 11px;
+}
+
+body[data-page="schedule"] .section-schedule-board .execution-summary {
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+body[data-page="schedule"] .section-schedule-overview {
+    gap: 6px;
+    margin-bottom: 6px;
+    padding: 8px 10px;
+}
+
+body[data-page="schedule"] .section-schedule-overview-head strong {
+    font-size: 13px;
+}
+
+body[data-page="schedule"] .section-schedule-overview-head span,
+body[data-page="schedule"] .section-schedule-progress-meta span {
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .section-schedule-progress {
+    gap: 4px;
+}
+
+body[data-page="schedule"] .section-schedule-progress-bar {
+    height: 7px;
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta strong {
+    font-size: 16px;
+}
+
+body[data-page="schedule"] .schedule-progress-legend {
+    gap: 8px;
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .section-schedule-list,
+body[data-page="schedule"] .section-schedule-details {
+    gap: 5px;
+}
+
+body[data-page="schedule"] .section-schedule-card {
+    padding: 8px 10px;
+    box-shadow: none;
+}
+
+body[data-page="schedule"] .section-schedule-main,
+body[data-page="schedule"] .section-schedule-summary,
+body[data-page="schedule"] .section-schedule-summary-copy {
+    gap: 5px;
+}
+
+body[data-page="schedule"] .section-schedule-summary-head {
+    gap: 8px;
+}
+
+body[data-page="schedule"] .section-schedule-title h4 {
+    font-size: 14px;
+}
+
+body[data-page="schedule"] .section-schedule-title small,
+body[data-page="schedule"] .section-schedule-meta span {
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .section-schedule-title small {
+    width: fit-content;
+    margin-top: 3px;
+    padding-bottom: 3px;
+    border-bottom: 2px solid #5f97f5;
+    color: #274d7c;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+body[data-page="schedule"] .section-schedule-meta strong {
+    font-size: 13px;
+}
+
+body[data-page="schedule"] .section-schedule-caption {
+    display: none;
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta strong {
+    font-size: 13px;
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta span {
+    color: #173863;
+    font-size: 12px;
+    font-weight: 950;
+}
+
+body[data-page="schedule"] .section-schedule-card {
+    position: relative;
+    border-bottom: 3px solid #5f97f5;
+}
+
+body[data-page="schedule"] .section-schedule-card.is-current {
+    border-bottom-color: #2f6fed;
+}
+
+body[data-page="schedule"] .section-schedule-card.is-past,
+body[data-page="schedule"] .section-schedule-card.is-done {
+    border-bottom-color: #2f9a5f;
+}
+
+body[data-page="schedule"] .section-work-check {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 8px;
+}
+
+body[data-page="schedule"] .section-work-check input {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+}
+
+body[data-page="schedule"] .section-work-check-copy b {
+    font-size: 12px;
+}
+
+body[data-page="schedule"] .section-work-check-copy small {
+    margin-top: 1px;
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .timeline-row {
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 8px;
+}
+
+body[data-page="schedule"] .timeline-row b {
+    font-size: 13px;
+}
+
+body[data-page="schedule"] .timeline-row span,
+body[data-page="schedule"] .timeline-row small {
+    font-size: 10px;
+}
+
+body[data-page="schedule"] .schedule-brief-table-wrap,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-table-wrap {
+    display: grid;
+    gap: 0;
+    margin: 0 0 7px;
+    padding: 6px 8px;
+    border: 1px solid #b9d4ff;
+    border-left: 3px solid #2f6fed;
+    border-radius: 8px;
+    background: #f8fbff;
+}
+
+body[data-page="schedule"] .schedule-brief-title,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 4px;
+}
+
+body[data-page="schedule"] .schedule-brief-title strong,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-title strong {
+    color: #163c6d;
+    font-size: 13px;
+    font-weight: 950;
+    line-height: 1.1;
+}
+
+body[data-page="schedule"] .schedule-brief-title span,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-title span {
+    color: #5c6f88;
+    font-size: 10px;
+    font-weight: 750;
+    line-height: 1.1;
+}
+
+body[data-page="schedule"] .schedule-brief-row,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 54px 92px;
+    gap: 8px;
+    align-items: center;
+    min-height: 26px;
+    padding: 3px 0;
+    border-top: 1px solid rgba(47, 111, 237, .14);
+}
+
+body[data-page="schedule"] .schedule-brief-row b,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-row b {
+    overflow: hidden;
+    color: #162a45;
+    font-size: 11px;
+    font-weight: 850;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="schedule"] .schedule-brief-row span,
+body[data-page="schedule"] .schedule-brief-row strong,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-row span,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-row strong {
+    color: #173863;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.1;
+    text-align: right;
+}
+
+body[data-page="schedule"] .schedule-brief-head b,
+body[data-page="schedule"] .schedule-brief-head span,
+body[data-page="schedule"] .schedule-brief-head strong,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-head b,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-head span,
+[data-project-detail] [data-panel="schedule"] .schedule-brief-head strong {
+    color: #60718a;
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+body[data-page="schedule"] .section-schedule-list,
+[data-project-detail] [data-panel="schedule"] .section-schedule-list {
+    gap: 11px !important;
+}
+
+body[data-page="schedule"] .section-schedule-list > .section-schedule-card:last-child,
+[data-project-detail] [data-panel="schedule"] .section-schedule-list > .section-schedule-card:last-child {
+    border-bottom: 0 !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress {
+    gap: 3px !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-bar,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-bar {
+    height: 16px !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-value,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-value {
+    position: absolute;
+    left: 7px;
+    top: 50%;
+    z-index: 4;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .86);
+    color: #173863;
+    font-size: 10px;
+    font-weight: 950;
+    line-height: 1.15;
+    transform: translateY(-50%);
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-meta {
+    justify-content: flex-end !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-meta strong,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-meta strong {
+    display: none !important;
+}
+
+body[data-page="schedule"] .section-schedule-progress-mapped,
+[data-project-detail] [data-panel="schedule"] .section-schedule-progress-mapped {
+    gap: 14px !important;
+}
+
+body[data-page="schedule"] .section-schedule-title h4,
+[data-project-detail] [data-panel="schedule"] .section-schedule-title h4 {
+    display: inline-block !important;
+    width: fit-content !important;
+    padding-bottom: 2px !important;
+    border-bottom: 2px solid #2f6fed !important;
+    color: #122d50 !important;
+    font-size: 15px !important;
+    font-weight: 950 !important;
+    line-height: 1.12 !important;
+}
+
+body[data-page="schedule"] .section-schedule-title small,
+[data-project-detail] [data-panel="schedule"] .section-schedule-title small {
+    padding-bottom: 0 !important;
+    border-bottom: 0 !important;
+    color: #38597f !important;
+    font-size: 12px !important;
+}
+
+@media (max-width: 720px) {
+    body[data-page="schedule"] .content {
+        padding: 10px;
+    }
+
+    body[data-page="schedule"] .schedule-project-toggle {
+        grid-template-columns: minmax(0, 1fr) 24px;
+    }
+
+    body[data-page="schedule"] .schedule-brief-title,
+    [data-project-detail] [data-panel="schedule"] .schedule-brief-title {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    body[data-page="schedule"] .schedule-brief-row,
+    [data-project-detail] [data-panel="schedule"] .schedule-brief-row {
+        grid-template-columns: minmax(0, 1fr) 44px 76px;
     }
 }

@@ -1425,7 +1425,7 @@
                     '<div class="project-badges"><span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span><span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' + assumptionBadge + '</div>' +
                 '</div>' +
                 '<div class="section-schedule-track"><div class="schedule-gantt-track"><span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' + (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') + '</div><div class="section-schedule-track-meta"><span>Плановый интервал</span><strong>' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</strong></div></div>' +
-                '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml('чисто по нормам: ' + String(section.estimatedHours || 0) + ' чел.-ч') + '</span></div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml('чисто по нормам: ' + String(Math.round(Number(section.estimatedHours || 0))) + ' чел.-ч') + '</span></div>' +
                 '<div class="section-schedule-reco"><span>Как ускорить</span><strong>' + escapeHtml(sectionAccelerationHint(section)) + '</strong></div>' +
                 (topItems ? '<div class="section-schedule-caption">' + escapeHtml(topItems) + '</div>' : '') +
             '</div>' +
@@ -2138,9 +2138,6 @@
 
     function renderSchedulePlanner(project, stages) {
         if (!project || !canManageSchedule()) return '';
-        var summary = state.schedulePlanByProject[project.id];
-        var longest = summary && Array.isArray(summary.longestStages) ? summary.longestStages.slice(0, 3) : [];
-        var hotspots = summary && Array.isArray(summary.procurementHotspots) ? summary.procurementHotspots.slice(0, 3) : [];
         return '<section class="card schedule-planner">' +
             '<div class="card-head">' +
                 '<div><h3>Автоплан графика</h3><span class="muted">Собирает даты этапов из сметы и текущей структуры объекта.</span></div>' +
@@ -2154,22 +2151,6 @@
                 '<button class="primary" type="submit">Построить график</button>' +
                 '<div class="form-error" data-auto-schedule-error></div>' +
             '</form>' +
-            (summary ? '<div class="schedule-plan-summary">' +
-                '<div class="execution-summary">' +
-                    stat('Старт', summary.projectStart || '—') +
-                    stat('Финиш', summary.projectEnd || 'Не указан') +
-                    stat('Этапов', String(summary.stagesPlanned || 0)) +
-                    stat('Материалы', String(summary.materialsPlanned || 0)) +
-                    stat('Автопривязка', String(summary.materialsAutoLinked || 0), summary.materialsAutoLinked ? 'warn' : '') +
-                    stat('Сдвиг финиша', String(summary.deadlineOverrunDays || 0) + ' дн.', summary.deadlineOverrunDays ? 'danger' : '') +
-                '</div>' +
-                (longest.length ? '<div class="materials-list">' + longest.map(function (item) {
-                    return '<div class="material-row"><div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(item.planned_start + ' — ' + item.planned_end) + '</small></div><span class="badge warn">' + escapeHtml(item.duration_days + ' дн.') + '</span></div>';
-                }).join('') + '</div>' : '') +
-                (hotspots.length ? '<div class="materials-list">' + hotspots.map(function (item) {
-                    return '<div class="material-row"><div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml('Закупить заранее за ' + item.lead_days + ' дн.') + '</small></div><span class="badge ' + (item.need_by_date < APP_TODAY ? 'danger' : 'warn') + '">' + escapeHtml(item.need_by_date) + '</span></div>';
-                }).join('') + '</div>' : '') +
-            '</div>' : '') +
         '</section>';
     }
 
@@ -2254,6 +2235,7 @@
             }).then(function (data) {
                 updateProjectInState(data.project);
                 state.schedulePlanByProject[projectId] = data.summary || null;
+                setScheduleBriefPinned(projectId, true);
                 state.stagesByProject[projectId] = null;
                 state.materialsByProject[projectId] = null;
                 openProject(projectId);
@@ -8960,8 +8942,8 @@ function renderLogsDayView(project, logs) {
                         '</div>' +
                         '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
                     '</div>' +
-                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
-                    '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
+                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(progress.percent)) + '%</b></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
+                    '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
                     (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
                 '</div>' +
                 (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
@@ -9496,7 +9478,7 @@ function renderLogsDayView(project, logs) {
                     '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
                     '<div class="project-badges"><span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span><span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' + assumptionBadge + '</div>' +
                 '</div>' +
-                '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml('чисто по нормам: ' + String(section.estimatedHours || 0) + ' чел.-ч') + '</span></div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml('чисто по нормам: ' + String(Math.round(Number(section.estimatedHours || 0))) + ' чел.-ч') + '</span></div>' +
                 '<div class="section-schedule-reco"><span>Работы раздела</span><strong>' + escapeHtml(digest.lead) + '</strong>' + (digest.volume ? '<small>' + escapeHtml(digest.volume) + '</small>' : '') + '</div>' +
                 (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
             '</div>' +
@@ -9549,6 +9531,61 @@ function renderLogsDayView(project, logs) {
         } catch (error) {
             return;
         }
+    }
+
+    function scheduleBriefStorageKey(projectId) {
+        return 'pmbi.schedule.brief.' + String(projectId || '');
+    }
+
+    function isScheduleBriefPinned(projectId) {
+        var map = readStoredJson(scheduleBriefStorageKey(projectId));
+        return map.pinned === 1;
+    }
+
+    function setScheduleBriefPinned(projectId, isPinned) {
+        var map = readStoredJson(scheduleBriefStorageKey(projectId));
+        map.pinned = isPinned ? 1 : 0;
+        map.updatedAt = new Date().toISOString();
+        writeStoredJson(scheduleBriefStorageKey(projectId), map);
+    }
+
+    function scheduleSectionRoundedHours(section) {
+        var hours = Number(section && (section.bufferedHours || section.estimatedHours || 0));
+        if (!Number.isFinite(hours)) return 0;
+        return Math.round(hours);
+    }
+
+    function scheduleSectionDays(section) {
+        var days = Number(section && (section.estimatedDays || section.durationDays || section.days || 0));
+        if (Number.isFinite(days) && days > 0) return Math.round(days);
+        var start = section && section.startDate;
+        var end = section && section.endDate;
+        var calculated = start && end ? daysBetween(start, end) : 0;
+        return Math.max(0, Math.round(Number(calculated || 0)));
+    }
+
+    function scheduleSectionDurationLabel(section) {
+        return String(scheduleSectionDays(section)) + ' дней (' + String(scheduleSectionRoundedHours(section)) + ' чел.-ч)';
+    }
+
+    function renderPinnedScheduleBrief(project, summary, sections) {
+        if (!project || !isScheduleBriefPinned(project.id)) return '';
+        if (!summary || summary.error) {
+            return '<div class="schedule-brief-table-wrap"><div class="schedule-brief-title"><strong>Краткий график</strong><span>Появится после расчета разделов.</span></div></div>';
+        }
+        var rows = (sections || []).map(function (section) {
+            var progress = scheduleSectionProgress(project.id, section);
+            return '<div class="schedule-brief-row">' +
+                '<b>' + escapeHtml(section.title || 'Раздел') + '</b>' +
+                '<span>' + escapeHtml(String(scheduleSectionDays(section))) + '</span>' +
+                '<strong>' + escapeHtml(String(progress.percent || 0) + '%') + '</strong>' +
+            '</div>';
+        }).join('');
+        return '<div class="schedule-brief-table-wrap">' +
+            '<div class="schedule-brief-title"><strong>Краткий график</strong><span>Раздел, дни и % выполнения</span></div>' +
+            '<div class="schedule-brief-row schedule-brief-head"><b>Раздел</b><span>Дней</span><strong>% выполнения</strong></div>' +
+            rows +
+        '</div>';
     }
 
     function normalizedWorkKeyPart(value) {
@@ -9918,7 +9955,7 @@ function renderLogsDayView(project, logs) {
                     '</div>' +
                     '<div class="section-schedule-track-meta' + (deadlineState.kind ? (' is-' + deadlineState.kind) : '') + '"><span>Плановый интервал</span><strong>' + escapeHtml(deadlineState.label) + '</strong></div>' +
                 '</div>' +
-                '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml(digest.volume || 'Объемы будут считаться по работам раздела') + '</span></div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || 'Объемы будут считаться по работам раздела') + '</span></div>' +
                 (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
                 (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
                     var workDone = isScheduleWorkDone(project.id, section.title, item);
@@ -10722,21 +10759,8 @@ function renderLogsDayView(project, logs) {
     renderLogsStats = function (logs, notifications) {
         var root = qs('[data-logs-stats]');
         if (!root) return;
-        var visible = logs.filter(function (log) { return Number(log.is_client_visible) === 1; }).length;
-        var internal = logs.length - visible;
-        var workers = logs.reduce(function (sum, log) { return sum + Number(log.workers_count || 0); }, 0);
-        var blockers = logs.filter(function (log) { return String(log.blockers || '').trim(); }).length;
-        var latestProgress = logs.reduce(function (max, log) {
-            var value = Number(log.progress_percent);
-            return Number.isFinite(value) ? Math.max(max, value) : max;
-        }, -1);
         root.innerHTML =
             stat('Отчетов', logs.length) +
-            stat('Видно заказчику', visible) +
-            stat('Внутренние', internal) +
-            stat('Людей в отчетах', workers) +
-            stat('С блокерами', blockers, blockers ? 'danger' : '') +
-            stat('Прогресс по журналу', latestProgress >= 0 ? (Math.round(latestProgress) + '%') : '—', latestProgress >= 0 ? '' : 'warn') +
             stat('Отчет сегодня', notifications && notifications.missingDailyReport ? 'нет' : 'есть', notifications && notifications.missingDailyReport ? 'danger' : '');
     };
 
@@ -10949,7 +10973,7 @@ function renderLogsDayView(project, logs) {
                 '<button class="section-schedule-toggle" type="button" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' + (isOpen ? 'Свернуть раздел' : 'Открыть работы') + '</button>' +
                 '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(String(progress.done) + '/' + String(progress.total || 0) + ' работ') + '</span></div></div>' +
                 '<div class="section-schedule-track"><div class="schedule-gantt-track"><span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' + (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') + '</div><div class="section-schedule-track-meta' + (deadlineState.kind ? (' is-' + deadlineState.kind) : '') + '"><span>Плановый интервал</span><strong>' + escapeHtml(deadlineState.label) + '</strong></div></div>' +
-                '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml(digest.volume || 'Объемы будут считаться по работам раздела') + '</span></div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || 'Объемы будут считаться по работам раздела') + '</span></div>' +
                 (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
                 (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
                     var workDone = isScheduleWorkDone(project.id, section.title, item);
@@ -11099,8 +11123,8 @@ function renderLogsDayView(project, logs) {
                         '</div>' +
                         '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
                     '</div>' +
-                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
-                    '<div class="section-schedule-meta"><strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
+                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(progress.percent)) + '%</b></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
+                    '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
                     (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
                 '</div>' +
                 (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
@@ -11178,8 +11202,9 @@ function renderLogsDayView(project, logs) {
         var projectDeadlineState = scheduleDeadlineState(summary.startDate, scheduleEndDate, overallProgress.percent, summary.totalDays);
         return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Общий прогресс, контрольные разделы и факт выполнения работ.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
             '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(scheduleEndDate)) + stat('Осталось дней', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + stat('Чел.-ч', String(Math.round(Number(summary.totalHours || 0)))) + '</div>' +
+            renderPinnedScheduleBrief(project, summary, sections) +
             '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Общий прогресс</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div>' +
-                '<div class="section-schedule-progress section-schedule-progress-mapped"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span>' + renderScheduleSectionMilestones(project, sections, summary.startDate, scheduleEndDate) + '</div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div>' +
+                '<div class="section-schedule-progress section-schedule-progress-mapped"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(overallProgress.percent)) + '%</b>' + renderScheduleSectionMilestones(project, sections, summary.startDate, scheduleEndDate) + '</div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div>' +
                 '<div class="schedule-progress-legend"><span><i class="is-done"></i> раздел закрыт</span><span><i class="is-open"></i> раздел в работе</span></div></div>' +
             '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
     };
@@ -11878,10 +11903,9 @@ function renderLogsDayView(project, logs) {
     renderProjectReportsPanel = function (project) {
         return '<div class="project-reports-shell">' +
             '<section class="subsection report-calendar-top">' +
-                '<div class="card-head"><div><h3>Календарь отчетов</h3><span class="muted">Отчеты по дням, контроль пропусков и быстрый вход в нужную дату.</span></div>' +
-                    (canCreateProjectReport() ? '<button class="primary compact" type="button" data-open-project-report-create>Новый отчет</button>' : '') +
-                '</div>' +
+                '<div class="card-head"><div><h3>Календарь отчетов</h3><span class="muted">Отчеты по дням, контроль пропусков и быстрый вход в нужную дату.</span></div></div>' +
                 '<section class="stats-grid" data-logs-stats></section>' +
+                (canCreateProjectReport() ? '<div class="report-create-row"><button class="primary compact" type="button" data-open-project-report-create>Новый отчет</button></div>' : '') +
                 '<div data-logs-alerts></div>' +
                 '<div data-logs-calendar></div>' +
             '</section>' +
