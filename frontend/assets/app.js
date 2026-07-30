@@ -2,7 +2,7 @@
     'use strict';
 
     var page = document.body.dataset.page;
-    var APP_TODAY = '2026-07-29';
+    var APP_TODAY = '2026-07-30';
     var state = {
         user: null,
         projects: [],
@@ -1063,9 +1063,112 @@
             return;
         }
         card.hidden = false;
-        root.innerHTML = '<div class="quick-alert-list">' + items.slice(0, 4).map(function (item) {
-            return '<div class="quick-alert"><b>' + escapeHtml(item.title) + '</b><span>' + escapeHtml(item.projectTitle) + '</span><strong>' + escapeHtml(item.missingQty) + ' ' + escapeHtml(item.unit) + '</strong></div>';
+        var groups = {};
+        items.forEach(function (item) {
+            var key = String(item.projectId || item.projectTitle || 'project');
+            if (!groups[key]) {
+                groups[key] = {
+                    projectId: item.projectId,
+                    projectTitle: item.projectTitle || 'Объект',
+                    items: []
+                };
+            }
+            groups[key].items.push(item);
+        });
+        var orderedGroups = Object.keys(groups).map(function (key) {
+            return groups[key];
+        }).sort(function (left, right) {
+            return right.items.length - left.items.length;
+        });
+        root.innerHTML = '<div class="quick-alert-list quick-alert-groups">' + orderedGroups.map(function (group, index) {
+            var first = group.items[0] || {};
+            var groupLevel = criticalUrgencyLevel(group.items);
+            var sectionTitle = criticalSectionTitle(first);
+            var summaryMeta = [
+                String(group.items.length) + ' поз.',
+                criticalDaysText(first),
+                sectionTitle ? ('раздел: ' + sectionTitle) : ''
+            ].filter(Boolean).join(' • ');
+            return '<details class="quick-alert quick-alert-group is-' + groupLevel + '">' +
+                '<summary>' +
+                    '<span><b>' + escapeHtml(group.projectTitle) + '</b><small>' + escapeHtml(summaryMeta || 'Есть критичные позиции') + '</small></span>' +
+                    '<strong>' + escapeHtml(String(group.items.length)) + '</strong>' +
+                '</summary>' +
+                '<div class="quick-alert-details">' + group.items.map(function (item) {
+                    var itemLevel = criticalUrgencyLevel([item]);
+                    var itemSectionTitle = criticalSectionTitle(item);
+                    var itemStageTitle = criticalStageTitle(item);
+                    var meta = [
+                        itemSectionTitle ? ('Раздел: ' + itemSectionTitle) : '',
+                        itemStageTitle ? ('Этап: ' + itemStageTitle) : '',
+                        item.workDate ? ('работа: ' + finalGraphDate(item.workDate)) : '',
+                        criticalDaysText(item)
+                    ].filter(Boolean).join(' • ');
+                    return '<a class="quick-alert-detail is-' + itemLevel + '" href="/app/projects?openProject=' + escapeHtml(item.projectId || '') + '">' +
+                        '<span><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta || 'Раздел не указан') + '</small></span>' +
+                        '<strong>' + escapeHtml(item.missingQty) + ' ' + escapeHtml(item.unit) + '</strong>' +
+                    '</a>';
+                }).join('') + '</div>' +
+            '</details>';
         }).join('') + '</div>';
+    }
+
+    function signedDaysBetween(start, end) {
+        var startTime = Date.parse(String(start || '') + 'T00:00:00Z');
+        var endTime = Date.parse(String(end || '') + 'T00:00:00Z');
+        if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null;
+        return Math.round((endTime - startTime) / 86400000);
+    }
+
+    function criticalDaysText(item) {
+        if (!item) return '';
+        var days = item.daysUntilWork;
+        if (days == null || days === '') days = signedDaysBetween(APP_TODAY, item.workDate || item.needByDate || '');
+        days = Number(days);
+        if (!Number.isFinite(days)) return '';
+        if (days < 0) return 'просрочено на ' + Math.abs(days) + ' дн.';
+        if (days === 0) return 'работа сегодня';
+        return 'до работы ' + days + ' дн.';
+    }
+
+    function cleanCriticalSectionTitle(value) {
+        var text = String(value || '').trim();
+        var normalized = text.toLocaleLowerCase('ru');
+        if (!text) return '';
+        if (['подготовка', 'основные работы', 'исполнительная документация', 'сдача объекта'].indexOf(normalized) !== -1) return '';
+        var numberMatch = text.match(/^(?:раздел\s*)?(\d+)(?:[\.\):\-\s]|$)/i);
+        if (numberMatch) return 'Раздел ' + numberMatch[1];
+        return text;
+    }
+
+    function criticalSectionTitle(item) {
+        return cleanCriticalSectionTitle(item && item.sectionTitle);
+    }
+
+    function criticalStageTitle(item) {
+        var stage = String(item && item.stageTitle || '').trim();
+        var section = String(item && item.sectionTitle || '').trim();
+        if (!stage || stage === section) return '';
+        return stage;
+    }
+
+    function criticalUrgencyDays(item) {
+        if (!item) return null;
+        var days = item.daysUntilWork;
+        if (days == null || days === '') days = signedDaysBetween(APP_TODAY, item.workDate || item.needByDate || '');
+        days = Number(days);
+        return Number.isFinite(days) ? days : null;
+    }
+
+    function criticalUrgencyLevel(items) {
+        var daysList = (items || []).map(criticalUrgencyDays).filter(function (days) {
+            return days != null;
+        });
+        if (!daysList.length) return 'low';
+        var minDays = Math.min.apply(Math, daysList);
+        if (minDays <= 1) return 'critical';
+        if (minDays <= 5) return 'medium';
+        return 'low';
     }
 
     function renderProjectList(projects) {
@@ -1762,6 +1865,10 @@
                 }).then(function () {
                     delete state.materialInsightsByProject[projectId];
                     loadMaterialInsights(projectId, function (insights) {
+                        if (typeof rerenderProjectMaterialAndWorkViews === 'function') {
+                            rerenderProjectMaterialAndWorkViews(projectId);
+                            return;
+                        }
                         if (state.materialsByProject[projectId]) {
                             var materialsHtml = renderMaterials(state.materialsByProject[projectId], projectId, insights || {});
                             var materialsPanel = qs('[data-panel="materials"]');
@@ -5889,6 +5996,46 @@ function renderLogsDayView(project, logs) {
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
                 activateProjectTab(button.dataset.projectTabTarget);
+            });
+        });
+        qsa('[data-project-status-select]').forEach(function (select) {
+            if (select.dataset.bound === '1') return;
+            select.dataset.bound = '1';
+            select.addEventListener('change', function () {
+                var projectId = Number(select.dataset.projectId || 0);
+                var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+                if (!project) return;
+                select.disabled = true;
+                api('/api/projects/' + projectId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: project.title || '',
+                        client_name: project.client_name || '',
+                        address: project.address || '',
+                        status: select.value,
+                        contract_no: project.contract_no || '',
+                        budget: project.budget == null ? 0 : Number(project.budget || 0),
+                        started_at: project.started_at || '',
+                        deadline_at: project.deadline_at || '',
+                        city: project.city || '',
+                        region: project.region || '',
+                        description: project.description || ''
+                    })
+                }).then(function (data) {
+                    updateProjectInState(data.project);
+                    renderProjectStats();
+                    renderProjectCritical();
+                    renderProjectList(state.projects);
+                    if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
+                        var overviewPanel = qs('[data-panel="overview"]');
+                        if (overviewPanel) overviewPanel.innerHTML = renderProjectOverviewHero(state.selectedProject);
+                        bindProjectOverviewActions();
+                    }
+                }).catch(function () {
+                    select.value = project.status || 'Подготовка';
+                }).finally(function () {
+                    select.disabled = false;
+                });
             });
         });
     }
@@ -10283,6 +10430,25 @@ function renderLogsDayView(project, logs) {
         }
     };
 
+    var PROJECT_STATUS_OPTIONS = ['Подготовка', 'В работе', 'На паузе', 'Завершен'];
+
+    function projectStatusOptions(status) {
+        var current = String(status || 'Подготовка');
+        var options = PROJECT_STATUS_OPTIONS.slice();
+        if (options.indexOf(current) === -1) options.unshift(current);
+        return options.map(function (option) {
+            return '<option value="' + escapeHtml(option) + '"' + (option === current ? ' selected' : '') + '>' + escapeHtml(option) + '</option>';
+        }).join('');
+    }
+
+    function renderProjectStatusControl(project) {
+        if (!isAdminRole()) return '<span class="badge">' + escapeHtml(status) + '</span>';
+        return '<label class="project-status-control">' +
+            '<span>Статус</span>' +
+            '<select data-project-status-select data-project-id="' + escapeHtml(project.id || '') + '">' + projectStatusOptions(status) + '</select>' +
+        '</label>';
+    }
+
     renderProjectOverviewHero = function (project) {
         var status = project.status || 'Подготовка';
         var budget = project.budget == null ? 'Не указано' : money(project.budget);
@@ -10295,7 +10461,7 @@ function renderLogsDayView(project, logs) {
                     '<p>' + escapeHtml(project.address || 'Адрес не указан') + '</p>' +
                 '</div>' +
                 '<div class="project-overview-badges">' +
-                    '<span class="badge">' + escapeHtml(status) + '</span>' +
+                    renderProjectStatusControl(project) +
                     '<span class="badge success">Готовность ' + percent(project.progress) + '%</span>' +
                 '</div>' +
             '</div>' +
@@ -10374,11 +10540,7 @@ function renderLogsDayView(project, logs) {
 
         if (titleNode) titleNode.textContent = project.title || 'Карточка объекта';
         if (overviewPanel) {
-            overviewPanel.innerHTML =
-                renderProjectOverviewHero(project) +
-                renderProjectOverviewActions(project) +
-                '<section class="subsection"><div class="card-head"><h3>Назначения на объект</h3></div><div data-project-assignments>Загрузка назначений...</div></section>' +
-                '<section class="subsection"><div class="card-head"><h3>Материалы по смете</h3></div><div data-project-overview-materials><p class="muted">Загрузка материалов...</p></div></section>';
+            overviewPanel.innerHTML = renderProjectOverviewHero(project);
         }
         if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загрузка материалов...</p>';
         if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загрузка работ...</p>';
@@ -10396,8 +10558,6 @@ function renderLogsDayView(project, logs) {
         loadMaterials(project.id, function (items) {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
             if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null);
-            var overviewMaterials = qs('[data-project-overview-materials]');
-            if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(items, project.id, state.materialInsightsByProject[project.id] || null);
             if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items);
             bindProjectMarketToggles(project.id);
         });
@@ -10406,10 +10566,6 @@ function renderLogsDayView(project, logs) {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
             if (materialsPanel && state.materialsByProject[project.id]) {
                 materialsPanel.innerHTML = renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {});
-            }
-            var overviewMaterials = qs('[data-project-overview-materials]');
-            if (overviewMaterials && state.materialsByProject[project.id]) {
-                overviewMaterials.innerHTML = renderMaterials(state.materialsByProject[project.id] || [], project.id, insights || {});
             }
             bindProjectMarketToggles(project.id);
             bindProjectChainActions();
@@ -12299,10 +12455,26 @@ function renderLogsDayView(project, logs) {
         return cleanScope || cleanDetail || 'Объект';
     }
 
+    function reminderTaskScope(task) {
+        return reminderScopeText(task.sectionTitle || 'Задачи объекта', task.stageTitle || '');
+    }
+
+    function reminderStageScope(stage) {
+        return reminderScopeText('График работ', stage.sectionTitle || stage.title || 'Этап');
+    }
+
+    function reminderBlockerScope(log) {
+        return reminderScopeText(log.sectionTitle || 'Отчеты', 'блокеры');
+    }
+
+    function reminderProcurementScope(alert) {
+        return reminderScopeText(alert.sectionTitle || 'Материалы', alert.stageTitle || '');
+    }
+
     function reminderTaskText(task, stateText) {
         var bits = [
-            reminderScopeText('Задачи объекта', task.assignee_name ? ('исполнитель: ' + task.assignee_name) : ''),
             task.title || 'Задача',
+            task.assignee_name ? ('исполнитель: ' + task.assignee_name) : '',
             task.due_at ? stateText + ' ' + task.due_at : ''
         ];
         return bits.filter(Boolean).join(' • ');
@@ -12310,7 +12482,7 @@ function renderLogsDayView(project, logs) {
 
     function reminderStageText(stage) {
         var bits = [
-            reminderScopeText('График работ', stage.title || 'Этап'),
+            stage.title || 'Этап',
             stage.progress != null ? ('готовность ' + percent(stage.progress) + '%') : '',
             stage.planned_end ? ('план до ' + stage.planned_end) : '',
             stage.status_code ? ('статус: ' + statusLabel(stage.status_code)) : ''
@@ -12320,7 +12492,6 @@ function renderLogsDayView(project, logs) {
 
     function reminderProcurementText(alert) {
         var bits = [
-            reminderScopeText(alert.sectionTitle || 'Материалы', alert.stageTitle || ''),
             alert.title || 'Материал',
             alert.orderByDate ? ('заказать до ' + alert.orderByDate) : '',
             alert.startDate ? ('нужно к старту ' + alert.startDate) : '',
@@ -12335,23 +12506,23 @@ function renderLogsDayView(project, logs) {
         var items = [];
         if (!notifications) return items;
         if (notifications.missingDailyReport) {
-            items.push({ kind: 'danger', label: 'Нет отчета сегодня', title: title, scope: 'Отчеты', text: 'Отчеты / дневной журнал • нужно добавить отчет за сегодня.', href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'danger', label: 'Нет отчета сегодня', title: title, scope: 'Отчеты / дневной журнал', text: 'Нужно добавить отчет за сегодня.', href: '/app/projects?openProject=' + projectId });
         }
         (notifications.overdueTasks || []).forEach(function (task) {
-            items.push({ kind: 'danger', label: 'Просрочена задача', title: title, scope: 'Задачи объекта', text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'danger', label: 'Просрочена задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.dueSoonTasks || []).forEach(function (task) {
-            items.push({ kind: 'warn', label: 'Скоро срок', title: title, scope: 'Задачи объекта', text: reminderTaskText(task, 'до'), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'warn', label: 'Скоро срок', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'до'), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.blockerLogs || []).forEach(function (log) {
-            items.push({ kind: 'danger', label: 'Блокер', title: title, scope: 'Отчеты / блокеры', text: 'Отчеты / блокеры • ' + (log.blockers || log.title || 'есть блокер') + (log.report_date ? ' • отчет от ' + log.report_date : ''), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'danger', label: 'Блокер', title: title, scope: reminderBlockerScope(log), text: (log.blockers || log.title || 'есть блокер') + (log.report_date ? ' • отчет от ' + log.report_date : ''), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.problemStages || []).forEach(function (stage) {
-            items.push({ kind: 'warn', label: 'Проблемный этап', title: title, scope: 'График работ', text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: 'warn', label: 'Проблемный этап', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId });
         });
         (notifications.procurementAlerts || []).slice(0, 4).forEach(function (alert) {
             var kind = alert.status === 'critical' ? 'danger' : 'warn';
-            items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, scope: alert.sectionTitle || alert.stageTitle || 'Материалы', text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId });
+            items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId });
         });
         return items;
     }
@@ -12377,7 +12548,7 @@ function renderLogsDayView(project, logs) {
         }
         list.innerHTML = '<div class="reminder-list">' + items.slice(0, 20).map(function (item) {
             return '<a class="reminder-item is-' + escapeHtml(item.kind || 'info') + '" href="' + escapeHtml(item.href || '/app/projects') + '">' +
-                '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b>' + (item.scope ? '<strong class="reminder-scope">' + escapeHtml(item.scope) + '</strong>' : '') + '<small>' + escapeHtml(item.text || '') + '</small></div>' +
+                '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b>' + (item.scope ? '<strong class="reminder-scope">Раздел: ' + escapeHtml(item.scope) + '</strong>' : '') + '<small>' + escapeHtml(item.text || '') + '</small></div>' +
             '</a>';
         }).join('') + '</div>';
     }
@@ -12543,9 +12714,14 @@ function renderLogsDayView(project, logs) {
     function quantityPlanInfo(item) {
         var qty = normalizedQuantityNumber(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty));
         var parts = unitTextParts(item && item.unit);
-        var total = Math.max(0, qty * (parts.multiplier || 1));
+        var normalizedQty = qty;
+        if (parts.hasMultiplier && parts.multiplier >= 100 && qty >= parts.multiplier) {
+            normalizedQty = qty / parts.multiplier;
+        }
+        var total = Math.max(0, normalizedQty * (parts.multiplier || 1));
         return {
-            rawQty: qty,
+            rawQty: normalizedQty,
+            sourceQty: qty,
             totalQty: total,
             unit: parts.unit || 'штук',
             rawUnit: parts.rawUnit || '',
@@ -12991,6 +13167,727 @@ function renderLogsDayView(project, logs) {
     bindSectionScheduleRefresh = function (projectId) {
         baseBindSectionScheduleRefreshForQuantities(projectId);
         bindActualQuantityInputs(projectId);
+    };
+
+    function isScheduleProjectOpen(projectId) {
+        state.scheduleProjectOpenByProject = state.scheduleProjectOpenByProject || {};
+        return state.scheduleProjectOpenByProject[String(projectId)] === true;
+    }
+
+    function setScheduleProjectOpen(projectId, isOpen) {
+        state.scheduleProjectOpenByProject = state.scheduleProjectOpenByProject || {};
+        if (isOpen) state.scheduleProjectOpenByProject[String(projectId)] = true;
+        else delete state.scheduleProjectOpenByProject[String(projectId)];
+    }
+
+    function scheduleProjectDetails(projectId) {
+        state.scheduleProjectDetailsByProject = state.scheduleProjectDetailsByProject || {};
+        return state.scheduleProjectDetailsByProject[String(projectId)] || null;
+    }
+
+    function setScheduleProjectDetails(projectId, details) {
+        state.scheduleProjectDetailsByProject = state.scheduleProjectDetailsByProject || {};
+        state.scheduleProjectDetailsByProject[String(projectId)] = details;
+    }
+
+    function scheduleProjectBody(projectId) {
+        return qs('[data-schedule-project-body="' + String(projectId) + '"]');
+    }
+
+    function scheduleProjectById(projectId) {
+        return state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || null;
+    }
+
+    function scheduleForecastPromise(project, force) {
+        return new Promise(function (resolve) {
+            loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function (summary) {
+                resolve(summary);
+            }, force);
+        });
+    }
+
+    function renderScheduleProjectObjectSummary(project, details) {
+        var stages = details && Array.isArray(details.stages) ? details.stages : null;
+        var notifications = details && details.notifications ? details.notifications : null;
+        var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[project.id];
+        var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+        var progress = summary ? projectScheduleProgress(project, summary) : { percent: percent(project.progress), done: 0, total: 0 };
+        var overdue = stages ? stages.filter(function (stage) { return isStageOverdue(stage, APP_TODAY); }).length : 0;
+        var nextDate = stages ? collectNextStageDate(stages) : (project.deadline_at || '');
+        var reportText = notifications && notifications.latestDailyLog && notifications.latestDailyLog.report_date
+            ? ('Последний отчет: ' + notifications.latestDailyLog.report_date)
+            : (notifications && notifications.missingDailyReport ? 'Нет свежего отчета' : 'Раскройте объект для деталей');
+        return '<div class="schedule-project-summary schedule-project-summary-compact">' +
+            stat('Готовность', String(progress.percent || 0) + '%') +
+            stat('Статус', project.status || 'В работе') +
+            stat('Старт', project.started_at || '-') +
+            stat('Дедлайн', project.deadline_at || '-') +
+            stat('Разделов', sections.length ? String(sections.length) : (stages ? String(stages.length) : '-')) +
+            stat('Просрочено', stages ? String(overdue) : '-', overdue ? 'danger' : '') +
+            stat('Ближайшая дата', nextDate || '-') +
+            stat('Отчет', reportText, notifications && notifications.missingDailyReport ? 'danger' : '') +
+        '</div>';
+    }
+
+    function renderScheduleProjectDetails(project, details) {
+        details = details || {};
+        var stages = Array.isArray(details.stages) ? details.stages : [];
+        var notifications = details.notifications || null;
+        var materials = Array.isArray(details.materials) ? details.materials : [];
+        var tasks = Array.isArray(details.tasks) ? details.tasks : [];
+        var objectInfo = '<section class="schedule-object-info">' +
+            dataItem('Заказчик', project.client_name || 'Не указан') +
+            dataItem('Адрес', project.address || 'Не указан') +
+            dataItem('Договор', project.contract_no || '-') +
+            dataItem('Готовность объекта', percent(project.progress) + '%') +
+            dataItem('Старт', project.started_at || '-') +
+            dataItem('Дедлайн', project.deadline_at || '-') +
+        '</section>';
+        return objectInfo +
+            renderSectionScheduleForecast(project) +
+            renderScheduleActionCenter(project, stages, notifications, materials, tasks) +
+            renderScheduleCalendar(project, stages) +
+            (stages.length ? renderStages(stages) : '<div class="section-schedule-empty">Этапы объекта пока не заполнены.</div>');
+    }
+
+    function renderScheduleProject(project) {
+        var open = isScheduleProjectOpen(project.id);
+        var details = scheduleProjectDetails(project.id);
+        var types = hasRole('customer') ? ['customer'] : ['internal', 'customer'];
+        var badges = types.map(function (type) {
+            var stateMeta = getScheduleState(project, type);
+            var shortLabel = type === 'customer' ? 'Заказчик' : 'Внутренний';
+            return '<span class="badge ' + scheduleStateKind(stateMeta) + '">' + escapeHtml(shortLabel + ' v' + stateMeta.version + ' • ' + scheduleStateTitle(stateMeta)) + '</span>';
+        }).join('');
+        return '<section class="schedule-project schedule-project-accordion' + (open ? ' is-open' : '') + '">' +
+            '<button class="schedule-project-toggle" type="button" data-schedule-project-toggle data-project-id="' + escapeHtml(project.id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+                '<span class="schedule-project-toggle-main"><b>' + escapeHtml(project.title || 'Объект') + '</b><small>' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</small></span>' +
+                '<span class="project-badges">' + badges + '<span class="badge">' + escapeHtml(percent(project.progress) + '%') + '</span></span>' +
+                '<span class="section-schedule-chevron" aria-hidden="true">' + (open ? '-' : '+') + '</span>' +
+            '</button>' +
+            renderScheduleProjectObjectSummary(project, details) +
+            '<div class="schedule-project-body" data-schedule-project-body="' + escapeHtml(project.id) + '"' + (open ? '' : ' hidden') + '>' +
+                (open ? (details ? renderScheduleProjectDetails(project, details) : '<div class="section-schedule-empty">Загружаем данные объекта...</div>') : '') +
+            '</div>' +
+        '</section>';
+    }
+
+    function loadScheduleProjectDetails(project, force) {
+        if (!project || !project.id) return;
+        var projectId = project.id;
+        state.scheduleProjectLoadingByProject = state.scheduleProjectLoadingByProject || {};
+        if (!force && scheduleProjectDetails(projectId)) {
+            refreshScheduleProjectBody(projectId);
+            return;
+        }
+        if (state.scheduleProjectLoadingByProject[String(projectId)]) return;
+        state.scheduleProjectLoadingByProject[String(projectId)] = true;
+        var body = scheduleProjectBody(projectId);
+        if (body) body.innerHTML = '<div class="section-schedule-empty">Загружаем данные объекта...</div>';
+        Promise.all([
+            api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; }),
+            api('/api/projects/' + projectId + '/notifications').catch(function () { return null; }),
+            api('/api/projects/' + projectId + '/materials/summary').catch(function () { return { items: [] }; }),
+            api('/api/projects/' + projectId + '/tasks').catch(function () { return { tasks: [] }; }),
+            scheduleForecastPromise(project, force)
+        ]).then(function (results) {
+            var stages = Array.isArray(results[0].stages) ? results[0].stages : [];
+            var materials = Array.isArray(results[2].items) ? results[2].items : [];
+            state.stagesByProject[projectId] = stages;
+            state.materialsByProject[projectId] = materials;
+            state.notificationsByProject[projectId] = results[1] || null;
+            setScheduleProjectDetails(projectId, {
+                stages: stages,
+                notifications: results[1] || null,
+                materials: materials,
+                tasks: Array.isArray(results[3].tasks) ? results[3].tasks : []
+            });
+            state.scheduleProjectLoadingByProject[String(projectId)] = false;
+            renderSchedulePage();
+        }).catch(function () {
+            state.scheduleProjectLoadingByProject[String(projectId)] = false;
+            var target = scheduleProjectBody(projectId);
+            if (target) target.innerHTML = '<div class="section-schedule-empty">Не удалось загрузить данные объекта.</div>';
+        });
+    }
+
+    function refreshScheduleProjectBody(projectId) {
+        var project = scheduleProjectById(projectId);
+        var body = scheduleProjectBody(projectId);
+        if (!project || !body || !isScheduleProjectOpen(projectId)) return;
+        body.innerHTML = renderScheduleProjectDetails(project, scheduleProjectDetails(projectId));
+        bindSchedulePageProjectDetails(projectId);
+    }
+
+    function bindSchedulePageActualQuantityInputs(projectId) {
+        var body = scheduleProjectBody(projectId);
+        qsa('[data-actual-qty-input]', body).forEach(function (input) {
+            if (input.dataset.schedulePageActualBound === '1') return;
+            input.dataset.schedulePageActualBound = '1';
+            input.addEventListener('click', function (event) { event.stopPropagation(); });
+            input.addEventListener('change', function () {
+                var item = {
+                    id: input.getAttribute('data-item-id') || '',
+                    title: input.getAttribute('data-item-title') || '',
+                    unit: input.getAttribute('data-item-unit') || '',
+                    plannedQty: input.getAttribute('data-item-qty') || ''
+                };
+                if (input.getAttribute('data-actual-kind') === 'work') {
+                    setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, input.value);
+                } else {
+                    setMaterialManualActualQty(projectId, item, input.value);
+                }
+                renderSchedulePage();
+            });
+        });
+    }
+
+    function bindSchedulePageProjectDetails(projectId) {
+        var body = scheduleProjectBody(projectId);
+        var project = scheduleProjectById(projectId);
+        if (!body || !project) return;
+        qsa('[data-section-schedule-toggle]', body).forEach(function (button) {
+            if (button.dataset.schedulePageBound === '1') return;
+            button.dataset.schedulePageBound = '1';
+            var toggleSection = function () {
+                var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[projectId];
+                var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+                var key = button.getAttribute('data-section-key') || '';
+                var section = sections.find(function (entry) { return scheduleSectionKey(entry) === key; });
+                if (!section) return;
+                setScheduleSectionOpen(projectId, section, button.getAttribute('aria-expanded') !== 'true');
+                refreshScheduleProjectBody(projectId);
+            };
+            button.addEventListener('click', toggleSection);
+            button.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                toggleSection();
+            });
+        });
+        qsa('[data-section-work-check]', body).forEach(function (input) {
+            if (input.dataset.schedulePageWorkBound === '1') return;
+            input.dataset.schedulePageWorkBound = '1';
+            input.addEventListener('change', function () {
+                setScheduleWorkDone(projectId, input.getAttribute('data-section-title') || '', {
+                    title: input.getAttribute('data-work-title') || '',
+                    unit: input.getAttribute('data-work-unit') || '',
+                    planned_qty: input.getAttribute('data-work-qty') || ''
+                }, input.checked);
+                renderSchedulePage();
+            });
+        });
+        qsa('[data-section-schedule-refresh]', body).forEach(function (button) {
+            if (button.dataset.schedulePageRefreshBound === '1') return;
+            button.dataset.schedulePageRefreshBound = '1';
+            button.addEventListener('click', function () {
+                button.disabled = true;
+                loadScheduleProjectDetails(project, true);
+            });
+        });
+        bindScheduleActionButtons();
+        bindSchedulePageActualQuantityInputs(projectId);
+    }
+
+    function bindScheduleProjectAccordions() {
+        qsa('[data-schedule-project-toggle]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var projectId = button.getAttribute('data-project-id');
+                var project = scheduleProjectById(projectId);
+                if (!project) return;
+                var nextOpen = !isScheduleProjectOpen(projectId);
+                setScheduleProjectOpen(projectId, nextOpen);
+                renderSchedulePage();
+            });
+        });
+        (state.projects || []).forEach(function (project) {
+            if (isScheduleProjectOpen(project.id)) {
+                if (scheduleProjectDetails(project.id)) bindSchedulePageProjectDetails(project.id);
+                else loadScheduleProjectDetails(project, false);
+            }
+        });
+    }
+
+    function renderSchedulePage() {
+        var root = qs('[data-schedule-list]');
+        if (!root) return;
+        state.scheduleQuickActions = {};
+        state.scheduleProjectOpenByProject = state.scheduleProjectOpenByProject || {};
+        if (!state.projects.length) {
+            root.innerHTML = '<p class="muted">Нет объектов для графика.</p>';
+            return;
+        }
+        root.innerHTML = '<div class="schedule-project-list">' + state.projects.map(function (project) {
+            return renderScheduleProject(project);
+        }).join('') + '</div>';
+        bindScheduleProjectAccordions();
+    }
+
+    function estimateSectionStorageKey(projectId, kind) {
+        return 'pmbi.estimate.sections.' + String(kind || 'items') + '.' + String(projectId || '');
+    }
+
+    function estimateSectionKey(kind, title, index) {
+        return [
+            String(kind || 'items'),
+            normalizedWorkKeyPart(title || ''),
+            String(index || 0)
+        ].join('|');
+    }
+
+    function isEstimateSectionOpen(projectId, kind, title, index) {
+        var map = readStoredJson(estimateSectionStorageKey(projectId, kind));
+        return map[estimateSectionKey(kind, title, index)] === 1;
+    }
+
+    function setEstimateSectionOpen(projectId, kind, title, index, isOpen) {
+        var map = readStoredJson(estimateSectionStorageKey(projectId, kind));
+        var key = estimateSectionKey(kind, title, index);
+        if (isOpen) map[key] = 1;
+        else delete map[key];
+        writeStoredJson(estimateSectionStorageKey(projectId, kind), map);
+    }
+
+    function renderEstimateAccordionHead(projectId, kind, title, index, mainHtml, sideHtml, subHtml, progressHtml) {
+        var isOpen = isEstimateSectionOpen(projectId, kind, title, index);
+        return '<div class="card-head estimate-section-head estimate-accordion-head" role="button" tabindex="0" data-estimate-section-toggle data-project-id="' + escapeHtml(projectId || '') + '" data-estimate-kind="' + escapeHtml(kind) + '" data-section-title="' + escapeHtml(title || '') + '" data-section-index="' + escapeHtml(String(index || 0)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+            '<div class="estimate-accordion-main">' +
+                '<div class="estimate-section-title">' + mainHtml + '</div>' +
+                (subHtml ? '<small>' + subHtml + '</small>' : '') +
+                (progressHtml || '') +
+            '</div>' +
+            '<div class="work-section-head-side">' + (sideHtml || '') + '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span></div>' +
+        '</div>';
+    }
+
+    function estimateDisplaySectionTitle(title, index) {
+        var clean = String(title || '').replace(/\s+/g, ' ').trim();
+        if (!clean) return materialSectionLabel(index);
+        if (/^раздел\s*\d+/i.test(clean)) return clean;
+        return materialSectionLabel(index) + ' ' + clean;
+    }
+
+    function explicitEstimateSectionNumber(title) {
+        var match = String(title || '').trim().match(/^раздел\s*(\d+)/i);
+        return match ? Number(match[1]) : 0;
+    }
+
+    function buildEstimateSectionNumberMap(sectionTitles) {
+        var used = {};
+        (sectionTitles || []).forEach(function (title) {
+            var number = explicitEstimateSectionNumber(title);
+            if (number > 0) used[number] = 1;
+        });
+        var next = 1;
+        var map = {};
+        (sectionTitles || []).forEach(function (title, index) {
+            var key = String(title || '').trim() || 'Без раздела';
+            if (map[key]) return;
+            var explicit = explicitEstimateSectionNumber(key);
+            if (explicit > 0) {
+                map[key] = explicit;
+                return;
+            }
+            while (used[next]) next += 1;
+            map[key] = next;
+            used[next] = 1;
+            next += 1;
+        });
+        return map;
+    }
+
+    function estimateDisplaySectionTitleWithNumber(title, fallbackIndex, sectionNumbers) {
+        var clean = String(title || '').replace(/\s+/g, ' ').trim();
+        if (/^раздел\s*\d+/i.test(clean)) return clean;
+        var number = sectionNumbers && sectionNumbers[clean || 'Без раздела'];
+        if (!number) number = fallbackIndex + 1;
+        if (!clean || clean === 'Без раздела') return 'Раздел ' + String(number);
+        return 'Раздел ' + String(number) + ' ' + clean;
+    }
+
+    function renderCompactActualQtyEditor(kind, projectId, sectionTitle, item, progress) {
+        var itemId = kind === 'material' ? (item && item.id || '') : '';
+        var stepValue = Math.abs((progress.total || 0) - Math.round(progress.total || 0)) < 0.0001 ? '1' : '0.1';
+        return '<label class="quantity-actual-editor quantity-actual-compact quantity-actual-' + escapeHtml(kind) + '" title="Факт из плана">' +
+            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b>/<em>' + escapeHtml(quantityText(progress.total)) + '</em></span>' +
+            '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || 'ед.') + '</em></div>' +
+        '</label>';
+    }
+
+    function renderCounterpartyPicker(projectId, item, insight, labels) {
+        if (!canManageSuppliers()) return '';
+        labels = labels || {};
+        var options = insight && Array.isArray(insight.options) ? insight.options : [];
+        var isSelected = !!(insight && insight.selectedOfferId);
+        return '<div class="material-supplier-picker counterparty-picker">' +
+            '<button class="ghost material-link compact' + (isSelected ? ' is-selected' : '') + '" type="button" data-supplier-toggle data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '">' + escapeHtml(isSelected ? (labels.selected || 'Выбран') : (labels.empty || 'Контрагент')) + '</button>' +
+            '<div class="material-supplier-menu" data-supplier-menu hidden>' +
+                (options.length ? options.map(function (option) {
+                    var meta = [option.company, option.price > 0 ? (finalSectionSummaryNumber(option.price) + ' ₽') : ''].filter(Boolean).join(' • ');
+                    return '<button class="material-supplier-option' + (option.status === 'selected' ? ' is-selected' : '') + '" type="button" ' +
+                        'data-supplier-select ' +
+                        'data-project-id="' + escapeHtml(projectId) + '" ' +
+                        'data-material-id="' + escapeHtml(item.id) + '" ' +
+                        'data-offer-id="' + escapeHtml(option.id) + '" ' +
+                        'data-status="' + escapeHtml(option.status) + '" ' +
+                        'data-price="' + escapeHtml(option.price) + '" ' +
+                        'data-qty="' + escapeHtml(option.qty) + '" ' +
+                        'data-phone="' + escapeHtml(option.phone) + '" ' +
+                        'data-source-url="' + escapeHtml(option.sourceUrl) + '" ' +
+                        'data-notes="' + escapeHtml(option.notes) + '">' +
+                        '<strong>' + escapeHtml(option.name) + '</strong>' +
+                        (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') +
+                    '</button>';
+                }).join('') : '<div class="material-supplier-empty">' + escapeHtml(labels.none || 'Нет контрагентов') + '</div>') +
+            '</div>' +
+        '</div>';
+    }
+
+    function bindEstimateSectionToggles(projectId) {
+        if (!document.body.dataset.estimateSectionToggleDelegated) {
+            document.body.dataset.estimateSectionToggleDelegated = '1';
+            document.addEventListener('click', function (event) {
+                var button = event.target && event.target.closest ? event.target.closest('[data-estimate-section-toggle]') : null;
+                if (!button) return;
+                event.preventDefault();
+                var targetProjectId = Number(button.getAttribute('data-project-id') || projectId || 0);
+                var kind = button.getAttribute('data-estimate-kind') || 'items';
+                var title = button.getAttribute('data-section-title') || '';
+                var index = Number(button.getAttribute('data-section-index') || 0);
+                setEstimateSectionOpen(targetProjectId, kind, title, index, button.getAttribute('aria-expanded') !== 'true');
+                rerenderProjectMaterialAndWorkViews(targetProjectId);
+            });
+            document.addEventListener('keydown', function (event) {
+                var button = event.target && event.target.closest ? event.target.closest('[data-estimate-section-toggle]') : null;
+                if (!button) return;
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                var targetProjectId = Number(button.getAttribute('data-project-id') || projectId || 0);
+                var kind = button.getAttribute('data-estimate-kind') || 'items';
+                var title = button.getAttribute('data-section-title') || '';
+                var index = Number(button.getAttribute('data-section-index') || 0);
+                setEstimateSectionOpen(targetProjectId, kind, title, index, button.getAttribute('aria-expanded') !== 'true');
+                rerenderProjectMaterialAndWorkViews(targetProjectId);
+            });
+        }
+    }
+
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var progress = materialActualProgress(projectId, item);
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        return '<div class="material-row work-row estimate-compact-row material-estimate-row' + (isDone ? ' material-row-done work-row-done' : '') + (progress.actual > 0 && !isDone ? ' material-row-partial' : '') + '">' +
+            '<div class="work-row-main">' +
+                '<label class="section-work-check section-material-check quantity-work-check estimate-compact-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
+                    '<input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+                    '<span class="section-work-check-copy"><b>' + escapeHtml(effectiveItem.title) + '</b></span>' +
+                '</label>' +
+            '</div>' +
+            '<div class="work-row-side estimate-compact-side">' +
+                renderCompactActualQtyEditor('material', projectId, '', item, progress) +
+                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: 'Поставщик', selected: insight && insight.selectedName ? insight.selectedName : 'Поставщик', none: 'Нет поставщиков' }) + '</div>' +
+            '</div>' +
+        '</div>';
+    };
+
+    renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
+        var insight = (state.materialInsightsByProject[projectId] || {})[Number(item.id)] || null;
+        var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty, unit: quantityPlanInfo(item).unit };
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        return '<div class="material-row work-row estimate-compact-row' + (isDone ? ' work-row-done' : '') + (progress.actual > 0 && !isDone ? ' work-row-partial' : '') + (!isDone && riskKind ? (' work-row-' + riskKind) : '') + '">' +
+            '<div class="work-row-main">' +
+                '<div class="section-work-check work-list-check quantity-work-check estimate-compact-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
+                    '<label class="quantity-check-main"><input type="checkbox" data-section-work-check data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+                    '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b></span></label>' +
+                '</div>' +
+            '</div>' +
+            '<div class="work-row-side estimate-compact-side">' +
+                renderCompactActualQtyEditor('work', projectId, sectionTitle, item, progress) +
+                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, item, insight, { empty: 'Подрядчик', selected: insight && insight.selectedName ? insight.selectedName : 'Подрядчик', none: 'Нет подрядчиков' }) + '</div>' +
+            '</div>' +
+        '</div>';
+    };
+
+    renderGroupedMaterials = function (groups, projectId, insights) {
+        insights = insights || {};
+        var sectionNumbers = buildEstimateSectionNumberMap((groups || []).map(function (group) {
+            return String(group.title || '').trim() || 'Без раздела';
+        }));
+        return '<div class="estimate-section-list">' + (groups || []).map(function (group, index) {
+            var title = String(group.title || '').trim();
+            var progress = materialProgress(projectId, group.items || []);
+            var open = isEstimateSectionOpen(projectId, 'materials', title, index);
+            var head = renderEstimateAccordionHead(
+                projectId,
+                'materials',
+                title,
+                index,
+                '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('materials', progress, ''),
+                '<span class="badge estimate-section-count">' + escapeHtml(String((group.items || []).length) + ' поз.') + '</span>',
+                '',
+                sectionProgressStrip({ total: 0, done: 0 }, progress)
+            );
+            return '<section class="estimate-section estimate-section-card estimate-section-collapsible">' +
+                head +
+                (open ? '<div class="materials-list estimate-section-body"><div class="estimate-compact-header"><span>Материал</span><span>Факт</span><span>Поставщик</span></div>' + (group.items || []).map(function (item) {
+                    return materialRow(item, projectId, insights[Number(item.id)] || null);
+                }).join('') + '</div>' : '') +
+            '</section>';
+        }).join('') + '</div>';
+    };
+
+    function estimateSectionTitleForCount(item) {
+        return String(item && (item.sectionTitle || item.stageTitle) || '').trim() || 'Без раздела';
+    }
+
+    function estimateTotalSectionCount(items, fallbackOrder) {
+        var seen = {};
+        var count = 0;
+        (items || []).forEach(function (item) {
+            var title = estimateSectionTitleForCount(item);
+            if (seen[title]) return;
+            seen[title] = 1;
+            count += 1;
+        });
+        if (count) return count;
+        (fallbackOrder || []).forEach(function (title) {
+            title = String(title || '').trim() || 'Без раздела';
+            if (seen[title]) return;
+            seen[title] = 1;
+            count += 1;
+        });
+        return count;
+    }
+
+    renderMaterials = function (items, projectId, insights) {
+        var materials = (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
+        if (!materials.length) return '<p class="muted">Материалы по смете пока не загружены.</p>';
+        var progress = materialProgress(projectId, materials);
+        var groups = groupMaterialsBySection(materials);
+        var totalSections = estimateTotalSectionCount(items, groups.map(function (group) { return group.title; }));
+        return '<div class="execution-summary material-progress-summary estimate-summary-compact">' +
+            stat('Всего позиций', String(materials.length)) +
+            stat('Всего разделов', String(totalSections)) +
+            stat('Материалов закрыто', String(progress.done) + ' из ' + String(progress.total), progress.total && progress.done >= progress.total ? 'success' : '') +
+        '</div>' + renderGroupedMaterials(groups, projectId, insights || {});
+    };
+
+    renderWorksPanel = function (stages, items) {
+        var projectId = state.selectedProject ? state.selectedProject.id : null;
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) return '<p class="muted">Работы по смете пока не загружены.</p>';
+        var groups = {};
+        var order = [];
+        function ensureGroup(title) {
+            var sectionTitle = String(title || '').trim() || 'Без раздела';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            return groups[sectionTitle];
+        }
+        workStages.forEach(function (stage) {
+            ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage);
+        });
+        estimateWorks.forEach(function (item) {
+            ensureGroup(item.sectionTitle || item.stageTitle).estimateRows.push(item);
+        });
+        var originalSectionOrder = order.slice();
+        var sectionNumbers = buildEstimateSectionNumberMap(originalSectionOrder);
+        var scheduleOrder = workScheduleSections(projectId).map(function (section) {
+            return String(section.title || '').trim();
+        }).filter(Boolean);
+        if (scheduleOrder.length) {
+            var scheduledMap = {};
+            order = scheduleOrder.filter(function (title) {
+                if (!groups[title]) return false;
+                scheduledMap[title] = 1;
+                return true;
+            }).concat(order.filter(function (title) {
+                return !scheduledMap[title];
+            }));
+        }
+        order.sort(function (left, right) {
+            var leftNumber = sectionNumbers[left] || explicitEstimateSectionNumber(left) || 9999;
+            var rightNumber = sectionNumbers[right] || explicitEstimateSectionNumber(right) || 9999;
+            if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+            return originalSectionOrder.indexOf(left) - originalSectionOrder.indexOf(right);
+        });
+        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            return isProjectWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        var totalWorkPositions = estimateWorks.length || workStages.length;
+        var doneWorkPositions = estimateWorks.length ? doneEstimateWorks : workStages.filter(function (stage) {
+            return Number(stage.progress || 0) >= 100;
+        }).length;
+        var totalSections = estimateTotalSectionCount(items, order);
+        return '<div class="execution-summary work-progress-summary">' +
+            stat('Всего позиций', String(totalWorkPositions)) +
+            stat('Всего разделов', String(totalSections)) +
+            stat('Работ готово', String(doneWorkPositions) + ' из ' + String(totalWorkPositions), totalWorkPositions && doneWorkPositions >= totalWorkPositions ? 'success' : '') +
+        '</div><div class="estimate-section-list">' + order.map(function (title, index) {
+            var group = groups[title];
+            var workProgress = workProgressForRows(projectId, title, group.estimateRows);
+            var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
+            var open = isEstimateSectionOpen(projectId, 'works', title, index);
+            var head = renderEstimateAccordionHead(
+                projectId,
+                'works',
+                title,
+                index,
+                '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : ''),
+                scheduleMeta.html + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length) + ' поз.') + '</span>',
+                '',
+                sectionProgressStrip(workProgress, { total: 0, done: 0 })
+            );
+            return '<section class="estimate-section estimate-section-card estimate-section-collapsible work-section-card' + scheduleMeta.className + '">' +
+                head +
+                (open ? '<div class="materials-list estimate-section-body"><div class="estimate-compact-header"><span>Работа</span><span>Факт</span><span>Подрядчик</span></div>' +
+                    group.stageRows.map(function (stage) {
+                        var meta = [
+                            stagePathLabel(stage, stageMap),
+                            stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '',
+                            stage.responsible || ''
+                        ].filter(Boolean).join(' • ');
+                        return '<div class="material-row work-row"><div class="work-row-main"><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || 'Работа') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+                    }).join('') +
+                    group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('') +
+                '</div>' : '') +
+            '</section>';
+        }).join('') + '</div>';
+    };
+
+    function marketSourceType(source) {
+        var url = String(source && source.url || '').toLowerCase();
+        return url.indexOf('avito') !== -1 ? 'avito' : (url ? 'other' : 'manual');
+    }
+
+    function marketCandidateTitle(row, source, kind) {
+        var sourceTitle = String(source && source.title || '').trim();
+        if (sourceTitle) return sourceTitle;
+        return (kind === 'work' ? 'Подрядчик: ' : 'Поставщик: ') + String(row && row.title || '').trim();
+    }
+
+    function renderMarketCreateButton(projectId, row, kind) {
+        if (!canManageSuppliers()) return '';
+        var source = Array.isArray(row.sources) && row.sources.length ? row.sources[0] : {};
+        var type = kind === 'work' ? 'contractor' : 'supplier';
+        var label = kind === 'work' ? 'Создать подрядчика' : 'Создать поставщика';
+        return '<button class="ghost compact market-create-counterparty" type="button" data-market-create-offer data-project-id="' + escapeHtml(projectId) + '" data-market-tab="' + (kind === 'work' ? 'works' : 'materials') + '" data-candidate-type="' + escapeHtml(type) + '" data-candidate-name="' + escapeHtml(marketCandidateTitle(row, source, kind)) + '" data-estimate-item-id="' + escapeHtml(row.estimateItemId || '') + '" data-source-type="' + escapeHtml(marketSourceType(source)) + '" data-source-url="' + escapeHtml(source.url || '') + '" data-price="' + escapeHtml(row.marketPrice == null ? (source.price || 0) : row.marketPrice) + '" data-qty="' + escapeHtml(row.plannedQty || 0) + '" data-unit="' + escapeHtml(row.unit || '') + '" data-notes="' + escapeHtml([row.title, source.snippet || '', source.domain || ''].filter(Boolean).join(' • ')) + '">' + label + '</button>';
+    }
+
+    renderMarketTable = function (rows, kind, projectId) {
+        if (!rows.length) {
+            return '<div class="market-empty">По этому разделу пока нет строк для анализа.</div>';
+        }
+        return '<div class="market-table-wrap"><table class="market-table">' +
+            '<thead><tr>' +
+                '<th>Позиция</th>' +
+                '<th>Смета</th>' +
+                '<th>Рынок</th>' +
+                '<th>Разница</th>' +
+                '<th>Источники</th>' +
+                '<th>Действие</th>' +
+            '</tr></thead><tbody>' +
+            rows.map(function (row) {
+                var meta = [
+                    row.sectionTitle || '',
+                    row.plannedQty ? ('Объем: ' + row.plannedQty + ' ' + (row.unit || '')) : '',
+                    row.positionIndex ? ('№ ' + row.positionIndex) : ''
+                ].filter(Boolean).join(' • ');
+                var marketCell = row.marketPrice == null
+                    ? '<span class="market-missing">Нет данных</span>'
+                    : '<strong>' + escapeHtml(money(row.marketPrice)) + '</strong>' +
+                        (row.marketType ? '<small>' + escapeHtml(kind === 'work' ? 'Работы AutoBot' : 'Рынок AutoBot') + '</small>' : '');
+                return '<tr>' +
+                    '<td><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || 'Без раздела') + '</small></td>' +
+                    '<td><strong>' + escapeHtml(money(row.estimateUnitPrice || 0)) + '</strong><small>Всего: ' + escapeHtml(money(row.estimateTotal || 0)) + '</small></td>' +
+                    '<td>' + marketCell + (row.statusNote ? '<small>' + escapeHtml(row.statusNote) + '</small>' : '') + '</td>' +
+                    '<td>' + formatMarketDelta(row.deltaPerUnit) + '</td>' +
+                    '<td>' + renderMarketSources(row) + '</td>' +
+                    '<td>' + renderMarketCreateButton(projectId, row, kind) + '</td>' +
+                '</tr>';
+            }).join('') +
+            '</tbody></table></div>';
+    };
+
+    renderProjectMarketBlock = function (projectId, kind) {
+        var cache = (state.marketAnalysisByProject[projectId] || {})[kind];
+        if (!cache || cache.loading) {
+            return '<div class="market-empty">Собираем анализ рынка из AutoBot...</div>';
+        }
+        if (cache.error) {
+            return '<div class="market-empty">' + escapeHtml(marketErrorLabel(cache.error)) + '</div>';
+        }
+        var summary = cache.summary || {};
+        return '<div class="execution-summary">' +
+            stat('Всего позиций', String(summary.total || 0)) +
+            stat('Есть рынок', String(summary.withMarketData || 0), summary.withMarketData ? '' : 'warn') +
+            stat('Без рынка', String(summary.withoutMarketData || 0), summary.withoutMarketData ? 'warn' : '') +
+        '</div>' + renderMarketTable(cache.rows || [], kind, projectId);
+    };
+
+    function bindMarketCreateButtons(projectId) {
+        qsa('[data-market-create-offer]').forEach(function (button) {
+            if (button.dataset.marketCreateBound === '1') return;
+            button.dataset.marketCreateBound = '1';
+            button.addEventListener('click', function () {
+                var targetProjectId = Number(button.getAttribute('data-project-id') || projectId || 0);
+                if (!targetProjectId) return;
+                button.disabled = true;
+                var originalText = button.textContent;
+                button.textContent = 'Добавляем...';
+                api('/api/projects/' + targetProjectId + '/supplier-offers', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        candidate_type: button.getAttribute('data-candidate-type') || 'supplier',
+                        candidate_name: button.getAttribute('data-candidate-name') || '',
+                        estimate_item_id: button.getAttribute('data-estimate-item-id') || '',
+                        source_type: button.getAttribute('data-source-type') || 'manual',
+                        source_url: button.getAttribute('data-source-url') || '',
+                        price: Number(button.getAttribute('data-price') || 0),
+                        qty: Number(button.getAttribute('data-qty') || 0),
+                        unit: button.getAttribute('data-unit') || '',
+                        status: 'quoted',
+                        notes: button.getAttribute('data-notes') || ''
+                    })
+                }).then(function () {
+                    button.textContent = 'Добавлено';
+                    button.classList.add('is-selected');
+                    loadMaterialInsights(targetProjectId, function () {
+                        if (state.selectedProject && Number(state.selectedProject.id) === Number(targetProjectId)) bindProjectChainActions();
+                    });
+                }).catch(function () {
+                    button.disabled = false;
+                    button.textContent = originalText || 'Добавить';
+                    window.alert('Не удалось добавить кандидата во вкладку контрагентов.');
+                });
+            });
+        });
+    }
+
+    var baseBindProjectMarketTogglesCounterparties = bindProjectMarketToggles;
+    bindProjectMarketToggles = function (projectId) {
+        baseBindProjectMarketTogglesCounterparties(projectId);
+        bindMarketCreateButtons(projectId);
+        bindEstimateSectionToggles(projectId);
+    };
+
+    var baseBindProjectChainActionsCounterparties = bindProjectChainActions;
+    bindProjectChainActions = function () {
+        baseBindProjectChainActionsCounterparties();
+        if (state.selectedProject && state.selectedProject.id) bindEstimateSectionToggles(state.selectedProject.id);
     };
 
     if (page === 'login') initLogin();

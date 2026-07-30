@@ -188,7 +188,7 @@ APP_PAGES = {
     "/app/reports": ("reports", "Отчётность"),
 }
 
-APP_PAGES["/app/suppliers"] = ("suppliers", "Поставщики")
+APP_PAGES["/app/suppliers"] = ("suppliers", "Контрагенты")
 
 APP_PAGES["/app/autobot"] = ("autobot", "AutoBot")
 
@@ -248,7 +248,7 @@ def now_ts() -> int:
     return int(time.time())
 
 
-TODAY_ISO = "2026-07-29"
+TODAY_ISO = "2026-07-30"
 
 
 def normalize_estimate_item_kind(value: object) -> str:
@@ -272,6 +272,43 @@ def normalize_estimate_item_kind(value: object) -> str:
     if any(marker in text for marker in material_markers):
         return "material"
     return "material"
+
+
+def estimate_unit_multiplier(unit: object) -> float:
+    match = re.match(r"^\s*(\d+(?:[\.,]\d+)?)\s+\S+", str(unit or "").strip())
+    if not match:
+        return 1.0
+    try:
+        multiplier = float(match.group(1).replace(",", "."))
+    except ValueError:
+        return 1.0
+    return multiplier if multiplier > 1 else 1.0
+
+
+def normalize_estimate_planned_qty(unit: object, qty: object) -> float:
+    try:
+        value = float(qty or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    multiplier = estimate_unit_multiplier(unit)
+    if multiplier >= 100 and value >= multiplier:
+        return value / multiplier
+    return value
+
+
+def normalize_estimate_planned_values(unit: object, qty: object, price: object) -> tuple[float, float]:
+    try:
+        raw_qty = float(qty or 0)
+    except (TypeError, ValueError):
+        raw_qty = 0.0
+    try:
+        raw_price = float(price or 0)
+    except (TypeError, ValueError):
+        raw_price = 0.0
+    planned_qty = normalize_estimate_planned_qty(unit, raw_qty)
+    if raw_qty > 0 and planned_qty > 0 and planned_qty != raw_qty:
+        raw_price *= raw_qty / planned_qty
+    return planned_qty, raw_price
 
 
 def extract_labeled_note_value(notes: object, labels: tuple[str, ...]) -> str | None:
@@ -3603,6 +3640,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
             for project in projects:
                 for item in material_summary_rows(con, int(project["id"])):
                     if item["missingQty"] > 0:
+                        work_date = item.get("stageStartDate") or item.get("needByDate") or item.get("stageEndDate") or ""
+                        parsed_work_date = parse_iso_date(str(work_date or ""))
                         shortages += 1
                         critical_items.append({
                             "projectId": project["id"],
@@ -3610,6 +3649,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                             "title": item["title"],
                             "missingQty": item["missingQty"],
                             "unit": item["unit"],
+                            "sectionTitle": item.get("sectionTitle") or "",
+                            "stageTitle": item.get("stageTitle") or "",
+                            "needByDate": item.get("needByDate") or "",
+                            "workDate": work_date,
+                            "daysUntilWork": (parsed_work_date - parse_iso_date(TODAY_ISO)).days if parsed_work_date and parse_iso_date(TODAY_ISO) else None,
                         })
             open_tasks = 0
             if project_ids:
@@ -4015,8 +4059,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
         payload = self.read_json()
         title = str(payload.get("title", "")).strip()
         unit = str(payload.get("unit", "")).strip() or "шт"
-        planned_qty = float(payload.get("planned_qty", payload.get("plannedQty", 0)) or 0)
-        planned_price = float(payload.get("planned_price", payload.get("plannedPrice", 0)) or 0)
+        planned_qty, planned_price = normalize_estimate_planned_values(
+            unit,
+            payload.get("planned_qty", payload.get("plannedQty", 0)),
+            payload.get("planned_price", payload.get("plannedPrice", 0)),
+        )
         if not title or planned_qty <= 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_and_qty_required"})
             return
@@ -4088,7 +4135,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 (
                     str(payload.get("title", material["title"])).strip() or material["title"],
                     str(payload.get("unit", material["unit"])).strip() or material["unit"],
-                    max(0.01, float(payload.get("planned_qty", payload.get("plannedQty", material["planned_qty"])) or material["planned_qty"])),
+                    max(0.01, normalize_estimate_planned_qty(
+                        payload.get("unit", material["unit"]),
+                        payload.get("planned_qty", payload.get("plannedQty", material["planned_qty"])),
+                    )),
                     max(0.0, float(payload.get("planned_price", payload.get("plannedPrice", material["planned_price"])) or 0)),
                     stage_id,
                     resolved_estimate_item_kind(merged_material),
@@ -4449,6 +4499,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 stage_id = stage_map.get(stage_ref) if stage_ref else None
                 item_kind = resolved_estimate_item_kind(item)
                 section_title = resolved_estimate_section_title(item)
+                unit = str(item.get("unit", "шт")).strip() or "шт"
+                planned_qty, planned_price = normalize_estimate_planned_values(
+                    unit,
+                    item.get("planned_qty", item.get("plannedQty", 0)),
+                    item.get("planned_price", item.get("plannedPrice", 0)),
+                )
                 con.execute(
                     """
                     INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, stage_id, item_kind, section_title, need_by_date, notes, updated_at)
@@ -4457,9 +4513,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     (
                         project_id,
                         title,
-                        str(item.get("unit", "шт")).strip() or "шт",
-                        max(0.01, float(item.get("planned_qty", item.get("plannedQty", 0)) or 0.01)),
-                        max(0.0, float(item.get("planned_price", item.get("plannedPrice", 0)) or 0)),
+                        unit,
+                        max(0.01, planned_qty),
+                        max(0.0, planned_price),
                         stage_id,
                         item_kind,
                         section_title,
@@ -4568,8 +4624,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
         for item in items:
             title = str(item.get("title", "")).strip()
             unit = str(item.get("unit", "")).strip() or "шт"
-            planned_qty = float(item.get("planned_qty", item.get("plannedQty", 0)) or 0)
-            planned_price = float(item.get("planned_price", item.get("plannedPrice", 0)) or 0)
+            planned_qty, planned_price = normalize_estimate_planned_values(
+                unit,
+                item.get("planned_qty", item.get("plannedQty", 0)),
+                item.get("planned_price", item.get("plannedPrice", 0)),
+            )
             if not title or planned_qty <= 0:
                 continue
             item_kind = resolved_estimate_item_kind(item)
@@ -5249,7 +5308,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if user["role"] == "customer":
                 stage_rows = con.execute(
                     """
-                    SELECT id, title, status_code, planned_start, planned_end, progress, responsible
+                    SELECT id, title, parent_id, stage_kind, status_code, planned_start, planned_end, progress, responsible
                     FROM work_stages
                     WHERE project_id = ? AND is_client_visible = 1
                     ORDER BY position, id
@@ -5259,7 +5318,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             else:
                 stage_rows = con.execute(
                     """
-                    SELECT id, title, status_code, planned_start, planned_end, progress, responsible
+                    SELECT id, title, parent_id, stage_kind, status_code, planned_start, planned_end, progress, responsible
                     FROM work_stages
                     WHERE project_id = ?
                     ORDER BY position, id
@@ -5285,18 +5344,52 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         start_date = str(section.get("startDate") or "").strip()
                         if title and start_date:
                             section_start_dates[title] = start_date
+        stage_items = [dict(row) for row in stage_rows]
+        stage_map = {int(item["id"]): item for item in stage_items if item.get("id") is not None}
+
+        def stage_section_title(item: dict) -> str:
+            current = item
+            root = item
+            guard = 0
+            while current and current.get("parent_id") and guard < 32:
+                parent = stage_map.get(int(current["parent_id"]))
+                if not parent:
+                    break
+                root = parent
+                current = parent
+                guard += 1
+            title = str((root or item).get("title") or item.get("title") or "").strip()
+            return title or "График работ"
+
+        stage_matches = []
+        for item in stage_items:
+            normalized_title = normalize_schedule_text(item.get("title"))
+            if normalized_title:
+                stage_matches.append((len(normalized_title), normalized_title, item))
+        stage_matches.sort(reverse=True, key=lambda entry: entry[0])
+
+        def annotate_task_section(item: dict) -> dict:
+            text = normalize_schedule_text(" ".join([str(item.get("title") or ""), str(item.get("description") or "")]))
+            for _, normalized_title, stage in stage_matches:
+                if normalized_title and normalized_title in text:
+                    item["stageTitle"] = str(stage.get("title") or "").strip()
+                    item["sectionTitle"] = stage_section_title(stage)
+                    return item
+            item["sectionTitle"] = "Задачи объекта"
+            return item
+
         overdue_tasks = []
         due_soon_tasks = []
         for row in open_tasks:
-            item = dict(row)
+            item = annotate_task_section(dict(row))
             due_at = str(item.get("due_at") or "")
             if due_at and due_at < today:
                 overdue_tasks.append(item)
             elif due_at and due_at <= soon_limit:
                 due_soon_tasks.append(item)
         problem_stages = []
-        for row in stage_rows:
-            item = dict(row)
+        for item in stage_items:
+            item["sectionTitle"] = stage_section_title(item)
             status_code = str(item.get("status_code") or "")
             progress = int(item.get("progress") or 0)
             planned_end = str(item.get("planned_end") or "")
@@ -6322,6 +6415,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
 
         content = self.strip_role_content(content_path.read_text(encoding="utf-8"), user)
+        if page_name == "autobot":
+            content = content.replace(
+                "{{autobot_url}}",
+                html.escape(PMBI_AUTOBOT_BASE_URL or "http://127.0.0.1:8765", quote=True),
+            )
         if page_name == "projects":
             content = content.replace(
                 '<div class="projects-grid" data-projects-list></div>',

@@ -1,8 +1,13 @@
-<section class="autobot-stage">
+<section class="autobot-stage" data-autobot-url="{{autobot_url}}">
     <div class="autobot-embed-wrap">
+        <div class="autobot-offline" data-autobot-offline hidden>
+            <strong>AutoBot не отвечает</strong>
+            <span>Проверь, что сервис AutoBot запущен, или открой его отдельно.</span>
+            <a href="{{autobot_url}}/" target="_blank" rel="noopener noreferrer">Открыть AutoBot</a>
+        </div>
         <iframe
             class="autobot-embed"
-            src="http://127.0.0.1:8765/"
+            src="{{autobot_url}}/"
             title="AutoBot"
             loading="eager"
             referrerpolicy="no-referrer"
@@ -10,3 +15,14 @@
         ></iframe>
     </div>
 </section>
+<script>
+    (function () {
+        var stage = document.querySelector('[data-autobot-url]');
+        var offline = document.querySelector('[data-autobot-offline]');
+        if (!stage || !offline || !window.fetch) return;
+        var url = (stage.getAttribute('data-autobot-url') || '').replace(/\/+$/, '') + '/';
+        window.fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(function () {
+            offline.hidden = false;
+        });
+    })();
+</script>
