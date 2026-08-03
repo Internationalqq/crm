@@ -13,6 +13,7 @@ import secrets
 import sqlite3
 import sys
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from datetime import date, timedelta
@@ -248,7 +249,7 @@ def now_ts() -> int:
     return int(time.time())
 
 
-TODAY_ISO = "2026-07-30"
+TODAY_ISO = date.today().isoformat()
 
 
 def normalize_estimate_item_kind(value: object) -> str:
@@ -309,6 +310,86 @@ def normalize_estimate_planned_values(unit: object, qty: object, price: object) 
     if raw_qty > 0 and planned_qty > 0 and planned_qty != raw_qty:
         raw_price *= raw_qty / planned_qty
     return planned_qty, raw_price
+
+
+FUZZY_MATCH_THRESHOLD = 0.70
+
+
+def normalize_fuzzy_text(value: object) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).lower().replace("ё", "е")
+    text = re.sub(r"\bпровод\b", "кабель", text)
+    text = re.sub(r"\bпровода\b", "кабель", text)
+    text = re.sub(r"(?<=\d)[xх×](?=\d)", "x", text)
+    text = re.sub(r"(?<=\d)[,.](?=\d)", ".", text)
+    text = re.sub(r"[^0-9a-zа-я.]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def levenshtein_distance(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    if len(left) < len(right):
+        left, right = right, left
+    previous = list(range(len(right) + 1))
+    for i, left_char in enumerate(left, 1):
+        current = [i]
+        for j, right_char in enumerate(right, 1):
+            current.append(
+                min(
+                    previous[j] + 1,
+                    current[j - 1] + 1,
+                    previous[j - 1] + (0 if left_char == right_char else 1),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def dice_coefficient(left: str, right: str) -> float:
+    def bigrams(text: str) -> list[str]:
+        compact = re.sub(r"\s+", "", text)
+        if len(compact) < 2:
+            return [compact] if compact else []
+        return [compact[index : index + 2] for index in range(len(compact) - 1)]
+
+    left_bigrams = bigrams(left)
+    right_bigrams = bigrams(right)
+    if not left_bigrams or not right_bigrams:
+        return 0.0
+    right_counts: dict[str, int] = {}
+    for gram in right_bigrams:
+        right_counts[gram] = right_counts.get(gram, 0) + 1
+    overlap = 0
+    for gram in left_bigrams:
+        count = right_counts.get(gram, 0)
+        if count:
+            overlap += 1
+            right_counts[gram] = count - 1
+    return (2.0 * overlap) / (len(left_bigrams) + len(right_bigrams))
+
+
+def fuzzy_similarity(left_value: object, right_value: object) -> float:
+    left = normalize_fuzzy_text(left_value)
+    right = normalize_fuzzy_text(right_value)
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    if left in right or right in left:
+        short = min(len(left), len(right))
+        long = max(len(left), len(right))
+        return max(0.82, short / long)
+    lev = 1.0 - (levenshtein_distance(left, right) / max(len(left), len(right), 1))
+    dice = dice_coefficient(left, right)
+    left_tokens = set(left.split())
+    right_tokens = set(right.split())
+    token_score = len(left_tokens & right_tokens) / max(len(left_tokens | right_tokens), 1)
+    return max(lev, dice, token_score)
 
 
 def extract_labeled_note_value(notes: object, labels: tuple[str, ...]) -> str | None:
@@ -823,6 +904,31 @@ def init_db() -> None:
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS warehouse_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_type TEXT NOT NULL DEFAULT 'material' CHECK(item_type IN ('material','tool')),
+                category TEXT,
+                name TEXT NOT NULL,
+                sku TEXT,
+                unit TEXT NOT NULL DEFAULT 'шт',
+                qty REAL NOT NULL DEFAULT 0,
+                condition_status TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS warehouse_transfers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                warehouse_item_id INTEGER NOT NULL REFERENCES warehouse_items(id) ON DELETE CASCADE,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                qty REAL NOT NULL,
+                unit TEXT NOT NULL,
+                comment TEXT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS supplier_offers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1055,8 +1161,28 @@ def init_db() -> None:
                 "stage_id": "INTEGER REFERENCES work_stages(id) ON DELETE SET NULL",
                 "item_kind": "TEXT NOT NULL DEFAULT 'material'",
                 "section_title": "TEXT",
+                "article": "TEXT",
+                "procurement_status": "TEXT NOT NULL DEFAULT 'Купить'",
+                "warehouse_source": "TEXT",
+                "warehouse_item_id": "INTEGER REFERENCES warehouse_items(id) ON DELETE SET NULL",
+                "delivery_days": "INTEGER",
                 "need_by_date": "TEXT",
                 "notes": "TEXT",
+                "updated_at": "INTEGER",
+            },
+        )
+
+        ensure_columns(
+            con,
+            "warehouse_items",
+            {
+                "item_type": "TEXT NOT NULL DEFAULT 'material'",
+                "category": "TEXT",
+                "name": "TEXT NOT NULL DEFAULT ''",
+                "sku": "TEXT",
+                "unit": "TEXT NOT NULL DEFAULT 'шт'",
+                "qty": "REAL NOT NULL DEFAULT 0",
+                "condition_status": "TEXT",
                 "updated_at": "INTEGER",
             },
         )
@@ -1118,6 +1244,8 @@ def init_db() -> None:
                     """,
                     (row["id"], role["id"], now_ts()),
                 )
+
+        seed_warehouse_items(con)
 
         user_count = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0:
@@ -1673,6 +1801,11 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             e.planned_price,
             e.item_kind,
             e.section_title,
+            e.article,
+            e.procurement_status,
+            e.warehouse_source,
+            e.warehouse_item_id,
+            e.delivery_days,
             e.need_by_date,
             e.notes,
             e.stage_id,
@@ -1703,6 +1836,16 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         missing = max(planned - covered, 0)
         usage_progress = round(min(100, used / planned * 100), 1) if planned else 0
         purchase_progress = round(min(100, covered / planned * 100), 1) if planned else 0
+        estimated_delivery_days = estimate_material_lead_days(
+            {
+                "title": row["title"],
+                "notes": row["notes"],
+                "unit": row["unit"],
+                "planned_qty": planned,
+                "planned_price": float(row["planned_price"] or 0),
+            }
+        )
+        delivery_days = int(row["delivery_days"]) if row["delivery_days"] is not None else int(estimated_delivery_days)
         need_by_date = str(row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"] or "")
         soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
         if missing <= 0:
@@ -1723,6 +1866,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "title": row["title"],
                 "itemKind": resolved_estimate_item_kind(row),
                 "unit": row["unit"],
+                "article": row["article"] or "",
                 "plannedQty": planned,
                 "plannedPrice": float(row["planned_price"] or 0),
                 "purchasedQty": purchased,
@@ -1736,14 +1880,407 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "stageStartDate": row["stage_planned_start"],
                 "stageEndDate": row["stage_planned_end"],
                 "notes": row["notes"] or "",
+                "procurementStatus": row["procurement_status"] or "",
+                "warehouseSource": row["warehouse_source"] or "",
+                "warehouseItemId": row["warehouse_item_id"],
+                "deliveryDays": delivery_days,
+                "estimatedDeliveryDays": int(estimated_delivery_days),
                 "stageId": row["stage_id"],
                 "stageTitle": row["stage_title"],
                 "sectionTitle": str(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or "").strip(),
                 "supplyStatus": supply_status,
-                "supplyLabel": supply_label,
+                "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
             }
         )
     return items
+
+
+def serialize_warehouse_item(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "type": row["item_type"],
+        "itemType": row["item_type"],
+        "category": row["category"] or "",
+        "name": row["name"],
+        "sku": row["sku"] or "",
+        "unit": row["unit"],
+        "qty": float(row["qty"] or 0),
+        "condition": row["condition_status"] or "",
+        "conditionStatus": row["condition_status"] or "",
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def warehouse_item_rows(con: sqlite3.Connection, *, only_available: bool = False) -> list[sqlite3.Row]:
+    where = "WHERE qty > 0" if only_available else ""
+    return con.execute(
+        f"""
+        SELECT id, item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at
+        FROM warehouse_items
+        {where}
+        ORDER BY item_type, category, name, id
+        """
+    ).fetchall()
+
+
+def warehouse_search_score(material: dict | sqlite3.Row, item: sqlite3.Row) -> float:
+    def value(source: dict | sqlite3.Row, *keys: str) -> object:
+        if isinstance(source, sqlite3.Row):
+            for key in keys:
+                if key in source.keys():
+                    return source[key]
+            return None
+        for key in keys:
+            if key in source:
+                return source.get(key)
+        return None
+
+    material_article = str(value(material, "article", "sku") or "").strip()
+    item_sku = str(item["sku"] or "").strip()
+    if material_article and item_sku and normalize_fuzzy_text(material_article) == normalize_fuzzy_text(item_sku):
+        return 1.0
+    title = value(material, "title", "name") or ""
+    return max(
+        fuzzy_similarity(title, item["name"]),
+        fuzzy_similarity(material_article, item_sku) if material_article and item_sku else 0.0,
+    )
+
+
+def best_warehouse_match(
+    material: dict | sqlite3.Row,
+    warehouse_items: list[sqlite3.Row],
+    *,
+    threshold: float = FUZZY_MATCH_THRESHOLD,
+) -> dict | None:
+    best_row = None
+    best_score = 0.0
+    for item in warehouse_items:
+        if item["item_type"] != "material" or float(item["qty"] or 0) <= 0:
+            continue
+        score = warehouse_search_score(material, item)
+        if score > best_score:
+            best_score = score
+            best_row = item
+    if not best_row or best_score < threshold:
+        return None
+    payload = serialize_warehouse_item(best_row)
+    payload["score"] = round(best_score, 3)
+    return payload
+
+
+def warehouse_matches_for_project(con: sqlite3.Connection, project_id: int) -> dict[int, dict]:
+    warehouse_items = warehouse_item_rows(con, only_available=True)
+    matches: dict[int, dict] = {}
+    for material in material_summary_rows(con, project_id):
+        if normalize_estimate_item_kind(material.get("itemKind")) == "work":
+            continue
+        if float(material.get("missingQty") or 0) <= 0 and not str(material.get("procurementStatus") or "").lower().startswith("куп"):
+            continue
+        match = best_warehouse_match(material, warehouse_items)
+        if match:
+            matches[int(material["id"])] = match
+    return matches
+
+
+def find_warehouse_receipt_target(
+    con: sqlite3.Connection,
+    *,
+    item_type: str,
+    name: str,
+    unit: str,
+    sku: str | None = None,
+    warehouse_item_id: int | None = None,
+) -> sqlite3.Row | None:
+    if warehouse_item_id:
+        row = con.execute(
+            """
+            SELECT id, item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at
+            FROM warehouse_items
+            WHERE id = ?
+            """,
+            (warehouse_item_id,),
+        ).fetchone()
+        if row:
+            return row
+
+    normalized_sku = normalize_fuzzy_text(sku or "")
+    normalized_name = normalize_fuzzy_text(name)
+    rows = warehouse_item_rows(con)
+    if normalized_sku:
+        for row in rows:
+            if normalize_fuzzy_text(row["sku"] or "") == normalized_sku:
+                return row
+    for row in rows:
+        if row["item_type"] == item_type and normalize_fuzzy_text(row["name"]) == normalized_name and str(row["unit"] or "") == unit:
+            return row
+
+    best_row = None
+    best_score = 0.0
+    for row in rows:
+        if row["item_type"] != item_type:
+            continue
+        score = fuzzy_similarity(name, row["name"])
+        if score > best_score:
+            best_score = score
+            best_row = row
+    return best_row if best_row and best_score >= FUZZY_MATCH_THRESHOLD else None
+
+
+def add_qty_to_warehouse(
+    con: sqlite3.Connection,
+    *,
+    item_type: str,
+    name: str,
+    qty: float,
+    unit: str,
+    sku: str | None = None,
+    condition_status: str | None = None,
+    category: str | None = None,
+    warehouse_item_id: int | None = None,
+) -> sqlite3.Row:
+    target = find_warehouse_receipt_target(
+        con,
+        item_type=item_type,
+        name=name,
+        unit=unit,
+        sku=sku,
+        warehouse_item_id=warehouse_item_id,
+    )
+    if target:
+        con.execute(
+            """
+            UPDATE warehouse_items
+            SET qty = qty + ?,
+                unit = COALESCE(NULLIF(?, ''), unit),
+                condition_status = CASE WHEN ? != '' THEN ? ELSE condition_status END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (qty, unit, condition_status or "", condition_status or "", now_ts(), target["id"]),
+        )
+        return con.execute(
+            """
+            SELECT id, item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at
+            FROM warehouse_items
+            WHERE id = ?
+            """,
+            (target["id"],),
+        ).fetchone()
+
+    cur = con.execute(
+        """
+        INSERT INTO warehouse_items (item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            item_type,
+            category,
+            name,
+            sku or None,
+            unit,
+            qty,
+            condition_status or ("" if item_type == "material" else "Б/У"),
+            now_ts(),
+            now_ts(),
+        ),
+    )
+    return con.execute(
+        """
+        SELECT id, item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at
+        FROM warehouse_items
+        WHERE id = ?
+        """,
+        (cur.lastrowid,),
+    ).fetchone()
+
+
+def seed_warehouse_items(con: sqlite3.Connection) -> None:
+    if con.execute("SELECT COUNT(*) FROM warehouse_items").fetchone()[0] > 0:
+        return
+    rows = [
+        ("material", "Кабель и электрика", "Кабель ВВГнг 3х2.5", "EL-VVGNG-3X2.5", "м", 240.0, ""),
+        ("material", "Металлопрокат", "Швеллер 10П", "MET-SHV-10P", "м", 36.0, ""),
+        ("material", "Изоляция", "Лента ФУМ", "SAN-FUM-12", "рулон", 18.0, ""),
+        ("material", "Крепеж", "Саморез по металлу 4.2х19", "KRP-4219", "шт", 1200.0, ""),
+        ("tool", "Инструмент", "Перфоратор Bosch GBH 2-26", "TOOL-GBH-226", "шт", 3.0, "Б/У"),
+        ("tool", "Инструмент", "Лазерный уровень DeWalt", "TOOL-DW-LASER", "шт", 1.0, "Новый"),
+        ("tool", "Инструмент", "Шуруповерт Makita DDF", "TOOL-MAK-DDF", "шт", 2.0, "Требует ремонта"),
+    ]
+    con.executemany(
+        """
+        INSERT INTO warehouse_items (item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [(item_type, category, name, sku, unit, qty, condition, now_ts(), now_ts()) for item_type, category, name, sku, unit, qty, condition in rows],
+    )
+
+
+def build_material_schedule_payload(
+    con: sqlite3.Connection,
+    project_id: int,
+    *,
+    warning_days: int = 5,
+    neutral_days: int = 7,
+) -> dict:
+    project = con.execute(
+        "SELECT id, title, started_at, deadline_at FROM projects WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    materials = [
+        item
+        for item in material_summary_rows(con, project_id)
+        if normalize_estimate_item_kind(item.get("itemKind")) != "work"
+    ]
+    selected_offers = con.execute(
+        """
+        SELECT estimate_item_id, candidate_name, company_id, source_url
+        FROM supplier_offers
+        WHERE project_id = ? AND candidate_type = 'supplier' AND status = 'selected'
+        ORDER BY updated_at DESC, created_at DESC, id DESC
+        """,
+        (project_id,),
+    ).fetchall()
+    supplier_by_item: dict[int, dict] = {}
+    for row in selected_offers:
+        item_id = row["estimate_item_id"]
+        if item_id is None or int(item_id) in supplier_by_item:
+            continue
+        supplier_by_item[int(item_id)] = {
+            "name": row["candidate_name"] or "",
+            "companyId": row["company_id"],
+            "sourceUrl": row["source_url"] or "",
+        }
+
+    today = parse_iso_date(TODAY_ISO) or date.today()
+    items: list[dict] = []
+    range_dates: list[date] = [today]
+    summary = {
+        "total": 0,
+        "purchased": 0,
+        "overdue": 0,
+        "warning": 0,
+        "neutral": 0,
+        "unscheduled": 0,
+    }
+
+    for material in materials:
+        material_id = int(material.get("id") or 0)
+        planned_qty = float(material.get("plannedQty") or 0)
+        planned_price = float(material.get("plannedPrice") or 0)
+        missing_qty = float(material.get("missingQty") or 0)
+        estimated_lead_days = estimate_material_lead_days(
+            {
+                "title": material.get("title"),
+                "notes": material.get("notes"),
+                "unit": material.get("unit"),
+                "planned_qty": planned_qty,
+                "planned_price": planned_price,
+            }
+        )
+        try:
+            lead_days = int(material.get("deliveryDays") if material.get("deliveryDays") is not None else estimated_lead_days)
+        except (TypeError, ValueError):
+            lead_days = int(estimated_lead_days)
+        lead_days = max(0, min(lead_days, 90))
+
+        deadline_date = parse_iso_date(str(material.get("needByDate") or material.get("stageStartDate") or material.get("stageEndDate") or ""))
+        purchase_start = deadline_date - timedelta(days=lead_days) if deadline_date else None
+        alert_start = purchase_start - timedelta(days=warning_days) if purchase_start else None
+
+        days_until_purchase = (purchase_start - today).days if purchase_start else None
+        days_until_deadline = (deadline_date - today).days if deadline_date else None
+        if missing_qty <= 0:
+            if float(material.get("receivedQty") or 0) >= planned_qty:
+                status = "purchased"
+                status_label = "Закуплено"
+            else:
+                status = "in_transit"
+                status_label = "В пути"
+            color = "done"
+            summary["purchased"] += 1
+        elif not deadline_date:
+            status = "unscheduled"
+            status_label = "Нет дедлайна"
+            color = "muted"
+            summary["unscheduled"] += 1
+        elif days_until_purchase is not None and days_until_purchase < 0:
+            status = "overdue"
+            status_label = "Просрочено"
+            color = "red"
+            summary["overdue"] += 1
+        elif days_until_purchase is not None and days_until_purchase <= warning_days:
+            status = "warning"
+            status_label = "Пора платить"
+            color = "yellow"
+            summary["warning"] += 1
+        else:
+            status = "neutral"
+            status_label = "В плане"
+            color = "green"
+            summary["neutral"] += 1
+
+        for value in (purchase_start, deadline_date, alert_start):
+            if value:
+                range_dates.append(value)
+
+        summary["total"] += 1
+        items.append(
+            {
+                "id": material_id,
+                "projectId": project_id,
+                "title": material.get("title") or "",
+                "unit": material.get("unit") or "",
+                "plannedQty": planned_qty,
+                "purchasedQty": float(material.get("purchasedQty") or 0),
+                "receivedQty": float(material.get("receivedQty") or 0),
+                "missingQty": missing_qty,
+                "purchaseProgress": float(material.get("purchaseProgress") or 0),
+                "status": status,
+                "statusLabel": status_label,
+                "color": color,
+                "purchaseStartDate": purchase_start.isoformat() if purchase_start else None,
+                "purchaseByDate": purchase_start.isoformat() if purchase_start else None,
+                "alertStartDate": alert_start.isoformat() if alert_start else None,
+                "deadlineDate": deadline_date.isoformat() if deadline_date else None,
+                "deliveryTargetDate": deadline_date.isoformat() if deadline_date else None,
+                "deliveryLeadDays": int(lead_days),
+                "estimatedDeliveryDays": int(estimated_lead_days),
+                "warningDays": int(warning_days),
+                "daysUntilPurchase": int(days_until_purchase) if days_until_purchase is not None else None,
+                "daysUntilDeadline": int(days_until_deadline) if days_until_deadline is not None else None,
+                "sectionTitle": material.get("sectionTitle") or "",
+                "relatedWork": {
+                    "stageId": material.get("stageId"),
+                    "title": material.get("stageTitle") or material.get("sectionTitle") or "",
+                    "startDate": material.get("stageStartDate"),
+                    "endDate": material.get("stageEndDate"),
+                },
+                "supplier": supplier_by_item.get(material_id),
+                "materialUrl": f"/app/projects?openProject={project_id}&tab=materials&materialId={material_id}",
+            }
+        )
+
+    items.sort(key=lambda item: (item["deadlineDate"] or "9999-12-31", item["purchaseStartDate"] or "9999-12-31", item["title"]))
+    start_date = min(range_dates)
+    end_date = max(range_dates)
+    if start_date == end_date:
+        end_date = start_date + timedelta(days=max(neutral_days, warning_days, 1))
+    return {
+        "projectId": project_id,
+        "projectTitle": project["title"] if project else "",
+        "today": today.isoformat(),
+        "settings": {
+            "warningDays": int(warning_days),
+            "neutralDays": int(neutral_days),
+        },
+        "range": {
+            "start": start_date.isoformat(),
+            "end": end_date.isoformat(),
+        },
+        "summary": summary,
+        "items": items,
+    }
 
 
 def normalize_market_title_key(value: str | None) -> str:
@@ -2632,7 +3169,7 @@ def build_auto_schedule_plan(project: sqlite3.Row, stages: list[sqlite3.Row], ma
                         {
                             "id": int(material["id"]),
                             "stage_id": stage_id,
-                            "need_by_date": (start - timedelta(days=lead_days)).isoformat(),
+                            "need_by_date": start.isoformat(),
                             "lead_days": lead_days,
                             "title": material["title"],
                         }
@@ -2959,6 +3496,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_delete_project(path)
             elif method == "GET" and path == "/api/dashboard":
                 self.api_dashboard()
+            elif method == "GET" and path == "/api/warehouse-items":
+                self.api_warehouse_items()
+            elif method == "POST" and path == "/api/warehouse-items/receipt":
+                self.api_warehouse_receipt()
+            elif method == "POST" and path.startswith("/api/warehouse-items/") and path.endswith("/transfer"):
+                self.api_warehouse_transfer(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.count("/") == 3:
                 self.api_project_detail(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/assignments"):
@@ -2967,6 +3510,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_create_project_assignment(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/materials-summary"):
                 self.api_materials_summary(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/warehouse-matches"):
+                self.api_project_warehouse_matches(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/material-schedule"):
+                self.api_material_schedule(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/materials"):
                 self.api_create_material(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/bootstrap"):
@@ -2977,8 +3524,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_supplier_offers(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/market-analysis"):
                 self.api_project_market_analysis(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/market-counterparty"):
+                self.api_create_market_counterparty(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/supplier-offers"):
                 self.api_create_supplier_offer(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/supplier-offers/clear-selection"):
+                self.api_clear_supplier_selection(path)
             elif method == "POST" and path.startswith("/api/supplier-offers/") and path.endswith("/update"):
                 self.api_update_supplier_offer(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/finances"):
@@ -3868,6 +4419,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
         except (IndexError, ValueError):
             return None
 
+    def parse_warehouse_item_id(self, path: str) -> int | None:
+        parts = path.strip("/").split("/")
+        try:
+            return int(parts[2])
+        except (IndexError, ValueError):
+            return None
+
     def parse_supplier_offer_id(self, path: str) -> int | None:
         parts = path.strip("/").split("/")
         try:
@@ -4045,6 +4603,409 @@ class PMBIHandler(BaseHTTPRequestHandler):
             items = material_summary_rows(con, project_id)
         self.send_json(HTTPStatus.OK, {"items": items})
 
+    def api_project_warehouse_matches(self, path: str) -> None:
+        project_id = self.parse_project_id(path)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if user["role"] == "customer":
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        with db() as con:
+            matches = warehouse_matches_for_project(con, project_id)
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "threshold": FUZZY_MATCH_THRESHOLD,
+                "matches": {str(material_id): match for material_id, match in matches.items()},
+            },
+        )
+
+    def api_warehouse_items(self) -> None:
+        user = self.require_role({"admin", "director", "foreman", "purchaser"})
+        if not user:
+            return
+        with db() as con:
+            rows = warehouse_item_rows(con)
+        self.send_json(HTTPStatus.OK, {"items": [serialize_warehouse_item(row) for row in rows]})
+
+    def api_warehouse_receipt(self) -> None:
+        user = self.require_role({"admin", "director", "foreman", "purchaser"})
+        if not user:
+            return
+        payload = self.read_json()
+        mode = str(payload.get("mode", "manual")).strip()
+        if mode not in {"manual", "return"}:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_receipt_mode"})
+            return
+        try:
+            qty = float(payload.get("qty", 0) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty <= 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_qty"})
+            return
+
+        con = db()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            if mode == "manual":
+                item_type = str(payload.get("item_type", payload.get("itemType", "material"))).strip()
+                if item_type not in {"material", "tool"}:
+                    con.rollback()
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_item_type"})
+                    return
+                name = str(payload.get("name", "")).strip()
+                unit = str(payload.get("unit", "шт")).strip() or "шт"
+                if not name:
+                    con.rollback()
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "name_required"})
+                    return
+                warehouse_item_id = payload.get("warehouse_item_id", payload.get("warehouseItemId"))
+                try:
+                    warehouse_item_id = int(warehouse_item_id) if warehouse_item_id not in (None, "", 0, "0") else None
+                except (TypeError, ValueError):
+                    con.rollback()
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_warehouse_item_id"})
+                    return
+                condition_status = str(payload.get("condition_status", payload.get("conditionStatus", ""))).strip()
+                if item_type == "tool" and condition_status not in {"Новый", "Б/У", "Требует ремонта"}:
+                    condition_status = "Б/У"
+                item_row = add_qty_to_warehouse(
+                    con,
+                    item_type=item_type,
+                    name=name,
+                    qty=qty,
+                    unit=unit,
+                    sku=str(payload.get("sku", "")).strip() or None,
+                    condition_status=condition_status,
+                    category=str(payload.get("category", "")).strip() or ("Инструмент" if item_type == "tool" else None),
+                    warehouse_item_id=warehouse_item_id,
+                )
+                create_audit(
+                    con,
+                    user["id"],
+                    "warehouse_manual_receipt",
+                    "warehouse_item",
+                    item_row["id"],
+                    {"name": item_row["name"], "qty": qty, "unit": item_row["unit"]},
+                )
+                con.commit()
+                self.send_json(HTTPStatus.CREATED, {"ok": True, "mode": mode, "warehouseItem": serialize_warehouse_item(item_row)})
+                return
+
+            try:
+                project_id = int(payload.get("project_id", payload.get("projectId", 0)) or 0)
+                estimate_item_id = int(payload.get("estimate_item_id", payload.get("estimateItemId", 0)) or 0)
+            except (TypeError, ValueError):
+                project_id = 0
+                estimate_item_id = 0
+            if not project_id or not estimate_item_id:
+                con.rollback()
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_or_material_id"})
+                return
+            if not self.can_access_project(user, project_id):
+                con.rollback()
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "project_forbidden"})
+                return
+            material = con.execute(
+                """
+                SELECT id, project_id, title, unit, planned_qty, planned_price, item_kind, article,
+                       procurement_status, warehouse_source, warehouse_item_id, notes
+                FROM estimate_items
+                WHERE id = ? AND project_id = ?
+                """,
+                (estimate_item_id, project_id),
+            ).fetchone()
+            if not material:
+                con.rollback()
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "material_not_found"})
+                return
+            summary = {int(item["id"]): item for item in material_summary_rows(con, project_id)}.get(estimate_item_id)
+            available = float(summary.get("stockQty") or 0) if summary else 0.0
+            if qty > available:
+                con.rollback()
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "qty_exceeds_object_stock", "available": available})
+                return
+
+            raw_kind = str(material["item_kind"] or "").strip().lower()
+            notes = str(material["notes"] or "").lower()
+            item_type = "tool" if raw_kind == "tool" or "инструмент" in notes or "tool" in notes else "material"
+            item_row = add_qty_to_warehouse(
+                con,
+                item_type=item_type,
+                name=str(material["title"] or "").strip(),
+                qty=qty,
+                unit=str(material["unit"] or "шт").strip() or "шт",
+                sku=str(material["article"] or "").strip() or None,
+                warehouse_item_id=material["warehouse_item_id"],
+                category="Инструмент" if item_type == "tool" else None,
+            )
+            message = f"Произведен возврат на склад: {material['title']} — {qty:g} {material['unit']}"
+            con.execute(
+                """
+                INSERT INTO stock_moves (project_id, estimate_item_id, move_type, qty, price, comment, created_by, created_at)
+                VALUES (?, ?, 'use', ?, 0, ?, ?, ?)
+                """,
+                (project_id, estimate_item_id, qty, message, user["id"], now_ts()),
+            )
+            remaining = max(available - qty, 0)
+            con.execute(
+                """
+                UPDATE estimate_items
+                SET procurement_status = ?, warehouse_source = 'warehouse', warehouse_item_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                ("Возвращено на склад" if remaining <= 0 else "Частично возвращено на склад", item_row["id"], now_ts(), estimate_item_id),
+            )
+            create_audit(
+                con,
+                user["id"],
+                "warehouse_return_from_project",
+                "estimate_item",
+                estimate_item_id,
+                {
+                    "project_id": project_id,
+                    "warehouse_item_id": item_row["id"],
+                    "qty": qty,
+                    "unit": material["unit"],
+                    "message": message,
+                },
+            )
+            con.commit()
+            items = material_summary_rows(con, project_id)
+            self.send_json(
+                HTTPStatus.CREATED,
+                {
+                    "ok": True,
+                    "mode": mode,
+                    "message": message,
+                    "warehouseItem": serialize_warehouse_item(item_row),
+                    "items": items,
+                },
+            )
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    def api_warehouse_transfer(self, path: str) -> None:
+        warehouse_item_id = self.parse_warehouse_item_id(path)
+        if not warehouse_item_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_warehouse_item_id"})
+            return
+        user = self.require_role({"admin", "director", "foreman", "purchaser"})
+        if not user:
+            return
+        payload = self.read_json()
+        try:
+            project_id = int(payload.get("project_id", payload.get("projectId", 0)) or 0)
+        except (TypeError, ValueError):
+            project_id = 0
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        if not self.can_access_project(user, project_id):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "project_forbidden"})
+            return
+        try:
+            qty = float(payload.get("qty", 0) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty <= 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_qty"})
+            return
+
+        con = db()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            warehouse_item = con.execute(
+                """
+                SELECT id, item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at
+                FROM warehouse_items
+                WHERE id = ?
+                """,
+                (warehouse_item_id,),
+            ).fetchone()
+            if not warehouse_item:
+                con.rollback()
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "warehouse_item_not_found"})
+                return
+            available = float(warehouse_item["qty"] or 0)
+            if qty > available:
+                con.rollback()
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "qty_exceeds_stock", "available": available})
+                return
+            project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if not project:
+                con.rollback()
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+                return
+
+            material_rows = con.execute(
+                """
+                SELECT id, project_id, title, unit, planned_qty, planned_price, item_kind, section_title,
+                       article, procurement_status, warehouse_source, warehouse_item_id, need_by_date, notes, stage_id
+                FROM estimate_items
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            ).fetchall()
+            best_material = None
+            best_score = 0.0
+            for material in material_rows:
+                if normalize_estimate_item_kind(resolved_estimate_item_kind(material)) == "work":
+                    continue
+                score = warehouse_search_score(material, warehouse_item)
+                if score > best_score:
+                    best_score = score
+                    best_material = material
+
+            summary_by_id = {int(item["id"]): item for item in material_summary_rows(con, project_id)}
+            estimate_item_id = None
+            transfer_status = "Со склада"
+            matched_existing = bool(best_material and best_score >= FUZZY_MATCH_THRESHOLD)
+            if matched_existing:
+                estimate_item_id = int(best_material["id"])
+                summary = summary_by_id.get(estimate_item_id, {})
+                old_missing = float(summary.get("missingQty") or 0)
+                new_missing = max(old_missing - qty, 0)
+                transfer_status = "Передано со склада" if new_missing <= 0 else "Частично передано со склада"
+                con.execute(
+                    """
+                    UPDATE estimate_items
+                    SET procurement_status = ?, warehouse_source = 'warehouse', warehouse_item_id = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (transfer_status, warehouse_item_id, now_ts(), estimate_item_id),
+                )
+            else:
+                item_kind = "tool" if warehouse_item["item_type"] == "tool" else "material"
+                notes = "Со склада"
+                if warehouse_item["item_type"] == "tool":
+                    notes = "Со склада; Тип: Инструмент"
+                cur = con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price, item_kind, article,
+                        procurement_status, warehouse_source, warehouse_item_id, notes, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, 0, ?, ?, 'Со склада', 'warehouse', ?, ?, ?)
+                    """,
+                    (
+                        project_id,
+                        warehouse_item["name"],
+                        warehouse_item["unit"],
+                        qty,
+                        item_kind,
+                        warehouse_item["sku"] or None,
+                        warehouse_item_id,
+                        notes,
+                        now_ts(),
+                    ),
+                )
+                estimate_item_id = cur.lastrowid
+
+            comment = str(payload.get("comment", "")).strip()
+            move_comment = comment or f"Выдано со склада: {warehouse_item['name']}"
+            con.execute(
+                """
+                INSERT INTO stock_moves (project_id, estimate_item_id, move_type, qty, price, comment, created_by, created_at)
+                VALUES (?, ?, 'receipt', ?, 0, ?, ?, ?)
+                """,
+                (project_id, estimate_item_id, qty, move_comment, user["id"], now_ts()),
+            )
+            transfer_cur = con.execute(
+                """
+                INSERT INTO warehouse_transfers (warehouse_item_id, project_id, estimate_item_id, qty, unit, comment, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (warehouse_item_id, project_id, estimate_item_id, qty, warehouse_item["unit"], comment, user["id"], now_ts()),
+            )
+            con.execute(
+                "UPDATE warehouse_items SET qty = qty - ?, updated_at = ? WHERE id = ?",
+                (qty, now_ts(), warehouse_item_id),
+            )
+            create_audit(
+                con,
+                user["id"],
+                "warehouse_transfer",
+                "warehouse_transfer",
+                transfer_cur.lastrowid,
+                {
+                    "warehouse_item_id": warehouse_item_id,
+                    "project_id": project_id,
+                    "estimate_item_id": estimate_item_id,
+                    "qty": qty,
+                    "matched_existing": matched_existing,
+                    "score": round(best_score, 3),
+                },
+            )
+            con.commit()
+            item_row = con.execute(
+                """
+                SELECT id, item_type, category, name, sku, unit, qty, condition_status, created_at, updated_at
+                FROM warehouse_items
+                WHERE id = ?
+                """,
+                (warehouse_item_id,),
+            ).fetchone()
+            items = material_summary_rows(con, project_id)
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+        self.send_json(
+            HTTPStatus.CREATED,
+            {
+                "ok": True,
+                "transferId": transfer_cur.lastrowid,
+                "estimateItemId": estimate_item_id,
+                "matchedExisting": matched_existing,
+                "matchScore": round(best_score, 3),
+                "status": transfer_status,
+                "warehouseItem": serialize_warehouse_item(item_row),
+                "items": items,
+            },
+        )
+
+    def api_material_schedule(self, path: str) -> None:
+        project_id = self.parse_project_id(path)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if user["role"] == "customer":
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            warning_days = int(query.get("warningDays", query.get("warning_days", ["5"]))[0])
+        except (TypeError, ValueError):
+            warning_days = 5
+        try:
+            neutral_days = int(query.get("neutralDays", query.get("neutral_days", ["7"]))[0])
+        except (TypeError, ValueError):
+            neutral_days = 7
+        warning_days = max(1, min(warning_days, 30))
+        neutral_days = max(warning_days, min(max(neutral_days, 1), 60))
+        with db() as con:
+            payload = build_material_schedule_payload(
+                con,
+                project_id,
+                warning_days=warning_days,
+                neutral_days=neutral_days,
+            )
+        self.send_json(HTTPStatus.OK, payload)
+
     def api_create_material(self, path: str) -> None:
         project_id = self.parse_project_id(path)
         if not project_id:
@@ -4124,12 +5085,20 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 if not stage:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "stage_not_found"})
                     return
+            raw_delivery_days = payload.get("delivery_days", payload.get("deliveryDays", material["delivery_days"]))
+            try:
+                delivery_days = int(raw_delivery_days) if raw_delivery_days not in (None, "") else None
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_delivery_days"})
+                return
+            if delivery_days is not None:
+                delivery_days = max(0, min(delivery_days, 90))
             merged_material = dict(material)
             merged_material.update(payload)
             con.execute(
                 """
                 UPDATE estimate_items
-                SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, stage_id = ?, item_kind = ?, section_title = ?, need_by_date = ?, notes = ?, updated_at = ?
+                SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, stage_id = ?, item_kind = ?, section_title = ?, delivery_days = ?, need_by_date = ?, notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -4143,6 +5112,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     stage_id,
                     resolved_estimate_item_kind(merged_material),
                     resolved_estimate_section_title(merged_material),
+                    delivery_days,
                     str(payload.get("need_by_date", payload.get("needByDate", material["need_by_date"] or ""))).strip() or None,
                     str(payload.get("notes", material["notes"] or "")).strip() or None,
                     now_ts(),
@@ -4240,6 +5210,141 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
         self.send_json(HTTPStatus.OK, payload)
 
+    def api_create_market_counterparty(self, path: str) -> None:
+        project_id = self.parse_project_id(path)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not user_can_manage_suppliers(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        candidate_type = str(payload.get("candidate_type", payload.get("candidateType", "supplier"))).strip() or "supplier"
+        if candidate_type not in {"supplier", "contractor"}:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_candidate_type"})
+            return
+        name = str(payload.get("name", payload.get("candidate_name", payload.get("candidateName", "")))).strip()
+        if not name:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "name_required"})
+            return
+        source_type = str(payload.get("source_type", payload.get("sourceType", "manual"))).strip() or "manual"
+        if source_type not in {"manual", "avito", "other"}:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_source_type"})
+            return
+        try:
+            estimate_item_id = int(payload.get("estimate_item_id", payload.get("estimateItemId", 0)) or 0)
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
+            return
+        if not estimate_item_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_item_required"})
+            return
+
+        def payload_float(key: str) -> float:
+            try:
+                return float(payload.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        phone = str(payload.get("phone", "")).strip() or None
+        source_url = str(payload.get("source_url", payload.get("sourceUrl", ""))).strip() or None
+        notes = str(payload.get("notes", "")).strip()
+        company_notes = "\n".join(part for part in [notes, f"Источник: {source_url}" if source_url else ""] if part) or None
+        price = max(0.0, payload_float("price"))
+        qty = max(0.0, payload_float("qty"))
+        unit = str(payload.get("unit", "")).strip() or None
+        timestamp = now_ts()
+        with db() as con:
+            material = con.execute(
+                "SELECT id, title, unit, planned_qty FROM estimate_items WHERE id = ? AND project_id = ?",
+                (estimate_item_id, project_id),
+            ).fetchone()
+            if not material:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "material_not_found"})
+                return
+            if not unit:
+                unit = str(material["unit"] or "") or None
+            if qty <= 0:
+                qty = float(material["planned_qty"] or 0)
+            company_cur = con.execute(
+                """
+                INSERT INTO companies (type, name, inn, kpp, ogrn, phone, email, address, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (candidate_type, name, None, None, None, phone, None, None, company_notes, timestamp),
+            )
+            company_id = int(company_cur.lastrowid)
+            offer_cur = con.execute(
+                """
+                INSERT INTO supplier_offers (
+                    project_id, estimate_item_id, company_id, candidate_type, candidate_name, source_type, source_url,
+                    contact_name, phone, price, qty, unit, status, notes, created_by, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'selected', ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    estimate_item_id,
+                    company_id,
+                    candidate_type,
+                    name,
+                    source_type,
+                    source_url,
+                    None,
+                    phone,
+                    price,
+                    qty,
+                    unit,
+                    notes or None,
+                    user["id"],
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            con.execute(
+                """
+                UPDATE supplier_offers
+                SET status = 'quoted', updated_at = ?
+                WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND id <> ? AND status = 'selected'
+                """,
+                (timestamp, project_id, estimate_item_id, candidate_type, offer_cur.lastrowid),
+            )
+            create_audit(con, user["id"], "create_market_counterparty", "company", company_id, {"project_id": project_id, "estimate_item_id": estimate_item_id, "type": candidate_type})
+            create_audit(con, user["id"], "select_market_counterparty", "supplier_offer", offer_cur.lastrowid, {"project_id": project_id, "company_id": company_id})
+            con.commit()
+        self.send_json(
+            HTTPStatus.CREATED,
+            {
+                "company": {
+                    "id": company_id,
+                    "type": candidate_type,
+                    "name": name,
+                    "inn": None,
+                    "kpp": None,
+                    "ogrn": None,
+                    "phone": phone,
+                    "email": None,
+                    "address": None,
+                    "notes": company_notes,
+                    "created_at": timestamp,
+                },
+                "offer": {
+                    "id": int(offer_cur.lastrowid),
+                    "project_id": project_id,
+                    "estimate_item_id": estimate_item_id,
+                    "company_id": company_id,
+                    "candidate_type": candidate_type,
+                    "candidate_name": name,
+                    "status": "selected",
+                    "source_url": source_url,
+                    "phone": phone,
+                },
+            },
+        )
+
     def api_create_supplier_offer(self, path: str) -> None:
         project_id = self.parse_project_id(path)
         if not project_id:
@@ -4297,6 +5402,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 if not company:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "company_not_found"})
                     return
+            timestamp = now_ts()
             cur = con.execute(
                 """
                 INSERT INTO supplier_offers (
@@ -4321,13 +5427,60 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     status,
                     str(payload.get("notes", "")).strip() or None,
                     user["id"],
-                    now_ts(),
-                    now_ts(),
+                    timestamp,
+                    timestamp,
                 ),
             )
+            if status == "selected" and estimate_item_id:
+                con.execute(
+                    """
+                    UPDATE supplier_offers
+                    SET status = 'quoted', updated_at = ?
+                    WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND id <> ? AND status = 'selected'
+                    """,
+                    (timestamp, project_id, estimate_item_id, candidate_type, cur.lastrowid),
+                )
             create_audit(con, user["id"], "create_supplier_offer", "supplier_offer", cur.lastrowid, {"project_id": project_id, "candidate_name": candidate_name, "status": status})
             con.commit()
         self.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid})
+
+    def api_clear_supplier_selection(self, path: str) -> None:
+        project_id = self.parse_project_id(path)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not user_can_manage_suppliers(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        candidate_type = str(payload.get("candidate_type", payload.get("candidateType", "supplier"))).strip() or "supplier"
+        if candidate_type not in {"supplier", "contractor"}:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_candidate_type"})
+            return
+        try:
+            estimate_item_id = int(payload.get("estimate_item_id", payload.get("estimateItemId", 0)) or 0)
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
+            return
+        if not estimate_item_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_item_required"})
+            return
+        timestamp = now_ts()
+        with db() as con:
+            con.execute(
+                """
+                UPDATE supplier_offers
+                SET status = 'quoted', updated_at = ?
+                WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND status = 'selected'
+                """,
+                (timestamp, project_id, estimate_item_id, candidate_type),
+            )
+            create_audit(con, user["id"], "clear_supplier_selection", "estimate_item", estimate_item_id, {"project_id": project_id, "candidate_type": candidate_type})
+            con.commit()
+        self.send_json(HTTPStatus.OK, {"project_id": project_id, "estimate_item_id": estimate_item_id, "candidate_type": candidate_type})
 
     def api_update_supplier_offer(self, path: str) -> None:
         offer_id = self.parse_supplier_offer_id(path)
@@ -4354,15 +5507,37 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if source_type not in {"manual", "avito", "other"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_source_type"})
                 return
+            company_id = payload.get("company_id", payload.get("companyId", offer["company_id"]))
+            try:
+                company_id = int(company_id) if company_id not in (None, "", 0, "0") else None
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_company_id"})
+                return
+            if company_id:
+                company = con.execute("SELECT id FROM companies WHERE id = ?", (company_id,)).fetchone()
+                if not company:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "company_not_found"})
+                    return
+            timestamp = now_ts()
+            if status == "selected" and offer["estimate_item_id"]:
+                con.execute(
+                    """
+                    UPDATE supplier_offers
+                    SET status = 'quoted', updated_at = ?
+                    WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND id <> ? AND status = 'selected'
+                    """,
+                    (timestamp, offer["project_id"], offer["estimate_item_id"], offer["candidate_type"], offer_id),
+                )
             con.execute(
                 """
                 UPDATE supplier_offers
-                SET candidate_name = ?, source_type = ?, source_url = ?, contact_name = ?, phone = ?,
+                SET candidate_name = ?, company_id = ?, source_type = ?, source_url = ?, contact_name = ?, phone = ?,
                     price = ?, qty = ?, unit = ?, status = ?, notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     str(payload.get("candidate_name", payload.get("candidateName", offer["candidate_name"]))).strip() or offer["candidate_name"],
+                    company_id,
                     source_type,
                     str(payload.get("source_url", payload.get("sourceUrl", offer["source_url"] or ""))).strip() or None,
                     str(payload.get("contact_name", payload.get("contactName", offer["contact_name"] or ""))).strip() or None,
@@ -4372,7 +5547,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     str(payload.get("unit", offer["unit"] or "")).strip() or None,
                     status,
                     str(payload.get("notes", offer["notes"] or "")).strip() or None,
-                    now_ts(),
+                    timestamp,
                     offer_id,
                 ),
             )
@@ -5205,7 +6380,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                 return
             status = str(payload.get("status", task["status"])).strip() or "open"
-            if status not in {"open", "in_progress", "done"}:
+            if status not in {"open", "in_progress", "review", "done"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
                 return
             priority = str(payload.get("priority", task["priority"])).strip() or "normal"

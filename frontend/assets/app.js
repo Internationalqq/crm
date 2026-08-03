@@ -2,19 +2,28 @@
     'use strict';
 
     var page = document.body.dataset.page;
-    var APP_TODAY = '2026-07-30';
+    var APP_TODAY = (function () {
+        var date = new Date();
+        var month = String(date.getMonth() + 1).padStart(2, '0');
+        var day = String(date.getDate()).padStart(2, '0');
+        return date.getFullYear() + '-' + month + '-' + day;
+    })();
     var state = {
         user: null,
         projects: [],
         users: [],
         roles: [],
         companies: [],
+        companiesAllLoaded: false,
         selectedProject: null,
         stagesByProject: {},
         materialsByProject: {},
         materialInsightsByProject: {},
         marketAnalysisByProject: {},
+        materialCounterpartyFiltersByProject: {},
         notificationsByProject: {},
+        materialScheduleByProject: {},
+        materialScheduleViewByProject: {},
         schedulePlanByProject: {},
         sectionScheduleByProject: {},
         scheduleQuickActions: {},
@@ -38,6 +47,55 @@
         return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
         });
+    }
+
+    function formatDisplayDate(value) {
+        if (!value) return '—';
+        var match = String(value).trim().match(/^(\d{4})[-.](\d{2})[-.](\d{2})(?:[T\s].*)?$/);
+        if (!match) return value;
+        return match[3] + '.' + match[2] + '.' + match[1];
+    }
+
+    function formatDisplayDatesInText(value) {
+        return String(value == null ? '' : value).replace(/\b(\d{4})[-.](\d{2})[-.](\d{2})\b/g, function (_, year, month, day) {
+            return day + '.' + month + '.' + year;
+        });
+    }
+
+    function formatVisibleDates(root) {
+        root = root || document.body;
+        if (!root || typeof document.createTreeWalker !== 'function') return;
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (node) {
+                var parent = node.parentElement;
+                if (!parent || /^(SCRIPT|STYLE|TEXTAREA|INPUT|SELECT|OPTION)$/i.test(parent.tagName)) return NodeFilter.FILTER_REJECT;
+                return /\b\d{4}[-.]\d{2}[-.]\d{2}\b/.test(node.nodeValue || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+            }
+        });
+        var node;
+        while ((node = walker.nextNode())) {
+            node.nodeValue = formatDisplayDatesInText(node.nodeValue);
+        }
+    }
+
+    function installVisibleDateFormatter() {
+        if (!document.body) {
+            document.addEventListener('DOMContentLoaded', installVisibleDateFormatter, { once: true });
+            return;
+        }
+        if (document.body.dataset.dateFormatterInstalled === '1') return;
+        document.body.dataset.dateFormatterInstalled = '1';
+        var pending = false;
+        function scheduleFormat() {
+            if (pending) return;
+            pending = true;
+            requestAnimationFrame(function () {
+                pending = false;
+                formatVisibleDates(document.body);
+            });
+        }
+        formatVisibleDates(document.body);
+        new MutationObserver(scheduleFormat).observe(document.body, { childList: true, subtree: true, characterData: true });
     }
 
     function isClerkEnabled() {
@@ -141,14 +199,7 @@
     }
 
     function formatRuDate(isoDate) {
-        if (!isoDate) return '—';
-        var date = new Date(isoDate + 'T00:00:00');
-        if (isNaN(date.getTime())) return isoDate;
-        return new Intl.DateTimeFormat('ru-RU', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric'
-        }).format(date);
+        return formatDisplayDate(isoDate);
     }
 
     function downloadTextFile(filename, text, mimeType) {
@@ -554,10 +605,22 @@
         var path = '/api/companies' + (type ? '?type=' + encodeURIComponent(type) : '');
         api(path).then(function (data) {
             state.companies = Array.isArray(data.companies) ? data.companies : [];
+            state.companiesAllLoaded = !type;
             if (callback) callback(state.companies);
         }).catch(function () {
             state.companies = [];
+            state.companiesAllLoaded = false;
             if (callback) callback(state.companies);
+        });
+    }
+
+    function ensureCounterpartyCompanies(callback) {
+        if (state.companiesAllLoaded) {
+            if (callback) callback(state.companies || []);
+            return;
+        }
+        loadCompanies(function (companies) {
+            if (callback) callback(companies || []);
         });
     }
 
@@ -935,6 +998,7 @@
             internal: 'Внутренний',
             open: 'Открыто',
             in_progress: 'В работе',
+            review: 'Проверка',
             done: 'Готово',
             not_started: 'Не начат',
             started: 'Начат',
@@ -947,7 +1011,7 @@
     function priorityLabel(priority) {
         return {
             low: 'Низкий',
-            normal: 'Обычный',
+            normal: 'Средний',
             high: 'Высокий'
         }[priority] || priority || 'Приоритет';
     }
@@ -1384,10 +1448,7 @@
     };
 
     function finalFormatScheduleDate(iso) {
-        if (!iso) return '—';
-        var parts = String(iso).split('-');
-        if (parts.length !== 3) return iso;
-        return parts[2] + '.' + parts[1] + '.' + parts[0];
+        return formatDisplayDate(iso);
     }
 
     renderScheduleScale = function (range) {
@@ -1544,7 +1605,9 @@
             bindStageEditors(project.id);
             bindAutoScheduleForm(project.id);
             bindScheduleStatusActions(project.id);
-            loadExecutionInsights(project.id, stages);
+            if ((schedulePanel && schedulePanel.classList.contains('active')) || (worksPanel && worksPanel.classList.contains('active'))) {
+                loadExecutionInsights(project.id, stages);
+            }
         });
         loadTasks(project.id);
         if (canSeeFinances()) loadProjectFinances(project.id);
@@ -1695,7 +1758,9 @@
 
     function loadMaterialInsights(projectId, callback) {
         if (state.materialInsightsByProject[projectId]) {
-            callback(state.materialInsightsByProject[projectId]);
+            ensureCounterpartyCompanies(function () {
+                callback(state.materialInsightsByProject[projectId]);
+            });
             return;
         }
         if (!canManageSuppliers()) {
@@ -1706,8 +1771,25 @@
         api('/api/projects/' + projectId + '/supplier-offers').then(function (data) {
             var offers = Array.isArray(data.offers) ? data.offers : [];
             var insights = {};
+            var allOptions = [];
             offers.forEach(function (offer) {
                 var materialId = Number(offer.estimate_item_id || 0);
+                var candidateType = offer.candidate_type === 'contractor' ? 'contractor' : 'supplier';
+                var option = {
+                    id: Number(offer.id || 0),
+                    estimateItemId: materialId,
+                    name: offer.candidate_name || offer.company_name || (candidateType === 'contractor' ? 'Подрядчик' : 'Поставщик'),
+                    company: offer.company_name || '',
+                    companyId: Number(offer.company_id || 0),
+                    candidateType: candidateType,
+                    status: offer.status || 'new',
+                    price: Number(offer.price || 0),
+                    qty: Number(offer.qty || 0),
+                    phone: offer.phone || '',
+                    sourceUrl: offer.source_url || '',
+                    notes: offer.notes || ''
+                };
+                allOptions.push(option);
                 if (!materialId) return;
                 if (!insights[materialId]) {
                     insights[materialId] = {
@@ -1717,6 +1799,10 @@
                         called: 0,
                         selectedName: '',
                         selectedOfferId: 0,
+                        selectedByType: {
+                            supplier: null,
+                            contractor: null
+                        },
                         options: []
                     };
                 }
@@ -1725,26 +1811,24 @@
                 if (offer.status === 'quoted') insights[materialId].quoted += 1;
                 if (offer.status === 'called') insights[materialId].called += 1;
                 if (offer.status === 'selected' && !insights[materialId].selectedName) {
-                    insights[materialId].selectedName = offer.candidate_name || offer.company_name || '';
-                    insights[materialId].selectedOfferId = Number(offer.id || 0);
+                    insights[materialId].selectedName = option.name;
+                    insights[materialId].selectedOfferId = option.id;
                 }
-                insights[materialId].options.push({
-                    id: Number(offer.id || 0),
-                    name: offer.candidate_name || offer.company_name || 'Поставщик',
-                    company: offer.company_name || '',
-                    status: offer.status || 'new',
-                    price: Number(offer.price || 0),
-                    qty: Number(offer.qty || 0),
-                    phone: offer.phone || '',
-                    sourceUrl: offer.source_url || '',
-                    notes: offer.notes || ''
-                });
+                if (offer.status === 'selected' && !insights[materialId].selectedByType[candidateType]) {
+                    insights[materialId].selectedByType[candidateType] = option;
+                }
+                insights[materialId].options.push(option);
             });
+            insights.__allOptions = allOptions;
             state.materialInsightsByProject[projectId] = insights;
-            callback(insights);
+            ensureCounterpartyCompanies(function () {
+                callback(insights);
+            });
         }).catch(function () {
             state.materialInsightsByProject[projectId] = {};
-            callback({});
+            ensureCounterpartyCompanies(function () {
+                callback({});
+            });
         });
     }
 
@@ -1827,74 +1911,173 @@
         '</div>';
     }
 
+    function refreshCounterpartyProjectViews(projectId) {
+        delete state.materialInsightsByProject[projectId];
+        loadMaterialInsights(projectId, function (insights) {
+            if (typeof rerenderProjectMaterialAndWorkViews === 'function') {
+                rerenderProjectMaterialAndWorkViews(projectId);
+                return;
+            }
+            if (state.materialsByProject[projectId]) {
+                var materialsHtml = renderMaterials(state.materialsByProject[projectId], projectId, insights || {});
+                var materialsPanel = qs('[data-panel="materials"]');
+                if (materialsPanel && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                    materialsPanel.innerHTML = materialsHtml;
+                }
+                var overviewMaterials = qs('[data-project-overview-materials]');
+                if (overviewMaterials && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                    overviewMaterials.innerHTML = materialsHtml;
+                }
+                bindProjectChainActions();
+            }
+        });
+    }
+
+    function attachCounterpartyToEstimateItem(button) {
+        var projectId = Number(button.dataset.projectId || 0);
+        var offerId = Number(button.dataset.offerId || 0);
+        var companyId = Number(button.dataset.companyId || 0);
+        var itemId = Number(button.dataset.materialId || 0);
+        var companyName = button.dataset.companyName || '';
+        var candidateType = button.dataset.candidateType === 'contractor' ? 'contractor' : 'supplier';
+        if (!projectId) return Promise.reject(new Error('project_required'));
+        if (offerId) {
+            return api('/api/supplier-offers/' + offerId + '/update', {
+                method: 'POST',
+                body: JSON.stringify({
+                    status: 'selected',
+                    company_id: companyId || '',
+                    candidate_name: companyName || undefined,
+                    price: Number(button.dataset.price || 0),
+                    qty: Number(button.dataset.qty || 0),
+                    phone: button.dataset.phone || '',
+                    source_url: button.dataset.sourceUrl || '',
+                    notes: button.dataset.notes || ''
+                })
+            });
+        }
+        if (!itemId || !companyName) return Promise.reject(new Error('counterparty_required'));
+        return api('/api/projects/' + projectId + '/supplier-offers', {
+            method: 'POST',
+            body: JSON.stringify({
+                estimate_item_id: itemId,
+                company_id: companyId,
+                candidate_type: candidateType,
+                candidate_name: companyName,
+                source_type: 'manual',
+                phone: button.dataset.phone || '',
+                qty: Number(button.dataset.itemQty || button.dataset.qty || 0),
+                unit: button.dataset.itemUnit || '',
+                status: 'selected',
+                notes: button.dataset.notes || ''
+            })
+        });
+    }
+
+    function clearCounterpartyFromEstimateItem(button) {
+        var projectId = Number(button.dataset.projectId || 0);
+        var offerId = Number(button.dataset.offerId || 0);
+        if (!projectId) return Promise.reject(new Error('project_required'));
+        if (!offerId) return Promise.resolve({});
+        return api('/api/supplier-offers/' + offerId + '/update', {
+            method: 'POST',
+            body: JSON.stringify({
+                status: 'quoted'
+            })
+        });
+    }
+
+    function closeCounterpartyMenus() {
+        qsa('[data-supplier-menu]').forEach(function (node) {
+            node.hidden = true;
+            node.removeAttribute('style');
+        });
+        qsa('.is-counterparty-open').forEach(function (node) { node.classList.remove('is-counterparty-open'); });
+        qsa('.has-counterparty-open').forEach(function (node) { node.classList.remove('has-counterparty-open'); });
+    }
+
+    function toggleCounterpartyMenu(button) {
+        var picker = button.closest('.material-supplier-picker');
+        var menu = picker ? qs('[data-supplier-menu]', picker) : null;
+        if (!menu) return;
+        var shouldOpen = menu.hidden;
+        closeCounterpartyMenus();
+        menu.hidden = !shouldOpen;
+        if (!menu.hidden) {
+            picker.classList.add('is-counterparty-open');
+            var row = picker.closest('.material-row, .work-row');
+            var section = picker.closest('.estimate-section-card, .estimate-section');
+            if (row) row.classList.add('is-counterparty-open');
+            if (section) section.classList.add('has-counterparty-open');
+        }
+    }
+
+    function selectCounterpartyOption(button) {
+        var projectId = Number(button.dataset.projectId || 0);
+        if (!projectId || button.dataset.supplierSelecting === '1') return;
+        button.dataset.supplierSelecting = '1';
+        button.disabled = true;
+        var request = button.hasAttribute('data-supplier-clear')
+            ? clearCounterpartyFromEstimateItem(button)
+            : attachCounterpartyToEstimateItem(button);
+        request.then(function () {
+            refreshCounterpartyProjectViews(projectId);
+        }).catch(function () {
+            window.alert(button.hasAttribute('data-supplier-clear') ? 'Не удалось снять контрагента.' : 'Не удалось закрепить контрагента.');
+        }).finally(function () {
+            button.disabled = false;
+            button.dataset.supplierSelecting = '0';
+        });
+    }
+
     function bindProjectChainActions() {
         qsa('[data-supplier-toggle]').forEach(function (button) {
-            if (button.dataset.bound === '1') return;
-            button.dataset.bound = '1';
+            if (button.dataset.supplierToggleBound === '1') return;
+            button.dataset.supplierToggleBound = '1';
             button.addEventListener('click', function (event) {
                 event.preventDefault();
                 event.stopPropagation();
-                var picker = button.closest('.material-supplier-picker');
-                var menu = picker ? qs('[data-supplier-menu]', picker) : null;
-                if (!menu) return;
-                qsa('[data-supplier-menu]').forEach(function (node) {
-                    if (node !== menu) node.hidden = true;
-                });
-                menu.hidden = !menu.hidden;
+                toggleCounterpartyMenu(button);
             });
         });
 
         qsa('[data-supplier-select]').forEach(function (button) {
-            if (button.dataset.bound === '1') return;
-            button.dataset.bound = '1';
+            if (button.dataset.supplierSelectBound === '1') return;
+            button.dataset.supplierSelectBound = '1';
             button.addEventListener('click', function (event) {
                 event.preventDefault();
                 event.stopPropagation();
-                var projectId = Number(button.dataset.projectId || 0);
-                var offerId = Number(button.dataset.offerId || 0);
-                if (!projectId || !offerId) return;
-                button.disabled = true;
-                api('/api/supplier-offers/' + offerId + '/update', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        status: 'selected',
-                        price: Number(button.dataset.price || 0),
-                        qty: Number(button.dataset.qty || 0),
-                        phone: button.dataset.phone || '',
-                        source_url: button.dataset.sourceUrl || '',
-                        notes: button.dataset.notes || ''
-                    })
-                }).then(function () {
-                    delete state.materialInsightsByProject[projectId];
-                    loadMaterialInsights(projectId, function (insights) {
-                        if (typeof rerenderProjectMaterialAndWorkViews === 'function') {
-                            rerenderProjectMaterialAndWorkViews(projectId);
-                            return;
-                        }
-                        if (state.materialsByProject[projectId]) {
-                            var materialsHtml = renderMaterials(state.materialsByProject[projectId], projectId, insights || {});
-                            var materialsPanel = qs('[data-panel="materials"]');
-                            if (materialsPanel && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                                materialsPanel.innerHTML = materialsHtml;
-                            }
-                            var overviewMaterials = qs('[data-project-overview-materials]');
-                            if (overviewMaterials && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                                overviewMaterials.innerHTML = materialsHtml;
-                            }
-                            bindProjectChainActions();
-                        }
-                    });
-                }).finally(function () {
-                    button.disabled = false;
-                });
+                selectCounterpartyOption(button);
             });
         });
+
+        if (!document.body.dataset.materialSupplierDelegatedBound) {
+            document.body.dataset.materialSupplierDelegatedBound = '1';
+            document.addEventListener('click', function (event) {
+                var selectButton = event.target && event.target.closest ? event.target.closest('[data-supplier-select]') : null;
+                if (selectButton) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+                    selectCounterpartyOption(selectButton);
+                    return;
+                }
+                var toggleButton = event.target && event.target.closest ? event.target.closest('[data-supplier-toggle]') : null;
+                if (toggleButton) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+                    toggleCounterpartyMenu(toggleButton);
+                }
+            });
+        }
 
         if (!document.body.dataset.materialSupplierMenuBound) {
             document.body.dataset.materialSupplierMenuBound = '1';
             document.addEventListener('click', function () {
-                qsa('[data-supplier-menu]').forEach(function (node) { node.hidden = true; });
+                closeCounterpartyMenus();
             });
+            window.addEventListener('resize', closeCounterpartyMenus);
         }
     }
 
@@ -2361,21 +2544,19 @@
         }).length;
         var inProgress = tasks.filter(function (task) { return task.status === 'in_progress'; }).length;
         var open = tasks.filter(function (task) { return task.status === 'open'; }).length;
+        var review = tasks.filter(function (task) { return task.status === 'review'; }).length;
+        var done = tasks.filter(function (task) { return task.status === 'done'; }).length;
         var summary = '<div class="execution-summary">' +
             stat('Задач всего', String(tasks.length)) +
-            stat('Открытые', String(open), open ? 'warn' : '') +
+            stat('Бэклог', String(open), open ? 'warn' : '') +
             stat('В работе', String(inProgress), inProgress ? 'warn' : '') +
+            stat('Проверка', String(review), review ? 'warn' : '') +
+            stat('Готово', String(done), done ? 'success' : '') +
             stat('Просрочены', String(overdue), overdue ? 'danger' : '') +
-            stat('Скоро срок', String(notifications && notifications.dueSoonTasks ? notifications.dueSoonTasks.length : 0)) +
-            stat('Блокеры', String(notifications && notifications.blockerLogs ? notifications.blockerLogs.length : 0), notifications && notifications.blockerLogs && notifications.blockerLogs.length ? 'danger' : '') +
         '</div>';
         var alerts = renderTaskAlerts(notifications);
-        var list = tasks.length
-            ? '<div class="task-list">' + tasks.map(function (task) {
-                return renderTaskRow(task, users || []);
-            }).join('') + '</div>'
-            : '<p class="muted">Задач пока нет.</p>';
-        return summary + alerts + list + (hasRole('customer') ? '' : renderTaskCreateForm(projectId, users || []));
+        var board = renderTaskBoard(tasks, users || []);
+        return '<section class="tasks-ui">' + summary + alerts + board + (hasRole('customer') ? '' : renderTaskCreateForm(projectId, users || [])) + '</section>';
     }
 
     function renderTaskAlerts(notifications) {
@@ -2393,18 +2574,94 @@
         return cards.length ? '<section class="notice-grid">' + cards.join('') + '</section>' : '';
     }
 
+    function taskColumnStatus(status) {
+        if (status === 'in_progress' || status === 'review' || status === 'done') return status;
+        return 'open';
+    }
+
+    function renderTaskBoard(tasks, users) {
+        var columns = [
+            { status: 'open', title: 'Бэклог' },
+            { status: 'in_progress', title: 'В работе' },
+            { status: 'review', title: 'Проверка' },
+            { status: 'done', title: 'Готово' }
+        ];
+        return '<section class="tasks-board" aria-label="Доска задач">' + columns.map(function (column) {
+            var items = tasks.filter(function (task) {
+                return taskColumnStatus(task.status) === column.status;
+            });
+            return renderTaskColumn(column, items, users);
+        }).join('') + '</section>';
+    }
+
+    function renderTaskColumn(column, tasks, users) {
+        var cards = tasks.length
+            ? tasks.map(function (task) { return renderTaskRow(task, users); }).join('')
+            : '<div class="tasks-empty">Задач нет</div>';
+        return '<section class="tasks-column tasks-column-' + column.status + '">' +
+            '<div class="tasks-column-head">' +
+                '<h3>' + escapeHtml(column.title) + '</h3>' +
+                '<span>' + tasks.length + '</span>' +
+            '</div>' +
+            '<div class="tasks-column-list">' + cards + '</div>' +
+        '</section>';
+    }
+
+    function taskPriorityClass(priority) {
+        if (priority === 'high') return 'high';
+        if (priority === 'low') return 'low';
+        return 'normal';
+    }
+
+    function taskAssigneeName(task, users) {
+        if (task.assignee_name) return task.assignee_name;
+        var match = (users || []).filter(function (user) {
+            return Number(user.id) === Number(task.assignee_id);
+        })[0];
+        return match ? match.name : 'Без ответственного';
+    }
+
+    function taskInitials(name) {
+        var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length || name === 'Без ответственного') return '—';
+        return parts.slice(0, 2).map(function (part) {
+            return part.charAt(0).toUpperCase();
+        }).join('');
+    }
+
     function renderTaskRow(task, users) {
         var userOptions = '<option value="">Без ответственного</option>' + users.map(function (user) {
             return '<option value="' + user.id + '"' + (Number(task.assignee_id) === Number(user.id) ? ' selected' : '') + '>' + escapeHtml(user.name) + '</option>';
         }).join('');
-        var riskClass = task.status !== 'done' && task.due_at && task.due_at < APP_TODAY ? ' execution-row-overdue' : '';
-        return '<form class="task-row' + riskClass + '" data-task-edit-form data-task-id="' + task.id + '">' +
-            '<div class="task-row-main"><b>' + escapeHtml(task.title) + '</b><small>' + escapeHtml(task.description || 'Без описания') + '</small></div>' +
-            '<select name="status"><option value="open"' + (task.status === 'open' ? ' selected' : '') + '>Открыта</option><option value="in_progress"' + (task.status === 'in_progress' ? ' selected' : '') + '>В работе</option><option value="done"' + (task.status === 'done' ? ' selected' : '') + '>Готово</option></select>' +
-            '<select name="priority"><option value="low"' + (task.priority === 'low' ? ' selected' : '') + '>Низкий</option><option value="normal"' + (task.priority === 'normal' ? ' selected' : '') + '>Обычный</option><option value="high"' + (task.priority === 'high' ? ' selected' : '') + '>Высокий</option></select>' +
-            '<input name="due_at" type="date" value="' + escapeHtml(task.due_at || '') + '">' +
-            '<select name="assignee_id">' + userOptions + '</select>' +
-            '<button class="ghost" type="submit">Сохранить</button>' +
+        var priority = task.priority || 'normal';
+        var isOverdue = task.status !== 'done' && task.due_at && task.due_at < APP_TODAY;
+        var assigneeName = taskAssigneeName(task, users);
+        return '<form class="task-card' + (isOverdue ? ' task-card-overdue' : '') + '" data-task-edit-form data-task-id="' + task.id + '">' +
+            '<div class="task-card-top">' +
+                '<span class="task-tag">' + escapeHtml(statusLabel(taskColumnStatus(task.status))) + '</span>' +
+                '<span class="task-priority task-priority-' + taskPriorityClass(priority) + '">' + escapeHtml(priorityLabel(priority)) + '</span>' +
+            '</div>' +
+            '<div class="task-card-body">' +
+                '<h4>' + escapeHtml(task.title || 'Без названия') + '</h4>' +
+                '<p>' + escapeHtml(task.description || 'Без описания') + '</p>' +
+            '</div>' +
+            '<div class="task-card-footer">' +
+                '<div class="task-assignee">' +
+                    '<span class="task-avatar">' + escapeHtml(taskInitials(assigneeName)) + '</span>' +
+                    '<span>' + escapeHtml(assigneeName) + '</span>' +
+                '</div>' +
+                '<div class="task-deadline' + (isOverdue ? ' task-deadline-overdue' : '') + '">' +
+                    '<span class="task-deadline-icon" aria-hidden="true"></span>' +
+                    '<span>' + escapeHtml(task.due_at ? formatDisplayDate(task.due_at) : 'Без срока') + '</span>' +
+                '</div>' +
+            '</div>' +
+            '<div class="task-card-controls">' +
+                '<select name="status" aria-label="Статус"><option value="open"' + (taskColumnStatus(task.status) === 'open' ? ' selected' : '') + '>Бэклог</option><option value="in_progress"' + (task.status === 'in_progress' ? ' selected' : '') + '>В работе</option><option value="review"' + (task.status === 'review' ? ' selected' : '') + '>Проверка</option><option value="done"' + (task.status === 'done' ? ' selected' : '') + '>Готово</option></select>' +
+                '<select name="priority" aria-label="Приоритет"><option value="low"' + (priority === 'low' ? ' selected' : '') + '>Низкий</option><option value="normal"' + (priority === 'normal' ? ' selected' : '') + '>Средний</option><option value="high"' + (priority === 'high' ? ' selected' : '') + '>Высокий</option></select>' +
+                '<input name="due_at" aria-label="Дедлайн" type="date" value="' + escapeHtml(task.due_at || '') + '">' +
+                '<select name="assignee_id" aria-label="Исполнитель">' + userOptions + '</select>' +
+                '<button class="ghost task-save" type="submit">Сохранить</button>' +
+            '</div>' +
         '</form>';
     }
 
@@ -2413,13 +2670,19 @@
             return '<option value="' + user.id + '">' + escapeHtml(user.name) + '</option>';
         }).join('');
         return '<form class="task-create-form" data-task-form data-project-id="' + projectId + '">' +
-            '<div class="card-head"><h3>Новая задача</h3></div>' +
-            '<input name="title" placeholder="Название задачи">' +
-            '<input name="description" placeholder="Короткое описание">' +
-            '<select name="priority"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="low">Низкий</option></select>' +
-            '<input name="due_at" type="date">' +
-            '<select name="assignee_id">' + userOptions + '</select>' +
-            '<button type="submit">Добавить</button>' +
+            '<div class="task-create-head">' +
+                '<h3>Новая задача</h3>' +
+                '<span>Быстрое добавление в доску</span>' +
+            '</div>' +
+            '<div class="task-create-grid">' +
+                '<input name="title" placeholder="Название задачи">' +
+                '<input name="description" placeholder="Короткое описание">' +
+                '<select name="status" aria-label="Статус"><option value="open">Бэклог</option><option value="in_progress">В работе</option><option value="review">Проверка</option><option value="done">Готово</option></select>' +
+                '<select name="priority" aria-label="Приоритет"><option value="normal">Средний</option><option value="high">Высокий</option><option value="low">Низкий</option></select>' +
+                '<input name="due_at" aria-label="Дедлайн" type="date">' +
+                '<select name="assignee_id" aria-label="Исполнитель">' + userOptions + '</select>' +
+                '<button class="primary" type="submit">Добавить</button>' +
+            '</div>' +
         '</form>';
     }
 
@@ -2435,6 +2698,7 @@
                 body: JSON.stringify({
                     title: form.title.value.trim(),
                     description: form.description ? form.description.value.trim() : '',
+                    status: form.status ? form.status.value : 'open',
                     priority: form.priority ? form.priority.value : 'normal',
                     due_at: form.due_at ? form.due_at.value : '',
                     assignee_id: form.assignee_id ? form.assignee_id.value : ''
@@ -3379,12 +3643,14 @@
             var material = projectItems.filter(function (item) { return String(item.id) === String(materialSelect.value); })[0] || projectItems[0];
             if (!material) {
                 form.need_by_date.value = '';
+                if (form.delivery_days) form.delivery_days.value = '';
                 form.notes.value = '';
                 stageSelect.value = '';
                 return;
             }
             materialSelect.value = String(material.id);
             form.need_by_date.value = material.needByDate || '';
+            if (form.delivery_days) form.delivery_days.value = material.deliveryDays == null ? '' : String(material.deliveryDays);
             form.notes.value = material.notes || '';
             stageSelect.value = material.stageId ? String(material.stageId) : '';
         }
@@ -3416,6 +3682,7 @@
                 body: JSON.stringify({
                     stage_id: form.stage_id.value,
                     need_by_date: form.need_by_date.value,
+                    delivery_days: form.delivery_days ? Number(form.delivery_days.value || 0) : undefined,
                     notes: form.notes.value.trim()
                 })
             }).then(function () {
@@ -3788,10 +4055,7 @@
     }
 
     function formatShortDate(iso) {
-        if (!iso) return '—';
-        var parts = String(iso).split('-');
-        if (parts.length !== 3) return iso;
-        return parts[2] + '.' + parts[1];
+        return formatDisplayDate(iso);
     }
 
     function renderStages(stages) {
@@ -6585,7 +6849,7 @@ function renderLogsDayView(project, logs) {
         if (executionPanel) executionPanel.innerHTML = '<p class="muted">Загружаем структуру объекта...</p>';
         if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загружаем материалы...</p>';
         if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загружаем работы...</p>';
-        if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+        if (schedulePanel) schedulePanel.innerHTML = '<p class="muted">Откройте вкладку, чтобы загрузить график.</p>';
         if (tasksPanel) tasksPanel.innerHTML = '<p class="muted">Загружаем задачи...</p>';
         if (financePanel) financePanel.innerHTML = '';
         if (documentsPanel) documentsPanel.innerHTML = '<p class="muted">Загружаем документы...</p>';
@@ -6981,7 +7245,7 @@ function renderLogsDayView(project, logs) {
         if (executionPanel) executionPanel.innerHTML = '<p class="muted">Загружаем структуру объекта...</p>';
         if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загружаем материалы...</p>';
         if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загружаем работы...</p>';
-        if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+        if (schedulePanel) schedulePanel.innerHTML = '<p class="muted">Откройте вкладку, чтобы загрузить график.</p>';
         if (tasksPanel) tasksPanel.innerHTML = '<p class="muted">Загружаем задачи...</p>';
         if (financePanel) financePanel.innerHTML = '';
         if (documentsPanel) documentsPanel.innerHTML = '<p class="muted">Загружаем документы...</p>';
@@ -9374,10 +9638,7 @@ function renderLogsDayView(project, logs) {
     };
 
     function finalGraphDate(iso) {
-        if (!iso) return '—';
-        var parts = String(iso).split('-');
-        if (parts.length !== 3) return iso;
-        return parts[2] + '.' + parts[1] + '.' + parts[0];
+        return formatDisplayDate(iso);
     }
 
     function finalSectionSummaryNumber(value) {
@@ -10168,6 +10429,57 @@ function renderLogsDayView(project, logs) {
         };
     }
 
+    function reportTrimSentence(value) {
+        return String(value || '')
+            .replace(/\s+/g, ' ')
+            .replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, '')
+            .trim();
+    }
+
+    function reportSentence(value) {
+        var text = reportTrimSentence(value);
+        if (!text) return '';
+        text = text.charAt(0).toUpperCase() + text.slice(1);
+        return /[.!?]$/.test(text) ? text : text + '.';
+    }
+
+    function reportActionObject(clauseText, actionRegex) {
+        var text = reportTrimSentence(clauseText);
+        text = text
+            .replace(/^(?:\u043c\u044b\s+)?(?:\u0441\u0435\u0433\u043e\u0434\u043d\u044f|замер|за\s+день|на\s+объекте)\s+/i, '')
+            .replace(actionRegex, '')
+            .replace(/^(?:и|а|также)\s+/i, '');
+        return reportTrimSentence(text) || reportTrimSentence(clauseText);
+    }
+
+    function reportNarrativeSentence(clauseText) {
+        var normalized = normalizeReportText(clauseText);
+        var purchaseRegex = /^(?:\u043c\u044b\s+)?(?:\u043a\u0443\u043f\u0438\u043b\u0438|\u0437\u0430\u043a\u0443\u043f\u0438\u043b\u0438|\u043f\u0440\u0438\u043e\u0431\u0440\u0435\u043b\u0438|\u0434\u043e\u043a\u0443\u043f\u0438\u043b\u0438)\s+/i;
+        var deliveryRegex = /^(?:\u043c\u044b\s+)?(?:\u0437\u0430\u0432\u0435\u0437\u043b\u0438|\u0434\u043e\u0441\u0442\u0430\u0432\u0438\u043b\u0438|\u043f\u0440\u0438\u0432\u0435\u0437\u043b\u0438|\u043f\u043e\u043b\u0443\u0447\u0438\u043b\u0438)\s+/i;
+        var workRegex = /^(?:\u043c\u044b\s+)?(?:\u0441\u0434\u0435\u043b\u0430\u043b\u0438|\u0432\u044b\u043f\u043e\u043b\u043d\u0438\u043b\u0438|\u0437\u0430\u043a\u0440\u044b\u043b\u0438|\u0441\u043c\u043e\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u043b\u0438|\u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u043b\u0438|\u0443\u043b\u043e\u0436\u0438\u043b\u0438)\s+/i;
+        var blockerRegex = /^(?:\u043c\u044b\s+)?(?:\u0436\u0434\u0435\u043c|\u043d\u0435\u0442|\u043c\u0435\u0448\u0430\u0435\u0442|\u0437\u0430\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442|\u043d\u0443\u0436\u043d\u043e)\s+/i;
+        if (deliveryRegex.test(clauseText)) {
+            return reportSentence('\u041d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442 \u0434\u043e\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b: ' + reportActionObject(clauseText, deliveryRegex) + '. \u041f\u0440\u0438\u0435\u043c\u043a\u0430 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u0430 \u0432 \u0434\u043d\u0435\u0432\u043d\u043e\u043c \u043e\u0442\u0447\u0435\u0442\u0435');
+        }
+        if (purchaseRegex.test(clauseText) || reportHasPurchaseIntent(normalized)) {
+            return reportSentence('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0430 \u0437\u0430\u043a\u0443\u043f\u043a\u0430 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u043e\u0432: ' + reportActionObject(clauseText, purchaseRegex) + '. \u041f\u043e\u0441\u0442\u0430\u0432\u043a\u0430 \u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u0430 \u0434\u043b\u044f \u0434\u0430\u043b\u044c\u043d\u0435\u0439\u0448\u0435\u0433\u043e \u0443\u0447\u0435\u0442\u0430 \u0438 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u044f \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435');
+        }
+        if (workRegex.test(clauseText) || reportHasUseIntent(normalized)) {
+            return reportSentence('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b \u0440\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443: ' + reportActionObject(clauseText, workRegex) + '. \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 \u0432\u043d\u0435\u0441\u0435\u043d \u0432 \u043e\u0442\u0447\u0435\u0442 \u0434\u043b\u044f \u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044f \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441\u0430');
+        }
+        if (blockerRegex.test(clauseText)) {
+            return reportSentence('\u0417\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d \u0432\u043e\u043f\u0440\u043e\u0441, \u0442\u0440\u0435\u0431\u0443\u044e\u0449\u0438\u0439 \u0432\u043d\u0438\u043c\u0430\u043d\u0438\u044f: ' + reportActionObject(clauseText, blockerRegex));
+        }
+        return reportSentence('\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u043e: ' + reportTrimSentence(clauseText));
+    }
+
+    function buildReadableProjectReportText(rawText, generatedParts) {
+        if (generatedParts && generatedParts.length) return generatedParts.join(' ');
+        var clauses = reportTextClauses(rawText).slice(0, 6);
+        var sentences = clauses.map(reportNarrativeSentence).filter(Boolean);
+        return sentences.length ? sentences.join(' ') : reportSentence(rawText);
+    }
+
     function buildProjectReportDraft(projectId, payload) {
         var text = String(payload && payload.raw_input || '').trim() || String(payload && payload.work_done || '').trim();
         var clauses = reportTextClauses(text);
@@ -10238,7 +10550,7 @@ function renderLogsDayView(project, logs) {
         }
 
         return {
-            text: generatedParts.join(' ') || String(payload && (payload.work_done || payload.raw_input) || '').trim(),
+            text: buildReadableProjectReportText(text, generatedParts),
             workMatches: workMatches,
             materialMatches: materialMatches
         };
@@ -12093,6 +12405,214 @@ function renderLogsDayView(project, logs) {
         '</section>';
     };
 
+    var reportVoiceState = {
+        recognition: null,
+        input: null,
+        button: null,
+        active: false
+    };
+    var reportVoiceUnsupportedWarned = false;
+    var reportVoiceToastTimer = null;
+
+    function reportSpeechRecognitionConstructor() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    }
+
+    function reportVoiceMessage(value) {
+        var messages = {
+            micTitle: '\u0413\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0439 \u0432\u0432\u043e\u0434',
+            micActive: '\u0418\u0434\u0435\u0442 \u0437\u0430\u043f\u0438\u0441\u044c',
+            micBlocked: '\u041f\u043e\u0436\u0430\u043b\u0443\u0439\u0441\u0442\u0430, \u0440\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u0435 \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d\u0443 \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430',
+            micError: '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0439 \u0432\u0432\u043e\u0434'
+        };
+        return messages[value] || '';
+    }
+
+    function reportVoiceIconHtml() {
+        return '<span class="report-voice-idle" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path></svg></span><span class="report-voice-recording" aria-hidden="true"></span>';
+    }
+
+    function showReportVoiceToast(message) {
+        var toast = qs('[data-report-voice-toast]');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'report-voice-toast';
+            toast.setAttribute('data-report-voice-toast', '');
+            toast.setAttribute('role', 'status');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('active');
+        clearTimeout(reportVoiceToastTimer);
+        reportVoiceToastTimer = setTimeout(function () {
+            toast.classList.remove('active');
+        }, 4200);
+    }
+
+    function setReportVoiceButtonState(button, stateName) {
+        if (!button) return;
+        button.classList.toggle('is-recording', stateName === 'active');
+        button.classList.toggle('is-error', stateName === 'error');
+        button.setAttribute('aria-pressed', stateName === 'active' ? 'true' : 'false');
+        button.setAttribute('title', stateName === 'active' ? reportVoiceMessage('micActive') : reportVoiceMessage('micTitle'));
+        button.setAttribute('aria-label', stateName === 'active' ? reportVoiceMessage('micActive') : reportVoiceMessage('micTitle'));
+        if (stateName === 'error') {
+            setTimeout(function () {
+                button.classList.remove('is-error');
+            }, 1400);
+        }
+    }
+
+    function stopReportVoiceRecognition(keepButtonState) {
+        var recognition = reportVoiceState.recognition;
+        var button = reportVoiceState.button;
+        reportVoiceState.active = false;
+        reportVoiceState.recognition = null;
+        reportVoiceState.input = null;
+        reportVoiceState.button = null;
+        if (!keepButtonState) setReportVoiceButtonState(button, 'idle');
+        if (recognition) {
+            try {
+                recognition.stop();
+            } catch (error) {}
+        }
+    }
+
+    function appendReportVoiceText(input, text) {
+        var addition = String(text || '').trim();
+        if (!input || !addition) return;
+        var current = String(input.value || '');
+        var needsSpace = current && !/\s$/.test(current);
+        input.value = current + (needsSpace ? ' ' : '') + addition;
+        try {
+            input.selectionStart = input.value.length;
+            input.selectionEnd = input.value.length;
+        } catch (error) {}
+        input.focus();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function startReportVoiceRecognition(input, button) {
+        var Recognition = reportSpeechRecognitionConstructor();
+        if (!Recognition) {
+            if (!reportVoiceUnsupportedWarned) {
+                console.warn('Web Speech API is not supported in this browser.');
+                reportVoiceUnsupportedWarned = true;
+            }
+            return;
+        }
+        if (reportVoiceState.active) stopReportVoiceRecognition();
+        var recognition = new Recognition();
+        recognition.lang = 'ru-RU';
+        recognition.interimResults = false;
+        recognition.continuous = true;
+        recognition.onresult = function (event) {
+            var parts = [];
+            for (var index = event.resultIndex; index < event.results.length; index += 1) {
+                var result = event.results[index];
+                if (result && result.isFinal && result[0] && result[0].transcript) {
+                    parts.push(result[0].transcript);
+                }
+            }
+            appendReportVoiceText(input, parts.join(' '));
+        };
+        recognition.onerror = function (event) {
+            var isBlocked = event && (event.error === 'not-allowed' || event.error === 'service-not-allowed');
+            if (isBlocked) showReportVoiceToast(reportVoiceMessage('micBlocked'));
+            else console.warn('Speech recognition error:', event && event.error ? event.error : event);
+            setReportVoiceButtonState(button, 'error');
+            stopReportVoiceRecognition(true);
+        };
+        recognition.onend = function () {
+            if (reportVoiceState.recognition === recognition) stopReportVoiceRecognition();
+        };
+        reportVoiceState = {
+            recognition: recognition,
+            input: input,
+            button: button,
+            active: true
+        };
+        setReportVoiceButtonState(button, 'active');
+        input.focus();
+        try {
+            recognition.start();
+        } catch (error) {
+            console.warn('Speech recognition start failed:', error);
+            showReportVoiceToast(reportVoiceMessage('micError'));
+            setReportVoiceButtonState(button, 'error');
+            stopReportVoiceRecognition(true);
+        }
+    }
+
+    function reportVoiceInputTargets(form) {
+        return qsa('textarea, input', form).filter(function (input) {
+            var type = String(input.getAttribute('type') || (input.tagName === 'TEXTAREA' ? 'textarea' : 'text')).toLowerCase();
+            var textTypes = ['textarea', 'text', 'search', 'tel', 'url', 'email'];
+            return textTypes.indexOf(type) !== -1 && !input.disabled && !input.readOnly;
+        });
+    }
+
+    function bindReportVoiceInputs() {
+        var Recognition = reportSpeechRecognitionConstructor();
+        if (!Recognition) {
+            if (!reportVoiceUnsupportedWarned) {
+                console.warn('Web Speech API is not supported in this browser.');
+                reportVoiceUnsupportedWarned = true;
+            }
+            return;
+        }
+        qsa('[data-log-form]').forEach(function (form) {
+            if (form.dataset.reportVoiceFormBound !== '1') {
+                form.dataset.reportVoiceFormBound = '1';
+                form.addEventListener('submit', function () {
+                    stopReportVoiceRecognition();
+                });
+            }
+            reportVoiceInputTargets(form).forEach(function (input) {
+                if (input.dataset.reportVoiceBound === '1') return;
+                input.dataset.reportVoiceBound = '1';
+                var wrapper = document.createElement('div');
+                wrapper.className = 'report-voice-field';
+                input.parentNode.insertBefore(wrapper, input);
+                wrapper.appendChild(input);
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'report-voice-button';
+                button.innerHTML = reportVoiceIconHtml();
+                button.setAttribute('aria-pressed', 'false');
+                button.setAttribute('title', reportVoiceMessage('micTitle'));
+                button.setAttribute('aria-label', reportVoiceMessage('micTitle'));
+                wrapper.appendChild(button);
+                button.addEventListener('mousedown', function (event) {
+                    event.preventDefault();
+                });
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    if (reportVoiceState.active && reportVoiceState.input === input) {
+                        stopReportVoiceRecognition();
+                        input.focus();
+                        return;
+                    }
+                    startReportVoiceRecognition(input, button);
+                });
+                input.addEventListener('blur', function () {
+                    setTimeout(function () {
+                        if (reportVoiceState.input === input && document.activeElement !== button) {
+                            stopReportVoiceRecognition();
+                        }
+                    }, 80);
+                });
+            });
+        });
+    }
+
+    var baseBindLogFormForReportVoice = bindLogForm;
+    bindLogForm = function () {
+        bindReportPreview();
+        bindReportVoiceInputs();
+        return baseBindLogFormForReportVoice();
+    };
+
     function financePlanBucket(item) {
         var dateText = String(item.planned_date || item.paid_date || '').trim();
         var today = new Date(APP_TODAY + 'T00:00:00');
@@ -12969,7 +13489,7 @@ function renderLogsDayView(project, logs) {
         var itemId = kind === 'material' ? (item && item.id || '') : '';
         var stepValue = Math.abs((progress.total || 0) - Math.round(progress.total || 0)) < 0.0001 ? '1' : '0.1';
         return '<label class="quantity-actual-editor quantity-actual-' + escapeHtml(kind) + '">' +
-            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> из ' + escapeHtml(quantityText(progress.total)) + '</span>' +
+            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> <small>из</small> <em>' + escapeHtml(quantityText(progress.total)) + '</em></span>' +
             '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || 'штук') + '</em></div>' +
         '</label>';
     }
@@ -13056,7 +13576,92 @@ function renderLogsDayView(project, logs) {
         return html.replace(/<\/div><\/article>$/, detailsShell + '</div></article>');
     };
 
+    function actualQuantityInputItem(input) {
+        return {
+            id: input.getAttribute('data-item-id') || '',
+            title: input.getAttribute('data-item-title') || '',
+            unit: input.getAttribute('data-item-unit') || '',
+            plannedQty: input.getAttribute('data-item-qty') || ''
+        };
+    }
+
+    function updateActualQuantityLabel(input, value) {
+        var editor = input && input.closest ? input.closest('.quantity-actual-editor') : null;
+        var label = editor ? qs('span b', editor) : null;
+        if (label) label.textContent = quantityText(value);
+    }
+
+    function saveActualQuantityInput(input, shouldRerender) {
+        var projectId = Number(input.getAttribute('data-project-id') || 0);
+        if (!projectId) return;
+        var item = actualQuantityInputItem(input);
+        var value = input.value;
+        if (input.getAttribute('data-actual-kind') === 'work') {
+            setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, value);
+        } else {
+            setMaterialManualActualQty(projectId, item, value);
+        }
+        updateActualQuantityLabel(input, value);
+        if (!shouldRerender) return;
+        if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+            rerenderProjectMaterialAndWorkViews(projectId);
+            rerenderProjectWorkProgress(projectId);
+        }
+    }
+
+    function saveManualQuantityCheckbox(input) {
+        var projectId = Number(input.getAttribute('data-project-id') || 0);
+        if (!projectId) return;
+        if (input.hasAttribute('data-section-work-check')) {
+            setScheduleWorkDone(projectId, input.getAttribute('data-section-title') || '', {
+                title: input.getAttribute('data-work-title') || '',
+                unit: input.getAttribute('data-work-unit') || '',
+                planned_qty: input.getAttribute('data-work-qty') || ''
+            }, input.checked);
+        } else if (input.hasAttribute('data-section-material-check')) {
+            setMaterialManuallyDone(projectId, {
+                id: input.getAttribute('data-material-id') || '',
+                title: input.getAttribute('data-material-title') || '',
+                unit: input.getAttribute('data-material-unit') || '',
+                plannedQty: input.getAttribute('data-material-qty') || ''
+            }, input.checked);
+        }
+        if (document.body && document.body.dataset.page === 'schedule' && typeof renderSchedulePage === 'function') {
+            renderSchedulePage();
+            return;
+        }
+        if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+            rerenderProjectMaterialAndWorkViews(projectId);
+            rerenderProjectWorkProgress(projectId);
+        }
+    }
+
+    function installActualQuantityDelegates() {
+        if (document.body.dataset.actualQuantityDelegated === '1') return;
+        document.body.dataset.actualQuantityDelegated = '1';
+        document.addEventListener('input', function (event) {
+            var input = event.target && event.target.closest ? event.target.closest('[data-actual-qty-input]') : null;
+            if (!input) return;
+            saveActualQuantityInput(input, false);
+        }, true);
+        document.addEventListener('change', function (event) {
+            var actualInput = event.target && event.target.closest ? event.target.closest('[data-actual-qty-input]') : null;
+            if (actualInput) {
+                event.stopPropagation();
+                if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+                saveActualQuantityInput(actualInput, true);
+                return;
+            }
+            var checkbox = event.target && event.target.closest ? event.target.closest('[data-section-work-check], [data-section-material-check]') : null;
+            if (!checkbox) return;
+            event.stopPropagation();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            saveManualQuantityCheckbox(checkbox);
+        }, true);
+    }
+
     function bindActualQuantityInputs(projectId) {
+        installActualQuantityDelegates();
         qsa('[data-actual-qty-input]').forEach(function (input) {
             if (input.dataset.actualBound === '1') return;
             input.dataset.actualBound = '1';
@@ -13079,22 +13684,14 @@ function renderLogsDayView(project, logs) {
                     input.blur();
                 }
             });
+            input.addEventListener('input', function () {
+                saveActualQuantityInput(input, false);
+            });
             input.addEventListener('change', function () {
-                var project = state.selectedProject;
-                if (!project || Number(project.id) !== Number(projectId)) return;
-                var item = {
-                    id: input.getAttribute('data-item-id') || '',
-                    title: input.getAttribute('data-item-title') || '',
-                    unit: input.getAttribute('data-item-unit') || '',
-                    plannedQty: input.getAttribute('data-item-qty') || ''
-                };
-                if (input.getAttribute('data-actual-kind') === 'work') {
-                    setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, input.value);
-                } else {
-                    setMaterialManualActualQty(projectId, item, input.value);
-                }
-                rerenderProjectMaterialAndWorkViews(projectId);
-                rerenderProjectWorkProgress(projectId);
+                saveActualQuantityInput(input, true);
+            });
+            input.addEventListener('blur', function () {
+                saveActualQuantityInput(input, true);
             });
         });
     }
@@ -13381,11 +13978,30 @@ function renderLogsDayView(project, logs) {
     }
 
     function bindSchedulePageActualQuantityInputs(projectId) {
+        installActualQuantityDelegates();
         var body = scheduleProjectBody(projectId);
         qsa('[data-actual-qty-input]', body).forEach(function (input) {
             if (input.dataset.schedulePageActualBound === '1') return;
             input.dataset.schedulePageActualBound = '1';
             input.addEventListener('click', function (event) { event.stopPropagation(); });
+            var editor = input.closest ? input.closest('.quantity-actual-editor') : null;
+            if (editor && editor.dataset.actualEditorBound !== '1') {
+                editor.dataset.actualEditorBound = '1';
+                editor.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    if (event.target !== input) {
+                        input.focus();
+                        input.select();
+                    }
+                });
+            }
+            input.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') input.blur();
+                if (event.key === 'Escape') {
+                    input.value = input.defaultValue;
+                    input.blur();
+                }
+            });
             input.addEventListener('change', function () {
                 var item = {
                     id: input.getAttribute('data-item-id') || '',
@@ -13617,28 +14233,99 @@ function renderLogsDayView(project, logs) {
         '</label>';
     }
 
-    function renderCounterpartyPicker(projectId, item, insight, labels) {
+    function renderCounterpartyPicker(projectId, item, insight, labels, kind) {
         if (!canManageSuppliers()) return '';
         labels = labels || {};
+        kind = kind === 'contractor' ? 'contractor' : 'supplier';
+        var companies = (state.companies || []).filter(function (company) {
+            return company && company.type === kind;
+        });
         var options = insight && Array.isArray(insight.options) ? insight.options : [];
-        var isSelected = !!(insight && insight.selectedOfferId);
+        var projectOptions = state.materialInsightsByProject[projectId] && Array.isArray(state.materialInsightsByProject[projectId].__allOptions)
+            ? state.materialInsightsByProject[projectId].__allOptions
+            : [];
+        var knownNames = {};
+        companies.forEach(function (company) {
+            var name = String(company && company.name || '').trim().toLowerCase();
+            if (name) knownNames[name] = 1;
+        });
+        var extraOptions = projectOptions.filter(function (option) {
+            if (!option || option.candidateType !== kind) return false;
+            var name = String(option.name || option.company || '').trim().toLowerCase();
+            if (!name || knownNames[name]) return false;
+            knownNames[name] = 1;
+            return true;
+        });
+        var selectedByType = insight && insight.selectedByType ? insight.selectedByType[kind] : null;
+        if (!selectedByType) {
+            selectedByType = options.find(function (option) {
+                return option && option.candidateType === kind && option.status === 'selected';
+            }) || null;
+        }
+        var isSelected = !!selectedByType;
+        var itemQty = item && (item.plannedQty != null ? item.plannedQty : item.planned_qty);
+        function offerForCompany(company) {
+            var companyId = Number(company && company.id || 0);
+            var companyName = String(company && company.name || '').trim().toLowerCase();
+            return options.find(function (option) {
+                if (!option || option.candidateType !== kind) return false;
+                if (companyId && Number(option.companyId || 0) === companyId) return true;
+                return companyName && String(option.name || option.company || '').trim().toLowerCase() === companyName;
+            }) || null;
+        }
         return '<div class="material-supplier-picker counterparty-picker">' +
-            '<button class="ghost material-link compact' + (isSelected ? ' is-selected' : '') + '" type="button" data-supplier-toggle data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '">' + escapeHtml(isSelected ? (labels.selected || 'Выбран') : (labels.empty || 'Контрагент')) + '</button>' +
+            '<button class="ghost material-link compact' + (isSelected ? ' is-selected' : '') + '" type="button" data-supplier-toggle data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-counterparty-kind="' + escapeHtml(kind) + '">' + escapeHtml(isSelected ? (selectedByType.name || labels.selected || 'Выбран') : (labels.empty || 'Контрагент')) + '</button>' +
             '<div class="material-supplier-menu" data-supplier-menu hidden>' +
-                (options.length ? options.map(function (option) {
-                    var meta = [option.company, option.price > 0 ? (finalSectionSummaryNumber(option.price) + ' ₽') : ''].filter(Boolean).join(' • ');
-                    return '<button class="material-supplier-option' + (option.status === 'selected' ? ' is-selected' : '') + '" type="button" ' +
+                '<div class="material-supplier-menu-title">' + escapeHtml(kind === 'contractor' ? 'Список подрядчиков' : 'Список поставщиков') + '</div>' +
+                '<button class="material-supplier-option material-supplier-option-empty" type="button" data-supplier-select data-supplier-clear data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-offer-id="' + escapeHtml(selectedByType && selectedByType.id || '') + '" data-candidate-type="' + escapeHtml(kind) + '">' +
+                    '<strong>—</strong>' +
+                '</button>' +
+                ((companies.length || extraOptions.length) ? companies.map(function (company) {
+                    var offer = offerForCompany(company) || {};
+                    var companyId = Number(company.id || 0);
+                    var selected = !!(selectedByType && (Number(selectedByType.companyId || 0) === companyId || String(selectedByType.name || '').trim() === String(company.name || '').trim()));
+                    var meta = [company.phone || '', company.email || '', company.inn ? ('ИНН ' + company.inn) : ''].filter(Boolean).join(' • ');
+                    return '<button class="material-supplier-option' + (selected ? ' is-selected' : '') + '" type="button" ' +
                         'data-supplier-select ' +
                         'data-project-id="' + escapeHtml(projectId) + '" ' +
                         'data-material-id="' + escapeHtml(item.id) + '" ' +
-                        'data-offer-id="' + escapeHtml(option.id) + '" ' +
-                        'data-status="' + escapeHtml(option.status) + '" ' +
-                        'data-price="' + escapeHtml(option.price) + '" ' +
-                        'data-qty="' + escapeHtml(option.qty) + '" ' +
-                        'data-phone="' + escapeHtml(option.phone) + '" ' +
-                        'data-source-url="' + escapeHtml(option.sourceUrl) + '" ' +
-                        'data-notes="' + escapeHtml(option.notes) + '">' +
-                        '<strong>' + escapeHtml(option.name) + '</strong>' +
+                        'data-offer-id="' + escapeHtml(offer.id || '') + '" ' +
+                        'data-company-id="' + escapeHtml(companyId) + '" ' +
+                        'data-company-name="' + escapeHtml(company.name || '') + '" ' +
+                        'data-candidate-type="' + escapeHtml(kind) + '" ' +
+                        'data-item-title="' + escapeHtml(item && item.title || '') + '" ' +
+                        'data-item-unit="' + escapeHtml(item && item.unit || '') + '" ' +
+                        'data-item-qty="' + escapeHtml(itemQty == null ? '' : String(itemQty)) + '" ' +
+                        'data-status="' + escapeHtml(offer.status || 'new') + '" ' +
+                        'data-price="' + escapeHtml(offer.price || 0) + '" ' +
+                        'data-qty="' + escapeHtml(offer.qty || itemQty || 0) + '" ' +
+                        'data-phone="' + escapeHtml(offer.phone || company.phone || '') + '" ' +
+                        'data-source-url="' + escapeHtml(offer.sourceUrl || '') + '" ' +
+                        'data-notes="' + escapeHtml(offer.notes || '') + '">' +
+                        '<strong>' + escapeHtml(company.name || '') + '</strong>' +
+                        (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') +
+                    '</button>';
+                }).join('') + extraOptions.map(function (option) {
+                    var sameItem = Number(option.estimateItemId || 0) === Number(item && item.id || 0);
+                    var meta = [option.company || '', option.phone || '', option.price > 0 ? (finalSectionSummaryNumber(option.price) + ' ₽') : ''].filter(Boolean).join(' • ');
+                    return '<button class="material-supplier-option' + (option.status === 'selected' && sameItem ? ' is-selected' : '') + '" type="button" ' +
+                        'data-supplier-select ' +
+                        'data-project-id="' + escapeHtml(projectId) + '" ' +
+                        'data-material-id="' + escapeHtml(item.id) + '" ' +
+                        'data-offer-id="' + escapeHtml(sameItem ? option.id : '') + '" ' +
+                        'data-company-id="' + escapeHtml(option.companyId || '') + '" ' +
+                        'data-company-name="' + escapeHtml(option.name || '') + '" ' +
+                        'data-candidate-type="' + escapeHtml(kind) + '" ' +
+                        'data-item-title="' + escapeHtml(item && item.title || '') + '" ' +
+                        'data-item-unit="' + escapeHtml(item && item.unit || '') + '" ' +
+                        'data-item-qty="' + escapeHtml(itemQty == null ? '' : String(itemQty)) + '" ' +
+                        'data-status="' + escapeHtml(option.status || 'new') + '" ' +
+                        'data-price="' + escapeHtml(option.price || 0) + '" ' +
+                        'data-qty="' + escapeHtml(option.qty || itemQty || 0) + '" ' +
+                        'data-phone="' + escapeHtml(option.phone || '') + '" ' +
+                        'data-source-url="' + escapeHtml(option.sourceUrl || '') + '" ' +
+                        'data-notes="' + escapeHtml(option.notes || '') + '">' +
+                        '<strong>' + escapeHtml(option.name || '') + '</strong>' +
                         (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') +
                     '</button>';
                 }).join('') : '<div class="material-supplier-empty">' + escapeHtml(labels.none || 'Нет контрагентов') + '</div>') +
@@ -13678,7 +14365,7 @@ function renderLogsDayView(project, logs) {
             '</div>' +
             '<div class="work-row-side estimate-compact-side">' +
                 renderCompactActualQtyEditor('material', projectId, '', item, progress) +
-                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: 'Поставщик', selected: insight && insight.selectedName ? insight.selectedName : 'Поставщик', none: 'Нет поставщиков' }) + '</div>' +
+                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: 'Поставщик', selected: insight && insight.selectedName ? insight.selectedName : 'Поставщик', none: 'Нет поставщиков' }, 'supplier') + '</div>' +
             '</div>' +
         '</div>';
     };
@@ -13696,10 +14383,83 @@ function renderLogsDayView(project, logs) {
             '</div>' +
             '<div class="work-row-side estimate-compact-side">' +
                 renderCompactActualQtyEditor('work', projectId, sectionTitle, item, progress) +
-                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, item, insight, { empty: 'Подрядчик', selected: insight && insight.selectedName ? insight.selectedName : 'Подрядчик', none: 'Нет подрядчиков' }) + '</div>' +
+                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, item, insight, { empty: 'Подрядчик', selected: insight && insight.selectedName ? insight.selectedName : 'Подрядчик', none: 'Нет подрядчиков' }, 'contractor') + '</div>' +
             '</div>' +
         '</div>';
     };
+
+    function counterpartyFilterKey(kind) {
+        return kind === 'contractor' || kind === 'works' || kind === 'work' ? 'contractor' : 'supplier';
+    }
+
+    function counterpartyFilterValue(projectId, kind) {
+        var key = String(projectId || '') + ':' + counterpartyFilterKey(kind);
+        return (state.materialCounterpartyFiltersByProject && state.materialCounterpartyFiltersByProject[key]) || 'all';
+    }
+
+    function setCounterpartyFilterValue(projectId, kind, value) {
+        var key = String(projectId || '') + ':' + counterpartyFilterKey(kind);
+        if (!state.materialCounterpartyFiltersByProject) state.materialCounterpartyFiltersByProject = {};
+        state.materialCounterpartyFiltersByProject[key] = ['all', 'with', 'without'].indexOf(value) !== -1 ? value : 'all';
+    }
+
+    function selectedCounterpartyForItem(projectId, item, kind, insights) {
+        var itemId = Number(item && item.id || 0);
+        var insight = (insights || state.materialInsightsByProject[projectId] || {})[itemId] || null;
+        var type = counterpartyFilterKey(kind);
+        if (insight && insight.selectedByType && insight.selectedByType[type]) return insight.selectedByType[type];
+        if (!insight || !Array.isArray(insight.options)) return null;
+        return insight.options.find(function (option) {
+            return option && option.candidateType === type && option.status === 'selected';
+        }) || null;
+    }
+
+    function filterItemsByCounterparty(projectId, items, kind, insights) {
+        var value = counterpartyFilterValue(projectId, kind);
+        if (value === 'all') return items || [];
+        return (items || []).filter(function (item) {
+            var hasCounterparty = !!selectedCounterpartyForItem(projectId, item, kind, insights);
+            return value === 'with' ? hasCounterparty : !hasCounterparty;
+        });
+    }
+
+    function renderCounterpartyFilter(projectId, kind, items, insights) {
+        var type = counterpartyFilterKey(kind);
+        var total = (items || []).length;
+        var withCounterparty = (items || []).filter(function (item) {
+            return !!selectedCounterpartyForItem(projectId, item, type, insights);
+        }).length;
+        var withoutCounterparty = Math.max(0, total - withCounterparty);
+        var value = counterpartyFilterValue(projectId, type);
+        var nounWith = type === 'contractor' ? 'подрядчиком' : 'поставщиком';
+        var nounWithout = type === 'contractor' ? 'подрядчика' : 'поставщика';
+        return '<div class="counterparty-filter-bar">' +
+            '<label><span>Контрагент</span>' +
+                '<select data-counterparty-filter data-project-id="' + escapeHtml(projectId || '') + '" data-counterparty-kind="' + escapeHtml(type) + '">' +
+                    '<option value="all"' + (value === 'all' ? ' selected' : '') + '>Все позиции (' + escapeHtml(total) + ')</option>' +
+                    '<option value="with"' + (value === 'with' ? ' selected' : '') + '>С ' + escapeHtml(nounWith) + ' (' + escapeHtml(withCounterparty) + ')</option>' +
+                    '<option value="without"' + (value === 'without' ? ' selected' : '') + '>Без ' + escapeHtml(nounWithout) + ' (' + escapeHtml(withoutCounterparty) + ')</option>' +
+                '</select>' +
+            '</label>' +
+        '</div>';
+    }
+
+    function bindCounterpartyFilters(projectId) {
+        qsa('[data-counterparty-filter]').forEach(function (select) {
+            if (select.dataset.counterpartyFilterBound === '1') return;
+            select.dataset.counterpartyFilterBound = '1';
+            select.addEventListener('change', function () {
+                var targetProjectId = Number(select.getAttribute('data-project-id') || projectId || 0);
+                var kind = select.getAttribute('data-counterparty-kind') || 'supplier';
+                setCounterpartyFilterValue(targetProjectId, kind, select.value);
+                if (typeof rerenderProjectMaterialAndWorkViews === 'function') {
+                    rerenderProjectMaterialAndWorkViews(targetProjectId);
+                    return;
+                }
+                rerenderProjectMarketTab(targetProjectId, kind === 'contractor' ? 'works' : 'materials');
+            });
+        });
+    }
 
     renderGroupedMaterials = function (groups, projectId, insights) {
         insights = insights || {};
@@ -13758,13 +14518,20 @@ function renderLogsDayView(project, logs) {
         });
         if (!materials.length) return '<p class="muted">Материалы по смете пока не загружены.</p>';
         var progress = materialProgress(projectId, materials);
-        var groups = groupMaterialsBySection(materials);
+        var filteredMaterials = filterItemsByCounterparty(projectId, materials, 'supplier', insights || {});
+        var groups = groupMaterialsBySection(filteredMaterials);
         var totalSections = estimateTotalSectionCount(items, groups.map(function (group) { return group.title; }));
+        var filterEmpty = filteredMaterials.length
+            ? ''
+            : '<div class="market-empty">По выбранному фильтру позиций нет.</div>';
         return '<div class="execution-summary material-progress-summary estimate-summary-compact">' +
             stat('Всего позиций', String(materials.length)) +
             stat('Всего разделов', String(totalSections)) +
             stat('Материалов закрыто', String(progress.done) + ' из ' + String(progress.total), progress.total && progress.done >= progress.total ? 'success' : '') +
-        '</div>' + renderGroupedMaterials(groups, projectId, insights || {});
+        '</div>' +
+        renderCounterpartyFilter(projectId, 'supplier', materials, insights || {}) +
+        filterEmpty +
+        (filteredMaterials.length ? renderGroupedMaterials(groups, projectId, insights || {}) : '');
     };
 
     renderWorksPanel = function (stages, items) {
@@ -13777,6 +14544,9 @@ function renderLogsDayView(project, logs) {
             return String(item.itemKind || '').toLowerCase() === 'work';
         });
         if (!workStages.length && !estimateWorks.length) return '<p class="muted">Работы по смете пока не загружены.</p>';
+        var filteredEstimateWorks = projectId ? filterItemsByCounterparty(projectId, estimateWorks, 'contractor', state.materialInsightsByProject[projectId] || {}) : estimateWorks;
+        var isCounterpartyFiltered = projectId && counterpartyFilterValue(projectId, 'contractor') !== 'all';
+        var visibleWorkStages = isCounterpartyFiltered ? [] : workStages;
         var groups = {};
         var order = [];
         function ensureGroup(title) {
@@ -13787,10 +14557,10 @@ function renderLogsDayView(project, logs) {
             }
             return groups[sectionTitle];
         }
-        workStages.forEach(function (stage) {
+        visibleWorkStages.forEach(function (stage) {
             ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage);
         });
-        estimateWorks.forEach(function (item) {
+        filteredEstimateWorks.forEach(function (item) {
             ensureGroup(item.sectionTitle || item.stageTitle).estimateRows.push(item);
         });
         var originalSectionOrder = order.slice();
@@ -13827,7 +14597,9 @@ function renderLogsDayView(project, logs) {
             stat('Всего позиций', String(totalWorkPositions)) +
             stat('Всего разделов', String(totalSections)) +
             stat('Работ готово', String(doneWorkPositions) + ' из ' + String(totalWorkPositions), totalWorkPositions && doneWorkPositions >= totalWorkPositions ? 'success' : '') +
-        '</div><div class="estimate-section-list">' + order.map(function (title, index) {
+        '</div>' +
+        renderCounterpartyFilter(projectId, 'contractor', estimateWorks, state.materialInsightsByProject[projectId] || {}) +
+        (filteredEstimateWorks.length || visibleWorkStages.length ? '<div class="estimate-section-list">' + order.map(function (title, index) {
             var group = groups[title];
             var workProgress = workProgressForRows(projectId, title, group.estimateRows);
             var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
@@ -13856,7 +14628,7 @@ function renderLogsDayView(project, logs) {
                     group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('')
                 ) +
             '</section>';
-        }).join('') + '</div>';
+        }).join('') + '</div>' : '<div class="market-empty">По выбранному фильтру позиций нет.</div>');
     };
 
     function marketSourceType(source) {
@@ -13870,12 +14642,19 @@ function renderLogsDayView(project, logs) {
         return (kind === 'work' ? 'Подрядчик: ' : 'Поставщик: ') + String(row && row.title || '').trim();
     }
 
+    function extractPhoneFromText(value) {
+        var text = String(value || '');
+        var match = text.match(/(?:\+7|8)[\s\-().]*\d{3}[\s\-().]*\d{3}[\s\-().]*\d{2}[\s\-().]*\d{2}/);
+        return match ? match[0].replace(/\s+/g, ' ').trim() : '';
+    }
+
     function renderMarketCreateButton(projectId, row, kind) {
         if (!canManageSuppliers()) return '';
         var source = Array.isArray(row.sources) && row.sources.length ? row.sources[0] : {};
         var type = kind === 'work' ? 'contractor' : 'supplier';
         var label = kind === 'work' ? 'Создать подрядчика' : 'Создать поставщика';
-        return '<button class="ghost compact market-create-counterparty" type="button" data-market-create-offer data-project-id="' + escapeHtml(projectId) + '" data-market-tab="' + (kind === 'work' ? 'works' : 'materials') + '" data-candidate-type="' + escapeHtml(type) + '" data-candidate-name="' + escapeHtml(marketCandidateTitle(row, source, kind)) + '" data-estimate-item-id="' + escapeHtml(row.estimateItemId || '') + '" data-source-type="' + escapeHtml(marketSourceType(source)) + '" data-source-url="' + escapeHtml(source.url || '') + '" data-price="' + escapeHtml(row.marketPrice == null ? (source.price || 0) : row.marketPrice) + '" data-qty="' + escapeHtml(row.plannedQty || 0) + '" data-unit="' + escapeHtml(row.unit || '') + '" data-notes="' + escapeHtml([row.title, source.snippet || '', source.domain || ''].filter(Boolean).join(' • ')) + '">' + label + '</button>';
+        var sourceText = [source.phone || '', source.snippet || '', source.title || '', row.statusNote || ''].join(' ');
+        return '<button class="ghost compact market-create-counterparty" type="button" data-market-create-offer data-project-id="' + escapeHtml(projectId) + '" data-market-tab="' + (kind === 'work' ? 'works' : 'materials') + '" data-candidate-type="' + escapeHtml(type) + '" data-candidate-name="' + escapeHtml(marketCandidateTitle(row, source, kind)) + '" data-estimate-item-id="' + escapeHtml(row.estimateItemId || '') + '" data-source-type="' + escapeHtml(marketSourceType(source)) + '" data-source-url="' + escapeHtml(source.url || '') + '" data-source-snippet="' + escapeHtml(source.snippet || '') + '" data-contact-phone="' + escapeHtml(source.phone || extractPhoneFromText(sourceText)) + '" data-price="' + escapeHtml(row.marketPrice == null ? (source.price || 0) : row.marketPrice) + '" data-qty="' + escapeHtml(row.plannedQty || 0) + '" data-unit="' + escapeHtml(row.unit || '') + '" data-notes="' + escapeHtml([row.title, source.snippet || '', source.domain || ''].filter(Boolean).join(' • ')) + '">' + label + '</button>';
     }
 
     renderMarketTable = function (rows, kind, projectId) {
@@ -13929,41 +14708,145 @@ function renderLogsDayView(project, logs) {
         '</div>' + renderMarketTable(cache.rows || [], kind, projectId);
     };
 
+    function marketCounterpartyModal() {
+        var modal = qs('[data-market-counterparty-modal]');
+        if (modal) return modal;
+        document.body.insertAdjacentHTML('beforeend',
+            '<div class="market-counterparty-modal" data-market-counterparty-modal hidden>' +
+                '<button class="market-counterparty-backdrop" type="button" data-market-counterparty-close aria-label="Закрыть"></button>' +
+                '<section class="market-counterparty-dialog" role="dialog" aria-modal="true" aria-label="Создание контрагента">' +
+                    '<div class="card-head">' +
+                        '<div><h3 data-market-counterparty-title>Создать контрагента</h3><span class="muted">Данные взяты из строки анализа рынка.</span></div>' +
+                        '<button class="ghost" type="button" data-market-counterparty-close>Закрыть</button>' +
+                    '</div>' +
+                    '<form class="supplier-form market-counterparty-form" data-market-counterparty-form>' +
+                        '<input type="hidden" name="project_id">' +
+                        '<input type="hidden" name="estimate_item_id">' +
+                        '<input type="hidden" name="candidate_type">' +
+                        '<input type="hidden" name="market_tab">' +
+                        '<input type="hidden" name="source_type">' +
+                        '<input type="hidden" name="price">' +
+                        '<input type="hidden" name="qty">' +
+                        '<input type="hidden" name="unit">' +
+                        '<label class="wide"><span>Название</span><input name="name" required></label>' +
+                        '<label><span>Телефон</span><input name="phone" placeholder="+7..."></label>' +
+                        '<label><span>Сайт / источник</span><input name="source_url" placeholder="https://..."></label>' +
+                        '<label class="wide"><span>Заметка</span><textarea name="notes"></textarea></label>' +
+                        '<div class="form-error" data-market-counterparty-error></div>' +
+                        '<button class="primary" type="submit" data-market-counterparty-submit>Создать и привязать</button>' +
+                    '</form>' +
+                '</section>' +
+            '</div>'
+        );
+        modal = qs('[data-market-counterparty-modal]');
+        qsa('[data-market-counterparty-close]', modal).forEach(function (button) {
+            button.addEventListener('click', closeMarketCounterpartyModal);
+        });
+        var form = qs('[data-market-counterparty-form]', modal);
+        form.addEventListener('submit', submitMarketCounterpartyForm);
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && modal && !modal.hidden) closeMarketCounterpartyModal();
+        });
+        return modal;
+    }
+
+    function closeMarketCounterpartyModal() {
+        var modal = qs('[data-market-counterparty-modal]');
+        if (!modal) return;
+        modal.hidden = true;
+        modal.removeAttribute('data-open');
+    }
+
+    function openMarketCounterpartyModal(button) {
+        var modal = marketCounterpartyModal();
+        var form = qs('[data-market-counterparty-form]', modal);
+        var title = qs('[data-market-counterparty-title]', modal);
+        var type = button.getAttribute('data-candidate-type') === 'contractor' ? 'contractor' : 'supplier';
+        if (title) title.textContent = type === 'contractor' ? 'Создать подрядчика' : 'Создать поставщика';
+        form.project_id.value = button.getAttribute('data-project-id') || '';
+        form.estimate_item_id.value = button.getAttribute('data-estimate-item-id') || '';
+        form.candidate_type.value = type;
+        form.market_tab.value = button.getAttribute('data-market-tab') || (type === 'contractor' ? 'works' : 'materials');
+        form.source_type.value = button.getAttribute('data-source-type') || 'manual';
+        form.price.value = button.getAttribute('data-price') || '0';
+        form.qty.value = button.getAttribute('data-qty') || '0';
+        form.unit.value = button.getAttribute('data-unit') || '';
+        form.name.value = button.getAttribute('data-candidate-name') || '';
+        form.phone.value = button.getAttribute('data-contact-phone') || extractPhoneFromText([
+            button.getAttribute('data-candidate-name') || '',
+            button.getAttribute('data-source-snippet') || '',
+            button.getAttribute('data-notes') || ''
+        ].join(' '));
+        form.source_url.value = button.getAttribute('data-source-url') || '';
+        form.notes.value = button.getAttribute('data-notes') || '';
+        var error = qs('[data-market-counterparty-error]', modal);
+        if (error) {
+            error.textContent = '';
+            error.classList.remove('active');
+        }
+        modal.hidden = false;
+        requestAnimationFrame(function () {
+            modal.setAttribute('data-open', '1');
+            form.name.focus();
+            form.name.select();
+        });
+    }
+
+    function submitMarketCounterpartyForm(event) {
+        event.preventDefault();
+        var form = event.currentTarget;
+        var error = qs('[data-market-counterparty-error]', form);
+        var submit = qs('[data-market-counterparty-submit]', form);
+        var projectId = Number(form.project_id.value || 0);
+        if (!projectId) return;
+        if (error) error.classList.remove('active');
+        if (submit) submit.disabled = true;
+        api('/api/projects/' + projectId + '/market-counterparty', {
+            method: 'POST',
+            body: JSON.stringify({
+                candidate_type: form.candidate_type.value,
+                name: form.name.value.trim(),
+                phone: form.phone.value.trim(),
+                source_url: form.source_url.value.trim(),
+                source_type: form.source_type.value,
+                estimate_item_id: form.estimate_item_id.value,
+                price: Number(form.price.value || 0),
+                qty: Number(form.qty.value || 0),
+                unit: form.unit.value.trim(),
+                notes: form.notes.value.trim()
+            })
+        }).then(function (data) {
+            if (data && data.company) {
+                state.companies = (state.companies || []).filter(function (company) {
+                    return Number(company.id) !== Number(data.company.id);
+                }).concat([data.company]);
+                state.companiesAllLoaded = false;
+            }
+            delete state.materialInsightsByProject[projectId];
+            closeMarketCounterpartyModal();
+            loadMaterialInsights(projectId, function () {
+                if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                    if (typeof rerenderProjectMaterialAndWorkViews === 'function') rerenderProjectMaterialAndWorkViews(projectId);
+                    rerenderProjectMarketTab(projectId, form.market_tab.value || (form.candidate_type.value === 'contractor' ? 'works' : 'materials'));
+                }
+            });
+        }).catch(function (err) {
+            if (error) {
+                error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось создать контрагента';
+                error.classList.add('active');
+            }
+        }).finally(function () {
+            if (submit) submit.disabled = false;
+        });
+    }
+
     function bindMarketCreateButtons(projectId) {
         qsa('[data-market-create-offer]').forEach(function (button) {
             if (button.dataset.marketCreateBound === '1') return;
             button.dataset.marketCreateBound = '1';
-            button.addEventListener('click', function () {
-                var targetProjectId = Number(button.getAttribute('data-project-id') || projectId || 0);
-                if (!targetProjectId) return;
-                button.disabled = true;
-                var originalText = button.textContent;
-                button.textContent = 'Добавляем...';
-                api('/api/projects/' + targetProjectId + '/supplier-offers', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        candidate_type: button.getAttribute('data-candidate-type') || 'supplier',
-                        candidate_name: button.getAttribute('data-candidate-name') || '',
-                        estimate_item_id: button.getAttribute('data-estimate-item-id') || '',
-                        source_type: button.getAttribute('data-source-type') || 'manual',
-                        source_url: button.getAttribute('data-source-url') || '',
-                        price: Number(button.getAttribute('data-price') || 0),
-                        qty: Number(button.getAttribute('data-qty') || 0),
-                        unit: button.getAttribute('data-unit') || '',
-                        status: 'quoted',
-                        notes: button.getAttribute('data-notes') || ''
-                    })
-                }).then(function () {
-                    button.textContent = 'Добавлено';
-                    button.classList.add('is-selected');
-                    loadMaterialInsights(targetProjectId, function () {
-                        if (state.selectedProject && Number(state.selectedProject.id) === Number(targetProjectId)) bindProjectChainActions();
-                    });
-                }).catch(function () {
-                    button.disabled = false;
-                    button.textContent = originalText || 'Добавить';
-                    window.alert('Не удалось добавить кандидата во вкладку контрагентов.');
-                });
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                openMarketCounterpartyModal(button);
             });
         });
     }
@@ -13972,14 +14855,1525 @@ function renderLogsDayView(project, logs) {
     bindProjectMarketToggles = function (projectId) {
         baseBindProjectMarketTogglesCounterparties(projectId);
         bindMarketCreateButtons(projectId);
+        bindCounterpartyFilters(projectId);
         bindEstimateSectionToggles(projectId);
     };
 
     var baseBindProjectChainActionsCounterparties = bindProjectChainActions;
     bindProjectChainActions = function () {
         baseBindProjectChainActionsCounterparties();
+        if (state.selectedProject && state.selectedProject.id) bindCounterpartyFilters(state.selectedProject.id);
         if (state.selectedProject && state.selectedProject.id) bindEstimateSectionToggles(state.selectedProject.id);
     };
+
+    function materialScheduleForProject(projectId) {
+        state.materialScheduleByProject = state.materialScheduleByProject || {};
+        return state.materialScheduleByProject[String(projectId)] || null;
+    }
+
+    function setMaterialScheduleForProject(projectId, schedule) {
+        state.materialScheduleByProject = state.materialScheduleByProject || {};
+        state.materialScheduleByProject[String(projectId)] = normalizeMaterialSchedule(schedule) || null;
+    }
+
+    function normalizeMaterialSchedule(schedule) {
+        if (!schedule || !Array.isArray(schedule.items)) return schedule;
+        schedule.items = schedule.items.map(function (item) {
+            if (!item.deadlineDate && item.deliveryTargetDate) item.deadlineDate = item.deliveryTargetDate;
+            if (!item.purchaseStartDate && item.purchaseByDate) item.purchaseStartDate = item.purchaseByDate;
+            if (!item.purchaseByDate && item.purchaseStartDate) item.purchaseByDate = item.purchaseStartDate;
+            return item;
+        });
+        return schedule;
+    }
+
+    function fallbackMaterialLeadDays(item) {
+        var text = String([item && item.title, item && item.notes, item && item.unit].filter(Boolean).join(' ')).toLowerCase();
+        var base = 7;
+        if (/фасад|окн|двер|жалюз|витраж/.test(text)) base = 16;
+        else if (/электр|кабел|щит|свет|видео|trassir|ip/.test(text)) base = 12;
+        else if (/сантех|труб|вод|канал|отоп/.test(text)) base = 12;
+        else if (/вент|кондиц|дымо/.test(text)) base = 16;
+        else if (/кров|крыша|гидро/.test(text)) base = 10;
+        else if (/бетон|арматур|стяж/.test(text)) base = 6;
+        else if (/кирпич|блок|клад/.test(text)) base = 7;
+        var amount = Number(item && item.plannedQty || 0) * Number(item && item.plannedPrice || 0);
+        if (amount >= 250000) base += 1;
+        if (amount >= 700000) base += 1;
+        if (amount >= 1500000) base += 1;
+        return Math.min(24, base);
+    }
+
+    function buildClientMaterialSchedule(projectId, materials) {
+        var today = APP_TODAY;
+        var warningDays = 5;
+        var rangeDates = [today];
+        var summary = { total: 0, purchased: 0, overdue: 0, warning: 0, neutral: 0, unscheduled: 0 };
+        var items = (materials || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        }).map(function (item) {
+            var leadDays = Number(item.deliveryDays);
+            if (!Number.isFinite(leadDays)) leadDays = fallbackMaterialLeadDays(item);
+            leadDays = Math.max(0, Math.min(90, Math.round(leadDays)));
+            var deadlineDate = item.needByDate || item.stageStartDate || item.stageEndDate || '';
+            var purchaseStart = deadlineDate ? isoDateAdd(deadlineDate, -leadDays) : '';
+            var daysUntilPurchase = purchaseStart ? signedDaysBetween(today, purchaseStart) : null;
+            var daysUntilDeadline = deadlineDate ? signedDaysBetween(today, deadlineDate) : null;
+            var missingQty = Number(item.missingQty || 0);
+            var status = 'neutral';
+            var statusLabel = 'В плане';
+            var color = 'green';
+            if (missingQty <= 0) {
+                status = 'purchased';
+                statusLabel = 'Закуплено';
+                color = 'done';
+                summary.purchased += 1;
+            } else if (!deadlineDate) {
+                status = 'unscheduled';
+                statusLabel = 'Нет даты закупки';
+                color = 'muted';
+                summary.unscheduled += 1;
+            } else if (daysUntilPurchase < 0) {
+                status = 'overdue';
+                statusLabel = 'Просрочено';
+                color = 'red';
+                summary.overdue += 1;
+            } else if (daysUntilPurchase <= warningDays) {
+                status = 'warning';
+                statusLabel = 'Пора платить';
+                color = 'yellow';
+                summary.warning += 1;
+            } else {
+                summary.neutral += 1;
+            }
+            [purchaseStart, deadlineDate].filter(Boolean).forEach(function (dateValue) { rangeDates.push(dateValue); });
+            summary.total += 1;
+            return {
+                id: item.id,
+                projectId: projectId,
+                title: item.title || '',
+                unit: item.unit || '',
+                plannedQty: Number(item.plannedQty || 0),
+                plannedPrice: Number(item.plannedPrice || 0),
+                purchasedQty: Number(item.purchasedQty || 0),
+                receivedQty: Number(item.receivedQty || 0),
+                missingQty: missingQty,
+                purchaseProgress: Number(item.purchaseProgress || 0),
+                status: status,
+                statusLabel: statusLabel,
+                color: color,
+                purchaseStartDate: purchaseStart || null,
+                purchaseByDate: purchaseStart || null,
+                alertStartDate: purchaseStart ? isoDateAdd(purchaseStart, -warningDays) : null,
+                deadlineDate: deadlineDate || null,
+                deliveryTargetDate: deadlineDate || null,
+                deliveryLeadDays: leadDays,
+                estimatedDeliveryDays: fallbackMaterialLeadDays(item),
+                warningDays: warningDays,
+                daysUntilPurchase: daysUntilPurchase,
+                daysUntilDeadline: daysUntilDeadline,
+                sectionTitle: item.sectionTitle || '',
+                relatedWork: {
+                    stageId: item.stageId,
+                    title: item.stageTitle || item.sectionTitle || '',
+                    startDate: item.stageStartDate,
+                    endDate: item.stageEndDate
+                },
+                supplier: null,
+                materialUrl: '/app/projects?openProject=' + projectId + '&tab=materials&materialId=' + item.id
+            };
+        }).sort(function (a, b) {
+            return String(a.deadlineDate || '9999-12-31').localeCompare(String(b.deadlineDate || '9999-12-31')) || String(a.purchaseStartDate || '9999-12-31').localeCompare(String(b.purchaseStartDate || '9999-12-31')) || String(a.title).localeCompare(String(b.title));
+        });
+        rangeDates.sort();
+        var start = rangeDates[0] || today;
+        var end = rangeDates[rangeDates.length - 1] || isoDateAdd(start, 7);
+        if (start === end) end = isoDateAdd(start, 7);
+        return {
+            projectId: projectId,
+            today: today,
+            settings: { warningDays: warningDays, neutralDays: 7 },
+            range: { start: start, end: end },
+            summary: summary,
+            items: items,
+            fallback: true
+        };
+    }
+
+    function loadMaterialSchedule(projectId, callback, force) {
+        if (!projectId || hasRole('customer')) {
+            if (callback) callback(null);
+            return;
+        }
+        if (!force && materialScheduleForProject(projectId)) {
+            if (callback) callback(materialScheduleForProject(projectId));
+            return;
+        }
+        state.materialScheduleLoadingByProject = state.materialScheduleLoadingByProject || {};
+        if (state.materialScheduleLoadingByProject[String(projectId)]) return;
+        state.materialScheduleLoadingByProject[String(projectId)] = true;
+        api('/api/projects/' + projectId + '/material-schedule').then(function (schedule) {
+            setMaterialScheduleForProject(projectId, schedule);
+            if (callback) callback(schedule);
+        }).catch(function (err) {
+            if (err && err.status === 404) {
+                api('/api/projects/' + projectId + '/materials-summary').then(function (data) {
+                    var schedule = buildClientMaterialSchedule(projectId, Array.isArray(data.items) ? data.items : []);
+                    setMaterialScheduleForProject(projectId, schedule);
+                    if (callback) callback(schedule);
+                }).catch(function (fallbackErr) {
+                    var fallbackCode = fallbackErr && fallbackErr.status ? (' HTTP ' + fallbackErr.status) : '';
+                    var fallbackReason = fallbackErr && fallbackErr.payload && fallbackErr.payload.error ? (': ' + fallbackErr.payload.error) : '';
+                    setMaterialScheduleForProject(projectId, { error: 'Не удалось загрузить график материалов' + fallbackCode + fallbackReason + '.', items: [] });
+                    if (callback) callback(materialScheduleForProject(projectId));
+                }).finally(function () {
+                    state.materialScheduleLoadingByProject[String(projectId)] = false;
+                });
+                return;
+            }
+            var code = err && err.status ? (' HTTP ' + err.status) : '';
+            var reason = err && err.payload && err.payload.error ? (': ' + err.payload.error) : '';
+            setMaterialScheduleForProject(projectId, { error: 'Не удалось загрузить график материалов' + code + reason + '.', items: [] });
+            if (callback) callback(materialScheduleForProject(projectId));
+        }).finally(function () {
+            if (state.materialScheduleLoadingByProject[String(projectId)]) {
+                state.materialScheduleLoadingByProject[String(projectId)] = false;
+            }
+        });
+    }
+
+    function materialScheduleStatusClass(item) {
+        var color = String(item && item.color || '').toLowerCase();
+        if (color === 'red' || item.status === 'overdue') return 'is-overdue';
+        if (color === 'yellow' || item.status === 'warning') return 'is-warning';
+        if (item.status === 'purchased' || color === 'done') return 'is-done';
+        if (item.status === 'unscheduled' || color === 'muted') return 'is-muted';
+        return 'is-neutral';
+    }
+
+    function materialScheduleStatusBadge(item) {
+        if (!item) return '';
+        if (item.status === 'overdue') return 'danger';
+        if (item.status === 'warning') return 'warn';
+        if (item.status === 'purchased' || item.status === 'in_transit') return 'success';
+        return '';
+    }
+
+    function materialScheduleDayText(item) {
+        var days = item && item.daysUntilPurchase;
+        if (days == null || days === '') return 'Дата закупки не указана';
+        days = Number(days);
+        if (!Number.isFinite(days)) return 'Дата закупки не указана';
+        if (days < 0) return 'Просрочено на ' + Math.abs(days) + ' дн.';
+        if (days === 0) return 'Закупить сегодня';
+        return 'До закупки ' + days + ' дн.';
+    }
+
+    function materialScheduleRange(schedule) {
+        var range = schedule && schedule.range ? schedule.range : {};
+        var dates = [range.start, range.end, APP_TODAY].filter(Boolean).sort();
+        var start = dates[0] || APP_TODAY;
+        var end = dates[dates.length - 1] || isoDateAdd(start, 7);
+        var totalDays = Math.max(1, scheduleDayDiff(start, end) + 1);
+        return { start: start, end: end, totalDays: totalDays };
+    }
+
+    function materialSchedulePercent(range, iso) {
+        if (!iso) return 0;
+        var offset = Math.max(0, Math.min(range.totalDays - 1, scheduleDayDiff(range.start, iso)));
+        return range.totalDays === 1 ? 0 : (offset / (range.totalDays - 1)) * 100;
+    }
+
+    function renderMaterialScheduleScale(range) {
+        return '<div class="material-schedule-scale">' +
+            '<span style="left:0%"><b>' + escapeHtml(formatDisplayDate(range.start)) + '</b></span>' +
+            '<i style="left:' + materialSchedulePercent(range, APP_TODAY) + '%"></i>' +
+            '<span style="left:100%"><b>' + escapeHtml(formatDisplayDate(range.end)) + '</b></span>' +
+        '</div>';
+    }
+
+    function renderMaterialScheduleTimeline(projectId) {
+        if (!projectId || hasRole('customer')) return '';
+        var schedule = materialScheduleForProject(projectId);
+        if (!schedule) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Загружаем закупочные дедлайны...</span></div></div><div class="section-schedule-empty">Собираем даты материалов.</div></section>';
+        }
+        if (schedule.error) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
+        }
+        var items = Array.isArray(schedule.items) ? schedule.items : [];
+        var summary = schedule.summary || {};
+        if (!items.length) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Материалы подтягиваются из вкладки материалов объекта.</span></div></div><div class="section-schedule-empty">Материалы по объекту пока не загружены.</div></section>';
+        }
+        var range = materialScheduleRange(schedule);
+        return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
+            '<div class="card-head"><div><h3>График материалов</h3><span class="muted">Метка стоит в дату, к которой надо купить. Доставка учитывается отдельным запасом.</span></div><button class="ghost compact" type="button" data-material-schedule-refresh data-project-id="' + escapeHtml(projectId) + '">Обновить</button></div>' +
+            '<div class="execution-summary material-schedule-summary">' +
+                stat('Всего', String(summary.total || items.length)) +
+                stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
+                stat('Пора платить', String(summary.warning || 0), summary.warning ? 'warn' : '') +
+                stat('Закуплено', String(summary.purchased || 0), summary.purchased ? 'success' : '') +
+                stat('Сегодня', schedule.today || APP_TODAY) +
+            '</div>' +
+            '<div class="material-schedule-legend"><span><i class="is-neutral"></i>В плане</span><span><i class="is-warning"></i>Внимание</span><span><i class="is-overdue"></i>Просрочено</span><span><i class="is-done"></i>Закуплено</span></div>' +
+            renderMaterialScheduleScale(range) +
+            '<div class="material-schedule-list">' + items.map(function (item) {
+                var pointLeft = materialSchedulePercent(range, item.purchaseByDate);
+                var deliveryLeft = materialSchedulePercent(range, item.deliveryTargetDate);
+                var lineLeft = Math.min(pointLeft, deliveryLeft);
+                var lineWidth = Math.abs(deliveryLeft - pointLeft);
+                var meta = [
+                    item.purchaseByDate ? ('купить до ' + formatDisplayDate(item.purchaseByDate)) : 'без даты закупки',
+                    item.deliveryTargetDate ? ('доставка к ' + formatDisplayDate(item.deliveryTargetDate)) : '',
+                    'запас ' + (item.deliveryLeadDays || 0) + ' дн.',
+                    item.relatedWork && item.relatedWork.title ? ('работа: ' + item.relatedWork.title) : ''
+                ].filter(Boolean).join(' • ');
+                return '<div class="material-schedule-row">' +
+                    '<div class="material-schedule-meta"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(meta) + '</small></div>' +
+                    '<div class="material-schedule-track">' +
+                        (item.deliveryTargetDate && item.purchaseByDate ? '<span class="material-schedule-lead" style="left:' + lineLeft + '%;width:' + Math.max(lineWidth, 1) + '%"></span>' : '') +
+                        '<button class="material-schedule-point ' + materialScheduleStatusClass(item) + '" type="button" style="left:' + pointLeft + '%" data-material-schedule-item data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id || '') + '" aria-label="' + escapeHtml((item.title || '') + ': ' + (item.statusLabel || '')) + '"><span>' + escapeHtml(item.statusLabel || '') + '</span></button>' +
+                    '</div>' +
+                    '<div class="material-schedule-side"><span class="badge ' + materialScheduleStatusBadge(item) + '">' + escapeHtml(materialScheduleDayText(item)) + '</span></div>' +
+                '</div>';
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function materialScheduleView(projectId) {
+        state.materialScheduleViewByProject = state.materialScheduleViewByProject || {};
+        var key = String(projectId || '');
+        if (!state.materialScheduleViewByProject[key]) {
+            state.materialScheduleViewByProject[key] = { mode: 'month', cursor: APP_TODAY.slice(0, 7) + '-01' };
+        }
+        return state.materialScheduleViewByProject[key];
+    }
+
+    function setMaterialScheduleView(projectId, patch) {
+        var view = materialScheduleView(projectId);
+        Object.keys(patch || {}).forEach(function (key) { view[key] = patch[key]; });
+    }
+
+    function isoMonthStart(iso) {
+        return String(iso || APP_TODAY).slice(0, 7) + '-01';
+    }
+
+    function isoWeekStart(iso) {
+        var base = Date.parse(String(iso || APP_TODAY) + 'T00:00:00Z');
+        if (Number.isNaN(base)) return APP_TODAY;
+        var date = new Date(base);
+        var day = date.getUTCDay() || 7;
+        return new Date(base - (day - 1) * 86400000).toISOString().slice(0, 10);
+    }
+
+    function isoMonthDays(iso) {
+        var start = isoMonthStart(iso);
+        var year = Number(start.slice(0, 4));
+        var month = Number(start.slice(5, 7));
+        var first = new Date(Date.UTC(year, month - 1, 1));
+        var last = new Date(Date.UTC(year, month, 0));
+        var gridStart = isoWeekStart(first.toISOString().slice(0, 10));
+        var gridEnd = isoDateAdd(isoWeekStart(last.toISOString().slice(0, 10)), 6);
+        var days = [];
+        for (var cursor = gridStart; cursor <= gridEnd; cursor = isoDateAdd(cursor, 1)) days.push(cursor);
+        return days;
+    }
+
+    function materialCalendarDays(projectId) {
+        var view = materialScheduleView(projectId);
+        if (view.mode === 'week') {
+            var start = isoWeekStart(view.cursor || APP_TODAY);
+            return [0, 1, 2, 3, 4, 5, 6].map(function (offset) { return isoDateAdd(start, offset); });
+        }
+        return isoMonthDays(view.cursor || APP_TODAY);
+    }
+
+    function materialCalendarTitle(projectId) {
+        var view = materialScheduleView(projectId);
+        var days = materialCalendarDays(projectId);
+        if (view.mode === 'week') return formatDisplayDate(days[0]) + ' - ' + formatDisplayDate(days[6]);
+        return formatDisplayDate(isoMonthStart(view.cursor || APP_TODAY)).slice(3);
+    }
+
+    function materialCalendarMove(projectId, direction) {
+        var view = materialScheduleView(projectId);
+        var step = view.mode === 'week' ? 7 : 32;
+        var next = isoDateAdd(view.cursor || APP_TODAY, direction * step);
+        setMaterialScheduleView(projectId, { cursor: view.mode === 'week' ? isoWeekStart(next) : isoMonthStart(next) });
+    }
+
+    function materialScheduleQtyTitle(item) {
+        return finalSectionSummaryNumber(item.plannedQty || 0) + ' ' + (item.unit || 'ед.') + ' ' + (item.title || '');
+    }
+
+    function materialCalendarItemsForDay(items, day, field) {
+        return (items || []).filter(function (item) { return String(item && item[field] || '') === day; });
+    }
+
+    function materialCalendarHasWindow(items, day) {
+        return (items || []).some(function (item) {
+            if (item.status === 'purchased' || item.status === 'in_transit') return false;
+            if (!item.purchaseStartDate || !item.deadlineDate) return false;
+            return item.purchaseStartDate <= day && item.deadlineDate >= day;
+        });
+    }
+
+    function renderMaterialCalendarCard(item, compact) {
+        return '<button class="material-calendar-card ' + materialScheduleStatusClass(item) + (compact ? ' is-start' : '') + '" type="button" data-material-schedule-item data-project-id="' + escapeHtml(item.projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '">' +
+            '<b>' + escapeHtml(compact ? 'Оплатить' : materialScheduleQtyTitle(item)) + '</b>' +
+            '<span>' + escapeHtml(compact ? materialScheduleQtyTitle(item) : materialScheduleDayText(item)) + '</span>' +
+        '</button>';
+    }
+
+    function renderMaterialCalendarOverflow(count) {
+        return count > 0 ? '<span class="material-calendar-more">+' + escapeHtml(String(count)) + '</span>' : '';
+    }
+
+    function renderMaterialCalendarCell(day, projectId, items, viewMode) {
+        var deadlineItems = materialCalendarItemsForDay(items, day, 'deadlineDate');
+        var startItems = materialCalendarItemsForDay(items, day, 'purchaseStartDate');
+        var isOtherMonth = viewMode === 'month' && day.slice(0, 7) !== materialScheduleView(projectId).cursor.slice(0, 7);
+        var cls = 'material-calendar-day' + (day === APP_TODAY ? ' is-today' : '') + (isOtherMonth ? ' is-outside' : '') + (materialCalendarHasWindow(items, day) ? ' has-window' : '');
+        var visibleLimit = viewMode === 'week' ? 10 : 4;
+        var visibleStarts = startItems.slice(0, Math.max(1, Math.floor(visibleLimit / 2)));
+        var visibleDeadlines = deadlineItems.slice(0, Math.max(1, visibleLimit - visibleStarts.length));
+        var hiddenCount = Math.max(0, startItems.length - visibleStarts.length) + Math.max(0, deadlineItems.length - visibleDeadlines.length);
+        return '<div class="' + cls + '" data-material-calendar-day="' + escapeHtml(day) + '">' +
+            '<div class="material-calendar-date"><b>' + escapeHtml(String(Number(day.slice(8, 10)))) + '</b><span>' + escapeHtml(formatDisplayDate(day)) + '</span></div>' +
+            '<div class="material-calendar-starts">' + visibleStarts.map(function (item) { return renderMaterialCalendarCard(item, true); }).join('') + '</div>' +
+            '<div class="material-calendar-deadlines">' + visibleDeadlines.map(function (item) { return renderMaterialCalendarCard(item, false); }).join('') + renderMaterialCalendarOverflow(hiddenCount) + '</div>' +
+        '</div>';
+    }
+
+    function renderMaterialScheduleTimeline(projectId) {
+        if (!projectId || hasRole('customer')) return '';
+        var schedule = materialScheduleForProject(projectId);
+        if (!schedule) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Загружаем закупочные дедлайны...</span></div></div><div class="section-schedule-empty">Собираем даты материалов.</div></section>';
+        }
+        if (schedule.error) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
+        }
+        var items = Array.isArray(schedule.items) ? schedule.items : [];
+        var summary = schedule.summary || {};
+        if (!items.length) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Материалы подтягиваются из вкладки материалов объекта.</span></div></div><div class="section-schedule-empty">Материалы по объекту пока не загружены.</div></section>';
+        }
+        var view = materialScheduleView(projectId);
+        var days = materialCalendarDays(projectId);
+        var weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
+            '<div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Материал стоит в день дедлайна на объекте. Метка оплаты считается как дедлайн минус срок доставки.</span></div><button class="ghost compact" type="button" data-material-schedule-refresh data-project-id="' + escapeHtml(projectId) + '">Обновить</button></div>' +
+            '<div class="execution-summary material-schedule-summary">' +
+                stat('Всего', String(summary.total || items.length)) +
+                stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
+                stat('Закажи сейчас', String(summary.warning || 0), summary.warning ? 'warn' : '') +
+                stat('Закуплено/в пути', String(summary.purchased || 0), summary.purchased ? 'success' : '') +
+                stat('Сегодня', schedule.today || APP_TODAY) +
+            '</div>' +
+            '<div class="material-calendar-toolbar">' +
+                '<div class="material-calendar-nav"><button class="ghost compact" type="button" data-material-calendar-nav data-direction="-1" data-project-id="' + escapeHtml(projectId) + '">Назад</button><strong>' + escapeHtml(materialCalendarTitle(projectId)) + '</strong><button class="ghost compact" type="button" data-material-calendar-nav data-direction="1" data-project-id="' + escapeHtml(projectId) + '">Вперед</button></div>' +
+                '<div class="material-calendar-modes"><button class="ghost compact' + (view.mode === 'month' ? ' is-active' : '') + '" type="button" data-material-calendar-mode="month" data-project-id="' + escapeHtml(projectId) + '">Месяц</button><button class="ghost compact' + (view.mode === 'week' ? ' is-active' : '') + '" type="button" data-material-calendar-mode="week" data-project-id="' + escapeHtml(projectId) + '">Неделя</button></div>' +
+            '</div>' +
+            '<div class="material-schedule-legend"><span><i class="is-neutral"></i>В плане</span><span><i class="is-warning"></i>Закажи сейчас</span><span><i class="is-overdue"></i>Просрочено</span><span><i class="is-done"></i>Закуплено/в пути</span></div>' +
+            '<div class="material-calendar-weekdays">' + weekDays.map(function (day) { return '<b>' + escapeHtml(day) + '</b>'; }).join('') + '</div>' +
+            '<div class="material-calendar-grid is-' + escapeHtml(view.mode) + '">' + days.map(function (day) { return renderMaterialCalendarCell(day, projectId, items, view.mode); }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function materialScheduleFindItem(projectId, materialId) {
+        var schedule = materialScheduleForProject(projectId);
+        var items = schedule && Array.isArray(schedule.items) ? schedule.items : [];
+        return items.find(function (item) { return Number(item.id) === Number(materialId); }) || null;
+    }
+
+    function closeMaterialScheduleDrawer() {
+        qsa('[data-material-schedule-drawer]').forEach(function (node) {
+            if (node.parentNode) node.parentNode.removeChild(node);
+        });
+    }
+
+    function openMaterialScheduleDrawer(projectId, materialId) {
+        var item = materialScheduleFindItem(projectId, materialId);
+        if (!item) return;
+        closeMaterialScheduleDrawer();
+        var qty = finalSectionSummaryNumber(item.plannedQty || 0) + ' ' + (item.unit || 'ед.');
+        var relatedWork = item.relatedWork && item.relatedWork.title ? item.relatedWork.title : 'Не связана';
+        var supplier = item.supplier && item.supplier.name ? item.supplier.name : 'Поставщик не выбран';
+        var drawer = document.createElement('aside');
+        drawer.className = 'material-schedule-drawer';
+        drawer.setAttribute('data-material-schedule-drawer', '1');
+        drawer.innerHTML =
+            '<button class="material-schedule-drawer-close" type="button" data-material-schedule-close aria-label="Закрыть">×</button>' +
+            '<div class="material-schedule-drawer-head"><span class="badge ' + materialScheduleStatusBadge(item) + '">' + escapeHtml(item.statusLabel || '') + '</span><h3>' + escapeHtml(item.title || '') + '</h3></div>' +
+            '<div class="material-schedule-drawer-grid">' +
+                dataItem('Количество', qty) +
+                dataItem('Статус', item.statusLabel || '') +
+                dataItem('Закупить до', item.purchaseByDate ? formatDisplayDate(item.purchaseByDate) : 'Не указано') +
+                dataItem('Доставка', String(item.deliveryLeadDays || 0) + ' дн.') +
+                dataItem('Связанная работа', relatedWork) +
+                dataItem('Поставщик', supplier) +
+            '</div>' +
+            '<div class="material-schedule-drawer-actions">' +
+                '<button class="primary compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">К материалу</button>' +
+                (item.relatedWork && item.relatedWork.title ? '<button class="ghost compact" type="button" data-material-schedule-work>К работам</button>' : '') +
+            '</div>';
+        document.body.appendChild(drawer);
+    }
+
+    function openMaterialScheduleDrawer(projectId, materialId) {
+        var item = materialScheduleFindItem(projectId, materialId);
+        if (!item) return;
+        closeMaterialScheduleDrawer();
+        var qty = finalSectionSummaryNumber(item.plannedQty || 0) + ' ' + (item.unit || 'ед.');
+        var missingQty = finalSectionSummaryNumber(item.missingQty || 0) + ' ' + (item.unit || 'ед.');
+        var relatedWork = item.relatedWork && item.relatedWork.title ? item.relatedWork.title : 'Не связана';
+        var supplier = item.supplier && item.supplier.name ? item.supplier.name : 'Поставщик не выбран';
+        var planText = 'Оплатить до: ' + (item.purchaseStartDate ? formatDisplayDate(item.purchaseStartDate) : 'не указано') +
+            ' | Доставка: ' + String(item.deliveryLeadDays || 0) + ' дн. | Дедлайн на объекте: ' + (item.deadlineDate ? formatDisplayDate(item.deadlineDate) : 'не указан');
+        var drawer = document.createElement('aside');
+        drawer.className = 'material-schedule-drawer';
+        drawer.setAttribute('data-material-schedule-drawer', '1');
+        drawer.innerHTML =
+            '<button class="material-schedule-drawer-close" type="button" data-material-schedule-close aria-label="Закрыть">×</button>' +
+            '<div class="material-schedule-drawer-head"><span class="badge ' + materialScheduleStatusBadge(item) + '">' + escapeHtml(item.statusLabel || '') + '</span><h3>' + escapeHtml(item.title || '') + '</h3><p>' + escapeHtml(planText) + '</p></div>' +
+            '<div class="material-schedule-drawer-grid">' +
+                dataItem('Количество', qty) +
+                dataItem('Осталось купить', missingQty) +
+                dataItem('Оплатить до', item.purchaseStartDate ? formatDisplayDate(item.purchaseStartDate) : 'Не указано') +
+                dataItem('Дедлайн', item.deadlineDate ? formatDisplayDate(item.deadlineDate) : 'Не указан') +
+                dataItem('Связанная работа', relatedWork) +
+                dataItem('Поставщик', supplier) +
+            '</div>' +
+            '<label class="material-schedule-delivery-field"><span>Срок доставки, дней</span><input type="number" min="0" max="90" step="1" value="' + escapeHtml(String(item.deliveryLeadDays || 0)) + '" data-material-schedule-delivery-input></label>' +
+            '<div class="material-schedule-drawer-actions">' +
+                '<button class="primary compact" type="button" data-material-schedule-mark-purchased data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '"' + (Number(item.missingQty || 0) <= 0 ? ' disabled' : '') + '>Отметить как закуплено</button>' +
+                '<button class="ghost compact" type="button" data-material-schedule-save-delivery data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">Сохранить срок</button>' +
+                '<button class="ghost compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">К материалу</button>' +
+                (item.relatedWork && item.relatedWork.title ? '<button class="ghost compact" type="button" data-material-schedule-work>К работам</button>' : '') +
+            '</div>';
+        document.body.appendChild(drawer);
+    }
+
+    function refreshMaterialScheduleProject(projectId, force) {
+        if (force && state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
+        loadMaterialSchedule(projectId, function (schedule) {
+            var details = scheduleProjectDetails(projectId);
+            if (details) {
+                details.materialSchedule = schedule;
+                setScheduleProjectDetails(projectId, details);
+            }
+            var body = scheduleProjectBody(projectId);
+            var project = scheduleProjectById(projectId) || state.selectedProject;
+            if (body && project && isScheduleProjectOpen(projectId)) {
+                body.innerHTML = renderScheduleProjectDetails(project, scheduleProjectDetails(projectId) || { materialSchedule: schedule });
+                bindSchedulePageProjectDetails(projectId);
+            }
+            if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                if (replaceSelectedProjectMaterialCalendar(projectId)) return;
+                var panel = qs('[data-panel="schedule"]');
+                if (panel) panel.insertAdjacentHTML('afterbegin', renderMaterialScheduleTimeline(projectId));
+                bindAutoScheduleForm(projectId);
+                bindScheduleStatusActions(projectId);
+                bindSectionScheduleRefresh(projectId);
+            }
+        }, force);
+    }
+
+    function replaceSelectedProjectMaterialCalendar(projectId) {
+        if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return false;
+        var panel = qs('[data-panel="schedule"]');
+        if (!panel) return false;
+        var block = panel.querySelector('[data-material-schedule="' + String(projectId) + '"]') || panel.querySelector('.material-schedule-card');
+        if (!block) return false;
+        block.outerHTML = renderMaterialScheduleTimeline(projectId);
+        return true;
+    }
+
+    function isSelectedProjectScheduleTabActive() {
+        var panel = qs('[data-panel="schedule"]');
+        return !!(panel && panel.classList.contains('active'));
+    }
+
+    function loadSelectedProjectMaterialSchedule(force) {
+        if (!state.selectedProject || hasRole('customer') || !isSelectedProjectScheduleTabActive()) return;
+        var projectId = state.selectedProject.id;
+        loadMaterialSchedule(projectId, function () {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId) || !isSelectedProjectScheduleTabActive()) return;
+            if (replaceSelectedProjectMaterialCalendar(projectId)) return;
+            var schedulePanel = qs('[data-panel="schedule"]');
+            if (schedulePanel) schedulePanel.insertAdjacentHTML('afterbegin', renderMaterialScheduleTimeline(projectId));
+        }, force);
+    }
+
+    function focusProjectMaterialRow(materialId) {
+        var input = qs('[data-section-material-check][data-material-id="' + String(materialId) + '"]');
+        var row = input && input.closest ? input.closest('.material-row') : null;
+        if (!row) return;
+        row.classList.add('material-row-focus');
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(function () { row.classList.remove('material-row-focus'); }, 1800);
+    }
+
+    function bindMaterialScheduleTimeline() {
+        if (document.body.dataset.materialScheduleDelegated === '1') return;
+        document.body.dataset.materialScheduleDelegated = '1';
+        document.addEventListener('click', function (event) {
+            var close = event.target && event.target.closest ? event.target.closest('[data-material-schedule-close]') : null;
+            if (close) {
+                closeMaterialScheduleDrawer();
+                return;
+            }
+            var nav = event.target && event.target.closest ? event.target.closest('[data-material-calendar-nav]') : null;
+            if (nav) {
+                event.preventDefault();
+                var navProjectId = nav.getAttribute('data-project-id') || '';
+                materialCalendarMove(navProjectId, Number(nav.getAttribute('data-direction') || 1));
+                refreshMaterialScheduleProject(navProjectId, false);
+                return;
+            }
+            var mode = event.target && event.target.closest ? event.target.closest('[data-material-calendar-mode]') : null;
+            if (mode) {
+                event.preventDefault();
+                var modeProjectId = mode.getAttribute('data-project-id') || '';
+                var nextMode = mode.getAttribute('data-material-calendar-mode') === 'week' ? 'week' : 'month';
+                setMaterialScheduleView(modeProjectId, { mode: nextMode, cursor: nextMode === 'week' ? isoWeekStart(APP_TODAY) : isoMonthStart(APP_TODAY) });
+                refreshMaterialScheduleProject(modeProjectId, false);
+                return;
+            }
+            var point = event.target && event.target.closest ? event.target.closest('[data-material-schedule-item]') : null;
+            if (point) {
+                event.preventDefault();
+                event.stopPropagation();
+                openMaterialScheduleDrawer(point.getAttribute('data-project-id'), point.getAttribute('data-material-id'));
+                return;
+            }
+            var refresh = event.target && event.target.closest ? event.target.closest('[data-material-schedule-refresh]') : null;
+            if (refresh) {
+                var refreshProjectId = refresh.getAttribute('data-project-id');
+                refresh.disabled = true;
+                loadMaterialSchedule(refreshProjectId, function () {
+                    if (replaceSelectedProjectMaterialCalendar(refreshProjectId)) {
+                        refresh.disabled = false;
+                        return;
+                    }
+                    var panel = qs('[data-panel="schedule"]');
+                    var project = state.selectedProject && Number(state.selectedProject.id) === Number(refreshProjectId) ? state.selectedProject : scheduleProjectById(refreshProjectId);
+                    if (panel && project) panel.insertAdjacentHTML('afterbegin', renderMaterialScheduleTimeline(refreshProjectId));
+                    refresh.disabled = false;
+                }, true);
+                return;
+            }
+            var saveDelivery = event.target && event.target.closest ? event.target.closest('[data-material-schedule-save-delivery]') : null;
+            if (saveDelivery) {
+                event.preventDefault();
+                var saveProjectId = saveDelivery.getAttribute('data-project-id') || '';
+                var saveMaterialId = saveDelivery.getAttribute('data-material-id') || '';
+                var drawer = saveDelivery.closest ? saveDelivery.closest('[data-material-schedule-drawer]') : null;
+                var input = drawer && drawer.querySelector ? drawer.querySelector('[data-material-schedule-delivery-input]') : null;
+                saveDelivery.disabled = true;
+                api('/api/materials/' + saveMaterialId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({ delivery_days: input ? Number(input.value || 0) : 0 })
+                }).then(function (data) {
+                    if (data && Array.isArray(data.items)) state.materialsByProject[saveProjectId] = data.items;
+                    closeMaterialScheduleDrawer();
+                    refreshMaterialScheduleProject(saveProjectId, true);
+                }).finally(function () {
+                    saveDelivery.disabled = false;
+                });
+                return;
+            }
+            var markPurchased = event.target && event.target.closest ? event.target.closest('[data-material-schedule-mark-purchased]') : null;
+            if (markPurchased) {
+                event.preventDefault();
+                var purchaseProjectId = markPurchased.getAttribute('data-project-id') || '';
+                var purchaseMaterialId = markPurchased.getAttribute('data-material-id') || '';
+                var material = materialScheduleFindItem(purchaseProjectId, purchaseMaterialId);
+                if (!material) return;
+                markPurchased.disabled = true;
+                api('/api/projects/' + purchaseProjectId + '/stock-moves', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        estimate_item_id: Number(purchaseMaterialId),
+                        move_type: 'purchase',
+                        qty: Math.max(0.01, Number(material.missingQty || material.plannedQty || 1)),
+                        price: Number(material.plannedPrice || 0),
+                        comment: 'Отмечено из календаря закупок'
+                    })
+                }).then(function () {
+                    closeMaterialScheduleDrawer();
+                    loadMaterials(purchaseProjectId, function () {
+                        refreshMaterialScheduleProject(purchaseProjectId, true);
+                    });
+                }).finally(function () {
+                    markPurchased.disabled = false;
+                });
+                return;
+            }
+            var goto = event.target && event.target.closest ? event.target.closest('[data-material-schedule-goto]') : null;
+            if (goto) {
+                var gotoProjectId = Number(goto.getAttribute('data-project-id') || 0);
+                var gotoMaterialId = goto.getAttribute('data-material-id') || '';
+                closeMaterialScheduleDrawer();
+                if (!state.selectedProject || Number(state.selectedProject.id) !== gotoProjectId) {
+                    location.href = '/app/projects?openProject=' + gotoProjectId + '&tab=materials&materialId=' + encodeURIComponent(gotoMaterialId);
+                    return;
+                }
+                activateProjectTab('materials');
+                setTimeout(function () { focusProjectMaterialRow(gotoMaterialId); }, 80);
+                return;
+            }
+            var work = event.target && event.target.closest ? event.target.closest('[data-material-schedule-work]') : null;
+            if (work) {
+                closeMaterialScheduleDrawer();
+                activateProjectTab('works');
+            }
+        });
+    }
+
+    var baseRenderSchedulePanelForMaterialSchedule = renderSchedulePanel;
+    renderSchedulePanel = function (stages, project) {
+        return renderMaterialScheduleTimeline(project && project.id) + baseRenderSchedulePanelForMaterialSchedule(stages, project);
+    };
+
+    var baseRenderScheduleProjectDetailsForMaterialSchedule = renderScheduleProjectDetails;
+    renderScheduleProjectDetails = function (project, details) {
+        if (details && details.materialSchedule) setMaterialScheduleForProject(project.id, details.materialSchedule);
+        return baseRenderScheduleProjectDetailsForMaterialSchedule(project, details);
+    };
+
+    var baseLoadScheduleProjectDetailsForMaterialSchedule = loadScheduleProjectDetails;
+    loadScheduleProjectDetails = function (project, force) {
+        baseLoadScheduleProjectDetailsForMaterialSchedule(project, force);
+        if (!project || !project.id || hasRole('customer')) return;
+        loadMaterialSchedule(project.id, function (schedule) {
+            var details = scheduleProjectDetails(project.id);
+            if (details) {
+                details.materialSchedule = schedule;
+                setScheduleProjectDetails(project.id, details);
+            }
+            var body = scheduleProjectBody(project.id);
+            if (body && isScheduleProjectOpen(project.id)) {
+                body.innerHTML = renderScheduleProjectDetails(project, scheduleProjectDetails(project.id) || { materialSchedule: schedule });
+                bindSchedulePageProjectDetails(project.id);
+            }
+        }, force);
+    };
+
+    var baseOpenProjectForMaterialSchedule = openProject;
+    openProject = function (projectId) {
+        baseOpenProjectForMaterialSchedule(projectId);
+        if (!projectId || hasRole('customer')) return;
+        loadMaterialSchedule(projectId, function () {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+            if (replaceSelectedProjectMaterialCalendar(projectId)) return;
+            var schedulePanel = qs('[data-panel="schedule"]');
+            if (schedulePanel) schedulePanel.innerHTML = renderMaterialScheduleTimeline(projectId) + schedulePanel.innerHTML;
+        }, true);
+    };
+
+    function warehouseQtyText(item) {
+        var qty = Number(item && item.qty || 0);
+        var value = Math.round(qty * 100) / 100;
+        return value + ' ' + (item && item.unit ? item.unit : 'ед.');
+    }
+
+    function warehouseTypeLabel(type) {
+        return String(type || '') === 'tool' ? 'Инструмент' : 'Материал';
+    }
+
+    function warehouseConditionLabel(item) {
+        if (String(item && item.itemType || item && item.type || '') === 'tool') return item.conditionStatus || item.condition || 'Б/У';
+        return Number(item && item.qty || 0) > 0 ? 'В наличии' : 'Нет остатка';
+    }
+
+    function warehouseNormalizeSearch(value) {
+        return String(value || '').toLocaleLowerCase('ru')
+            .replace(/ё/g, 'е')
+            .replace(/\bпровод\b/g, 'кабель')
+            .replace(/(?<=\d)[хx×](?=\d)/g, 'x')
+            .replace(/(?<=\d),(?=\d)/g, '.')
+            .replace(/[^0-9a-zа-я.]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function warehouseLevenshtein(a, b) {
+        a = warehouseNormalizeSearch(a);
+        b = warehouseNormalizeSearch(b);
+        if (a === b) return 0;
+        if (!a) return b.length;
+        if (!b) return a.length;
+        var previous = [];
+        for (var j = 0; j <= b.length; j += 1) previous[j] = j;
+        for (var i = 1; i <= a.length; i += 1) {
+            var current = [i];
+            for (j = 1; j <= b.length; j += 1) {
+                current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+            }
+            previous = current;
+        }
+        return previous[b.length];
+    }
+
+    function warehouseDice(a, b) {
+        a = warehouseNormalizeSearch(a).replace(/\s+/g, '');
+        b = warehouseNormalizeSearch(b).replace(/\s+/g, '');
+        if (a.length < 2 || b.length < 2) return 0;
+        var counts = {};
+        for (var i = 0; i < b.length - 1; i += 1) {
+            var gram = b.slice(i, i + 2);
+            counts[gram] = (counts[gram] || 0) + 1;
+        }
+        var overlap = 0;
+        for (i = 0; i < a.length - 1; i += 1) {
+            gram = a.slice(i, i + 2);
+            if (counts[gram]) {
+                overlap += 1;
+                counts[gram] -= 1;
+            }
+        }
+        return (2 * overlap) / ((a.length - 1) + (b.length - 1));
+    }
+
+    function warehouseFuzzyScore(query, value) {
+        var left = warehouseNormalizeSearch(query);
+        var right = warehouseNormalizeSearch(value);
+        if (!left || !right) return 0;
+        if (right.indexOf(left) !== -1 || left.indexOf(right) !== -1) return 1;
+        var lev = 1 - (warehouseLevenshtein(left, right) / Math.max(left.length, right.length, 1));
+        return Math.max(lev, warehouseDice(left, right));
+    }
+
+    function warehouseItemSearchScore(query, item) {
+        var normalizedQuery = warehouseNormalizeSearch(query);
+        if (!normalizedQuery) return 1;
+        var fields = [
+            item && item.name,
+            item && item.sku,
+            item && item.category,
+            warehouseTypeLabel(item && (item.itemType || item.type)),
+            item && item.conditionStatus
+        ].filter(Boolean);
+        var best = 0;
+        fields.forEach(function (field) {
+            best = Math.max(best, warehouseFuzzyScore(normalizedQuery, field));
+        });
+        best = Math.max(best, warehouseFuzzyScore(normalizedQuery, fields.join(' ')));
+
+        var queryTokens = normalizedQuery.split(' ').filter(Boolean);
+        var fieldTokens = warehouseNormalizeSearch(fields.join(' ')).split(' ').filter(Boolean);
+        queryTokens.forEach(function (queryToken) {
+            fieldTokens.forEach(function (fieldToken) {
+                best = Math.max(best, warehouseFuzzyScore(queryToken, fieldToken));
+            });
+        });
+        return best;
+    }
+
+    function loadWarehouseCatalog(callback) {
+        api('/api/warehouse-items').then(function (data) {
+            state.warehouseCatalog = Array.isArray(data.items) ? data.items : [];
+            callback(state.warehouseCatalog);
+        }).catch(function () {
+            state.warehouseCatalog = [];
+            callback([]);
+        });
+    }
+
+    function warehouseFilteredItems(items) {
+        var search = qs('[data-warehouse-search]');
+        var type = qs('[data-warehouse-type-filter]');
+        var category = qs('[data-warehouse-category-filter]');
+        var stock = qs('[data-warehouse-stock-filter]');
+        var query = search ? warehouseNormalizeSearch(search.value) : '';
+        var typeValue = type ? type.value : 'all';
+        var categoryValue = category ? category.value : 'all';
+        var stockValue = stock ? stock.value : 'all';
+        return (items || []).filter(function (item) {
+            var matchesQuery = !query || warehouseItemSearchScore(query, item) >= 0.70;
+            var matchesType = typeValue === 'all' || String(item.itemType || item.type) === typeValue;
+            var matchesCategory = categoryValue === 'all' || String(item.category || '') === categoryValue;
+            var matchesStock = stockValue === 'all' || (stockValue === 'available' ? Number(item.qty || 0) > 0 : Number(item.qty || 0) <= 0);
+            return matchesQuery && matchesType && matchesCategory && matchesStock;
+        });
+    }
+
+    function renderWarehouseCatalog(items) {
+        var root = qs('[data-warehouse-summary]');
+        if (!root) return;
+        if (!items.length) {
+            root.innerHTML = '<p class="muted">Позиции склада не найдены.</p>';
+            return;
+        }
+        root.innerHTML =
+            '<div class="warehouse-table-wrap"><table class="warehouse-table warehouse-inventory-table">' +
+                '<thead><tr><th>Тип</th><th>Наименование</th><th>Код / артикул</th><th>Текущий остаток</th><th>Статус</th><th></th></tr></thead>' +
+                '<tbody>' + items.map(function (item) {
+                    var disabled = Number(item.qty || 0) <= 0 ? ' disabled' : '';
+                    return '<tr>' +
+                        '<td><span class="badge">' + escapeHtml(warehouseTypeLabel(item.itemType || item.type)) + '</span></td>' +
+                        '<td><b>' + escapeHtml(item.name || '') + '</b><small>' + escapeHtml(item.category || '') + '</small></td>' +
+                        '<td>' + escapeHtml(item.sku || '—') + '</td>' +
+                        '<td><strong>' + escapeHtml(warehouseQtyText(item)) + '</strong></td>' +
+                        '<td><span class="badge ' + (Number(item.qty || 0) <= 0 ? 'danger' : (String(item.conditionStatus || '').indexOf('ремонт') !== -1 ? 'warn' : 'success')) + '">' + escapeHtml(warehouseConditionLabel(item)) + '</span></td>' +
+                        '<td><button class="ghost compact" type="button" data-warehouse-issue data-warehouse-item-id="' + escapeHtml(item.id) + '"' + disabled + '>Выдать на объект</button></td>' +
+                    '</tr>';
+                }).join('') + '</tbody>' +
+            '</table></div>';
+    }
+
+    function renderWarehouseStats(items) {
+        var node = qs('[data-warehouse-analysis]');
+        if (!node) return;
+        var materials = (items || []).filter(function (item) { return String(item.itemType || item.type) === 'material'; }).length;
+        var tools = (items || []).filter(function (item) { return String(item.itemType || item.type) === 'tool'; }).length;
+        var available = (items || []).filter(function (item) { return Number(item.qty || 0) > 0; }).length;
+        var repair = (items || []).filter(function (item) { return String(item.conditionStatus || '').toLocaleLowerCase('ru').indexOf('ремонт') !== -1; }).length;
+        node.innerHTML =
+            '<div class="analysis-pill"><span>Материалы</span><strong>' + materials + '</strong></div>' +
+            '<div class="analysis-pill"><span>Инструменты</span><strong>' + tools + '</strong></div>' +
+            '<div class="analysis-pill"><span>В наличии</span><strong>' + available + '</strong></div>' +
+            '<div class="analysis-pill"><span>Требуют ремонта</span><strong>' + repair + '</strong></div>';
+    }
+
+    function populateWarehouseCategories(items) {
+        var select = qs('[data-warehouse-category-filter]');
+        if (!select) return;
+        var keep = select.value || 'all';
+        var categories = [];
+        (items || []).forEach(function (item) {
+            var category = String(item.category || '').trim();
+            if (category && categories.indexOf(category) === -1) categories.push(category);
+        });
+        select.innerHTML = '<option value="all">Все категории</option>' + categories.sort().map(function (category) {
+            return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
+        }).join('');
+        select.value = categories.indexOf(keep) !== -1 ? keep : 'all';
+    }
+
+    function rerenderWarehouseCatalog() {
+        renderWarehouseCatalog(warehouseFilteredItems(state.warehouseCatalog || []));
+    }
+
+    function bindWarehouseCatalogControls() {
+        qsa('[data-warehouse-search], [data-warehouse-type-filter], [data-warehouse-category-filter], [data-warehouse-stock-filter]').forEach(function (node) {
+            if (node.dataset.inventoryBound === '1') return;
+            node.dataset.inventoryBound = '1';
+            node.addEventListener(node.tagName === 'INPUT' ? 'input' : 'change', rerenderWarehouseCatalog);
+        });
+        if (document.body.dataset.warehouseIssueDelegated === '1') return;
+        document.body.dataset.warehouseIssueDelegated = '1';
+        document.addEventListener('click', function (event) {
+            var issue = event.target && event.target.closest ? event.target.closest('[data-warehouse-issue]') : null;
+            if (issue) {
+                event.preventDefault();
+                openWarehouseTransferModal(Number(issue.getAttribute('data-warehouse-item-id') || 0));
+            }
+        });
+    }
+
+    renderWarehousePage = function () {
+        var root = qs('[data-warehouse-summary]');
+        if (!root) return;
+        root.innerHTML = '<p class="muted">Загружаем склад...</p>';
+        loadWarehouseCatalog(function (items) {
+            populateWarehouseCategories(items);
+            renderWarehouseStats(items);
+            renderWarehouseCatalog(warehouseFilteredItems(items));
+            bindWarehouseCatalogControls();
+            bindWarehouseTransferModal();
+            bindWarehouseReceiptModal();
+            applyWarehouseIssueFocus();
+        });
+    };
+
+    function currentWarehouseItem(itemId) {
+        return (state.warehouseCatalog || []).find(function (item) { return Number(item.id) === Number(itemId); }) || null;
+    }
+
+    function openWarehouseTransferModal(itemId, forcedProjectId) {
+        var modal = qs('[data-warehouse-transfer-modal]');
+        var form = qs('[data-warehouse-transfer-form]');
+        var info = qs('[data-warehouse-transfer-item]');
+        var projectSelect = qs('[data-warehouse-transfer-projects]');
+        var item = currentWarehouseItem(itemId);
+        if (!modal || !form || !item) return;
+        if (projectSelect) {
+            projectSelect.innerHTML = (state.projects || []).map(function (project) {
+                return '<option value="' + escapeHtml(project.id) + '">' + escapeHtml(project.title || '') + '</option>';
+            }).join('');
+            if (forcedProjectId) projectSelect.value = String(forcedProjectId);
+        }
+        form.warehouse_item_id.value = String(item.id);
+        form.qty.value = '';
+        form.qty.max = String(item.qty || 0);
+        form.available.value = warehouseQtyText(item);
+        form.comment.value = '';
+        if (info) {
+            info.innerHTML = '<b>' + escapeHtml(item.name || '') + '</b><small>' + escapeHtml([item.sku, item.category, warehouseQtyText(item)].filter(Boolean).join(' • ')) + '</small>';
+        }
+        var error = qs('[data-warehouse-transfer-error]');
+        if (error) {
+            error.textContent = '';
+            error.classList.remove('active');
+        }
+        modal.hidden = false;
+        document.body.classList.add('warehouse-transfer-open');
+        setTimeout(function () { if (form.qty) form.qty.focus(); }, 40);
+    }
+
+    function closeWarehouseTransferModal() {
+        var modal = qs('[data-warehouse-transfer-modal]');
+        if (!modal) return;
+        modal.hidden = true;
+        document.body.classList.remove('warehouse-transfer-open');
+    }
+
+    function bindWarehouseTransferModal() {
+        qsa('[data-warehouse-transfer-close]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', closeWarehouseTransferModal);
+        });
+        var form = qs('[data-warehouse-transfer-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var item = currentWarehouseItem(Number(form.warehouse_item_id.value || 0));
+            var qty = Number(form.qty.value || 0);
+            var error = qs('[data-warehouse-transfer-error]');
+            if (error) error.classList.remove('active');
+            if (!item || qty <= 0 || qty > Number(item.qty || 0)) {
+                if (error) {
+                    error.textContent = 'Количество должно быть больше нуля и не больше текущего остатка.';
+                    error.classList.add('active');
+                }
+                return;
+            }
+            api('/api/warehouse-items/' + encodeURIComponent(item.id) + '/transfer', {
+                method: 'POST',
+                body: JSON.stringify({
+                    project_id: Number(form.project_id.value),
+                    qty: qty,
+                    comment: form.comment.value.trim()
+                })
+            }).then(function (data) {
+                var projectId = Number(form.project_id.value);
+                delete state.materialsByProject[projectId];
+                closeWarehouseTransferModal();
+                loadWarehouseCatalog(function (items) {
+                    populateWarehouseCategories(items);
+                    renderWarehouseStats(items);
+                    renderWarehouseCatalog(warehouseFilteredItems(items));
+                });
+                if (data && data.items) state.materialsByProject[projectId] = data.items;
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error === 'qty_exceeds_stock'
+                        ? 'Нельзя выдать больше, чем есть на складе.'
+                        : (err.payload && err.payload.error ? err.payload.error : 'Не удалось выполнить выдачу.');
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
+
+    function openWarehouseReceiptModal(mode) {
+        var modal = qs('[data-warehouse-receipt-modal]');
+        if (!modal) return;
+        modal.hidden = false;
+        document.body.classList.add('warehouse-transfer-open');
+        setWarehouseReceiptMode(mode || 'manual');
+        populateWarehouseReturnProjects();
+        resetWarehouseManualReceipt();
+        resetWarehouseReturnForm();
+        setTimeout(function () {
+            var input = qs('[data-warehouse-manual-name]');
+            if (input && !qs('[data-warehouse-return-form]:not([hidden])')) input.focus();
+        }, 40);
+    }
+
+    function closeWarehouseReceiptModal() {
+        var modal = qs('[data-warehouse-receipt-modal]');
+        if (!modal) return;
+        modal.hidden = true;
+        document.body.classList.remove('warehouse-transfer-open');
+    }
+
+    function setWarehouseReceiptMode(mode) {
+        mode = mode === 'return' ? 'return' : 'manual';
+        var manualForm = qs('[data-warehouse-manual-receipt-form]');
+        var returnForm = qs('[data-warehouse-return-form]');
+        qsa('[data-warehouse-receipt-mode] input[type="radio"]').forEach(function (input) {
+            input.checked = input.value === mode;
+        });
+        if (manualForm) manualForm.hidden = mode !== 'manual';
+        if (returnForm) returnForm.hidden = mode !== 'return';
+    }
+
+    function resetWarehouseManualReceipt() {
+        var form = qs('[data-warehouse-manual-receipt-form]');
+        if (!form) return;
+        form.reset();
+        form.warehouse_item_id.value = '';
+        if (form.item_type) form.item_type.value = 'material';
+        if (form.unit) form.unit.value = 'шт';
+        updateWarehouseToolStatusField();
+        renderWarehouseManualSuggestions([]);
+        var error = qs('[data-warehouse-manual-receipt-error]');
+        if (error) {
+            error.textContent = '';
+            error.classList.remove('active');
+        }
+    }
+
+    function updateWarehouseToolStatusField() {
+        var form = qs('[data-warehouse-manual-receipt-form]');
+        var status = qs('[data-warehouse-tool-status]');
+        if (!form || !status) return;
+        status.hidden = form.item_type.value !== 'tool';
+    }
+
+    function warehouseManualSuggestionItems(query, type) {
+        query = warehouseNormalizeSearch(query);
+        if (!query) return [];
+        return (state.warehouseCatalog || []).map(function (item) {
+            return { item: item, score: warehouseItemSearchScore(query, item) };
+        }).filter(function (entry) {
+            return String(entry.item.itemType || entry.item.type) === type && entry.score >= 0.70;
+        }).sort(function (a, b) {
+            return b.score - a.score;
+        }).slice(0, 6);
+    }
+
+    function renderWarehouseManualSuggestions(entries) {
+        var root = qs('[data-warehouse-manual-suggestions]');
+        if (!root) return;
+        if (!entries || !entries.length) {
+            root.hidden = true;
+            root.innerHTML = '';
+            return;
+        }
+        root.hidden = false;
+        root.innerHTML = entries.map(function (entry) {
+            var item = entry.item;
+            return '<button type="button" data-warehouse-manual-suggest data-warehouse-item-id="' + escapeHtml(item.id) + '">' +
+                '<strong>' + escapeHtml(item.name || '') + '</strong>' +
+                '<small>' + escapeHtml([item.sku, warehouseQtyText(item), Math.round(entry.score * 100) + '%'].filter(Boolean).join(' • ')) + '</small>' +
+            '</button>';
+        }).join('');
+    }
+
+    function selectWarehouseManualSuggestion(itemId) {
+        var form = qs('[data-warehouse-manual-receipt-form]');
+        var item = currentWarehouseItem(itemId);
+        if (!form || !item) return;
+        form.warehouse_item_id.value = String(item.id);
+        form.item_type.value = String(item.itemType || item.type || 'material');
+        form.name.value = item.name || '';
+        form.unit.value = item.unit || 'шт';
+        if (form.condition_status && item.conditionStatus) form.condition_status.value = item.conditionStatus;
+        updateWarehouseToolStatusField();
+        renderWarehouseManualSuggestions([]);
+        if (form.qty) form.qty.focus();
+    }
+
+    function bindWarehouseReceiptModal() {
+        var open = qs('[data-warehouse-receipt-open]');
+        if (open && open.dataset.bound !== '1') {
+            open.dataset.bound = '1';
+            open.addEventListener('click', function (event) {
+                event.preventDefault();
+                openWarehouseReceiptModal('manual');
+            });
+        }
+        qsa('[data-warehouse-receipt-close]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', closeWarehouseReceiptModal);
+        });
+        qsa('[data-warehouse-receipt-mode] input[type="radio"]').forEach(function (input) {
+            if (input.dataset.bound === '1') return;
+            input.dataset.bound = '1';
+            input.addEventListener('change', function () {
+                if (input.checked) setWarehouseReceiptMode(input.value);
+            });
+        });
+        bindWarehouseManualReceiptForm();
+        bindWarehouseReturnForm();
+    }
+
+    function bindWarehouseManualReceiptForm() {
+        var form = qs('[data-warehouse-manual-receipt-form]');
+        if (!form) return;
+        if (form.item_type && form.item_type.dataset.bound !== '1') {
+            form.item_type.dataset.bound = '1';
+            form.item_type.addEventListener('change', function () {
+                form.warehouse_item_id.value = '';
+                updateWarehouseToolStatusField();
+                renderWarehouseManualSuggestions(warehouseManualSuggestionItems(form.name.value, form.item_type.value));
+            });
+        }
+        if (form.name && form.name.dataset.bound !== '1') {
+            form.name.dataset.bound = '1';
+            form.name.addEventListener('input', function () {
+                form.warehouse_item_id.value = '';
+                renderWarehouseManualSuggestions(warehouseManualSuggestionItems(form.name.value, form.item_type.value));
+            });
+        }
+        if (!document.body.dataset.warehouseManualSuggestDelegated) {
+            document.body.dataset.warehouseManualSuggestDelegated = '1';
+            document.addEventListener('click', function (event) {
+                var suggestion = event.target && event.target.closest ? event.target.closest('[data-warehouse-manual-suggest]') : null;
+                if (suggestion) {
+                    event.preventDefault();
+                    selectWarehouseManualSuggestion(Number(suggestion.getAttribute('data-warehouse-item-id') || 0));
+                }
+            });
+        }
+        if (form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-warehouse-manual-receipt-error]');
+            if (error) error.classList.remove('active');
+            api('/api/warehouse-items/receipt', {
+                method: 'POST',
+                body: JSON.stringify({
+                    mode: 'manual',
+                    warehouse_item_id: form.warehouse_item_id.value,
+                    item_type: form.item_type.value,
+                    name: form.name.value.trim(),
+                    qty: Number(form.qty.value || 0),
+                    unit: form.unit.value,
+                    condition_status: form.item_type.value === 'tool' && form.condition_status ? form.condition_status.value : ''
+                })
+            }).then(function () {
+                closeWarehouseReceiptModal();
+                loadWarehouseCatalog(function (items) {
+                    populateWarehouseCategories(items);
+                    renderWarehouseStats(items);
+                    renderWarehouseCatalog(warehouseFilteredItems(items));
+                });
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить приход.';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
+
+    function populateWarehouseReturnProjects() {
+        var select = qs('[data-warehouse-return-projects]');
+        if (!select) return;
+        select.innerHTML = '<option value="">Выберите объект</option>' + (state.projects || []).filter(function (project) {
+            return Number(project.progress || 0) < 100;
+        }).map(function (project) {
+            return '<option value="' + escapeHtml(project.id) + '">' + escapeHtml(project.title || '') + '</option>';
+        }).join('');
+    }
+
+    function resetWarehouseReturnForm() {
+        var form = qs('[data-warehouse-return-form]');
+        if (!form) return;
+        form.reset();
+        var materialSelect = qs('[data-warehouse-return-materials]');
+        if (materialSelect) {
+            materialSelect.innerHTML = '<option value="">Сначала выберите объект</option>';
+            materialSelect.disabled = true;
+        }
+        if (form.qty) {
+            form.qty.value = '';
+            form.qty.disabled = true;
+            form.qty.removeAttribute('max');
+        }
+        updateWarehouseReturnAvailable(null);
+        var error = qs('[data-warehouse-return-error]');
+        if (error) {
+            error.textContent = '';
+            error.classList.remove('active');
+        }
+    }
+
+    function warehouseReturnItems(projectId) {
+        var items = state.materialsByProject[projectId] || [];
+        return (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work' && Number(item.stockQty || 0) > 0;
+        });
+    }
+
+    function updateWarehouseReturnMaterials(projectId) {
+        var form = qs('[data-warehouse-return-form]');
+        var materialSelect = qs('[data-warehouse-return-materials]');
+        if (!form || !materialSelect) return;
+        materialSelect.disabled = true;
+        materialSelect.innerHTML = '<option value="">Загружаем позиции...</option>';
+        if (form.qty) {
+            form.qty.value = '';
+            form.qty.disabled = true;
+        }
+        updateWarehouseReturnAvailable(null);
+        if (!projectId) {
+            materialSelect.innerHTML = '<option value="">Сначала выберите объект</option>';
+            return;
+        }
+        loadMaterials(projectId, function () {
+            var items = warehouseReturnItems(projectId);
+            if (!items.length) {
+                materialSelect.innerHTML = '<option value="">Нет позиций с остатком на объекте</option>';
+                return;
+            }
+            materialSelect.disabled = false;
+            materialSelect.innerHTML = '<option value="">Выберите позицию</option>' + items.map(function (item) {
+                return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.title || '') + ' • ' + escapeHtml(item.stockQty || 0) + ' ' + escapeHtml(item.unit || '') + '</option>';
+            }).join('');
+        });
+    }
+
+    function currentWarehouseReturnItem() {
+        var form = qs('[data-warehouse-return-form]');
+        if (!form || !form.project_id || !form.estimate_item_id) return null;
+        var projectId = Number(form.project_id.value || 0);
+        var materialId = Number(form.estimate_item_id.value || 0);
+        return warehouseReturnItems(projectId).find(function (item) { return Number(item.id) === materialId; }) || null;
+    }
+
+    function updateWarehouseReturnAvailable(item) {
+        var label = qs('[data-warehouse-return-available]');
+        var form = qs('[data-warehouse-return-form]');
+        if (!label) return;
+        if (!item) {
+            label.textContent = 'Доступно для возврата: выберите позицию';
+            return;
+        }
+        label.textContent = 'Доступно для возврата: ' + item.stockQty + ' ' + (item.unit || 'ед.');
+        if (form && form.qty) {
+            form.qty.disabled = false;
+            form.qty.max = String(item.stockQty || 0);
+            form.qty.value = '';
+            form.qty.focus();
+        }
+    }
+
+    function bindWarehouseReturnForm() {
+        var form = qs('[data-warehouse-return-form]');
+        if (!form) return;
+        if (form.project_id && form.project_id.dataset.bound !== '1') {
+            form.project_id.dataset.bound = '1';
+            form.project_id.addEventListener('change', function () {
+                updateWarehouseReturnMaterials(Number(form.project_id.value || 0));
+            });
+        }
+        if (form.estimate_item_id && form.estimate_item_id.dataset.bound !== '1') {
+            form.estimate_item_id.dataset.bound = '1';
+            form.estimate_item_id.addEventListener('change', function () {
+                updateWarehouseReturnAvailable(currentWarehouseReturnItem());
+            });
+        }
+        if (form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var item = currentWarehouseReturnItem();
+            var qty = Number(form.qty.value || 0);
+            var error = qs('[data-warehouse-return-error]');
+            if (error) error.classList.remove('active');
+            if (!item || qty <= 0 || qty > Number(item.stockQty || 0)) {
+                if (error) {
+                    error.textContent = 'Количество должно быть больше нуля и не больше остатка на объекте.';
+                    error.classList.add('active');
+                }
+                return;
+            }
+            var projectId = Number(form.project_id.value || 0);
+            api('/api/warehouse-items/receipt', {
+                method: 'POST',
+                body: JSON.stringify({
+                    mode: 'return',
+                    project_id: projectId,
+                    estimate_item_id: Number(form.estimate_item_id.value),
+                    qty: qty
+                })
+            }).then(function (data) {
+                if (data && data.items) state.materialsByProject[projectId] = data.items;
+                closeWarehouseReceiptModal();
+                loadWarehouseCatalog(function (items) {
+                    populateWarehouseCategories(items);
+                    renderWarehouseStats(items);
+                    renderWarehouseCatalog(warehouseFilteredItems(items));
+                });
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error === 'qty_exceeds_object_stock'
+                        ? 'Нельзя вернуть больше, чем числится на объекте.'
+                        : (err.payload && err.payload.error ? err.payload.error : 'Не удалось оформить возврат.');
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
+
+    function applyWarehouseIssueFocus() {
+        if (page !== 'warehouse') return;
+        var params = new URLSearchParams(location.search);
+        var itemId = Number(params.get('issueWarehouseItem') || 0);
+        var projectId = Number(params.get('projectId') || 0);
+        if (itemId) openWarehouseTransferModal(itemId, projectId);
+    }
+
+    function loadWarehouseMatches(projectId, callback) {
+        if (!projectId || hasRole('customer')) {
+            callback({});
+            return;
+        }
+        api('/api/projects/' + projectId + '/warehouse-matches').then(function (data) {
+            callback(data && data.matches ? data.matches : {});
+        }).catch(function () {
+            callback({});
+        });
+    }
+
+    var baseLoadMaterialsForWarehouseMatches = loadMaterials;
+    loadMaterials = function (projectId, callback) {
+        baseLoadMaterialsForWarehouseMatches(projectId, function (items) {
+            loadWarehouseMatches(projectId, function (matches) {
+                var enriched = (items || []).map(function (item) {
+                    var match = matches[String(item.id)];
+                    return match ? Object.assign({}, item, { warehouseMatch: match }) : item;
+                });
+                state.materialsByProject[projectId] = enriched;
+                callback(enriched);
+            });
+        });
+    };
+
+    function renderWarehouseMatchBadge(projectId, item) {
+        var match = item && item.warehouseMatch;
+        if (!match || Number(match.qty || 0) <= 0) return '';
+        var exact = Number(match.score || 0) >= 0.92;
+        var label = exact ? '📦 Есть на складе' : '📦 Возможно, есть на складе';
+        var title = 'На внутреннем складе сейчас есть ' + warehouseQtyText(match) + '. Похожая позиция: ' + (match.name || '') + '.';
+        return '<button class="warehouse-match-badge" type="button" ' +
+            'data-warehouse-match-badge ' +
+            'data-project-id="' + escapeHtml(projectId || '') + '" ' +
+            'data-material-id="' + escapeHtml(item.id || '') + '" ' +
+            'data-warehouse-item-id="' + escapeHtml(match.id || '') + '" ' +
+            'data-title="' + escapeHtml(item.title || '') + '" ' +
+            'data-match-name="' + escapeHtml(match.name || '') + '" ' +
+            'data-match-qty="' + escapeHtml(warehouseQtyText(match)) + '" ' +
+            'data-match-score="' + escapeHtml(Math.round(Number(match.score || 0) * 100)) + '" ' +
+            'title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</button>';
+    }
+
+    var baseMaterialRowForWarehouseMatches = materialRow;
+    materialRow = function (item, projectId, insight) {
+        var html = baseMaterialRowForWarehouseMatches(item, projectId, insight);
+        var badge = renderWarehouseMatchBadge(projectId, item);
+        if (!badge) return html;
+        if (html.indexOf('</label></div><div class="work-row-side') !== -1) {
+            return html.replace('</label></div><div class="work-row-side', '</label>' + badge + '</div><div class="work-row-side');
+        }
+        return html.replace('</small></div>', '</small>' + badge + '</div>');
+    };
+
+    function closeWarehouseMatchPopover() {
+        qsa('[data-warehouse-match-popover]').forEach(function (node) {
+            if (node.parentNode) node.parentNode.removeChild(node);
+        });
+    }
+
+    function openWarehouseMatchPopover(button) {
+        closeWarehouseMatchPopover();
+        var popover = document.createElement('div');
+        popover.className = 'warehouse-match-popover';
+        popover.setAttribute('data-warehouse-match-popover', '1');
+        popover.innerHTML =
+            '<button class="warehouse-match-close" type="button" data-warehouse-match-close aria-label="Закрыть">×</button>' +
+            '<strong>' + escapeHtml(button.getAttribute('data-title') || '') + '</strong>' +
+            '<p>На внутреннем складе сейчас есть ' + escapeHtml(button.getAttribute('data-match-qty') || '') + '. Система нашла похожую позицию: <b>' + escapeHtml(button.getAttribute('data-match-name') || '') + '</b> (' + escapeHtml(button.getAttribute('data-match-score') || '0') + '%).</p>' +
+            '<button class="primary compact" type="button" data-warehouse-match-issue data-project-id="' + escapeHtml(button.getAttribute('data-project-id') || '') + '" data-warehouse-item-id="' + escapeHtml(button.getAttribute('data-warehouse-item-id') || '') + '">Выдать со склада</button>';
+        document.body.appendChild(popover);
+        var rect = button.getBoundingClientRect();
+        popover.style.left = Math.min(window.innerWidth - 340, Math.max(12, rect.left)) + 'px';
+        popover.style.top = Math.max(12, rect.bottom + 8) + 'px';
+    }
+
+    if (!document.body.dataset.warehouseMatchDelegated) {
+        document.body.dataset.warehouseMatchDelegated = '1';
+        document.addEventListener('click', function (event) {
+            var close = event.target && event.target.closest ? event.target.closest('[data-warehouse-match-close]') : null;
+            if (close) {
+                closeWarehouseMatchPopover();
+                return;
+            }
+            var issue = event.target && event.target.closest ? event.target.closest('[data-warehouse-match-issue]') : null;
+            if (issue) {
+                var projectId = issue.getAttribute('data-project-id') || '';
+                var warehouseItemId = issue.getAttribute('data-warehouse-item-id') || '';
+                location.href = '/app/warehouse?issueWarehouseItem=' + encodeURIComponent(warehouseItemId) + '&projectId=' + encodeURIComponent(projectId);
+                return;
+            }
+            var badge = event.target && event.target.closest ? event.target.closest('[data-warehouse-match-badge]') : null;
+            if (badge) {
+                event.preventDefault();
+                event.stopPropagation();
+                openWarehouseMatchPopover(badge);
+                return;
+            }
+            if (!event.target.closest || !event.target.closest('[data-warehouse-match-popover]')) closeWarehouseMatchPopover();
+        });
+    }
+
+    function renderMaterialDeliveryField(projectId, item) {
+        if (!item || String(item.itemKind || 'material').toLowerCase() === 'work') return '';
+        var value = item.deliveryDays == null ? (item.estimatedDeliveryDays || '') : item.deliveryDays;
+        return '<label class="material-delivery-field" title="Срок доставки в днях"><span>Доставка</span><input type="number" min="0" max="90" step="1" value="' + escapeHtml(value == null ? '' : String(value)) + '" data-material-delivery-days data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '"></label>';
+    }
+
+    var baseMaterialRowForDeliveryDays = materialRow;
+    materialRow = function (item, projectId, insight) {
+        var html = baseMaterialRowForDeliveryDays(item, projectId, insight);
+        var field = renderMaterialDeliveryField(projectId, item);
+        if (!field) return html;
+        if (html.indexOf('<div class="material-chain-actions"') !== -1) {
+            return html.replace('<div class="material-chain-actions"', field + '<div class="material-chain-actions"');
+        }
+        return html.replace('</div></div>', field + '</div></div>');
+    };
+
+    if (!document.body.dataset.materialDeliveryDelegated) {
+        document.body.dataset.materialDeliveryDelegated = '1';
+        document.addEventListener('change', function (event) {
+            var input = event.target && event.target.closest ? event.target.closest('[data-material-delivery-days]') : null;
+            if (!input) return;
+            var projectId = input.getAttribute('data-project-id') || '';
+            var materialId = input.getAttribute('data-material-id') || '';
+            input.disabled = true;
+            api('/api/materials/' + materialId + '/update', {
+                method: 'POST',
+                body: JSON.stringify({ delivery_days: Number(input.value || 0) })
+            }).then(function (data) {
+                if (data && Array.isArray(data.items)) state.materialsByProject[projectId] = data.items;
+                if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
+                if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                    var materialsPanel = qs('[data-panel="materials"]');
+                    if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(state.selectedProject, state.materialsByProject[projectId] || [], state.materialInsightsByProject[projectId] || {});
+                    var schedulePanel = qs('[data-panel="schedule"]');
+                    if (schedulePanel) refreshMaterialScheduleProject(projectId, true);
+                }
+            }).finally(function () {
+                input.disabled = false;
+            });
+        });
+    }
+
+    bindMaterialScheduleTimeline();
+    installVisibleDateFormatter();
 
     if (page === 'login') initLogin();
     else initShell();
