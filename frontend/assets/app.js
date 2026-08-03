@@ -86,16 +86,35 @@
         if (document.body.dataset.dateFormatterInstalled === '1') return;
         document.body.dataset.dateFormatterInstalled = '1';
         var pending = false;
+        var roots = [];
+        var observer = null;
+        function queueRoot(root) {
+            if (!root) return;
+            if (root.nodeType === Node.TEXT_NODE) root = root.parentElement;
+            if (!root || root.nodeType !== Node.ELEMENT_NODE) return;
+            if (roots.indexOf(root) === -1) roots.push(root);
+        }
         function scheduleFormat() {
             if (pending) return;
             pending = true;
             requestAnimationFrame(function () {
                 pending = false;
-                formatVisibleDates(document.body);
+                var batch = roots.splice(0, 25);
+                if (!batch.length) return;
+                if (observer) observer.disconnect();
+                batch.forEach(function (root) { formatVisibleDates(root); });
+                if (observer) observer.observe(document.body, { childList: true, subtree: true });
+                if (roots.length) scheduleFormat();
             });
         }
         formatVisibleDates(document.body);
-        new MutationObserver(scheduleFormat).observe(document.body, { childList: true, subtree: true, characterData: true });
+        observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                Array.prototype.forEach.call(mutation.addedNodes || [], queueRoot);
+            });
+            if (roots.length) scheduleFormat();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     function isClerkEnabled() {
@@ -10900,6 +10919,23 @@ function renderLogsDayView(project, logs) {
         var chatPanel = panel('chat');
         var aiPanel = panel('ai');
         var titleNode = qs('[data-detail-title]');
+        var scheduleRenderTimer = null;
+
+        function renderScheduleNow(stages) {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages || state.stagesByProject[project.id] || [], project);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+        }
+
+        function queueScheduleRender(stages) {
+            if (scheduleRenderTimer) clearTimeout(scheduleRenderTimer);
+            scheduleRenderTimer = setTimeout(function () {
+                scheduleRenderTimer = null;
+                renderScheduleNow(stages);
+            }, 80);
+        }
 
         if (titleNode) titleNode.textContent = project.title || 'Карточка объекта';
         if (overviewPanel) {
@@ -10907,7 +10943,7 @@ function renderLogsDayView(project, logs) {
         }
         if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загрузка материалов...</p>';
         if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загрузка работ...</p>';
-        if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+        renderScheduleNow(state.stagesByProject[project.id] || []);
         if (reportsPanel) reportsPanel.innerHTML = '<p class="muted">Загрузка отчетов...</p>';
         if (tasksPanel) tasksPanel.innerHTML = '<p class="muted">Загрузка задач...</p>';
         if (financePanel) financePanel.innerHTML = canSeeFinances() ? '<p class="muted">Загрузка финансов...</p>' : '';
@@ -10936,18 +10972,12 @@ function renderLogsDayView(project, logs) {
 
         loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
-            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
-            bindAutoScheduleForm(project.id);
-            bindScheduleStatusActions(project.id);
-            bindSectionScheduleRefresh(project.id);
+            queueScheduleRender(state.stagesByProject[project.id] || []);
         });
 
         loadProjectNotifications(project.id, function () {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
-            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
-            bindAutoScheduleForm(project.id);
-            bindScheduleStatusActions(project.id);
-            bindSectionScheduleRefresh(project.id);
+            queueScheduleRender(state.stagesByProject[project.id] || []);
         });
 
         loadAnalysis(project.id, function (analysis) {
@@ -10957,13 +10987,10 @@ function renderLogsDayView(project, logs) {
 
         loadStages(project.id, function (stages) {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
-            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages, project);
+            queueScheduleRender(stages);
             if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []);
             bindStageCreateForm(project.id);
             bindStageEditors(project.id);
-            bindAutoScheduleForm(project.id);
-            bindScheduleStatusActions(project.id);
-            bindSectionScheduleRefresh(project.id);
             loadExecutionInsights(project.id, stages);
         });
 
