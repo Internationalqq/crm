@@ -15,7 +15,7 @@
     <form class="project-form" data-project-create-form>
         <label>
             <span>Название</span>
-            <input name="title" required placeholder="Например: ЖК Северный — инженерные сети">
+            <input name="title" required placeholder="Например: объект по смете">
         </label>
         <label>
             <span>Заказчик</span>
@@ -60,69 +60,9 @@
         <input class="search" placeholder="Поиск по объектам" data-project-search>
     </div>
     <div class="projects-grid" data-projects-list>
-        <article class="project-card" data-project-id="12">
-            <div class="project-top">
-                <div>
-                    <h3>Smeta_obschaya</h3>
-                    <p>Адрес уточнить по смете</p>
-                </div>
-                <div class="project-card-tools">
-                    <div class="project-badges"><span class="badge">Подготовка</span></div>
-                </div>
-            </div>
-            <div class="meta-grid">
-                <div><span>Заказчик</span><strong>Объект по смете</strong></div>
-                <div><span>Бюджет</span><strong>1 856 337 ₽</strong></div>
-                <div><span>Дедлайн</span><strong>—</strong></div>
-            </div>
-            <div class="progress-strong">
-                <div class="progress-strong-head"><span>Готовность объекта</span><strong>0%</strong></div>
-                <div class="progress-strong-track"><i style="width:0%"></i></div>
-            </div>
-        </article>
-        <article class="project-card" data-project-id="1">
-            <div class="project-top">
-                <div>
-                    <h3>ЖК Северный — монтаж инженерных сетей</h3>
-                    <p>Екатеринбург, ул. Строителей, 18</p>
-                </div>
-                <div class="project-card-tools">
-                    <div class="project-badges"><span class="badge">В работе</span></div>
-                </div>
-            </div>
-            <div class="meta-grid">
-                <div><span>Заказчик</span><strong>ООО Северный Заказчик</strong></div>
-                <div><span>Бюджет</span><strong>8 500 000 ₽</strong></div>
-                <div><span>Дедлайн</span><strong>2026-10-20</strong></div>
-            </div>
-            <div class="progress-strong">
-                <div class="progress-strong-head"><span>Готовность объекта</span><strong>64%</strong></div>
-                <div class="progress-strong-track"><i style="width:64%"></i></div>
-            </div>
-        </article>
-        <article class="project-card project-completed" data-project-id="3">
-            <div class="project-top">
-                <div>
-                    <h3>Коттедж GreenLine — завершённый проект</h3>
-                    <p>Екатеринбург, КП GreenLine, участок 42</p>
-                </div>
-                <div class="project-card-tools">
-                    <div class="project-badges"><span class="badge success">Завершен</span></div>
-                </div>
-            </div>
-            <div class="meta-grid">
-                <div><span>Заказчик</span><strong>ИП Орлов Андрей Сергеевич</strong></div>
-                <div><span>Бюджет</span><strong>12 800 000 ₽</strong></div>
-                <div><span>Дедлайн</span><strong>2026-07-15</strong></div>
-            </div>
-            <div class="progress-strong">
-                <div class="progress-strong-head"><span>Готовность объекта</span><strong>100%</strong></div>
-                <div class="progress-strong-track"><i style="width:100%"></i></div>
-            </div>
-        </article>
+        <div class="muted">Loading projects...</div>
     </div>
 </section>
-
 <section class="card" data-project-detail hidden>
     <div class="card-head">
         <h3 data-detail-title>Карточка объекта</h3>
