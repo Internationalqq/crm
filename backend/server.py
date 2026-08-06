@@ -5,6 +5,7 @@ import cgi
 import hashlib
 import html
 import hmac
+import io
 import json
 import mimetypes
 import os
@@ -42,6 +43,13 @@ SESSION_COOKIE = "pmbi_session"
 SESSION_TTL_SECONDS = 60 * 60 * 12
 PASSWORD_ITERATIONS = 220_000
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+FINANCE_INVOICE_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".xlsx", ".xls"}
+FINANCE_EXCEL_TEMPLATE_CELLS = {
+    "category": os.environ.get("PMBI_FINANCE_TEMPLATE_NAME_CELL", "B2"),
+    "counterparty_name": os.environ.get("PMBI_FINANCE_TEMPLATE_COUNTERPARTY_CELL", "B3"),
+    "amount": os.environ.get("PMBI_FINANCE_TEMPLATE_TOTAL_CELL", "B4"),
+}
+FINANCE_EXCEL_PARSE_ERROR = "Ошибка: Формат файла не соответствует шаблону отчета"
 
 LOGIN_PATH = "/login"
 DEFAULT_AUTH_PATH = "/app/dashboard"
@@ -1450,6 +1458,113 @@ def project_documents_dir(project_id: int) -> Path:
 
 def document_extension(name: str) -> str:
     return Path(name or "").suffix.lower()[:16]
+
+
+class FinanceExcelParseError(ValueError):
+    pass
+
+
+def excel_cell_ref_to_indexes(cell_ref: str) -> tuple[int, int]:
+    match = re.match(r"^([A-Za-z]+)([1-9][0-9]*)$", str(cell_ref or "").strip())
+    if not match:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR)
+    col = 0
+    for char in match.group(1).upper():
+        col = col * 26 + (ord(char) - ord("A") + 1)
+    return int(match.group(2)) - 1, col - 1
+
+
+def clean_excel_value(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).replace("\xa0", " ").strip()
+
+
+def parse_excel_amount(value: object) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = clean_excel_value(value)
+    text = re.sub(r"[^\d,.\-]+", "", text).replace(",", ".")
+    if not text:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR)
+    try:
+        return float(text)
+    except ValueError as error:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR) from error
+
+
+def normalize_excel_label(value: object) -> str:
+    return re.sub(r"[^a-zа-яё0-9]+", "", clean_excel_value(value).lower())
+
+
+def labeled_excel_value(rows: list[list[object]], labels: set[str]) -> object:
+    normalized_labels = {normalize_excel_label(label) for label in labels}
+    for row_index, row in enumerate(rows):
+        for col_index, value in enumerate(row):
+            label = normalize_excel_label(value)
+            if not label or not any(expected in label for expected in normalized_labels):
+                continue
+            for next_col in range(col_index + 1, min(len(row), col_index + 5)):
+                if clean_excel_value(row[next_col]):
+                    return row[next_col]
+            if row_index + 1 < len(rows) and col_index < len(rows[row_index + 1]):
+                below = rows[row_index + 1][col_index]
+                if clean_excel_value(below):
+                    return below
+    return None
+
+
+def parse_finance_excel_invoice(raw: bytes, file_ext: str) -> dict[str, object]:
+    if file_ext == ".xlsx":
+        try:
+            from openpyxl import load_workbook
+        except ImportError as error:
+            raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR) from error
+        try:
+            workbook = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+            sheet = workbook.active
+            cell_values = {
+                key: sheet[cell_ref].value
+                for key, cell_ref in FINANCE_EXCEL_TEMPLATE_CELLS.items()
+            }
+            rows = [list(row) for row in sheet.iter_rows(min_row=1, max_row=40, max_col=12, values_only=True)]
+            workbook.close()
+        except Exception as error:
+            raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR) from error
+    elif file_ext == ".xls":
+        try:
+            import xlrd
+        except ImportError as error:
+            raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR) from error
+        try:
+            book = xlrd.open_workbook(file_contents=raw)
+            sheet = book.sheet_by_index(0)
+            cell_values = {}
+            for key, cell_ref in FINANCE_EXCEL_TEMPLATE_CELLS.items():
+                row_index, col_index = excel_cell_ref_to_indexes(cell_ref)
+                cell_values[key] = sheet.cell_value(row_index, col_index) if row_index < sheet.nrows and col_index < sheet.ncols else None
+            rows = [
+                [sheet.cell_value(row_index, col_index) for col_index in range(min(sheet.ncols, 12))]
+                for row_index in range(min(sheet.nrows, 40))
+            ]
+        except Exception as error:
+            raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR) from error
+    else:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR)
+
+    category = clean_excel_value(cell_values.get("category")) or clean_excel_value(
+        labeled_excel_value(rows, {"наименование", "назначение", "счет", "счёт"})
+    )
+    counterparty = clean_excel_value(cell_values.get("counterparty_name")) or clean_excel_value(
+        labeled_excel_value(rows, {"контрагент", "поставщик", "подрядчик"})
+    )
+    amount_value = cell_values.get("amount")
+    if amount_value in (None, ""):
+        amount_value = labeled_excel_value(rows, {"итоговая сумма", "итого", "сумма к оплате", "всего"})
+    amount = parse_excel_amount(amount_value)
+    if not category or not counterparty or amount <= 0:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR)
+    return {"category": category, "counterparty_name": counterparty, "amount": amount}
 
 
 def serialize_project(row: sqlite3.Row, user: dict) -> dict:
@@ -3345,6 +3460,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_finances(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/finances"):
                 self.api_create_finance_entry(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/finances/invoice-upload"):
+                self.api_upload_finance_invoice(path)
             elif method == "POST" and path.startswith("/api/finances/") and path.endswith("/update"):
                 self.api_update_finance_entry(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/estimate-import"):
@@ -6429,9 +6546,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
         with db() as con:
             rows = con.execute(
                 """
-                SELECT f.*, u.name AS created_by_name
+                SELECT
+                    f.*,
+                    u.name AS created_by_name,
+                    d.original_name AS document_original_name,
+                    d.mime_type AS document_mime_type,
+                    d.file_ext AS document_file_ext,
+                    d.storage_path AS document_storage_path
                 FROM finance_entries f
                 LEFT JOIN users u ON u.id = f.created_by
+                LEFT JOIN documents d ON d.id = f.document_id
                 WHERE f.project_id = ?
                 ORDER BY COALESCE(f.paid_date, f.planned_date, '') DESC, f.id DESC
                 """,
@@ -6445,7 +6569,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 """,
                 (project_id,),
             ).fetchone()[0]
-        items = [dict(row) for row in rows]
+        items = []
+        for row in rows:
+            item = dict(row)
+            if item.get("document_id"):
+                item["document"] = {
+                    "id": item["document_id"],
+                    "original_name": item.get("document_original_name"),
+                    "mime_type": item.get("document_mime_type"),
+                    "file_ext": item.get("document_file_ext"),
+                    "download_url": f"/api/documents/{item['document_id']}/download",
+                    "view_url": f"/api/documents/{item['document_id']}/view",
+                    "can_preview": bool(item.get("document_storage_path"))
+                    and (
+                        str(item.get("document_mime_type") or "").startswith("image/")
+                        or str(item.get("document_file_ext") or "") == ".pdf"
+                    ),
+                }
+            items.append(item)
         summary = {
             "estimateTotal": float(estimate_total or 0),
             "plannedExpense": sum(float(item["amount"] or 0) for item in items if item["direction"] == "expense" and item["status"] != "cancelled"),
@@ -6526,6 +6667,150 @@ class PMBIHandler(BaseHTTPRequestHandler):
             )
             con.commit()
         self.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid})
+
+    def api_upload_finance_invoice(self, path: str) -> None:
+        project_id = self.parse_project_id(path)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not user_can_manage_finances(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+
+        form = self.read_multipart()
+        upload = form["file"] if "file" in form else None
+        if upload is None or not getattr(upload, "file", None) or not getattr(upload, "filename", ""):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "file_required"})
+            return
+
+        original_name = sanitize_filename(upload.filename)
+        file_ext = document_extension(original_name)
+        if file_ext not in FINANCE_INVOICE_EXTENSIONS:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_invoice_format"})
+            return
+
+        raw = upload.file.read()
+        if not raw:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_file"})
+            return
+        if len(raw) > MAX_UPLOAD_BYTES:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "upload_too_large"})
+            return
+
+        parsed_invoice: dict[str, object] | None = None
+        if file_ext in {".xlsx", ".xls"}:
+            try:
+                parsed_invoice = parse_finance_excel_invoice(raw, file_ext)
+            except FinanceExcelParseError:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": FINANCE_EXCEL_PARSE_ERROR})
+                return
+
+        category = str((parsed_invoice or {}).get("category") or form.getfirst("category", "")).strip()
+        counterparty_name = str((parsed_invoice or {}).get("counterparty_name") or form.getfirst("counterparty_name", "")).strip()
+        planned_date = str(form.getfirst("planned_date", "")).strip() or None
+        payment_kind = str(form.getfirst("payment_kind", "bank_no_vat")).strip() or "bank_no_vat"
+        if payment_kind not in {"cash", "bank_no_vat", "bank_vat"}:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_payment_kind"})
+            return
+        status = str(form.getfirst("status", "approved")).strip() or "approved"
+        if status not in {"planned", "approved"}:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+            return
+        try:
+            amount = float((parsed_invoice or {}).get("amount") or form.getfirst("amount", "0") or 0)
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_amount"})
+            return
+        if amount <= 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "amount_required"})
+            return
+        if not category:
+            category = Path(original_name).stem
+
+        notes = str(form.getfirst("notes", "")).strip() or None
+        vat_percent = 20 if payment_kind == "bank_vat" else 0
+        mime_type = upload.type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        storage_name = f"{now_ts()}_{secrets.token_hex(8)}{file_ext}"
+        file_path = project_documents_dir(project_id) / storage_name
+        file_path.write_bytes(raw)
+
+        with db() as con:
+            doc_cur = con.execute(
+                """
+                INSERT INTO documents (
+                    project_id, title, doc_type, status, original_name, storage_name, storage_path,
+                    mime_type, file_ext, size_bytes, notes, uploaded_by, is_client_visible, created_at, updated_at
+                )
+                VALUES (?, ?, 'invoice', 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (
+                    project_id,
+                    category,
+                    original_name,
+                    storage_name,
+                    str(file_path.relative_to(PROJECT_ROOT)),
+                    mime_type,
+                    file_ext,
+                    len(raw),
+                    notes,
+                    user["id"],
+                    now_ts(),
+                    now_ts(),
+                ),
+            )
+            finance_cur = con.execute(
+                """
+                INSERT INTO finance_entries (
+                    project_id, direction, category, payment_kind, vat_percent, amount,
+                    planned_date, paid_date, counterparty_name, document_id, status, notes,
+                    created_by, created_at, updated_at
+                )
+                VALUES (?, 'expense', ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    category,
+                    payment_kind,
+                    vat_percent,
+                    amount,
+                    planned_date,
+                    counterparty_name or None,
+                    doc_cur.lastrowid,
+                    status,
+                    notes,
+                    user["id"],
+                    now_ts(),
+                    now_ts(),
+                ),
+            )
+            self.recalc_project_finance_totals(con, project_id)
+            create_audit(
+                con,
+                user["id"],
+                "upload_finance_invoice",
+                "finance_entry",
+                finance_cur.lastrowid,
+                {
+                    "project_id": project_id,
+                    "document_id": doc_cur.lastrowid,
+                    "amount": amount,
+                    "status": status,
+                    "parsed_excel": bool(parsed_invoice),
+                },
+            )
+            con.commit()
+        self.send_json(
+            HTTPStatus.CREATED,
+            {
+                "id": finance_cur.lastrowid,
+                "document_id": doc_cur.lastrowid,
+                "parsedInvoice": parsed_invoice,
+                "status": status,
+            },
+        )
 
     def api_update_finance_entry(self, path: str) -> None:
         finance_id = self.parse_finance_id(path)

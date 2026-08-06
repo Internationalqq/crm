@@ -16562,6 +16562,350 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    financeStatusLabel = function (status) {
+        return {
+            planned: '\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e',
+            approved: '\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443',
+            paid: '\u041e\u043f\u043b\u0430\u0447\u0435\u043d\u043e',
+            cancelled: '\u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e'
+        }[status] || status || '\u0421\u0442\u0430\u0442\u0443\u0441';
+    };
+
+    function financeDocumentFromItem(item) {
+        if (!item) return null;
+        if (item.document && item.document.id) return item.document;
+        if (!item.document_id) return null;
+        return {
+            id: item.document_id,
+            original_name: item.document_original_name || '',
+            mime_type: item.document_mime_type || '',
+            file_ext: item.document_file_ext || '',
+            view_url: '/api/documents/' + item.document_id + '/view',
+            download_url: '/api/documents/' + item.document_id + '/download',
+            can_preview: String(item.document_mime_type || '').indexOf('image/') === 0 || String(item.document_file_ext || '') === '.pdf'
+        };
+    }
+
+    function financeDocumentKind(doc) {
+        var mime = String(doc && doc.mime_type || '').toLowerCase();
+        var ext = String(doc && doc.file_ext || '').toLowerCase();
+        if (mime.indexOf('image/') === 0 || ext === '.png' || ext === '.jpg' || ext === '.jpeg') return 'image';
+        if (mime === 'application/pdf' || ext === '.pdf') return 'pdf';
+        if (ext === '.xlsx' || ext === '.xls' || mime.indexOf('spreadsheet') !== -1 || mime.indexOf('excel') !== -1) return 'excel';
+        return 'file';
+    }
+
+    function renderFinanceDocumentSlot(item) {
+        var doc = financeDocumentFromItem(item);
+        if (!doc) return '<div class="finance-doc-slot is-empty" data-finance-document-slot></div>';
+        return '<div class="finance-doc-slot" data-finance-document-slot ' +
+            'data-doc-id="' + escapeHtml(doc.id) + '" ' +
+            'data-doc-kind="' + escapeHtml(financeDocumentKind(doc)) + '" ' +
+            'data-doc-name="' + escapeHtml(doc.original_name || '\u0421\u0447\u0435\u0442') + '" ' +
+            'data-doc-view-url="' + escapeHtml(doc.view_url || '') + '" ' +
+            'data-doc-download-url="' + escapeHtml(doc.download_url || '') + '"></div>';
+    }
+
+    function clearFinanceNode(node) {
+        while (node && node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function showFinanceToast(message) {
+        var toast = qs('[data-finance-toast]');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'finance-toast';
+            toast.setAttribute('data-finance-toast', '');
+            toast.setAttribute('role', 'status');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('active');
+        clearTimeout(showFinanceToast.timer);
+        showFinanceToast.timer = setTimeout(function () {
+            toast.classList.remove('active');
+        }, 4200);
+    }
+
+    function ensureFinancePreviewModal() {
+        var modal = qs('[data-finance-preview-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'finance-preview-modal';
+        modal.setAttribute('data-finance-preview-modal', '');
+        modal.hidden = true;
+
+        var backdrop = document.createElement('div');
+        backdrop.className = 'finance-preview-backdrop';
+        backdrop.setAttribute('data-finance-preview-close', '');
+        modal.appendChild(backdrop);
+
+        var dialog = document.createElement('div');
+        dialog.className = 'finance-preview-dialog';
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        modal.appendChild(dialog);
+
+        var head = document.createElement('div');
+        head.className = 'finance-preview-head';
+        dialog.appendChild(head);
+
+        var title = document.createElement('b');
+        title.setAttribute('data-finance-preview-title', '');
+        head.appendChild(title);
+
+        var close = document.createElement('button');
+        close.className = 'ghost compact';
+        close.type = 'button';
+        close.textContent = 'X';
+        close.setAttribute('aria-label', '\u0417\u0430\u043a\u0440\u044b\u0442\u044c');
+        close.setAttribute('data-finance-preview-close', '');
+        head.appendChild(close);
+
+        var body = document.createElement('div');
+        body.className = 'finance-preview-body';
+        body.setAttribute('data-finance-preview-body', '');
+        dialog.appendChild(body);
+
+        modal.addEventListener('click', function (event) {
+            if (!event.target.closest('[data-finance-preview-close]')) return;
+            modal.hidden = true;
+            clearFinanceNode(body);
+        });
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    function openFinanceDocumentPreview(slot) {
+        var kind = slot.dataset.docKind;
+        if (kind !== 'image' && kind !== 'pdf') return;
+        var modal = ensureFinancePreviewModal();
+        var title = qs('[data-finance-preview-title]', modal);
+        var body = qs('[data-finance-preview-body]', modal);
+        if (title) title.textContent = slot.dataset.docName || '\u0421\u0447\u0435\u0442';
+        clearFinanceNode(body);
+        if (kind === 'image') {
+            var image = document.createElement('img');
+            image.src = slot.dataset.docViewUrl;
+            image.alt = slot.dataset.docName || '\u0421\u0447\u0435\u0442';
+            body.appendChild(image);
+        } else {
+            var frame = document.createElement('iframe');
+            frame.src = slot.dataset.docViewUrl;
+            frame.title = slot.dataset.docName || 'PDF';
+            body.appendChild(frame);
+        }
+        modal.hidden = false;
+    }
+
+    function bindFinanceDocumentActions() {
+        qsa('[data-finance-document-slot]').forEach(function (slot) {
+            if (slot.dataset.bound === '1' || !slot.dataset.docId) return;
+            slot.dataset.bound = '1';
+            var kind = slot.dataset.docKind;
+            if (kind === 'excel') {
+                var link = document.createElement('a');
+                link.className = 'finance-doc-pill is-excel';
+                link.href = slot.dataset.docDownloadUrl || '#';
+                link.textContent = 'Excel';
+                link.title = '\u0421\u043a\u0430\u0447\u0430\u0442\u044c Excel';
+                link.setAttribute('download', '');
+                slot.appendChild(link);
+                return;
+            }
+            var button = document.createElement('button');
+            button.className = 'finance-doc-pill ' + (kind === 'image' ? 'is-thumb' : 'is-eye');
+            button.type = 'button';
+            button.title = kind === 'file' ? '\u0421\u043a\u0430\u0447\u0430\u0442\u044c' : '\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440';
+            if (kind === 'image') {
+                var thumb = document.createElement('img');
+                thumb.src = slot.dataset.docViewUrl;
+                thumb.alt = slot.dataset.docName || '\u0421\u0447\u0435\u0442';
+                button.appendChild(thumb);
+            } else {
+                button.textContent = kind === 'pdf' ? 'PDF' : '\u0424\u0430\u0439\u043b';
+            }
+            button.addEventListener('click', function () {
+                if (kind === 'file') {
+                    window.open(slot.dataset.docDownloadUrl, '_blank', 'noopener');
+                    return;
+                }
+                openFinanceDocumentPreview(slot);
+            });
+            slot.appendChild(button);
+        });
+    }
+
+    function renderFinanceStatusTracker(status) {
+        var paid = status === 'paid';
+        var cancelled = status === 'cancelled';
+        return '<div class="finance-status-track ' + (paid ? 'is-paid' : '') + (cancelled ? ' is-cancelled' : '') + '">' +
+            '<span class="finance-status-step is-submitted">' + escapeHtml(financeStatusLabel(cancelled ? 'cancelled' : 'approved')) + '</span>' +
+            '<span class="finance-status-line"></span>' +
+            '<span class="finance-status-step is-paid">' + escapeHtml(financeStatusLabel('paid')) + '</span>' +
+        '</div>';
+    }
+
+    renderFinanceInvoiceForm = function () {
+        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442 \u0432 \u0444\u0438\u043d\u043f\u043b\u0430\u043d</h3><span class="muted">PDF, PNG, JPG \u043e\u0442\u043a\u0440\u043e\u044e\u0442\u0441\u044f \u0432 \u043f\u0440\u0435\u0432\u044c\u044e, Excel \u0431\u0443\u0434\u0435\u0442 \u0440\u0430\u0437\u043e\u0431\u0440\u0430\u043d \u043f\u043e \u0448\u0430\u0431\u043b\u043e\u043d\u0443.</span></div></div>' +
+            '<form class="finance-invoice-form" data-finance-invoice-form>' +
+                '<label class="finance-suggest-field"><span>\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435</span><input name="category" autocomplete="off" placeholder="\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435 \u0438\u0437 \u0441\u0447\u0435\u0442\u0430"><div class="finance-suggestion-list" data-finance-suggestions hidden></div></label>' +
+                '<label><span>\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442</span><input name="counterparty_name" placeholder="\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a / \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a"></label>' +
+                '<label><span>\u0421\u0443\u043c\u043c\u0430</span><input name="amount" type="number" min="0" step="0.01"></label>' +
+                '<label><span>\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c \u0434\u043e</span><input name="planned_date" type="date"></label>' +
+                '<label><span>\u041e\u043f\u043b\u0430\u0442\u0430</span><select name="payment_kind"><option value="bank_no_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0431\u0435\u0437 \u041d\u0414\u0421</option><option value="bank_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0441 \u041d\u0414\u0421</option><option value="cash">\u041d\u0430\u043b\u0438\u0447\u043d\u044b\u0435</option></select></label>' +
+                '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status"><option value="approved" selected>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option><option value="planned">\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option></select></label>' +
+                '<label class="wide finance-file-field"><span>\u0424\u0430\u0439\u043b \u0441\u0447\u0435\u0442\u0430</span><input name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></label>' +
+                '<label class="wide"><span>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</span><input name="notes" placeholder="\u041d\u043e\u043c\u0435\u0440 \u0441\u0447\u0435\u0442\u0430, \u0443\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u0435 \u0438\u043b\u0438 \u043f\u043e\u0441\u0442\u0430\u0432\u043a\u0430"></label>' +
+                '<div class="form-error" data-finance-invoice-error></div>' +
+                '<button class="primary" type="submit">\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442</button>' +
+            '</form></section>';
+    };
+
+    renderFinanceRow = function (item) {
+        var direction = item.direction === 'income' ? 'income' : 'expense';
+        var status = item.status || 'planned';
+        var title = item.category || financeDirectionLabel(direction);
+        var counterparty = item.counterparty_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
+        return '<form class="finance-row finance-history-row is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+            '<div class="finance-row-top"><div class="finance-row-title">' +
+                '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
+                '<b>' + escapeHtml(title) + '</b>' +
+                '<small>' + escapeHtml(financePaymentLabel(item.payment_kind) + ' - ' + counterparty) + '</small>' +
+                (item.notes ? '<em>' + escapeHtml(item.notes) + '</em>' : '') +
+                renderFinanceStatusTracker(status) +
+            '</div><div class="finance-row-side">' + renderFinanceDocumentSlot(item) +
+                '<div class="finance-row-amount"><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>\u041d\u0414\u0421 ' + escapeHtml(Number(item.vat_percent || 0)) + '%</small></div>' +
+            '</div></div>' +
+            '<div class="finance-row-controls">' +
+                '<label><span>\u041f\u043b\u0430\u043d</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                '<label><span>\u0424\u0430\u043a\u0442</span><input name="paid_date" type="date" value="' + escapeHtml(item.paid_date || '') + '"></label>' +
+                '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status">' +
+                    '<option value="planned"' + (status === 'planned' ? ' selected' : '') + '>\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option>' +
+                    '<option value="approved"' + (status === 'approved' ? ' selected' : '') + '>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option>' +
+                    '<option value="paid"' + (status === 'paid' ? ' selected' : '') + '>\u041e\u043f\u043b\u0430\u0447\u0435\u043d\u043e</option>' +
+                    '<option value="cancelled"' + (status === 'cancelled' ? ' selected' : '') + '>\u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e</option>' +
+                '</select></label>' +
+                '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
+                '<button class="ghost compact" type="submit">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c</button>' +
+                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact" type="button" data-finance-confirm-payment>\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443</button>' : '') +
+            '</div></form>';
+    };
+
+    renderProjectFinances = function (projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        root.innerHTML =
+            renderFinanceHero(projectId, summary) +
+            renderFinancePlanFromInvoices(items, summary) +
+            '<div class="finance-entry-grid">' + renderFinanceIncomeForm() + renderFinanceInvoiceForm() + '</div>' +
+            '<section class="subsection finance-history-card"><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0445 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0439.</p>') +
+            '</div></section>';
+        bindFinanceIncomeForm(projectId);
+        bindFinanceInvoiceForm(projectId);
+        bindFinanceEditors(projectId);
+        bindFinanceDocumentActions();
+    };
+
+    bindFinanceInvoiceForm = function (projectId) {
+        var form = qs('[data-finance-invoice-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        bindFinanceSuggestions(projectId, form);
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-finance-invoice-error]');
+            if (error) error.classList.remove('active');
+            var file = form.file && form.file.files && form.file.files[0];
+            var request;
+            if (file) {
+                var formData = new FormData();
+                formData.append('file', file);
+                formData.append('category', form.category.value.trim());
+                formData.append('counterparty_name', form.counterparty_name.value.trim());
+                formData.append('amount', form.amount.value || '0');
+                formData.append('planned_date', form.planned_date.value);
+                formData.append('payment_kind', form.payment_kind.value);
+                formData.append('status', form.status.value || 'approved');
+                formData.append('notes', form.notes.value.trim());
+                request = apiFormData('/api/projects/' + projectId + '/finances/invoice-upload', formData);
+            } else {
+                request = api('/api/projects/' + projectId + '/finances', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        direction: 'expense',
+                        category: form.category.value.trim(),
+                        payment_kind: form.payment_kind.value,
+                        amount: Number(form.amount.value || 0),
+                        vat_percent: form.payment_kind.value === 'bank_vat' ? 20 : 0,
+                        planned_date: form.planned_date.value,
+                        paid_date: '',
+                        counterparty_name: form.counterparty_name.value.trim(),
+                        status: form.status.value || 'approved',
+                        notes: form.notes.value.trim()
+                    })
+                });
+            }
+            request.then(function (data) {
+                if (data && data.parsedInvoice) {
+                    form.category.value = data.parsedInvoice.category || '';
+                    form.counterparty_name.value = data.parsedInvoice.counterparty_name || '';
+                    form.amount.value = data.parsedInvoice.amount || '';
+                    showFinanceToast('\u0421\u0447\u0435\u0442 Excel \u0440\u0430\u0441\u043f\u043e\u0437\u043d\u0430\u043d \u0438 \u043f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443');
+                }
+                loadProjectFinances(projectId);
+            }).catch(function (err) {
+                var message = err.payload && err.payload.error ? err.payload.error : '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442';
+                if (message === '\u041e\u0448\u0438\u0431\u043a\u0430: \u0424\u043e\u0440\u043c\u0430\u0442 \u0444\u0430\u0439\u043b\u0430 \u043d\u0435 \u0441\u043e\u043e\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0448\u0430\u0431\u043b\u043e\u043d\u0443 \u043e\u0442\u0447\u0435\u0442\u0430') showFinanceToast(message);
+                if (error) {
+                    error.textContent = message;
+                    error.classList.add('active');
+                }
+            });
+        });
+    };
+
+    bindFinanceEditors = function (projectId) {
+        qsa('[data-finance-edit-form]').forEach(function (form) {
+            if (form.dataset.bound === '1') return;
+            form.dataset.bound = '1';
+            function payload(status) {
+                return {
+                    planned_date: form.planned_date ? form.planned_date.value : '',
+                    paid_date: status === 'paid' ? APP_TODAY : (form.paid_date ? form.paid_date.value : ''),
+                    status: status,
+                    notes: form.notes ? form.notes.value.trim() : ''
+                };
+            }
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                api('/api/finances/' + form.dataset.financeId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify(payload(form.status ? form.status.value : 'planned'))
+                }).then(function () {
+                    loadProjectFinances(projectId);
+                });
+            });
+            qsa('[data-finance-confirm-payment]', form).forEach(function (button) {
+                button.addEventListener('click', function () {
+                    button.disabled = true;
+                    api('/api/finances/' + form.dataset.financeId + '/update', {
+                        method: 'POST',
+                        body: JSON.stringify(payload('paid'))
+                    }).then(function () {
+                        loadProjectFinances(projectId);
+                    }).catch(function () {
+                        button.disabled = false;
+                        showFinanceToast('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443');
+                    });
+                });
+            });
+        });
+    };
+
     bindMaterialScheduleTimeline();
     installVisibleDateFormatter();
 
