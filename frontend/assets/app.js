@@ -16,6 +16,8 @@
         companies: [],
         companiesAllLoaded: false,
         selectedProject: null,
+        projectLoadingToken: 0,
+        selectedProjectLoadingToken: null,
         stagesByProject: {},
         materialsByProject: {},
         materialInsightsByProject: {},
@@ -43,6 +45,116 @@
 
     function qsa(selector, root) {
         return Array.prototype.slice.call((root || document).querySelectorAll(selector));
+    }
+
+    function safeReplaceChildren(container, htmlContent) {
+        var node = typeof container === 'string' ? qs(container) : container;
+        if (!node) return null;
+        while (node.firstChild) node.removeChild(node.firstChild);
+        if (htmlContent == null || htmlContent === '') return node;
+        if (htmlContent.nodeType) {
+            node.appendChild(htmlContent);
+            return node;
+        }
+        if (typeof htmlContent !== 'string') {
+            node.textContent = String(htmlContent);
+            return node;
+        }
+        try {
+            var range = document.createRange();
+            range.selectNodeContents(node);
+            node.appendChild(range.createContextualFragment(htmlContent));
+        } catch (error) {
+            var template = document.createElement('template');
+            template.innerHTML = htmlContent;
+            node.appendChild(template.content.cloneNode(true));
+        }
+        return node;
+    }
+
+    function showAppNotice(message, type) {
+        var root = qs('[data-app-notice-root]');
+        var noticeType = ['success', 'error', 'warn'].indexOf(type) !== -1 ? type : 'error';
+        if (!root) {
+            root = document.createElement('div');
+            root.className = 'app-notice-root';
+            root.setAttribute('data-app-notice-root', '');
+            root.setAttribute('aria-live', 'polite');
+            document.body.appendChild(root);
+        }
+        var notice = document.createElement('div');
+        notice.className = 'app-notice app-notice-' + noticeType;
+        notice.setAttribute('role', noticeType === 'error' ? 'alert' : 'status');
+        notice.textContent = message || '';
+        root.appendChild(notice);
+        requestAnimationFrame(function () {
+            notice.classList.add('active');
+        });
+        setTimeout(function () {
+            notice.classList.remove('active');
+            setTimeout(function () {
+                if (notice.parentNode) notice.parentNode.removeChild(notice);
+            }, 220);
+        }, 4200);
+        return notice;
+    }
+
+    function appErrorMessage(error, fallback) {
+        return error && error.payload && error.payload.error ? error.payload.error : fallback;
+    }
+
+    function submitLockControls(target) {
+        if (!target) return [];
+        if (target.tagName === 'FORM') {
+            return qsa('button[type="submit"], input[type="submit"]', target);
+        }
+        return [target];
+    }
+
+    function withSubmitLock(formOrButton, promiseFactory) {
+        var target = formOrButton;
+        if (target && target.dataset && target.dataset.submitLocked === '1') return Promise.resolve(null);
+        var controls = submitLockControls(target);
+        var previous = controls.map(function (control) {
+            return { node: control, disabled: !!control.disabled };
+        });
+        if (target && target.dataset) target.dataset.submitLocked = '1';
+        if (target && target.classList) target.classList.add('is-loading');
+        controls.forEach(function (control) {
+            control.disabled = true;
+            if (control.classList) control.classList.add('is-loading');
+        });
+        var request;
+        try {
+            request = Promise.resolve(promiseFactory());
+        } catch (error) {
+            request = Promise.reject(error);
+        }
+        return request.finally(function () {
+            previous.forEach(function (entry) {
+                entry.node.disabled = entry.disabled;
+                if (entry.node.classList) entry.node.classList.remove('is-loading');
+            });
+            if (target && target.classList) target.classList.remove('is-loading');
+            if (target && target.dataset) target.dataset.submitLocked = '0';
+        });
+    }
+
+    function beginProjectLoading(projectId) {
+        state.projectLoadingToken += 1;
+        state.selectedProjectLoadingToken = {
+            projectId: Number(projectId),
+            token: state.projectLoadingToken
+        };
+        return state.projectLoadingToken;
+    }
+
+    function isCurrentProject(projectId, loadingToken) {
+        if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return false;
+        if (loadingToken == null) return true;
+        return !!state.selectedProjectLoadingToken
+            && Number(state.selectedProjectLoadingToken.projectId) === Number(projectId)
+            && Number(state.selectedProjectLoadingToken.token) === Number(loadingToken);
     }
 
     function escapeHtml(value) {
@@ -1284,7 +1396,7 @@
             var completed = isCompletedProject(project);
             var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">Нехватки: ' + criticalCount + '</span>' : '';
             var statusBadge = completed ? '<span class="badge success">Завершен</span>' : '<span class="badge">' + escapeHtml(project.status) + '</span>';
-            return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
+            return '<article class="project-card ui-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
                 '<div class="project-top"><div><h3>' + escapeHtml(project.title) + '</h3><p>' + escapeHtml(project.address) + '</p></div><div class="project-badges">' + statusBadge + riskBadge + '</div></div>' +
                 '<div class="meta-grid">' +
                     '<div><span>Заказчик</span><strong>' + escapeHtml(project.client_name) + '</strong></div>' +
@@ -1325,7 +1437,7 @@
             var completed = isCompletedProject(project);
             var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">Нехватки: ' + criticalCount + '</span>' : '';
             var statusBadge = completed ? '<span class="badge success">Завершен</span>' : '<span class="badge">' + escapeHtml(project.status || 'В работе') + '</span>';
-            return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
+            return '<article class="project-card ui-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
                 '<div class="project-top"><div><h3>' + escapeHtml(project.title) + '</h3><p>' + escapeHtml(project.address || 'Адрес не указан') + '</p></div><div class="project-badges">' + statusBadge + riskBadge + '</div></div>' +
                 '<div class="meta-grid">' +
                     '<div><span>Заказчик</span><strong>' + escapeHtml(project.client_name || 'Не указан') + '</strong></div>' +
@@ -1684,11 +1796,12 @@
         });
     }
 
-    function loadProjectAssignments(projectId) {
+    function loadProjectAssignments(projectId, loadingToken) {
         var root = qs('[data-project-assignments]');
         if (!root) return;
-        loadProjectHub(projectId, state.selectedProject);
+        loadProjectHub(projectId, state.selectedProject, loadingToken);
         api('/api/projects/' + projectId + '/assignments').then(function (data) {
+            if (!isCurrentProject(projectId, loadingToken)) return;
             var assignments = Array.isArray(data.assignments) ? data.assignments : [];
             if (!isAdminRole()) {
                 renderProjectAssignments(projectId, assignments);
@@ -1696,11 +1809,13 @@
             }
             loadRoles(function () {
                 loadUserDirectory(function () {
+                    if (!isCurrentProject(projectId, loadingToken)) return;
                     renderProjectAssignments(projectId, assignments);
                 });
             });
         }).catch(function () {
-            root.innerHTML = '<p class="muted">Не удалось загрузить назначения.</p>';
+            if (!isCurrentProject(projectId, loadingToken)) return;
+            safeReplaceChildren(root, '<p class="muted">Не удалось загрузить назначения.</p>');
         });
     }
 
@@ -1712,7 +1827,7 @@
                 return '<div class="assignment-row"><div><b>' + escapeHtml(item.userName) + '</b><small>' + escapeHtml(item.responsibility || item.userLogin || '') + '</small></div><span class="badge">' + escapeHtml(item.roleLabel || item.roleCode) + (item.isPrimary ? ' • основной' : '') + '</span></div>';
             }).join('') + '</div>'
             : '<p class="muted">Люди на объект пока не назначены.</p>';
-        root.innerHTML = rows + (isAdminRole() ? renderAssignmentForm() : '');
+        safeReplaceChildren(root, rows + (isAdminRole() ? renderAssignmentForm() : ''));
         bindAssignmentForm(projectId);
     }
 
@@ -2543,18 +2658,21 @@
         });
     }
 
-    function loadTasks(projectId) {
+    function loadTasks(projectId, loadingToken) {
         api('/api/projects/' + projectId + '/tasks').then(function (data) {
+            if (!isCurrentProject(projectId, loadingToken)) return;
             var tasks = Array.isArray(data.tasks) ? data.tasks : [];
             loadProjectNotifications(projectId, function (notifications) {
                 loadUserDirectory(function (users) {
-                    qs('[data-panel="tasks"]').innerHTML = renderTasks(tasks, projectId, users, notifications);
+                    if (!isCurrentProject(projectId, loadingToken)) return;
+                    safeReplaceChildren(qs('[data-panel="tasks"]'), renderTasks(tasks, projectId, users, notifications));
                     bindTaskForm(projectId);
                     bindTaskEditors(projectId);
                 });
             });
         }).catch(function () {
-            qs('[data-panel="tasks"]').innerHTML = '<p class="muted">Задачи недоступны для этой роли.</p>';
+            if (!isCurrentProject(projectId, loadingToken)) return;
+            safeReplaceChildren(qs('[data-panel="tasks"]'), '<p class="muted">Задачи недоступны для этой роли.</p>');
         });
     }
 
@@ -2657,7 +2775,7 @@
         var priority = task.priority || 'normal';
         var isOverdue = task.status !== 'done' && task.due_at && task.due_at < APP_TODAY;
         var assigneeName = taskAssigneeName(task, users);
-        return '<form class="task-card' + (isOverdue ? ' task-card-overdue' : '') + '" data-task-edit-form data-task-id="' + task.id + '">' +
+        return '<form class="task-card ui-card' + (isOverdue ? ' task-card-overdue' : '') + '" data-task-edit-form data-task-id="' + task.id + '">' +
             '<div class="task-card-top">' +
                 '<span class="task-tag">' + escapeHtml(statusLabel(taskColumnStatus(task.status))) + '</span>' +
                 '<span class="task-priority task-priority-' + taskPriorityClass(priority) + '">' + escapeHtml(priorityLabel(priority)) + '</span>' +
@@ -2690,7 +2808,7 @@
         var userOptions = '<option value="">Без ответственного</option>' + users.map(function (user) {
             return '<option value="' + user.id + '">' + escapeHtml(user.name) + '</option>';
         }).join('');
-        return '<form class="task-create-form" data-task-form data-project-id="' + projectId + '">' +
+        return '<form class="task-create-form ui-card" data-task-form data-project-id="' + projectId + '">' +
             '<div class="task-create-head">' +
                 '<h3>Новая задача</h3>' +
                 '<span>Быстрое добавление в доску</span>' +
@@ -2793,11 +2911,13 @@
         }[kind] || kind || 'Оплата';
     }
 
-    function loadProjectFinances(projectId) {
+    function loadProjectFinances(projectId, loadingToken) {
         api('/api/projects/' + projectId + '/finances').then(function (data) {
+            if (!isCurrentProject(projectId, loadingToken)) return;
             renderProjectFinances(projectId, Array.isArray(data.items) ? data.items : [], data.summary || {});
         }).catch(function () {
-            qs('[data-panel="finance"]').innerHTML = '<p class="muted">Не удалось загрузить финансы по объекту.</p>';
+            if (!isCurrentProject(projectId, loadingToken)) return;
+            safeReplaceChildren(qs('[data-panel="finance"]'), '<p class="muted">Не удалось загрузить финансы по объекту.</p>');
         });
     }
 
@@ -3004,29 +3124,32 @@
         return (size / (1024 * 1024)).toFixed(1).replace('.0', '') + ' МБ';
     }
 
-    function loadProjectChats(projectId) {
+    function loadProjectChats(projectId, loadingToken) {
         api('/api/projects/' + projectId + '/chats').then(function (data) {
+            if (!isCurrentProject(projectId, loadingToken)) return;
             var chats = Array.isArray(data.chats) ? data.chats : [];
             if (!chats.length) {
-                qs('[data-panel="chat"]').innerHTML = '<p class="muted">Чаты пока не созаны.</p>';
+                safeReplaceChildren(qs('[data-panel="chat"]'), '<p class="muted">Чаты пока не созаны.</p>');
                 return;
             }
-            renderChat(chats[0]);
+            renderChat(chats[0], projectId, loadingToken);
         }).catch(function () {
-            qs('[data-panel="chat"]').innerHTML = '<p class="muted">Чаты недоступны для этой роли.</p>';
+            if (!isCurrentProject(projectId, loadingToken)) return;
+            safeReplaceChildren(qs('[data-panel="chat"]'), '<p class="muted">Чаты недоступны для этой роли.</p>');
         });
     }
 
-    function renderChat(chat) {
+    function renderChat(chat, projectId, loadingToken) {
         api('/api/chats/' + chat.id + '/messages').then(function (data) {
+            if (projectId && !isCurrentProject(projectId, loadingToken)) return;
             var messages = Array.isArray(data.messages) ? data.messages : [];
-            qs('[data-panel="chat"]').innerHTML =
+            safeReplaceChildren(qs('[data-panel="chat"]'),
                 '<div class="chat-window compact-chat">' +
                     messages.map(function (message) {
                         return '<div class="message"><b>' + escapeHtml(message.author_name) + '</b><p>' + escapeHtml(message.body) + '</p></div>';
                     }).join('') +
                     '<form class="chat-compose" data-chat-form data-chat-id="' + chat.id + '"><input name="body" placeholder="Сообщение"><button type="submit">Отправить</button></form>' +
-                '</div>';
+                '</div>');
             bindChatForm(chat.id);
         });
     }
@@ -4560,7 +4683,7 @@
         '</div>';
     }
 
-    function loadProjectHub(projectId, project) {
+    function loadProjectHub(projectId, project, loadingToken) {
 
         var overview = qs('[data-panel="overview"]');
         if (!overview) return;
@@ -4570,7 +4693,7 @@
             root = qs('[data-project-hub]', overview);
         }
         if (!root) return;
-        root.innerHTML = '<p class="muted">Собираем единую картину по объекту...</p>';
+        safeReplaceChildren(root, '<p class="muted">Собираем единую картину по объекту...</p>');
         Promise.all([
             api('/api/projects/' + projectId + '/notifications').catch(function () { return {}; }),
             api('/api/projects/' + projectId + '/tasks').catch(function () { return { tasks: [] }; }),
@@ -4579,22 +4702,24 @@
             api('/api/projects/' + projectId + '/materials-summary').catch(function () { return { items: [] }; }),
             api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; })
         ]).then(function (results) {
+            if (!isCurrentProject(projectId, loadingToken)) return;
             var notifications = results[0] || {};
             var tasks = Array.isArray(results[1].tasks) ? results[1].tasks : [];
             var documents = Array.isArray(results[2].documents) ? results[2].documents : [];
             var logs = Array.isArray(results[3].logs) ? results[3].logs : [];
             var materials = Array.isArray(results[4].items) ? results[4].items : [];
             var stages = Array.isArray(results[5].stages) ? results[5].stages : [];
-            root.innerHTML = renderProjectHub(project || state.selectedProject || {}, {
+            safeReplaceChildren(root, renderProjectHub(project || state.selectedProject || {}, {
                 notifications: notifications,
                 tasks: tasks,
                 documents: documents,
                 logs: logs,
                 materials: materials,
                 stages: stages
-            });
+            }));
         }).catch(function () {
-            root.innerHTML = '<p class="muted">Не удалось собрать общую картину по объекту.</p>';
+            if (!isCurrentProject(projectId, loadingToken)) return;
+            safeReplaceChildren(root, '<p class="muted">Не удалось собрать общую картину по объекту.</p>');
         });
     }
 
@@ -5613,27 +5738,29 @@
         });
     }
 
-    function loadDocuments(projectId) {
+    function loadDocuments(projectId, loadingToken) {
         var docsRequest = api('/api/projects/' + projectId + '/documents');
         var executiveRequest = hasRole('customer')
             ? Promise.resolve(null)
             : api('/api/projects/' + projectId + '/executive-docs').catch(function () { return null; });
         Promise.all([docsRequest, executiveRequest]).then(function (result) {
+            if (!isCurrentProject(projectId, loadingToken)) return;
             var data = result[0] || {};
             var executive = result[1];
             var docs = Array.isArray(data.documents) ? data.documents : [];
             var panel = qs('[data-panel="documents"]');
             if (!panel) return;
-            panel.innerHTML =
+            safeReplaceChildren(panel,
                 (executive ? renderExecutiveChecklist(executive) : '') +
                 renderDocumentUpload(projectId) +
                 (docs.length
                     ? '<div class="documents-list">' + docs.map(renderDocumentRow).join('') + '</div>'
-                    : '<p class="muted">Документы по объекту пока не загружены.</p>');
+                    : '<p class="muted">Документы по объекту пока не загружены.</p>'));
             bindDocumentUpload(projectId);
             bindExecutiveDocActions(projectId);
         }).catch(function () {
-            qs('[data-panel="documents"]').innerHTML = '<p class="muted">Документы недоступны.</p>';
+            if (!isCurrentProject(projectId, loadingToken)) return;
+            safeReplaceChildren(qs('[data-panel="documents"]'), '<p class="muted">Документы недоступны.</p>');
         });
     }
 
@@ -6068,18 +6195,19 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
-    function refreshProjectReportsTab(projectId) {
+    function refreshProjectReportsTab(projectId, loadingToken) {
         var panel = qs('[data-panel="reports"]');
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         if (!panel || !project) return;
         var oldDrawer = qs('[data-drawer-id="project-report-create"]');
         if (oldDrawer) oldDrawer.remove();
-        panel.innerHTML = renderProjectReportsPanel(project);
+        safeReplaceChildren(panel, renderProjectReportsPanel(project));
         ensureProjectReportDrawer();
         bindLogForm();
         bindProjectReportAssistantActions();
         loadProjectLogs(projectId, function (logs) {
             loadProjectNotifications(projectId, function (notifications) {
+                if (!isCurrentProject(projectId, loadingToken)) return;
                 if (!state.logsSelectedDateByProject[projectId]) {
                     state.logsSelectedDateByProject[projectId] = (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
                 }
@@ -6113,7 +6241,7 @@ function renderLogsDayView(project, logs) {
         var status = project.status || 'Подготовка';
         var budget = project.budget == null ? 'Скрыто ролью' : money(project.budget);
         var paid = project.paid == null ? 'Скрыто ролью' : money(project.paid);
-        return '<section class="project-overview-hero">' +
+        return '<section class="project-overview-hero ui-card">' +
             '<div class="project-overview-head">' +
                 '<div>' +
                     '<span class="section-label">Обзор</span>' +
@@ -6145,7 +6273,7 @@ function renderLogsDayView(project, logs) {
         var anchor = qs('[data-project-create-card]');
         if (!anchor || !anchor.parentNode) return;
         anchor.insertAdjacentHTML('afterend',
-            '<section class="card" data-project-edit-card data-project-overview-section hidden>' +
+            '<section class="card ui-card" data-project-edit-card data-project-overview-section hidden>' +
                 '<div class="card-head">' +
                     '<h3>Редактировать объект</h3>' +
                     '<button class="ghost" type="button" data-close-project-edit>Закрыть</button>' +
@@ -6221,35 +6349,41 @@ function renderLogsDayView(project, logs) {
             if (error) error.classList.remove('active');
             var activeTab = qs('[data-tab].active');
             var activeTabName = activeTab ? activeTab.dataset.tab : 'overview';
-            api('/api/projects/' + projectId + '/update', {
-                method: 'POST',
-                body: JSON.stringify({
-                    title: form.title.value.trim(),
-                    client_name: form.client_name.value.trim(),
-                    address: form.address.value.trim(),
-                    status: form.status.value.trim(),
-                    contract_no: form.contract_no.value.trim(),
-                    budget: form.budget.value === '' ? 0 : Number(form.budget.value || 0),
-                    started_at: form.started_at.value,
-                    deadline_at: form.deadline_at.value,
-                    city: form.city ? form.city.value.trim() : '',
-                    region: form.region ? form.region.value.trim() : '',
-                    description: form.description ? form.description.value.trim() : ''
-                })
-            }).then(function (data) {
-                updateProjectInState(data.project);
-                renderProjectStats();
-                renderProjectCritical();
-                renderProjectList(state.projects);
-                closeProjectEditCard();
-                if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
-                    openProject(projectId);
-                    activateProjectTab(activeTabName || 'overview');
-                }
-            }).catch(function (err) {
-                if (!error) return;
-                error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить объект';
-                error.classList.add('active');
+            withSubmitLock(form, function () {
+                return api('/api/projects/' + projectId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: form.title.value.trim(),
+                        client_name: form.client_name.value.trim(),
+                        address: form.address.value.trim(),
+                        status: form.status.value.trim(),
+                        contract_no: form.contract_no.value.trim(),
+                        budget: form.budget.value === '' ? 0 : Number(form.budget.value || 0),
+                        started_at: form.started_at.value,
+                        deadline_at: form.deadline_at.value,
+                        city: form.city ? form.city.value.trim() : '',
+                        region: form.region ? form.region.value.trim() : '',
+                        description: form.description ? form.description.value.trim() : ''
+                    })
+                }).then(function (data) {
+                    updateProjectInState(data.project);
+                    renderProjectStats();
+                    renderProjectCritical();
+                    renderProjectList(state.projects);
+                    closeProjectEditCard();
+                    showAppNotice('\u041e\u0431\u044a\u0435\u043a\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d.', 'success');
+                    if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
+                        openProject(projectId);
+                        activateProjectTab(activeTabName || 'overview');
+                    }
+                }).catch(function (err) {
+                    var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442');
+                    if (error) {
+                        error.textContent = message;
+                        error.classList.add('active');
+                    }
+                    showAppNotice(message, 'error');
+                });
             });
         });
     }
@@ -8235,38 +8369,43 @@ function renderLogsDayView(project, logs) {
             event.preventDefault();
             var error = qs('[data-project-create-error]');
             if (error) error.classList.remove('active');
-            api('/api/projects', {
-                method: 'POST',
-                body: JSON.stringify({
-                    title: form.title.value.trim(),
-                    address: form.address.value.trim(),
-                    client_name: form.client_name.value.trim(),
-                    customer_company_id: form.customer_company_id ? form.customer_company_id.value : '',
-                    own_legal_entity_id: form.own_legal_entity_id ? form.own_legal_entity_id.value : '',
-                    city: form.city ? form.city.value.trim() : '',
-                    region: form.region ? form.region.value.trim() : '',
-                    contract_no: form.contract_no.value.trim(),
-                    contract_date: form.contract_date ? form.contract_date.value : '',
-                    budget: Number(form.budget.value || 0),
-                    started_at: form.started_at.value,
-                    deadline_at: form.deadline_at.value,
-                    description: form.description ? form.description.value.trim() : ''
-                })
-            }).then(function (data) {
-                form.reset();
-                closeSideDrawer(drawer);
-                state.projects.unshift(data.project);
-                bindProjectBootstrapForm();
-                var bootstrapSelect = qs('[data-bootstrap-projects]');
-                if (bootstrapSelect) bootstrapSelect.value = String(data.project.id);
-                renderProjectStats();
-                renderProjectCritical();
-                renderProjectList(state.projects);
-            }).catch(function (err) {
-                if (error) {
-                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось создать объект';
-                    error.classList.add('active');
-                }
+            withSubmitLock(form, function () {
+                return api('/api/projects', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: form.title.value.trim(),
+                        address: form.address.value.trim(),
+                        client_name: form.client_name.value.trim(),
+                        customer_company_id: form.customer_company_id ? form.customer_company_id.value : '',
+                        own_legal_entity_id: form.own_legal_entity_id ? form.own_legal_entity_id.value : '',
+                        city: form.city ? form.city.value.trim() : '',
+                        region: form.region ? form.region.value.trim() : '',
+                        contract_no: form.contract_no.value.trim(),
+                        contract_date: form.contract_date ? form.contract_date.value : '',
+                        budget: Number(form.budget.value || 0),
+                        started_at: form.started_at.value,
+                        deadline_at: form.deadline_at.value,
+                        description: form.description ? form.description.value.trim() : ''
+                    })
+                }).then(function (data) {
+                    form.reset();
+                    closeSideDrawer(drawer);
+                    state.projects.unshift(data.project);
+                    bindProjectBootstrapForm();
+                    var bootstrapSelect = qs('[data-bootstrap-projects]');
+                    if (bootstrapSelect) bootstrapSelect.value = String(data.project.id);
+                    renderProjectStats();
+                    renderProjectCritical();
+                    renderProjectList(state.projects);
+                    showAppNotice('\u041e\u0431\u044a\u0435\u043a\u0442 \u0441\u043e\u0437\u0434\u0430\u043d.', 'success');
+                }).catch(function (err) {
+                    var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0437\u0434\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442');
+                    if (error) {
+                        error.textContent = message;
+                        error.classList.add('active');
+                    }
+                    showAppNotice(message, 'error');
+                });
             });
         });
     }
@@ -10892,6 +11031,7 @@ function renderLogsDayView(project, logs) {
         if (!root) return;
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         if (!project) return;
+        var loadingToken = beginProjectLoading(project.id);
 
         try {
             var params = new URLSearchParams(location.search);
@@ -10924,8 +11064,8 @@ function renderLogsDayView(project, logs) {
         var scheduleRenderTimer = null;
 
         function renderScheduleNow(stages) {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
-            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages || state.stagesByProject[project.id] || [], project);
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(stages || state.stagesByProject[project.id] || [], project));
             bindAutoScheduleForm(project.id);
             bindScheduleStatusActions(project.id);
             bindSectionScheduleRefresh(project.id);
@@ -10941,67 +11081,67 @@ function renderLogsDayView(project, logs) {
 
         if (titleNode) titleNode.textContent = project.title || 'Карточка объекта';
         if (overviewPanel) {
-            overviewPanel.innerHTML = renderProjectOverviewHero(project);
+            safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
         }
-        if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загрузка материалов...</p>';
-        if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загрузка работ...</p>';
+        if (materialsPanel) safeReplaceChildren(materialsPanel, '<p class="muted">Загрузка материалов...</p>');
+        if (worksPanel) safeReplaceChildren(worksPanel, '<p class="muted">Загрузка работ...</p>');
         renderScheduleNow(state.stagesByProject[project.id] || []);
-        if (reportsPanel) reportsPanel.innerHTML = '<p class="muted">Загрузка отчетов...</p>';
-        if (tasksPanel) tasksPanel.innerHTML = '<p class="muted">Загрузка задач...</p>';
-        if (financePanel) financePanel.innerHTML = canSeeFinances() ? '<p class="muted">Загрузка финансов...</p>' : '';
-        if (documentsPanel) documentsPanel.innerHTML = '<p class="muted">Загрузка документов...</p>';
-        if (chatPanel) chatPanel.innerHTML = '<p class="muted">Загрузка чата...</p>';
-        if (aiPanel) aiPanel.innerHTML = '<p class="muted">Загрузка анализа...</p>';
+        if (reportsPanel) safeReplaceChildren(reportsPanel, '<p class="muted">Загрузка отчетов...</p>');
+        if (tasksPanel) safeReplaceChildren(tasksPanel, '<p class="muted">Загрузка задач...</p>');
+        if (financePanel) safeReplaceChildren(financePanel, canSeeFinances() ? '<p class="muted">Загрузка финансов...</p>' : '');
+        if (documentsPanel) safeReplaceChildren(documentsPanel, '<p class="muted">Загрузка документов...</p>');
+        if (chatPanel) safeReplaceChildren(chatPanel, '<p class="muted">Загрузка чата...</p>');
+        if (aiPanel) safeReplaceChildren(aiPanel, '<p class="muted">Загрузка анализа...</p>');
 
         bindProjectOverviewActions();
         activateProjectTab('overview');
 
         loadMaterials(project.id, function (items) {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
-            if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null);
-            if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items);
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null));
+            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items));
             bindProjectMarketToggles(project.id);
         });
 
         loadMaterialInsights(project.id, function (insights) {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            if (!isCurrentProject(project.id, loadingToken)) return;
             if (materialsPanel && state.materialsByProject[project.id]) {
-                materialsPanel.innerHTML = renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {});
+                safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {}));
             }
             bindProjectMarketToggles(project.id);
             bindProjectChainActions();
         });
 
         loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            if (!isCurrentProject(project.id, loadingToken)) return;
             queueScheduleRender(state.stagesByProject[project.id] || []);
         });
 
         loadProjectNotifications(project.id, function () {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            if (!isCurrentProject(project.id, loadingToken)) return;
             queueScheduleRender(state.stagesByProject[project.id] || []);
         });
 
         loadAnalysis(project.id, function (analysis) {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
-            if (aiPanel) aiPanel.innerHTML = renderBackendAnalysis(analysis);
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (aiPanel) safeReplaceChildren(aiPanel, renderBackendAnalysis(analysis));
         });
 
         loadStages(project.id, function (stages) {
-            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            if (!isCurrentProject(project.id, loadingToken)) return;
             queueScheduleRender(stages);
-            if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []);
+            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []));
             bindStageCreateForm(project.id);
             bindStageEditors(project.id);
             loadExecutionInsights(project.id, stages);
         });
 
-        refreshProjectReportsTab(project.id);
-        loadTasks(project.id);
-        if (canSeeFinances()) loadProjectFinances(project.id);
-        loadDocuments(project.id);
-        loadProjectChats(project.id);
-        loadProjectAssignments(project.id);
+        refreshProjectReportsTab(project.id, loadingToken);
+        loadTasks(project.id, loadingToken);
+        if (canSeeFinances()) loadProjectFinances(project.id, loadingToken);
+        loadDocuments(project.id, loadingToken);
+        loadProjectChats(project.id, loadingToken);
+        loadProjectAssignments(project.id, loadingToken);
         bindProjectChainActions();
     };
 
@@ -13946,7 +14086,7 @@ function renderLogsDayView(project, logs) {
             var shortLabel = type === 'customer' ? 'Заказчик' : 'Внутренний';
             return '<span class="badge ' + scheduleStateKind(stateMeta) + '">' + escapeHtml(shortLabel + ' v' + stateMeta.version + ' • ' + scheduleStateTitle(stateMeta)) + '</span>';
         }).join('');
-        return '<section class="schedule-project schedule-project-accordion' + (open ? ' is-open' : '') + '">' +
+        return '<section class="schedule-project schedule-project-accordion ui-card' + (open ? ' is-open' : '') + '">' +
             '<button class="schedule-project-toggle" type="button" data-schedule-project-toggle data-project-id="' + escapeHtml(project.id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
                 '<span class="schedule-project-toggle-main"><b>' + escapeHtml(project.title || 'Объект') + '</b><small>' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</small></span>' +
                 '<span class="project-badges">' + badges + '<span class="badge">' + escapeHtml(percent(project.progress) + '%') + '</span></span>' +
@@ -15742,6 +15882,7 @@ function renderLogsDayView(project, logs) {
         if (state.isMaterialScheduleRendering) return;
         baseOpenProjectForMaterialSchedule(projectId);
         if (!projectId || hasRole('customer')) return;
+        var loadingToken = state.selectedProjectLoadingToken && state.selectedProjectLoadingToken.token;
         var key = String(projectId);
         var token = (materialScheduleOpenTokens[key] || 0) + 1;
         materialScheduleOpenTokens[key] = token;
@@ -15749,7 +15890,7 @@ function renderLogsDayView(project, logs) {
             if (state.isMaterialScheduleRendering) return;
             loadMaterialSchedule(projectId, function () {
                 if (materialScheduleOpenTokens[key] !== token) return;
-                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+                if (!isCurrentProject(projectId, loadingToken)) return;
                 if (!isSelectedProjectScheduleTabActive()) return;
                 replaceSelectedProjectMaterialCalendar(projectId);
             }, false);
@@ -15899,7 +16040,7 @@ function renderLogsDayView(project, logs) {
             return;
         }
         root.innerHTML =
-            '<div class="warehouse-table-wrap"><table class="warehouse-table warehouse-inventory-table">' +
+            '<div class="warehouse-table-wrap"><table class="warehouse-table warehouse-inventory-table ui-table">' +
                 '<thead><tr><th>Тип</th><th>Наименование</th><th>Код / артикул</th><th>Текущий остаток</th><th>Статус</th><th></th></tr></thead>' +
                 '<tbody>' + items.map(function (item) {
                     var disabled = Number(item.qty || 0) <= 0 ? ' disabled' : '';
@@ -16767,7 +16908,7 @@ function renderLogsDayView(project, logs) {
         var status = item.status || 'planned';
         var title = item.category || financeDirectionLabel(direction);
         var counterparty = item.counterparty_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
-        return '<form class="finance-row finance-history-row is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+        return '<form class="finance-row finance-history-row ui-card is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
             '<div class="finance-row-top"><div class="finance-row-title">' +
                 '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
                 '<b>' + escapeHtml(title) + '</b>' +
@@ -16801,7 +16942,7 @@ function renderLogsDayView(project, logs) {
             renderFinanceHero(projectId, summary) +
             renderFinancePlanFromInvoices(items, summary) +
             '<div class="finance-entry-grid">' + renderFinanceIncomeForm() + renderFinanceInvoiceForm() + '</div>' +
-            '<section class="subsection finance-history-card"><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
+            '<section class="subsection finance-history-card ui-card"><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
                 (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0445 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0439.</p>') +
             '</div></section>';
         bindFinanceIncomeForm(projectId);
