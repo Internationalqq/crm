@@ -20,6 +20,9 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/app/data
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - ./deploy:/app/deploy
     restart: unless-stopped
 
   autobot:

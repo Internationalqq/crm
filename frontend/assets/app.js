@@ -10,6 +10,7 @@
     })();
     var state = {
         user: null,
+        currentUser: null,
         projects: [],
         users: [],
         roles: [],
@@ -368,11 +369,20 @@
     }
 
     function hasRole(role) {
-        if (!state.user) return false;
-        var current = normalizeRole(state.user.role);
+        var user = state.currentUser || state.user;
+        if (!user) return false;
+        var current = normalizeRole(user.role);
         if (current === role) return true;
-        var roles = Array.isArray(state.user.roles) ? state.user.roles : [];
+        var roles = Array.isArray(user.roles) ? user.roles : [];
         return roles.map(normalizeRole).indexOf(role) !== -1;
+    }
+
+    function isDirectorRole() {
+        return hasRole('director');
+    }
+
+    function isForemanRole() {
+        return hasRole('foreman') && !isDirectorRole();
     }
 
     function isAdminRole() {
@@ -380,7 +390,7 @@
     }
 
     function canSeeFinances() {
-        return hasRole('admin') || hasRole('director') || hasRole('financier') || hasRole('accountant');
+        return hasRole('admin') || hasRole('director') || hasRole('foreman') || hasRole('financier') || hasRole('accountant');
     }
 
     function canManageSuppliers() {
@@ -487,6 +497,7 @@
     function initShell() {
         api('/api/auth/me').then(function (data) {
             state.user = data.user;
+            state.currentUser = data.user;
             renderUser();
             applyRole();
             initPage();
@@ -656,10 +667,10 @@
         state.user.role = normalizeRole(state.user.role);
         document.body.classList.add('role-' + state.user.role);
         qsa('[data-director-only]').forEach(function (node) {
-            if (!isAdminRole()) node.remove();
+            node.classList.toggle('hidden', !isDirectorRole());
         });
         qsa('[data-director-action]').forEach(function (node) {
-            if (!isAdminRole()) node.remove();
+            node.classList.toggle('hidden', !isDirectorRole());
         });
         var allowedNav = {
             admin: ['dashboard', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
@@ -673,12 +684,54 @@
         var allowed = allowedNav[normalizeRole(state.user.role)] || [];
         qsa('[data-nav]').forEach(function (link) {
             if (allowed.indexOf(link.dataset.nav) === -1) {
-                link.remove();
+                link.classList.add('hidden');
                 return;
             }
+            link.classList.remove('hidden');
             if (link.dataset.nav === page) link.classList.add('active');
         });
     }
+
+    function applyRoleVisibility(root) {
+        root = root || document;
+        var director = isDirectorRole();
+        qsa('[data-director-only], [data-director-action], [data-director-finance]', root).forEach(function (node) {
+            node.classList.toggle('hidden', !director);
+        });
+        qsa('[data-foreman-hidden]', root).forEach(function (node) {
+            node.classList.toggle('hidden', isForemanRole());
+        });
+    }
+
+    renderUser = function () {
+        var node = qs('[data-current-user]');
+        var user = state.currentUser || state.user;
+        if (!node || !user) return;
+        node.textContent = user.name + ' - ' + user.roleLabel;
+    };
+
+    applyRole = function () {
+        if (!state.user) return;
+        state.user.role = normalizeRole(state.user.role);
+        state.currentUser = state.user;
+        document.body.classList.add('role-' + state.user.role);
+        applyRoleVisibility(document);
+        var allowedNav = {
+            admin: ['dashboard', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
+            director: ['dashboard', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
+            foreman: ['dashboard', 'projects', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats'],
+            purchaser: ['dashboard', 'projects', 'logs', 'warehouse', 'suppliers', 'chats'],
+            financier: ['dashboard', 'projects', 'reports'],
+            accountant: ['dashboard', 'projects', 'reports'],
+            customer: ['dashboard', 'projects', 'schedule', 'logs', 'chats']
+        };
+        var allowed = allowedNav[normalizeRole(state.user.role)] || [];
+        qsa('[data-nav]').forEach(function (link) {
+            var visible = allowed.indexOf(link.dataset.nav) !== -1;
+            link.classList.toggle('hidden', !visible);
+            if (visible && link.dataset.nav === page) link.classList.add('active');
+        });
+    };
 
     function initPage() {
         if (page === 'dashboard') initDashboardPage();
@@ -930,15 +983,15 @@
         });
         qsa('[data-tab]').forEach(function (button) {
             if (['chat', 'ai', 'analysis'].indexOf(button.dataset.tab) !== -1) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             if (button.dataset.tab === 'finance' && !canSeeFinances()) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             button.addEventListener('click', function () {
@@ -2461,13 +2514,18 @@
         if (!project || !canManageSchedule()) return '';
         return '<section class="card schedule-planner">' +
             '<div class="card-head">' +
-                '<div><h3>Автоплан графика</h3><span class="muted">Собирает даты этапов из сметы и текущей структуры объекта.</span></div>' +
+                '<div><h3>\u0413\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u041f\u043b\u0430\u043d \u044d\u0442\u0430\u043f\u043e\u0432 \u0438 \u0437\u0430\u043a\u0443\u043f\u043e\u043a \u043f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443.</span></div>' +
+                '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + project.id + '">\u2699\uFE0F \u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</button>' +
             '</div>' +
-            '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
-                '<label><span>Старт планирования</span><input name="start_date" type="date" value="' + escapeHtml(project.started_at || APP_TODAY) + '"></label>' +
-                '<button class="primary" type="submit">Построить график</button>' +
-                '<div class="form-error" data-auto-schedule-error></div>' +
-            '</form>' +
+            '<aside class="schedule-autoplan-drawer" data-auto-schedule-drawer aria-hidden="true">' +
+                '<button class="schedule-autoplan-close" type="button" data-auto-schedule-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c">\u00d7</button>' +
+                '<div class="schedule-autoplan-head"><h3>\u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</h3><p>\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u0434\u0430\u0442\u044b \u044d\u0442\u0430\u043f\u043e\u0432 \u0438\u0437 \u0441\u043c\u0435\u0442\u044b \u0438 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b \u043e\u0431\u044a\u0435\u043a\u0442\u0430.</p></div>' +
+                '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
+                    '<label><span>\u0421\u0442\u0430\u0440\u0442 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f</span><input name="start_date" type="date" value="2026-08-09"></label>' +
+                    '<button class="primary" type="submit">\u041f\u043e\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0433\u0440\u0430\u0444\u0438\u043a</button>' +
+                    '<div class="form-error" data-auto-schedule-error></div>' +
+                '</form>' +
+            '</aside>' +
         '</section>';
     }
 
@@ -2536,7 +2594,43 @@
         return badges.join('');
     }
 
+    function closeAutoScheduleDrawer() {
+        qsa('[data-auto-schedule-drawer]').forEach(function (drawer) {
+            drawer.classList.remove('drawer-open');
+            drawer.setAttribute('aria-hidden', 'true');
+        });
+    }
+
+    function openAutoScheduleDrawer(projectId) {
+        closeAutoScheduleDrawer();
+        var drawer = qs('[data-auto-schedule-drawer]');
+        if (!drawer) return;
+        var form = qs('[data-auto-schedule-form]', drawer);
+        if (form) form.dataset.projectId = projectId || form.dataset.projectId || '';
+        drawer.classList.add('drawer-open');
+        drawer.setAttribute('aria-hidden', 'false');
+        var input = qs('input[name="start_date"]', drawer);
+        if (input && !input.value) input.value = '2026-08-09';
+        if (input && typeof input.focus === 'function') setTimeout(function () { input.focus(); }, 80);
+    }
+
     function bindAutoScheduleForm(projectId) {
+        if (document.body.dataset.autoScheduleDrawerDelegated !== '1') {
+            document.body.dataset.autoScheduleDrawerDelegated = '1';
+            document.addEventListener('click', function (event) {
+                var open = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-open]') : null;
+                if (open) {
+                    event.preventDefault();
+                    openAutoScheduleDrawer(open.getAttribute('data-project-id') || projectId);
+                    return;
+                }
+                var close = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-close]') : null;
+                if (close) {
+                    event.preventDefault();
+                    closeAutoScheduleDrawer();
+                }
+            });
+        }
         var form = qs('[data-auto-schedule-form]');
         if (!form || form.dataset.bound === '1') return;
         form.dataset.bound = '1';
@@ -2544,7 +2638,9 @@
             event.preventDefault();
             var error = qs('[data-auto-schedule-error]');
             if (error) error.classList.remove('active');
-            api('/api/projects/' + projectId + '/auto-schedule', {
+            withSubmitLock(form, function () {
+                closeAutoScheduleDrawer();
+                return api('/api/projects/' + projectId + '/auto-schedule', {
                 method: 'POST',
                 body: JSON.stringify({
                     start_date: form.start_date.value
@@ -2555,13 +2651,32 @@
                 setScheduleBriefPinned(projectId, true);
                 state.stagesByProject[projectId] = null;
                 state.materialsByProject[projectId] = null;
-                openProject(projectId);
-                activateProjectTab('schedule');
+                if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
+                return api('/api/projects/' + projectId + '/material-schedule', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        start_date: form.start_date.value,
+                        schedule: data.materialSchedule || null
+                    })
+                }).then(function (schedule) {
+                    setMaterialScheduleForProject(projectId, schedule || { items: [] });
+                    openProject(projectId);
+                    activateProjectTab('schedule');
+                    loadMaterialSchedule(projectId, function (freshSchedule) {
+                        var details = scheduleProjectDetails(projectId);
+                        if (details) {
+                            details.materialSchedule = freshSchedule;
+                            setScheduleProjectDetails(projectId, details);
+                        }
+                        replaceSelectedProjectMaterialCalendar(projectId);
+                    }, true);
+                });
             }).catch(function (err) {
                 if (error) {
                     error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось построить график';
                     error.classList.add('active');
                 }
+            });
             });
         });
     }
@@ -4536,6 +4651,7 @@
 
     function initUsersPage() {
         loadUsers();
+        loadProjects(renderUserProjectAccessChecks);
         var refresh = qs('[data-users-refresh]');
         if (refresh) refresh.addEventListener('click', loadUsers);
         var form = qs('[data-user-create-form]');
@@ -4555,7 +4671,11 @@
                 return input.value;
             });
             if (roles.indexOf(form.role.value) === -1) roles.unshift(form.role.value);
-            api('/api/admin/users', {
+            var projectIds = qsa('input[name="project_ids"]:checked', form).map(function (input) {
+                return Number(input.value);
+            });
+            var endpoint = form.role.value === 'foreman' ? '/api/users/manage' : '/api/admin/users';
+            api(endpoint, {
                 method: 'POST',
                 body: JSON.stringify({
                     name: form.name.value.trim(),
@@ -4564,10 +4684,12 @@
                     phone: form.phone.value.trim(),
                     password: form.password.value,
                     role: form.role.value,
-                    roles: roles
+                    roles: roles,
+                    project_ids: projectIds
                 })
             }).then(function () {
                 form.reset();
+                renderUserProjectAccessChecks();
                 loadUsers();
             }).catch(function (err) {
                 if (error) {
@@ -4576,6 +4698,18 @@
                 }
             });
         });
+    }
+
+    function renderUserProjectAccessChecks() {
+        var root = qs('[data-user-project-access]');
+        if (!root) return;
+        if (!state.projects.length) {
+            safeReplaceChildren(root, '<p class="muted">Нет доступных объектов.</p>');
+            return;
+        }
+        safeReplaceChildren(root, state.projects.map(function (project) {
+            return '<label><input type="checkbox" name="project_ids" value="' + escapeHtml(project.id) + '"> ' + escapeHtml(project.title || ('#' + project.id)) + '</label>';
+        }).join(''));
     }
 
     function loadUsers() {
@@ -6600,11 +6734,11 @@ function renderLogsDayView(project, logs) {
         qsa('[data-tab]').forEach(function (button) {
             if (button.dataset.projectTabBound === '1') return;
             if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             if (button.dataset.tab === 'finance' && !canSeeFinances()) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             button.dataset.projectTabBound = '1';
@@ -6791,10 +6925,10 @@ function renderLogsDayView(project, logs) {
         state.user.role = normalizeRole(state.user.role);
         document.body.classList.add('role-' + state.user.role);
         qsa('[data-director-only]').forEach(function (node) {
-            if (!isAdminRole()) node.remove();
+            node.classList.toggle('hidden', !isDirectorRole());
         });
         qsa('[data-director-action]').forEach(function (node) {
-            if (!isAdminRole()) node.remove();
+            node.classList.toggle('hidden', !isDirectorRole());
         });
         var allowedNav = {
             admin: ['dashboard', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
@@ -6808,9 +6942,10 @@ function renderLogsDayView(project, logs) {
         var allowed = allowedNav[normalizeRole(state.user.role)] || [];
         qsa('[data-nav]').forEach(function (link) {
             if (allowed.indexOf(link.dataset.nav) === -1) {
-                link.remove();
+                link.classList.add('hidden');
                 return;
             }
+            link.classList.remove('hidden');
             if (link.dataset.nav === page) link.classList.add('active');
         });
     }
@@ -6877,11 +7012,11 @@ function renderLogsDayView(project, logs) {
         qsa('[data-tab]').forEach(function (button) {
             if (button.dataset.projectTabBound === '1') return;
             if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             if (button.dataset.tab === 'finance' && !canSeeFinances()) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             button.dataset.projectTabBound = '1';
@@ -8166,11 +8301,11 @@ function renderLogsDayView(project, logs) {
         qsa('[data-tab]').forEach(function (button) {
             if (button.dataset.projectTabBound === '1') return;
             if (state.user && hasRole('customer') && ['execution', 'materials', 'works', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             if (button.dataset.tab === 'finance' && !canSeeFinances()) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             button.dataset.projectTabBound = '1';
@@ -8852,11 +8987,11 @@ function renderLogsDayView(project, logs) {
         qsa('[data-tab]').forEach(function (button) {
             if (button.dataset.projectTabBound === '1') return;
             if (state.user && hasRole('customer') && ['execution', 'materials', 'works', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             if (button.dataset.tab === 'finance' && !canSeeFinances()) {
-                button.remove();
+                button.classList.add('hidden');
                 return;
             }
             button.dataset.projectTabBound = '1';
@@ -15204,7 +15339,7 @@ function renderLogsDayView(project, logs) {
                 try { fn(schedule || null); } catch (callbackError) {}
             });
         }
-        api('/api/projects/' + encodeURIComponent(projectId) + '/material-schedule').then(function (schedule) {
+        api('/api/projects/' + encodeURIComponent(projectId) + '/material-schedule' + (force ? '?fresh=1' : '')).then(function (schedule) {
             setMaterialScheduleForProject(projectId, schedule || { items: [] });
             finish(materialScheduleForProject(projectId));
         }).catch(function (err) {
@@ -15294,7 +15429,7 @@ function renderLogsDayView(project, logs) {
         }
         var range = materialScheduleRange(schedule);
         return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
-            '<div class="card-head"><div><h3>График материалов</h3><span class="muted">Метка стоит в дату, к которой надо купить. Доставка учитывается отдельным запасом.</span></div><button class="ghost compact" type="button" data-material-schedule-refresh data-project-id="' + escapeHtml(projectId) + '">Обновить</button></div>' +
+            '<div class="card-head"><div><h3>График материалов</h3><span class="muted">Метка стоит в дату, к которой надо купить. Доставка учитывается отдельным запасом.</span></div></div>' +
             '<div class="execution-summary material-schedule-summary">' +
                 stat('Всего', String(summary.total || items.length)) +
                 stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
@@ -15523,7 +15658,7 @@ function renderLogsDayView(project, logs) {
         var model = materialScheduleCalendarModel(projectId, schedule);
         var weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
         return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
-            '<div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Материал стоит в день дедлайна на объекте. Метка оплаты считается как дедлайн минус срок доставки.</span></div><button class="ghost compact" type="button" data-material-schedule-refresh data-project-id="' + escapeHtml(projectId) + '">Обновить</button></div>' +
+            '<div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Материал стоит в день дедлайна на объекте. Метка оплаты считается как дедлайн минус срок доставки.</span></div></div>' +
             '<div class="execution-summary material-schedule-summary">' +
                 stat('Всего', String(summary.total || items.length)) +
                 stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
@@ -15763,20 +15898,6 @@ function renderLogsDayView(project, logs) {
                 event.preventDefault();
                 event.stopPropagation();
                 openMaterialScheduleDrawer(point.getAttribute('data-project-id'), point.getAttribute('data-material-id'));
-                return;
-            }
-            var refresh = event.target && event.target.closest ? event.target.closest('[data-material-schedule-refresh]') : null;
-            if (refresh) {
-                var refreshProjectId = refresh.getAttribute('data-project-id');
-                refresh.disabled = true;
-                loadMaterialSchedule(refreshProjectId, function () {
-                    if (replaceSelectedProjectMaterialCalendar(refreshProjectId)) {
-                        refresh.disabled = false;
-                        return;
-                    }
-                    replaceSelectedProjectMaterialCalendar(refreshProjectId);
-                    refresh.disabled = false;
-                }, true);
                 return;
             }
             var saveDelivery = event.target && event.target.closest ? event.target.closest('[data-material-schedule-save-delivery]') : null;
@@ -16896,7 +17017,7 @@ function renderLogsDayView(project, logs) {
                 '<label><span>\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c \u0434\u043e</span><input name="planned_date" type="date"></label>' +
                 '<label><span>\u041e\u043f\u043b\u0430\u0442\u0430</span><select name="payment_kind"><option value="bank_no_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0431\u0435\u0437 \u041d\u0414\u0421</option><option value="bank_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0441 \u041d\u0414\u0421</option><option value="cash">\u041d\u0430\u043b\u0438\u0447\u043d\u044b\u0435</option></select></label>' +
                 '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status"><option value="approved" selected>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option><option value="planned">\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option></select></label>' +
-                '<label class="wide finance-file-field"><span>\u0424\u0430\u0439\u043b \u0441\u0447\u0435\u0442\u0430</span><input name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></label>' +
+                '<label class="wide finance-file-field"><span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; vertical-align: middle;"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>Прикрепите файл</span><input class="custom-file-input" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></label>' +
                 '<label class="wide"><span>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</span><input name="notes" placeholder="\u041d\u043e\u043c\u0435\u0440 \u0441\u0447\u0435\u0442\u0430, \u0443\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u0435 \u0438\u043b\u0438 \u043f\u043e\u0441\u0442\u0430\u0432\u043a\u0430"></label>' +
                 '<div class="form-error" data-finance-invoice-error></div>' +
                 '<button class="primary" type="submit">\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442</button>' +
@@ -16929,7 +17050,7 @@ function renderLogsDayView(project, logs) {
                 '</select></label>' +
                 '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
                 '<button class="ghost compact" type="submit">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c</button>' +
-                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact" type="button" data-finance-confirm-payment>\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443</button>' : '') +
+                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact" type="button" data-finance-confirm-payment data-director-finance>\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443</button>' : '') +
             '</div></form>';
     };
 
@@ -16938,17 +17059,24 @@ function renderLogsDayView(project, logs) {
         if (!root) return;
         items = Array.isArray(items) ? items : [];
         summary = summary || {};
+        if (isForemanRole()) {
+            root.innerHTML = '<div class="finance-entry-grid finance-foreman-upload-only">' + renderFinanceInvoiceForm() + '</div>';
+            bindFinanceInvoiceForm(projectId);
+            applyRoleVisibility(root);
+            return;
+        }
         root.innerHTML =
-            renderFinanceHero(projectId, summary) +
-            renderFinancePlanFromInvoices(items, summary) +
-            '<div class="finance-entry-grid">' + renderFinanceIncomeForm() + renderFinanceInvoiceForm() + '</div>' +
-            '<section class="subsection finance-history-card ui-card"><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
+            '<div data-director-finance>' + renderFinanceHero(projectId, summary) + '</div>' +
+            '<div data-director-finance>' + renderFinancePlanFromInvoices(items, summary) + '</div>' +
+            '<div class="finance-entry-grid"><div data-director-finance>' + renderFinanceIncomeForm() + '</div>' + renderFinanceInvoiceForm() + '</div>' +
+            '<section class="subsection finance-history-card ui-card" data-director-finance><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
                 (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0445 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0439.</p>') +
             '</div></section>';
         bindFinanceIncomeForm(projectId);
         bindFinanceInvoiceForm(projectId);
         bindFinanceEditors(projectId);
         bindFinanceDocumentActions();
+        applyRoleVisibility(root);
     };
 
     bindFinanceInvoiceForm = function (projectId) {
@@ -17033,9 +17161,12 @@ function renderLogsDayView(project, logs) {
             qsa('[data-finance-confirm-payment]', form).forEach(function (button) {
                 button.addEventListener('click', function () {
                     button.disabled = true;
-                    api('/api/finances/' + form.dataset.financeId + '/update', {
+                    api('/api/finance/pay-invoice', {
                         method: 'POST',
-                        body: JSON.stringify(payload('paid'))
+                        body: JSON.stringify({
+                            finance_id: Number(form.dataset.financeId),
+                            paid_date: APP_TODAY
+                        })
                     }).then(function () {
                         loadProjectFinances(projectId);
                     }).catch(function () {
@@ -17046,6 +17177,137 @@ function renderLogsDayView(project, logs) {
             });
         });
     };
+
+    function userHasRoleCode(user, role) {
+        if (!user) return false;
+        if (normalizeRole(user.role) === role) return true;
+        var roles = Array.isArray(user.roles) ? user.roles : [];
+        return roles.some(function (item) {
+            return normalizeRole(item && item.code ? item.code : item) === role;
+        });
+    }
+
+    function ensureProjectAccessModal() {
+        var modal = qs('[data-project-access-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'project-access-modal hidden';
+        modal.setAttribute('data-project-access-modal', '');
+        modal.innerHTML =
+            '<button class="project-access-backdrop" type="button" data-project-access-close aria-label="Закрыть"></button>' +
+            '<section class="project-access-dialog" role="dialog" aria-modal="true" aria-label="Доступ к объекту">' +
+                '<div class="card-head">' +
+                    '<div><h3>Доступ к объекту</h3><span class="muted" data-project-access-title></span></div>' +
+                    '<button class="ghost compact" type="button" data-project-access-close>Закрыть</button>' +
+                '</div>' +
+                '<form data-project-access-form>' +
+                    '<div class="project-access-list" data-project-access-list></div>' +
+                    '<div class="form-error" data-project-access-error></div>' +
+                    '<button class="primary" type="submit">Сохранить доступ</button>' +
+                '</form>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (!event.target.closest('[data-project-access-close]')) return;
+            closeProjectAccessModal();
+        });
+        var form = qs('[data-project-access-form]', modal);
+        if (form) {
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                saveProjectAccess(form);
+            });
+        }
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    function closeProjectAccessModal() {
+        var modal = qs('[data-project-access-modal]');
+        if (!modal) return;
+        modal.classList.add('hidden');
+    }
+
+    function renderProjectAccessModal(project, foremen) {
+        var modal = ensureProjectAccessModal();
+        var title = qs('[data-project-access-title]', modal);
+        var list = qs('[data-project-access-list]', modal);
+        var assigned = Array.isArray(project.assigned_foremen) ? project.assigned_foremen.map(Number) : [];
+        if (title) title.textContent = project.title || '';
+        if (list) {
+            if (!foremen.length) {
+                safeReplaceChildren(list, '<p class="muted">Прорабы пока не созданы.</p>');
+            } else {
+                safeReplaceChildren(list, foremen.map(function (user) {
+                    var checked = assigned.indexOf(Number(user.id)) !== -1 ? ' checked' : '';
+                    var meta = [user.login, user.email, user.phone].filter(Boolean).join(' - ');
+                    return '<label class="project-access-row">' +
+                        '<input type="checkbox" name="foreman_ids" value="' + escapeHtml(user.id) + '"' + checked + '> ' +
+                        '<span><b>' + escapeHtml(user.name || user.login) + '</b><small>' + escapeHtml(meta || 'foreman') + '</small></span>' +
+                    '</label>';
+                }).join(''));
+            }
+        }
+        var form = qs('[data-project-access-form]', modal);
+        if (form) form.dataset.projectId = project.id;
+        modal.classList.remove('hidden');
+    }
+
+    function openProjectAccessModal() {
+        if (!isDirectorRole()) return;
+        var project = state.selectedProject;
+        if (!project) {
+            showAppNotice('Сначала открой объект.', 'warn');
+            return;
+        }
+        loadUserDirectory(function (users) {
+            var foremen = users.filter(function (user) {
+                return userHasRoleCode(user, 'foreman');
+            });
+            renderProjectAccessModal(project, foremen);
+        });
+    }
+
+    function saveProjectAccess(form) {
+        var projectId = Number(form.dataset.projectId || 0);
+        var error = qs('[data-project-access-error]');
+        if (error) error.classList.remove('active');
+        var foremanIds = qsa('input[name="foreman_ids"]:checked', form).map(function (input) {
+            return Number(input.value);
+        });
+        withSubmitLock(form, function () {
+            return api('/api/users/manage', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'set_project_foremen',
+                    project_id: projectId,
+                    foreman_ids: foremanIds
+                })
+            }).then(function (data) {
+                var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+                if (project) project.assigned_foremen = Array.isArray(data.assigned_foremen) ? data.assigned_foremen : foremanIds;
+                if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
+                    state.selectedProject.assigned_foremen = project ? project.assigned_foremen : foremanIds;
+                    loadProjectAssignments(projectId);
+                }
+                closeProjectAccessModal();
+                showAppNotice('Доступ к объекту сохранён.', 'success');
+            }).catch(function (err) {
+                var message = appErrorMessage(err, 'Не удалось сохранить доступ.');
+                if (error) {
+                    error.textContent = message;
+                    error.classList.add('active');
+                }
+                showAppNotice(message, 'error');
+            });
+        });
+    }
+
+    document.addEventListener('click', function (event) {
+        var button = event.target && event.target.closest ? event.target.closest('[data-project-access-open]') : null;
+        if (!button) return;
+        event.preventDefault();
+        openProjectAccessModal();
+    });
 
     bindMaterialScheduleTimeline();
     installVisibleDateFormatter();

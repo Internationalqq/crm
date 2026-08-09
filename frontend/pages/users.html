@@ -32,16 +32,10 @@
         <label>
             <span>Основная роль</span>
             <select name="role" required>
-                <option value="director">Директор</option>
                 <option value="foreman">Прораб</option>
-                <option value="purchaser">Закупщик/снабженец</option>
-                <option value="financier">Ответственный за финплан</option>
-                <option value="accountant">Бухгалтер</option>
-                <option value="customer">Заказчик</option>
-                <option value="admin">Администратор</option>
             </select>
         </label>
-        <fieldset class="role-checks">
+        <fieldset class="role-checks hidden">
             <legend>Дополнительные роли</legend>
             <label><input type="checkbox" name="roles" value="director"> Директор</label>
             <label><input type="checkbox" name="roles" value="foreman"> Прораб</label>
@@ -49,6 +43,12 @@
             <label><input type="checkbox" name="roles" value="financier"> Ответственный за финплан</label>
             <label><input type="checkbox" name="roles" value="accountant"> Бухгалтер</label>
             <label><input type="checkbox" name="roles" value="customer"> Заказчик</label>
+        </fieldset>
+        <fieldset class="role-checks">
+            <legend>Доступ прораба к объектам</legend>
+            <div data-user-project-access>
+                <p class="muted">Объекты загружаются...</p>
+            </div>
         </fieldset>
         <div class="form-error" data-user-create-error></div>
         <button class="primary" type="submit">Создать</button>

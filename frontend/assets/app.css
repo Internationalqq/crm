@@ -37,6 +37,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, 
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
+.hidden,
+.role-hidden {
+    display: none !important;
+}
 
 .is-loading {
     cursor: progress;
@@ -124,6 +128,7 @@ input[type="submit"].is-loading {
 .card, .stat-card, .project-card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
 .card { padding: 18px; margin-bottom: 18px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-head-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .card-head h3, .card h3 { margin: 0; font-size: 18px; }
 .muted { color: var(--muted); }
 
@@ -206,6 +211,52 @@ input[type="submit"].is-loading {
 .schedule-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .schedule-card { margin-bottom: 0; }
 .schedule-planner { margin-bottom: 14px; }
+.schedule-planner .card-head { align-items: center; }
+.schedule-autoplan-button { min-height: 40px; }
+.schedule-autoplan-drawer {
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 350px;
+    max-width: calc(100vw - 20px);
+    height: 100vh;
+    z-index: 1050;
+    display: grid;
+    align-content: start;
+    gap: 18px;
+    padding: 28px 22px;
+    border-left: 1px solid var(--line);
+    background: #fff;
+    box-shadow: -24px 0 70px rgba(22, 34, 49, .2);
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+}
+.schedule-autoplan-drawer.drawer-open { transform: translateX(0); }
+.schedule-autoplan-close {
+    position: absolute;
+    right: 14px;
+    top: 12px;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    background: #f1f5f4;
+    color: #39443f;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+.schedule-autoplan-head { display: grid; gap: 8px; padding-right: 34px; }
+.schedule-autoplan-head h3 { margin: 0; font-size: 20px; line-height: 1.25; }
+.schedule-autoplan-head p { margin: 0; color: var(--muted); line-height: 1.45; }
+.schedule-autoplan-drawer .schedule-planner-form {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+}
+.schedule-autoplan-drawer .schedule-planner-form .primary {
+    width: 100%;
+    justify-self: stretch;
+}
 .schedule-state-board { margin-bottom: 14px; }
 .schedule-state-list { display: grid; gap: 10px; }
 .schedule-state-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); background: #fbfdff; }
@@ -9734,6 +9785,60 @@ html.sidebar-pref-collapsed .sidebar-toggle-lines i:nth-child(3) {
     display: none;
 }
 
+.project-access-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 130;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+}
+
+.project-access-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(15, 23, 42, .48);
+}
+
+.project-access-dialog {
+    position: relative;
+    width: min(520px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 26px 80px rgba(15, 23, 42, .28);
+    padding: 18px;
+}
+
+.project-access-list {
+    display: grid;
+    gap: 8px;
+    margin: 14px 0;
+}
+
+.project-access-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-muted);
+}
+
+.project-access-row span {
+    display: grid;
+    gap: 2px;
+}
+
+.project-access-row small {
+    color: var(--muted);
+}
+
 .finance-preview-modal {
     position: fixed;
     inset: 0;
@@ -12307,3 +12412,746 @@ textarea,
         padding-right: 56px;
     }
 }
+
+/* Responsive foreman mobile layer */
+@media (max-width: 768px) {
+    html,
+    body {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    body.menu-open {
+        overflow: hidden;
+    }
+
+    body.menu-open::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 900;
+        background: rgba(15, 23, 42, .52);
+        backdrop-filter: blur(2px);
+    }
+
+    .app-shell,
+    body.sidebar-collapsed .app-shell {
+        display: block !important;
+        grid-template-columns: 1fr !important;
+        min-width: 0;
+    }
+
+    .main,
+    .content {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .content {
+        padding: var(--space-md);
+    }
+
+    .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 950;
+        min-height: 58px;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between;
+        gap: var(--space-sm);
+        padding: 8px 12px !important;
+    }
+
+    .topbar-spacer {
+        flex: 1 1 auto;
+    }
+
+    .topbar-actions {
+        flex: 0 0 auto;
+        gap: var(--space-sm);
+    }
+
+    .topbar-circle {
+        width: 38px;
+        height: 38px;
+        min-width: 38px;
+        min-height: 38px;
+    }
+
+    .menu-btn {
+        position: relative;
+        z-index: 1001;
+        width: 42px;
+        height: 42px;
+        min-width: 42px;
+        min-height: 42px;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        padding: 0 !important;
+        border-radius: var(--base-radius) !important;
+        font-size: 22px;
+        line-height: 1;
+    }
+
+    .sidebar,
+    body.sidebar-collapsed .sidebar {
+        position: fixed !important;
+        inset: 0 auto 0 0 !important;
+        z-index: 1000 !important;
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: calc(100vw - 32px);
+        height: 100vh !important;
+        padding: var(--space-md) 12px !important;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        transform: translateX(-105%) !important;
+        transition: transform .24s ease, box-shadow .24s ease;
+        box-shadow: 22px 0 50px rgba(15, 23, 42, .24);
+    }
+
+    body.menu-open .sidebar,
+    body.menu-open.sidebar-collapsed .sidebar {
+        transform: translateX(0) !important;
+    }
+
+    .sidebar-head {
+        min-height: 44px;
+    }
+
+    .sidebar-toggle {
+        display: none !important;
+    }
+
+    .brand {
+        margin-bottom: var(--space-sm);
+    }
+
+    .brand span,
+    body.sidebar-collapsed .brand span,
+    body.sidebar-collapsed .nav a span {
+        display: inline !important;
+        opacity: 1 !important;
+    }
+
+    .nav {
+        gap: 5px;
+    }
+
+    .nav a,
+    body.sidebar-collapsed .nav a {
+        min-height: 42px;
+        justify-content: flex-start !important;
+        padding: 10px 12px !important;
+        font-size: 14px;
+        white-space: normal;
+    }
+
+    .page-head,
+    .card-head,
+    .warehouse-toolbar,
+    .warehouse-controls,
+    .warehouse-filters,
+    .market-toolbar,
+    .material-calendar-toolbar,
+    .schedule-gantt-head,
+    .project-group-head,
+    .project-overview-head,
+    .finance-history-card .card-head {
+        width: 100%;
+        display: flex !important;
+        flex-direction: column;
+        align-items: stretch !important;
+        justify-content: flex-start;
+        gap: var(--space-sm);
+    }
+
+    .card-head-actions,
+    .warehouse-controls,
+    .warehouse-filters,
+    .market-toolbar,
+    .material-calendar-nav,
+    .material-calendar-modes,
+    .object-actions,
+    .document-actions,
+    .schedule-state-actions,
+    .schedule-action-side,
+    .finance-row-side,
+    .finance-row-controls,
+    .ai-compose-actions {
+        width: 100%;
+        justify-content: flex-start !important;
+    }
+
+    .search,
+    .content input:not([type="checkbox"]):not([type="radio"]),
+    .content select,
+    .content textarea,
+    .warehouse-controls > *,
+    .warehouse-filters > *,
+    .market-toolbar > *,
+    .card-head-actions > *,
+    .object-actions > *,
+    .document-actions > *,
+    .schedule-state-actions > *,
+    .schedule-action-side > *,
+    .finance-row-controls > *,
+    .finance-income-form button,
+    .finance-invoice-form button,
+    .task-create-grid > *,
+    [data-panel="tasks"] .task-card-controls > * {
+        width: 100% !important;
+        max-width: 100%;
+    }
+
+    .content .primary,
+    .content .ghost,
+    .content .danger,
+    .content button[type="submit"],
+    .content input[type="submit"] {
+        min-height: 42px;
+    }
+
+    .stats-grid,
+    .projects-grid,
+    .projects-subgrid,
+    .data-grid,
+    .meta-grid,
+    .analysis-strip,
+    .quick-alert-list,
+    .warehouse-alerts,
+    .execution-summary,
+    .execution-insights,
+    .schedule-split,
+    .schedule-project-summary,
+    .schedule-action-list,
+    .finance-entry-grid,
+    .finance-hero-v2,
+    .finance-hero-v2 .finance-hero-grid,
+    .finance-income-form,
+    .finance-invoice-form,
+    .warehouse-form,
+    .project-form,
+    .assignment-form,
+    .document-upload-form,
+    .stage-create-form,
+    .task-create-form,
+    .task-create-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .material-row,
+    .user-row,
+    .company-row,
+    .assignment-row,
+    .document-row,
+    .warehouse-hot-row,
+    .schedule-state-row,
+    .schedule-action-card,
+    .finance-row-top,
+    .finance-row-side,
+    .finance-row-controls,
+    .finance-plan-group-head,
+    .finance-plan-item,
+    [data-panel="tasks"] .task-card-top,
+    [data-panel="tasks"] .task-card-footer,
+    [data-panel="tasks"] .task-create-head {
+        display: flex !important;
+        flex-direction: column;
+        align-items: stretch !important;
+        justify-content: flex-start !important;
+        gap: var(--space-sm);
+    }
+
+    [data-panel="tasks"] .tasks-board {
+        display: grid;
+        grid-template-columns: 1fr !important;
+        gap: var(--space-md);
+        overflow: visible;
+    }
+
+    [data-panel="tasks"] .tasks-column {
+        width: 100%;
+        min-width: 0;
+    }
+
+    [data-panel="tasks"] .tasks-column-list {
+        max-height: none;
+        overflow: visible;
+    }
+
+    [data-panel="tasks"] .task-card-body p,
+    .finance-row-title b,
+    .finance-row-title small,
+    .finance-row-title em,
+    .project-card h3,
+    .project-card p,
+    .schedule-gantt-meta b,
+    .schedule-gantt-meta small,
+    .material-schedule-meta b,
+    .material-schedule-meta small {
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+    }
+
+    .warehouse-table-wrap,
+    .market-table-wrap,
+    .schedule-brief-table-wrap {
+        overflow: visible !important;
+        border: 0 !important;
+        background: transparent !important;
+    }
+
+    .warehouse-table,
+    .market-table,
+    .schedule-brief-table,
+    .ui-table,
+    .warehouse-table thead,
+    .market-table thead,
+    .schedule-brief-table thead,
+    .ui-table thead,
+    .warehouse-table tbody,
+    .market-table tbody,
+    .schedule-brief-table tbody,
+    .ui-table tbody,
+    .warehouse-table tr,
+    .market-table tr,
+    .schedule-brief-table tr,
+    .ui-table tr,
+    .warehouse-table td,
+    .market-table td,
+    .schedule-brief-table td,
+    .ui-table td {
+        display: block;
+        width: 100%;
+        min-width: 0 !important;
+    }
+
+    .warehouse-table,
+    .market-table,
+    .schedule-brief-table,
+    .ui-table {
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 13px;
+    }
+
+    .warehouse-table thead,
+    .market-table thead,
+    .schedule-brief-table thead,
+    .ui-table thead {
+        display: none !important;
+    }
+
+    .warehouse-table tbody tr,
+    .market-table tbody tr,
+    .schedule-brief-table tbody tr,
+    .ui-table tbody tr {
+        margin-bottom: var(--space-md);
+        padding: var(--space-sm);
+        border: 1px solid var(--border-muted);
+        border-radius: var(--base-radius);
+        background: var(--surface-main);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+
+    .warehouse-table tbody tr.row-risk,
+    .warehouse-table tbody tr:has(.badge.danger) {
+        border-color: #efc6c1;
+        background: var(--badge-danger-bg);
+    }
+
+    .warehouse-table th,
+    .warehouse-table td,
+    .market-table th,
+    .market-table td,
+    .schedule-brief-table th,
+    .schedule-brief-table td,
+    .ui-table th,
+    .ui-table td {
+        min-height: 0;
+        padding: 9px 4px !important;
+        border-bottom: 1px solid var(--border-muted) !important;
+        background: transparent !important;
+        text-align: right !important;
+    }
+
+    .warehouse-table tbody td,
+    .market-table tbody td,
+    .schedule-brief-table tbody td,
+    .ui-table tbody td {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-md);
+    }
+
+    .warehouse-table tbody td:last-child,
+    .market-table tbody td:last-child,
+    .schedule-brief-table tbody td:last-child,
+    .ui-table tbody td:last-child {
+        border-bottom: 0 !important;
+    }
+
+    .warehouse-table td::before,
+    .market-table td::before,
+    .schedule-brief-table td::before,
+    .ui-table td::before {
+        content: attr(data-label);
+        flex: 0 0 42%;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.35;
+        text-align: left;
+        text-transform: uppercase;
+    }
+
+    .warehouse-table td:nth-child(1)::before { content: "Объект"; }
+    .warehouse-table td:nth-child(2)::before { content: "Материал"; }
+    .warehouse-table td:nth-child(3)::before { content: "Ед."; }
+    .warehouse-table td:nth-child(4)::before { content: "Смета"; }
+    .warehouse-table td:nth-child(5)::before { content: "Куплено"; }
+    .warehouse-table td:nth-child(6)::before { content: "Поступило"; }
+    .warehouse-table td:nth-child(7)::before { content: "Использовано"; }
+    .warehouse-table td:nth-child(8)::before { content: "Остаток"; }
+    .warehouse-table td:nth-child(9)::before { content: "Нехватка"; }
+    .warehouse-table td:nth-child(10)::before { content: "Нужно к"; }
+    .warehouse-table td:nth-child(11)::before { content: "Этап"; }
+    .warehouse-table td:nth-child(12)::before { content: "Статус"; }
+
+    .warehouse-inventory-table td:nth-child(1)::before { content: "Тип"; }
+    .warehouse-inventory-table td:nth-child(2)::before { content: "Наименование"; }
+    .warehouse-inventory-table td:nth-child(3)::before { content: "Код / артикул"; }
+    .warehouse-inventory-table td:nth-child(4)::before { content: "Текущий остаток"; }
+    .warehouse-inventory-table td:nth-child(5)::before { content: "Статус"; }
+    .warehouse-inventory-table td:nth-child(6)::before { content: "Действия"; }
+
+    .warehouse-table-compact td:nth-child(1)::before { content: "Объект"; }
+    .warehouse-table-compact td:nth-child(2)::before { content: "Материал"; }
+    .warehouse-table-compact td:nth-child(3)::before { content: "По смете"; }
+    .warehouse-table-compact td:nth-child(4)::before { content: "На складе"; }
+    .warehouse-table-compact td:nth-child(5)::before { content: "Не хватает"; }
+    .warehouse-table-compact td:nth-child(6)::before { content: "Нужно к"; }
+    .warehouse-table-compact td:nth-child(7)::before { content: "Статус"; }
+
+    .market-table td:nth-child(1)::before { content: "Позиция"; }
+    .market-table td:nth-child(2)::before { content: "Смета"; }
+    .market-table td:nth-child(3)::before { content: "Рынок"; }
+    .market-table td:nth-child(4)::before { content: "Разница"; }
+    .market-table td:nth-child(5)::before { content: "Источники"; }
+    .market-table td:nth-child(6)::before { content: "Действие"; }
+
+    .warehouse-table b,
+    .warehouse-table strong,
+    .warehouse-table small,
+    .market-table b,
+    .market-table strong,
+    .market-table small {
+        max-width: none;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+        text-align: right;
+    }
+
+    .warehouse-table td:last-child,
+    .warehouse-table th:last-child,
+    .market-table td:last-child,
+    .market-table th:last-child {
+        text-align: right !important;
+    }
+
+    .material-calendar-weekdays,
+    .material-calendar-grid,
+    .material-calendar-grid.is-week {
+        display: grid !important;
+        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+        gap: 4px;
+    }
+
+    .material-calendar-weekdays {
+        color: var(--text-muted);
+        font-size: 10px;
+        text-align: center;
+    }
+
+    .material-calendar-weekdays b {
+        padding: 0;
+        overflow: hidden;
+        text-overflow: clip;
+    }
+
+    .material-calendar-day,
+    .material-calendar-grid.is-week .material-calendar-day {
+        min-height: 76px;
+        gap: 3px;
+        padding: 5px 4px;
+        border-radius: var(--base-radius) !important;
+        overflow: hidden;
+    }
+
+    .material-calendar-date {
+        display: grid;
+        justify-items: center;
+        gap: 1px;
+        font-size: 10px;
+        line-height: 1.1;
+    }
+
+    .material-calendar-date b {
+        font-size: 12px;
+    }
+
+    .material-calendar-date span {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: clip;
+        white-space: nowrap;
+        font-size: 9px;
+    }
+
+    .material-calendar-starts,
+    .material-calendar-deadlines {
+        gap: 2px;
+    }
+
+    .material-calendar-card {
+        width: 100%;
+        min-height: 6px;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 999px !important;
+        font-size: 0;
+        line-height: 0;
+    }
+
+    .material-calendar-card b,
+    .material-calendar-card span {
+        display: none !important;
+    }
+
+    .material-calendar-more {
+        min-height: 14px;
+        padding: 0 3px;
+        font-size: 9px;
+        line-height: 1;
+    }
+
+    .material-schedule-row,
+    .schedule-gantt-row {
+        grid-template-columns: 1fr !important;
+        gap: var(--space-sm);
+    }
+
+    .material-schedule-track,
+    .schedule-gantt-track {
+        min-height: 24px;
+    }
+
+    .material-schedule-point {
+        width: 16px;
+        height: 16px;
+    }
+
+    .material-schedule-drawer {
+        left: 10px;
+        right: 10px;
+        top: 70px;
+        width: auto;
+        max-height: calc(100vh - 84px);
+        overflow: auto;
+    }
+
+    .finance-preview-modal,
+    .warehouse-transfer-modal,
+    .project-access-modal,
+    .project-edit-modal,
+    .market-counterparty-modal {
+        padding: 10px !important;
+    }
+
+    .finance-preview-dialog,
+    .warehouse-transfer-dialog,
+    .warehouse-receipt-dialog,
+    .project-access-dialog,
+    .project-edit-dialog,
+    .market-counterparty-dialog,
+    .ai-panel {
+        width: min(100%, calc(100vw - 20px)) !important;
+        max-width: calc(100vw - 20px) !important;
+        max-height: calc(100vh - 20px);
+        overflow: auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .content {
+        padding: 10px;
+    }
+
+    .topbar {
+        min-height: 54px;
+        padding: 7px 10px !important;
+    }
+
+    .topbar-actions {
+        gap: 6px;
+    }
+
+    .topbar-circle {
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+    }
+
+    .menu-btn {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .sidebar,
+    body.sidebar-collapsed .sidebar {
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 86vw;
+    }
+
+    .page-head h2 {
+        font-size: 22px;
+        line-height: 1.15;
+    }
+
+    .card,
+    .stat-card,
+    .project-card,
+    [data-panel="tasks"] .tasks-column,
+    [data-panel="tasks"] .task-card,
+    .finance-history-row {
+        padding: 10px !important;
+    }
+
+    .warehouse-table tbody tr,
+    .market-table tbody tr,
+    .schedule-brief-table tbody tr,
+    .ui-table tbody tr {
+        margin-bottom: 10px;
+        padding: 8px;
+    }
+
+    .warehouse-table tbody td,
+    .market-table tbody td,
+    .schedule-brief-table tbody td,
+    .ui-table tbody td {
+        gap: 10px;
+        padding: 8px 2px !important;
+        font-size: 12px;
+    }
+
+    .warehouse-table td::before,
+    .market-table td::before,
+    .schedule-brief-table td::before,
+    .ui-table td::before {
+        flex-basis: 46%;
+        font-size: 10px;
+    }
+
+    .material-calendar-weekdays,
+    .material-calendar-grid,
+    .material-calendar-grid.is-week {
+        gap: 3px;
+    }
+
+    .material-calendar-day,
+    .material-calendar-grid.is-week .material-calendar-day {
+        min-height: 58px;
+        padding: 4px 3px;
+    }
+
+    .material-calendar-date b {
+        font-size: 11px;
+    }
+
+    .material-calendar-date span {
+        display: none;
+    }
+
+    .material-calendar-card {
+        min-height: 5px;
+    }
+
+    .finance-preview-dialog,
+    .warehouse-transfer-dialog,
+    .warehouse-receipt-dialog,
+    .project-access-dialog,
+    .project-edit-dialog,
+    .market-counterparty-dialog {
+        width: 95% !important;
+        max-width: 95% !important;
+        margin: 10px auto !important;
+        padding: 12px !important;
+    }
+
+    .finance-income-form,
+    .finance-invoice-form,
+    .warehouse-form,
+    .project-form,
+    .assignment-form,
+    .document-upload-form,
+    .stage-create-form,
+    .task-create-form,
+    .form-card {
+        gap: 8px !important;
+    }
+}
+
+/* Стилизуем обертку (label) как кнопку с рамкой */
+.finance-file-field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  
+  /* Настройки рамки и внешнего вида */
+  border: 2px dashed #007bff; /* Пунктирная рамка (можно заменить на solid для сплошной) */
+  border-radius: 6px;         /* Закругление углов */
+  padding: 10px 20px;         /* Внутренние отступы */
+  background-color: #f8f9fa;  /* Легкий фоновый цвет */
+  
+  /* Эффекты и курсор */
+  cursor: pointer;            /* Меняет курсор на "руку" при наведении */
+  transition: all 0.2s ease;  /* Плавная анимация при наведении */
+}
+
+/* Эффект при наведении мыши на всю область кнопки */
+.finance-file-field:hover {
+  background-color: #e2e6ea;  /* Фон становится чуть темнее */
+  border-color: #0056b3;      /* Рамка меняет цвет на темно-синий */
+}
+
+/* Центрируем текст и скрепку внутри span */
+.finance-file-field span {
+  display: inline-flex;
+  align-items: center;
+  font-family: sans-serif;
+  font-size: 14px;
+  color: #333333;             /* Цвет текста */
+}
+
+/* ПОЛНОСТЬЮ СКРЫВАЕМ СТАНДАРТНУЮ КНОПКУ БРАУЗЕРА */
+.finance-file-field .custom-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+

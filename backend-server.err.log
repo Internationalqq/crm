@@ -1,2 +1,0 @@
-C:\Users\UserVik\Desktop\saveweb2zip-com-go-freedom-bi\backend\server.py:4: DeprecationWarning: 'cgi' is deprecated and slated for removal in Python 3.13
-  import cgi

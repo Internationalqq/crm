@@ -958,6 +958,14 @@ def init_db() -> None:
                 updated_at INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS material_schedule_snapshots (
+                project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+                payload TEXT NOT NULL,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS work_stages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1253,6 +1261,25 @@ def init_db() -> None:
                     (row["id"], role["id"], now_ts()),
                 )
 
+        if table_exists(con, "projects") and table_exists(con, "object_assignments"):
+            con.execute(
+                """
+                INSERT OR IGNORE INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+                SELECT id, foreman_id, 'foreman', 'РџСЂРѕСЂР°Р± РѕР±СЉРµРєС‚Р°', 1, director_id, COALESCE(created_at, ?)
+                FROM projects
+                WHERE foreman_id IS NOT NULL
+                """,
+                (now_ts(),),
+            )
+            con.execute(
+                """
+                INSERT OR IGNORE INTO user_project_access (user_id, project_id)
+                SELECT foreman_id, id
+                FROM projects
+                WHERE foreman_id IS NOT NULL
+                """
+            )
+
         seed_warehouse_items(con)
 
         user_count = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -1438,7 +1465,11 @@ def user_can_manage_finances(user: dict) -> bool:
 
 
 def user_can_view_finances(user: dict) -> bool:
-    return user_can_manage_finances(user)
+    return user_can_manage_finances(user) or user_has_any_role(user, {"foreman"})
+
+
+def user_can_pay_invoices(user: dict) -> bool:
+    return user_has_any_role(user, {"director"})
 
 
 def user_can_manage_schedule(user: dict) -> bool:
@@ -1578,6 +1609,20 @@ def serialize_project(row: sqlite3.Row, user: dict) -> dict:
             data.pop(key, None)
     elif role == "foreman":
         data.pop("paid", None)
+    try:
+        with db() as con:
+            assigned_rows = con.execute(
+                """
+                SELECT user_id
+                FROM object_assignments
+                WHERE object_id = ? AND role_code = 'foreman'
+                ORDER BY is_primary DESC, assigned_at DESC, id DESC
+                """,
+                (row["id"],),
+            ).fetchall()
+            data["assigned_foremen"] = [assigned_row["user_id"] for assigned_row in assigned_rows]
+    except sqlite3.Error:
+        data["assigned_foremen"] = []
     data["scheduleControl"] = project_schedule_payload(row)
     return data
 
@@ -3402,6 +3447,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_me()
             elif method == "GET" and path == "/api/roles":
                 self.api_roles()
+            elif method == "POST" and path == "/api/users/manage":
+                self.api_users_manage()
+            elif method == "POST" and path == "/api/finance/pay-invoice":
+                self.api_pay_invoice()
             elif method == "POST" and path == "/api/admin/users":
                 self.api_create_user()
             elif method == "GET" and path == "/api/admin/users":
@@ -3438,6 +3487,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_warehouse_matches(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/material-schedule"):
                 self.api_material_schedule(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/material-schedule"):
+                self.api_save_material_schedule(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/materials"):
                 self.api_create_material(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/bootstrap"):
@@ -3755,6 +3806,236 @@ class PMBIHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def set_project_foremen(
+        self,
+        con: sqlite3.Connection,
+        project_id: int,
+        foreman_ids: list[int],
+        assigned_by: int,
+    ) -> list[int]:
+        project = con.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            raise ValueError("project_not_found")
+        cleaned_ids = list(dict.fromkeys(int(item) for item in foreman_ids if int(item) > 0))
+        if cleaned_ids:
+            placeholders = ",".join("?" for _ in cleaned_ids)
+            rows = con.execute(
+                f"""
+                SELECT DISTINCT u.id
+                FROM users u
+                LEFT JOIN user_roles ur ON ur.user_id = u.id
+                LEFT JOIN roles r ON r.id = ur.role_id
+                WHERE u.id IN ({placeholders})
+                  AND u.is_active = 1
+                  AND (u.role = 'foreman' OR r.code = 'foreman')
+                ORDER BY u.id
+                """,
+                cleaned_ids,
+            ).fetchall()
+            valid_ids = [int(row["id"]) for row in rows]
+            if len(valid_ids) != len(cleaned_ids):
+                raise ValueError("foreman_not_found")
+        else:
+            valid_ids = []
+
+        previous_rows = con.execute(
+            "SELECT user_id FROM object_assignments WHERE object_id = ? AND role_code = 'foreman'",
+            (project_id,),
+        ).fetchall()
+        previous_ids = [int(row["user_id"]) for row in previous_rows]
+        con.execute(
+            "DELETE FROM object_assignments WHERE object_id = ? AND role_code = 'foreman'",
+            (project_id,),
+        )
+        for foreman_id in valid_ids:
+            con.execute(
+                """
+                INSERT OR IGNORE INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+                VALUES (?, ?, 'foreman', 'РџСЂРѕСЂР°Р± РѕР±СЉРµРєС‚Р°', ?, ?, ?)
+                """,
+                (project_id, foreman_id, 1 if foreman_id == valid_ids[0] else 0, assigned_by, now_ts()),
+            )
+            con.execute(
+                "INSERT OR IGNORE INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                (foreman_id, project_id),
+            )
+        for foreman_id in previous_ids:
+            if foreman_id in valid_ids:
+                continue
+            has_other_assignment = con.execute(
+                "SELECT 1 FROM object_assignments WHERE object_id = ? AND user_id = ? LIMIT 1",
+                (project_id, foreman_id),
+            ).fetchone()
+            if not has_other_assignment:
+                con.execute(
+                    "DELETE FROM user_project_access WHERE user_id = ? AND project_id = ?",
+                    (foreman_id, project_id),
+                )
+        con.execute(
+            "UPDATE projects SET foreman_id = ?, updated_at = ? WHERE id = ?",
+            (valid_ids[0] if valid_ids else None, now_ts(), project_id),
+        )
+        return valid_ids
+
+    def api_users_manage(self) -> None:
+        director = self.require_role({"director"})
+        if not director:
+            return
+        payload = self.read_json()
+        action = str(payload.get("action", "create_foreman")).strip() or "create_foreman"
+
+        if action in {"set_project_foremen", "set_access"}:
+            try:
+                project_id = int(payload.get("project_id", payload.get("projectId")))
+                foreman_ids = payload.get("foreman_ids", payload.get("foremanIds", []))
+                if not isinstance(foreman_ids, list):
+                    raise ValueError("bad_foreman_ids")
+                foreman_ids = [int(item) for item in foreman_ids]
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_access_payload"})
+                return
+            with db() as con:
+                try:
+                    assigned = self.set_project_foremen(con, project_id, foreman_ids, int(director["id"]))
+                except ValueError as error:
+                    status = HTTPStatus.NOT_FOUND if str(error) == "project_not_found" else HTTPStatus.BAD_REQUEST
+                    self.send_json(status, {"error": str(error)})
+                    return
+                create_audit(
+                    con,
+                    director["id"],
+                    "set_project_foremen",
+                    "project",
+                    project_id,
+                    {"foreman_ids": assigned},
+                )
+                con.commit()
+            self.send_json(HTTPStatus.OK, {"ok": True, "projectId": project_id, "assigned_foremen": assigned})
+            return
+
+        login = str(payload.get("login", "")).strip()
+        password = str(payload.get("password", ""))
+        name = str(payload.get("name", "")).strip() or login
+        email = str(payload.get("email", "")).strip().lower() or None
+        phone = str(payload.get("phone", "")).strip() or None
+        project_ids = payload.get("project_ids", payload.get("projectIds", []))
+        if project_ids is None:
+            project_ids = []
+        if not isinstance(project_ids, list):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_ids"})
+            return
+        try:
+            project_ids = list(dict.fromkeys(int(item) for item in project_ids if int(item) > 0))
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_ids"})
+            return
+        if not login or len(password) < 10 or (clerk_enabled() and not email):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_user_data"})
+            return
+
+        clerk_user_id = None
+        with db() as con:
+            existing_login = con.execute("SELECT id FROM users WHERE login = ?", (login,)).fetchone()
+            if existing_login:
+                self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
+                return
+            if clerk_enabled() and email:
+                existing_email = con.execute("SELECT id FROM users WHERE lower(email) = ?", (email.lower(),)).fetchone()
+                if existing_email:
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "email_exists"})
+                    return
+            if project_ids:
+                placeholders = ",".join("?" for _ in project_ids)
+                existing_project_count = con.execute(
+                    f"SELECT COUNT(*) FROM projects WHERE id IN ({placeholders})",
+                    project_ids,
+                ).fetchone()[0]
+                if int(existing_project_count or 0) != len(project_ids):
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "project_not_found"})
+                    return
+
+        if clerk_enabled():
+            first_name, last_name = split_person_name(name)
+            try:
+                clerk_user = clerk_api_request(
+                    "/users",
+                    method="POST",
+                    payload={
+                        "email_address": [email],
+                        "password": password,
+                        "username": login,
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "skip_password_checks": False,
+                        "skip_password_requirement": False,
+                    },
+                )
+                clerk_user_id = str(clerk_user.get("id") or "").strip() or None
+            except Exception as error:
+                self.send_json(HTTPStatus.BAD_GATEWAY, {"error": "clerk_create_user_failed", "detail": str(error)})
+                return
+
+        with db() as con:
+            try:
+                cur = con.execute(
+                    """
+                    INSERT INTO users (login, email, phone, clerk_user_id, password_hash, role, name, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 'foreman', ?, 'active', ?, ?)
+                    """,
+                    (login, email, phone, clerk_user_id, hash_password(password), name, now_ts(), now_ts()),
+                )
+            except sqlite3.IntegrityError:
+                self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
+                return
+            role_row = con.execute("SELECT id FROM roles WHERE code = 'foreman'").fetchone()
+            if role_row:
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (cur.lastrowid, role_row["id"], now_ts()),
+                )
+            for project_id in project_ids:
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+                    VALUES (?, ?, 'foreman', 'РџСЂРѕСЂР°Р± РѕР±СЉРµРєС‚Р°', 0, ?, ?)
+                    """,
+                    (project_id, cur.lastrowid, director["id"], now_ts()),
+                )
+                con.execute(
+                    "INSERT OR IGNORE INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                    (cur.lastrowid, project_id),
+                )
+                con.execute(
+                    "UPDATE projects SET foreman_id = COALESCE(foreman_id, ?), updated_at = ? WHERE id = ?",
+                    (cur.lastrowid, now_ts(), project_id),
+                )
+            create_audit(
+                con,
+                director["id"],
+                "create_foreman",
+                "user",
+                cur.lastrowid,
+                {"login": login, "project_ids": project_ids},
+            )
+            con.commit()
+        self.send_json(
+            HTTPStatus.CREATED,
+            {
+                "id": cur.lastrowid,
+                "login": login,
+                "email": email,
+                "phone": phone,
+                "clerkUserId": clerk_user_id,
+                "role": "foreman",
+                "roles": ["foreman"],
+                "name": name,
+                "projectIds": project_ids,
+            },
+        )
+
     def api_companies(self) -> None:
         user = self.require_role({"admin", "director", "purchaser", "foreman"})
         if not user:
@@ -3834,8 +4115,19 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with db() as con:
-            if user_has_any_role(user, {"admin", "director", "foreman"}):
+            if user_has_any_role(user, {"admin", "director"}):
                 rows = con.execute("SELECT * FROM projects ORDER BY id DESC").fetchall()
+            elif user_has_any_role(user, {"foreman"}):
+                rows = con.execute(
+                    """
+                    SELECT DISTINCT p.*
+                    FROM projects p
+                    JOIN object_assignments oa ON oa.object_id = p.id
+                    WHERE oa.user_id = ? AND oa.role_code = 'foreman'
+                    ORDER BY p.id DESC
+                    """,
+                    (user["id"],),
+                ).fetchall()
             else:
                 rows = con.execute(
                     """
@@ -4093,8 +4385,19 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with db() as con:
-            if user_has_any_role(user, {"admin", "director", "foreman"}):
+            if user_has_any_role(user, {"admin", "director"}):
                 projects = con.execute("SELECT * FROM projects").fetchall()
+            elif user_has_any_role(user, {"foreman"}):
+                projects = con.execute(
+                    """
+                    SELECT DISTINCT p.*
+                    FROM projects p
+                    JOIN object_assignments oa ON oa.object_id = p.id
+                    WHERE oa.user_id = ? AND oa.role_code = 'foreman'
+                    ORDER BY p.id DESC
+                    """,
+                    (user["id"],),
+                ).fetchall()
             else:
                 projects = con.execute(
                     """
@@ -4367,21 +4670,31 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return None
 
     def can_access_project(self, user: dict, project_id: int) -> bool:
-        if user_has_any_role(user, {"admin", "director", "foreman"}):
+        if user_has_any_role(user, {"admin", "director"}):
             return True
         with db() as con:
-            row = con.execute(
-                """
-                SELECT 1
-                FROM user_project_access
-                WHERE user_id = ? AND project_id = ?
-                UNION
-                SELECT 1
-                FROM object_assignments
-                WHERE user_id = ? AND object_id = ?
-                """,
-                (user["id"], project_id, user["id"], project_id),
-            ).fetchone()
+            if user_has_any_role(user, {"foreman"}):
+                row = con.execute(
+                    """
+                    SELECT 1
+                    FROM object_assignments
+                    WHERE user_id = ? AND object_id = ? AND role_code = 'foreman'
+                    """,
+                    (user["id"], project_id),
+                ).fetchone()
+            else:
+                row = con.execute(
+                    """
+                    SELECT 1
+                    FROM user_project_access
+                    WHERE user_id = ? AND project_id = ?
+                    UNION
+                    SELECT 1
+                    FROM object_assignments
+                    WHERE user_id = ? AND object_id = ?
+                    """,
+                    (user["id"], project_id, user["id"], project_id),
+                ).fetchone()
         return bool(row)
 
     def require_project_access(self, project_id: int) -> dict | None:
@@ -4923,14 +5236,89 @@ class PMBIHandler(BaseHTTPRequestHandler):
             neutral_days = 7
         warning_days = max(1, min(warning_days, 30))
         neutral_days = max(warning_days, min(max(neutral_days, 1), 60))
+        fresh = str(query.get("fresh", [""])[0]).lower() in {"1", "true", "yes"}
         with db() as con:
-            payload = build_material_schedule_payload(
-                con,
-                project_id,
-                warning_days=warning_days,
-                neutral_days=neutral_days,
-            )
+            payload = None
+            if not fresh:
+                saved = con.execute(
+                    "SELECT payload, updated_at FROM material_schedule_snapshots WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()
+                if saved:
+                    try:
+                        payload = json.loads(saved["payload"])
+                        if isinstance(payload, dict):
+                            payload["saved"] = True
+                            payload["savedAt"] = saved["updated_at"]
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        payload = None
+            if payload is None:
+                payload = build_material_schedule_payload(
+                    con,
+                    project_id,
+                    warning_days=warning_days,
+                    neutral_days=neutral_days,
+                )
         self.send_json(HTTPStatus.OK, payload)
+
+    def api_save_material_schedule(self, path: str) -> None:
+        project_id = self.parse_project_id(path)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if user["role"] == "customer":
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        warning_days = 5
+        neutral_days = 7
+        try:
+            warning_days = int(payload.get("warningDays", payload.get("warning_days", warning_days)))
+        except (TypeError, ValueError):
+            warning_days = 5
+        try:
+            neutral_days = int(payload.get("neutralDays", payload.get("neutral_days", neutral_days)))
+        except (TypeError, ValueError):
+            neutral_days = 7
+        warning_days = max(1, min(warning_days, 30))
+        neutral_days = max(warning_days, min(max(neutral_days, 1), 60))
+        schedule = payload.get("schedule")
+        with db() as con:
+            if not isinstance(schedule, dict) or not isinstance(schedule.get("items"), list):
+                schedule = build_material_schedule_payload(
+                    con,
+                    project_id,
+                    warning_days=warning_days,
+                    neutral_days=neutral_days,
+                )
+            schedule["projectId"] = project_id
+            schedule["saved"] = True
+            schedule["savedAt"] = now_ts()
+            now = now_ts()
+            con.execute(
+                """
+                INSERT INTO material_schedule_snapshots (project_id, payload, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    created_by = excluded.created_by,
+                    updated_at = excluded.updated_at
+                """,
+                (project_id, json.dumps(schedule, ensure_ascii=False), user["id"], now, now),
+            )
+            create_audit(
+                con,
+                user["id"],
+                "save_material_schedule",
+                "project",
+                project_id,
+                {"items": len(schedule.get("items") or [])},
+            )
+            con.commit()
+        self.send_json(HTTPStatus.OK, schedule)
 
     def api_create_material(self, path: str) -> None:
         project_id = self.parse_project_id(path)
@@ -5866,6 +6254,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     (plan["project_start"], now_ts(), project_id),
                 )
             mark_project_schedule_draft(con, project_id, generated_at=TODAY_ISO)
+            material_schedule = build_material_schedule_payload(con, project_id)
             create_audit(
                 con,
                 user["id"],
@@ -5895,6 +6284,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     "longestStages": plan["longest_stages"],
                     "procurementHotspots": plan["material_updates"][:8],
                 },
+                "materialSchedule": material_schedule,
             },
         )
 
@@ -6543,6 +6933,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not user_can_view_finances(user):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
             return
+        if user_has_any_role(user, {"foreman"}) and not user_can_manage_finances(user):
+            self.send_json(
+                HTTPStatus.OK,
+                {
+                    "items": [],
+                    "summary": {},
+                    "canUploadInvoice": True,
+                    "limited": True,
+                },
+            )
+            return
         with db() as con:
             rows = con.execute(
                 """
@@ -6604,9 +7005,6 @@ class PMBIHandler(BaseHTTPRequestHandler):
         user = self.require_project_access(project_id)
         if not user:
             return
-        if not user_can_manage_finances(user):
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
-            return
         payload = self.read_json()
         direction = str(payload.get("direction", "expense")).strip() or "expense"
         if direction not in {"income", "expense"}:
@@ -6620,6 +7018,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if status not in {"planned", "approved", "paid", "cancelled"}:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
             return
+        if not user_can_manage_finances(user):
+            if not user_has_any_role(user, {"foreman"}) or direction != "expense" or status not in {"planned", "approved"}:
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
         try:
             amount = float(payload.get("amount", 0) or 0)
             vat_percent = float(payload.get("vat_percent", payload.get("vatPercent", 0)) or 0)
@@ -6629,6 +7031,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if amount <= 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "amount_required"})
             return
+        paid_date = str(payload.get("paid_date", payload.get("paidDate", ""))).strip() or None
+        if not user_can_manage_finances(user):
+            paid_date = None
         with db() as con:
             cur = con.execute(
                 """
@@ -6647,7 +7052,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     vat_percent,
                     amount,
                     str(payload.get("planned_date", payload.get("plannedDate", ""))).strip() or None,
-                    str(payload.get("paid_date", payload.get("paidDate", ""))).strip() or None,
+                    paid_date,
                     str(payload.get("counterparty_name", payload.get("counterpartyName", ""))).strip() or None,
                     status,
                     str(payload.get("notes", "")).strip() or None,
@@ -6676,7 +7081,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         user = self.require_project_access(project_id)
         if not user:
             return
-        if not user_can_manage_finances(user):
+        if not user_can_manage_finances(user) and not user_has_any_role(user, {"foreman"}):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
             return
 
@@ -6833,6 +7238,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if status not in {"planned", "approved", "paid", "cancelled"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
                 return
+            if status == "paid" and str(row["status"] or "") != "paid" and not user_can_pay_invoices(user):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
             con.execute(
                 """
                 UPDATE finance_entries
@@ -6859,6 +7267,51 @@ class PMBIHandler(BaseHTTPRequestHandler):
             )
             con.commit()
         self.send_json(HTTPStatus.OK, {"ok": True})
+
+    def api_pay_invoice(self) -> None:
+        director = self.require_role({"director"})
+        if not director:
+            return
+        payload = self.read_json()
+        try:
+            finance_id = int(payload.get("finance_id", payload.get("financeId", payload.get("invoice_id", payload.get("invoiceId", payload.get("id"))))))
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_finance_id"})
+            return
+        paid_date = str(payload.get("paid_date", payload.get("paidDate", TODAY_ISO))).strip() or TODAY_ISO
+        with db() as con:
+            row = con.execute("SELECT * FROM finance_entries WHERE id = ?", (finance_id,)).fetchone()
+            if not row:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "finance_not_found"})
+                return
+            if row["direction"] != "expense":
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "not_expense_invoice"})
+                return
+            user = self.require_project_access(int(row["project_id"]))
+            if not user:
+                return
+            if not user_can_pay_invoices(user):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            con.execute(
+                """
+                UPDATE finance_entries
+                SET status = 'paid', paid_date = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (paid_date, now_ts(), finance_id),
+            )
+            self.recalc_project_finance_totals(con, int(row["project_id"]))
+            create_audit(
+                con,
+                director["id"],
+                "pay_invoice",
+                "finance_entry",
+                finance_id,
+                {"project_id": row["project_id"], "paid_date": paid_date},
+            )
+            con.commit()
+        self.send_json(HTTPStatus.OK, {"ok": True, "id": finance_id, "status": "paid", "paidDate": paid_date})
 
     def api_project_documents(self, path: str) -> None:
         project_id = self.parse_project_id(path)
