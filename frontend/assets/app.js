@@ -2499,15 +2499,30 @@
     }
 
     function renderSchedulePanel(stages, project) {
+        var drawer = renderAutoScheduleDrawer(project);
         var planner = renderSchedulePlanner(project, stages);
         var controlBoard = renderScheduleStateBoard(project);
-        if (!stages.length) return planner + controlBoard + renderSchedule(project);
+        if (!stages.length) return drawer + planner + controlBoard + renderSchedule(project);
         var internal = stages;
         var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
-        return planner + controlBoard + '<div class="schedule-split">' +
+        return drawer + planner + controlBoard + '<div class="schedule-split">' +
             '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
             '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
         '</div>';
+    }
+
+    function renderAutoScheduleDrawer(project) {
+        if (!project || !canManageSchedule()) return '';
+        return '<div class="drawer-overlay" data-auto-schedule-overlay aria-hidden="true"></div>' +
+            '<div class="drawer-panel" data-auto-schedule-drawer aria-hidden="true">' +
+                '<button class="drawer-close" type="button" data-auto-schedule-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c">\u00d7</button>' +
+                '<div class="drawer-head"><h3>\u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</h3><p>\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u0434\u0430\u0442\u044b \u044d\u0442\u0430\u043f\u043e\u0432 \u0438\u0437 \u0441\u043c\u0435\u0442\u044b \u0438 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b \u043e\u0431\u044a\u0435\u043a\u0442\u0430.</p></div>' +
+                '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
+                    '<label><span>\u0421\u0442\u0430\u0440\u0442 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f</span><input name="start_date" type="date" value="2026-08-09"></label>' +
+                    '<button class="primary" type="submit">\u041f\u043e\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0433\u0440\u0430\u0444\u0438\u043a</button>' +
+                    '<div class="form-error" data-auto-schedule-error></div>' +
+                '</form>' +
+            '</div>';
     }
 
     function renderSchedulePlanner(project, stages) {
@@ -2517,15 +2532,6 @@
                 '<div><h3>\u0413\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u041f\u043b\u0430\u043d \u044d\u0442\u0430\u043f\u043e\u0432 \u0438 \u0437\u0430\u043a\u0443\u043f\u043e\u043a \u043f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443.</span></div>' +
                 '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + project.id + '">\u2699\uFE0F \u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</button>' +
             '</div>' +
-            '<aside class="schedule-autoplan-drawer" data-auto-schedule-drawer aria-hidden="true">' +
-                '<button class="schedule-autoplan-close" type="button" data-auto-schedule-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c">\u00d7</button>' +
-                '<div class="schedule-autoplan-head"><h3>\u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</h3><p>\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u0434\u0430\u0442\u044b \u044d\u0442\u0430\u043f\u043e\u0432 \u0438\u0437 \u0441\u043c\u0435\u0442\u044b \u0438 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b \u043e\u0431\u044a\u0435\u043a\u0442\u0430.</p></div>' +
-                '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
-                    '<label><span>\u0421\u0442\u0430\u0440\u0442 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f</span><input name="start_date" type="date" value="2026-08-09"></label>' +
-                    '<button class="primary" type="submit">\u041f\u043e\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0433\u0440\u0430\u0444\u0438\u043a</button>' +
-                    '<div class="form-error" data-auto-schedule-error></div>' +
-                '</form>' +
-            '</aside>' +
         '</section>';
     }
 
@@ -2595,20 +2601,21 @@
     }
 
     function closeAutoScheduleDrawer() {
-        qsa('[data-auto-schedule-drawer]').forEach(function (drawer) {
-            drawer.classList.remove('drawer-open');
-            drawer.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('drawer-open');
+        qsa('[data-auto-schedule-drawer], [data-auto-schedule-overlay]').forEach(function (node) {
+            node.setAttribute('aria-hidden', 'true');
         });
     }
 
     function openAutoScheduleDrawer(projectId) {
-        closeAutoScheduleDrawer();
         var drawer = qs('[data-auto-schedule-drawer]');
         if (!drawer) return;
         var form = qs('[data-auto-schedule-form]', drawer);
         if (form) form.dataset.projectId = projectId || form.dataset.projectId || '';
-        drawer.classList.add('drawer-open');
+        document.body.classList.add('drawer-open');
         drawer.setAttribute('aria-hidden', 'false');
+        var overlay = qs('[data-auto-schedule-overlay]');
+        if (overlay) overlay.setAttribute('aria-hidden', 'false');
         var input = qs('input[name="start_date"]', drawer);
         if (input && !input.value) input.value = '2026-08-09';
         if (input && typeof input.focus === 'function') setTimeout(function () { input.focus(); }, 80);
@@ -2626,6 +2633,12 @@
                 }
                 var close = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-close]') : null;
                 if (close) {
+                    event.preventDefault();
+                    closeAutoScheduleDrawer();
+                    return;
+                }
+                var overlay = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-overlay]') : null;
+                if (overlay) {
                     event.preventDefault();
                     closeAutoScheduleDrawer();
                 }
@@ -9149,13 +9162,14 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderSchedulePanel(stages, project) {
+        var drawer = renderAutoScheduleDrawer(project);
         var planner = renderSchedulePlanner(project, stages);
         var forecast = renderSectionScheduleForecast(project);
         var controlBoard = renderScheduleStateBoard(project);
-        if (!stages.length) return planner + forecast + controlBoard + renderSchedule(project);
+        if (!stages.length) return drawer + planner + forecast + controlBoard + renderSchedule(project);
         var internal = stages;
         var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
-        return planner + forecast + controlBoard + '<div class="schedule-split">' +
+        return drawer + planner + forecast + controlBoard + '<div class="schedule-split">' +
             '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
             '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
         '</div>';

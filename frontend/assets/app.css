@@ -213,14 +213,23 @@ input[type="submit"].is-loading {
 .schedule-planner { margin-bottom: 14px; }
 .schedule-planner .card-head { align-items: center; }
 .schedule-autoplan-button { min-height: 40px; }
-.schedule-autoplan-drawer {
+.drawer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    background: rgba(0, 0, 0, .46);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+.drawer-panel {
     position: fixed;
     right: 0;
     top: 0;
     width: 350px;
     max-width: calc(100vw - 20px);
     height: 100vh;
-    z-index: 1050;
+    z-index: 2147483001;
     display: grid;
     align-content: start;
     gap: 18px;
@@ -230,9 +239,18 @@ input[type="submit"].is-loading {
     box-shadow: -24px 0 70px rgba(22, 34, 49, .2);
     transform: translateX(100%);
     transition: transform 0.3s ease;
+    overflow-y: auto;
+    pointer-events: auto;
+    will-change: transform;
 }
-.schedule-autoplan-drawer.drawer-open { transform: translateX(0); }
-.schedule-autoplan-close {
+body.drawer-open .drawer-overlay {
+    opacity: 1;
+    pointer-events: auto;
+}
+body.drawer-open .drawer-panel {
+    transform: translateX(0);
+}
+.drawer-close {
     position: absolute;
     right: 14px;
     top: 12px;
@@ -246,14 +264,14 @@ input[type="submit"].is-loading {
     line-height: 1;
     cursor: pointer;
 }
-.schedule-autoplan-head { display: grid; gap: 8px; padding-right: 34px; }
-.schedule-autoplan-head h3 { margin: 0; font-size: 20px; line-height: 1.25; }
-.schedule-autoplan-head p { margin: 0; color: var(--muted); line-height: 1.45; }
-.schedule-autoplan-drawer .schedule-planner-form {
+.drawer-head { display: grid; gap: 8px; padding-right: 34px; }
+.drawer-head h3 { margin: 0; font-size: 20px; line-height: 1.25; }
+.drawer-head p { margin: 0; color: var(--muted); line-height: 1.45; }
+.drawer-panel .schedule-planner-form {
     grid-template-columns: 1fr;
     justify-content: stretch;
 }
-.schedule-autoplan-drawer .schedule-planner-form .primary {
+.drawer-panel .schedule-planner-form .primary {
     width: 100%;
     justify-self: stretch;
 }
