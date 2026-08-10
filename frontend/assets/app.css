@@ -1792,6 +1792,19 @@ body {
     border-radius: var(--radius-sm) !important;
 }
 
+[data-current-role].role-admin {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0;
+    background: #1e293b;
+}
+
 .progress,
 .progress i,
 .timeline-row i,

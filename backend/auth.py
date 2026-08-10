@@ -151,6 +151,8 @@ def normalize_role(role: str | None) -> str:
 
 def user_payload(row: sqlite3.Row) -> dict:
     role = normalize_role(row["role"])
+    if str(row["login"] or "").strip().lower() == "admin":
+        role = "admin"
     roles = [role]
     try:
         with db() as con:
@@ -167,6 +169,8 @@ def user_payload(row: sqlite3.Row) -> dict:
             roles = [normalize_role(role_row["code"]) for role_row in role_rows] or roles
     except sqlite3.Error:
         roles = [role]
+    if role == "admin":
+        roles = ["admin"]
     return {
         "id": row["id"],
         "login": row["login"],

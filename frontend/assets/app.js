@@ -478,11 +478,17 @@
         return roles.map(normalizeRole).indexOf(role) !== -1;
     }
 
+    function currentRoleLabel(user) {
+        user = user || state.currentUser || state.user || {};
+        var role = normalizeRole(user.role);
+        if (role === 'admin') return '\u0410\u0414\u041c\u0418\u041d';
+        if (role === 'director') return '\u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440';
+        if (role === 'foreman') return '\u041f\u0440\u043e\u0440\u0430\u0431';
+        return user.roleLabel || role || '\u041f\u0440\u043e\u0440\u0430\u0431';
+    }
+
     function isSuperAdminRole() {
-        var user = state.currentUser || state.user;
-        if (!user) return false;
-        var identity = [user.role, user.login, user.name, user.roleLabel].join(' ').toLocaleLowerCase('ru');
-        return hasRole('admin') || /\badmin\b/.test(identity) || identity.indexOf('\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440') !== -1;
+        return hasRole('admin');
     }
 
     function isDirectorRole() {
@@ -767,7 +773,7 @@
     function renderUser() {
         var node = qs('[data-current-user]');
         if (!node || !state.user) return;
-        node.textContent = state.user.name + ' • ' + state.user.roleLabel;
+        node.textContent = state.user.name || state.user.login || '';
     }
 
     function applyRole() {
@@ -814,9 +820,11 @@
 
     renderUser = function () {
         var node = qs('[data-current-user]');
+        var roleNode = qs('[data-current-role]');
         var user = state.currentUser || state.user;
         if (!node || !user) return;
-        node.textContent = user.name + ' - ' + user.roleLabel;
+        node.textContent = user.name || user.login || '';
+        if (roleNode) roleNode.textContent = currentRoleLabel(user);
     };
 
     applyRole = function () {
@@ -1237,14 +1245,14 @@
     }
 
     function isProjectTabHidden(tabName) {
-        if (isSuperAdminRole()) return false;
-        return hasRole('director') && tabName === 'reports';
+        if (hasRole('admin') || hasRole('director')) return false;
+        return false;
     }
 
     function syncProjectTabVisibility(root) {
         root = root || qs('[data-project-detail]') || document;
         var roleHiddenTabs = {
-            reports: !isSuperAdminRole() && hasRole('director'),
+            reports: false,
             finance: false
         };
         Object.keys(roleHiddenTabs).forEach(function (tabName) {
@@ -7564,9 +7572,15 @@ function renderLogsDayView(project, logs) {
         var currentRoles = qsa('[data-current-role]');
         var userBadge = qs('[data-user-badge]');
         var name = state.user.name || state.user.login || 'Пользователь';
-        var roleLabel = state.user.roleLabel || state.user.role || '';
+        var roleLabel = currentRoleLabel(state.user);
+        var roleCode = normalizeRole(state.user.role);
         currentUsers.forEach(function (node) { node.textContent = name; });
-        currentRoles.forEach(function (node) { node.textContent = roleLabel; });
+        currentRoles.forEach(function (node) {
+            node.textContent = roleLabel;
+            node.classList.toggle('role-admin', roleCode === 'admin');
+            node.classList.toggle('role-director', roleCode === 'director');
+            node.classList.toggle('role-foreman', roleCode === 'foreman');
+        });
         if (userBadge) {
             var parts = String(name).trim().split(/\s+/).filter(Boolean);
             var initials = parts.slice(0, 2).map(function (part) { return part.charAt(0).toUpperCase(); }).join('') || 'U';

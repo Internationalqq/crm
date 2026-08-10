@@ -1161,6 +1161,30 @@ def init_db() -> None:
                     (row["id"], role["id"], now_ts()),
                 )
 
+        bootstrap_admin = con.execute("SELECT id FROM users WHERE lower(login) = 'admin'").fetchone()
+        if bootstrap_admin:
+            admin_role = con.execute("SELECT id FROM roles WHERE code = 'admin'").fetchone()
+            con.execute(
+                "UPDATE users SET role = 'admin', updated_at = ? WHERE id = ? AND role <> 'admin'",
+                (now_ts(), bootstrap_admin["id"]),
+            )
+            con.execute(
+                """
+                DELETE FROM user_roles
+                WHERE user_id = ?
+                  AND role_id NOT IN (SELECT id FROM roles WHERE code = 'admin')
+                """,
+                (bootstrap_admin["id"],),
+            )
+            if admin_role:
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (bootstrap_admin["id"], admin_role["id"], now_ts()),
+                )
+
         if table_exists(con, "projects") and table_exists(con, "object_assignments"):
             con.execute(
                 """
@@ -1188,18 +1212,18 @@ def init_db() -> None:
             admin_cur = con.execute(
                 """
                 INSERT INTO users (login, password_hash, role, name, status, created_at, updated_at)
-                VALUES (?, ?, 'director', 'Главный администратор', 'active', ?, ?)
+                VALUES (?, ?, 'admin', 'Главный администратор', 'active', ?, ?)
                 """,
                 ("admin", hash_password(bootstrap_password), now_ts(), now_ts()),
             )
-            director_role = con.execute("SELECT id FROM roles WHERE code = 'director'").fetchone()
-            if director_role:
+            admin_role = con.execute("SELECT id FROM roles WHERE code = 'admin'").fetchone()
+            if admin_role:
                 con.execute(
                     """
                     INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at)
                     VALUES (?, ?, ?)
                     """,
-                    (admin_cur.lastrowid, director_role["id"], now_ts()),
+                    (admin_cur.lastrowid, admin_role["id"], now_ts()),
                 )
             con.commit()
             BOOTSTRAP_PATH.write_text(
@@ -1982,6 +2006,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     "code": normalize_role(role_row["code"]),
                     "name": ROLE_LABELS.get(normalize_role(role_row["code"]), role_row["name"]),
                 })
+            def user_roles_for_row(row: sqlite3.Row) -> list[dict]:
+                role = normalize_role(row["role"])
+                if str(row["login"] or "").strip().lower() == "admin":
+                    return [{"code": "admin", "name": ROLE_LABELS.get("admin", "admin")}]
+                return roles_by_user.get(int(row["id"]), [{"code": role, "name": ROLE_LABELS.get(role, role)}])
         self.send_json(
             HTTPStatus.OK,
             {
@@ -1992,9 +2021,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         "email": row["email"],
                         "phone": row["phone"],
                         "clerkUserId": row["clerk_user_id"],
-                        "role": normalize_role(row["role"]),
-                        "roles": roles_by_user.get(int(row["id"]), [{"code": normalize_role(row["role"]), "name": ROLE_LABELS.get(normalize_role(row["role"]), row["role"])}]),
-                        "roleLabel": ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
+                        "role": "admin" if str(row["login"] or "").strip().lower() == "admin" else normalize_role(row["role"]),
+                        "roles": user_roles_for_row(row),
+                        "roleLabel": ROLE_LABELS.get("admin", "admin") if str(row["login"] or "").strip().lower() == "admin" else ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
                         "name": row["name"],
                         "status": row["status"],
                         "isActive": bool(row["is_active"]),
