@@ -13173,3 +13173,57 @@ textarea,
   border: 0;
 }
 
+/* Square checkboxes for project progress controls */
+input[type="checkbox"].custom-tg,
+input[type="checkbox"][data-section-material-check],
+input[type="checkbox"][data-section-work-check] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    border: 2px solid var(--border-muted, #e2e8f0);
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+    vertical-align: middle;
+    margin: 0;
+    padding: 0;
+    flex: 0 0 18px;
+}
+
+input[type="checkbox"].custom-tg:hover,
+input[type="checkbox"][data-section-material-check]:hover,
+input[type="checkbox"][data-section-work-check]:hover {
+    border-color: var(--text-muted, #64748b);
+}
+
+input[type="checkbox"].custom-tg:focus-visible,
+input[type="checkbox"][data-section-material-check]:focus-visible,
+input[type="checkbox"][data-section-work-check]:focus-visible {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .18);
+}
+
+input[type="checkbox"].custom-tg:checked,
+input[type="checkbox"][data-section-material-check]:checked,
+input[type="checkbox"][data-section-work-check]:checked {
+    background-color: var(--text-main, #1e293b);
+    border-color: var(--text-main, #1e293b);
+}
+
+input[type="checkbox"].custom-tg:checked::before,
+input[type="checkbox"][data-section-material-check]:checked::before,
+input[type="checkbox"][data-section-work-check]:checked::before {
+    content: "\2713";
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1;
+}
+

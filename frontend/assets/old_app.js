@@ -749,39 +749,19 @@
     }
 
     function loadProjects(callback) {
-        var listRoot = page === 'projects' ? qs('[data-projects-list]') : null;
-        function finish() {
-            if (typeof callback !== 'function') return;
-            try {
-                callback();
-            } catch (error) {
-                console.error('Projects callback failed', error);
-                if (listRoot) {
-                    safeReplaceChildren(listRoot, '<div class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u0440\u0438\u0441\u043e\u0432\u0430\u0442\u044c \u0441\u043f\u0438\u0441\u043e\u043a \u043e\u0431\u044a\u0435\u043a\u0442\u043e\u0432.</div>');
-                }
+        api('/api/projects').then(function (data) {
+            state.projects = Array.isArray(data.projects) ? data.projects : [];
+            if (page === 'projects' && qs('[data-projects-list]')) {
+                renderProjectList(state.projects);
             }
-        }
-        return api('/api/projects').then(function (data) {
-            state.projects = Array.isArray(data && data.projects) ? data.projects : [];
-            if (listRoot) {
-                try {
-                    renderProjectList(state.projects);
-                } catch (error) {
-                    console.error('Project list render failed', error);
-                    safeReplaceChildren(listRoot, '<div class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442\u044b.</div>');
-                }
+            callback();
+        }).catch(function () {
+            if (page === 'projects' && qs('[data-projects-list]')) {
+                qs('[data-projects-list]').innerHTML = '<div class="muted">Не удалось загрузить объекты. Обнови страницу или войди заново.</div>';
             }
-            finish();
-        }).catch(function (error) {
-            console.error('Projects load failed', error);
-            state.projects = [];
-            if (listRoot) {
-                safeReplaceChildren(listRoot, '<div class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442\u044b. \u041e\u0431\u043d\u043e\u0432\u0438 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438\u043b\u0438 \u0432\u043e\u0439\u0434\u0438 \u0437\u0430\u043d\u043e\u0432\u043e.</div>');
-            }
-            finish();
+            callback();
         });
     }
-
 
     function loadDashboard(callback) {
         api('/api/dashboard').then(function (data) {
@@ -972,6 +952,55 @@
             '<div class="progress-strong-head"><span>' + escapeHtml(label || 'Готовность') + '</span><strong>' + safeProgress + '%</strong></div>' +
             '<div class="progress progress-strong-track"><i style="width:' + safeProgress + '%"></i></div>' +
         '</div>';
+    }
+
+    function renderProjectsPage() {
+        if (isAdminRole()) {
+            loadCompanies(populateProjectCompanySelects);
+        }
+        bindProjectCreate();
+        bindProjectBootstrapForm();
+        renderProjectStats();
+        renderProjectCritical();
+        renderProjectList(state.projects);
+        var search = qs('[data-project-search]');
+        if (search) {
+            search.addEventListener('input', function () {
+                var query = search.value.toLocaleLowerCase('ru');
+                renderProjectList(state.projects.filter(function (project) {
+                    return [project.title, project.address, project.client_name, project.status]
+                        .join(' ')
+                        .toLocaleLowerCase('ru')
+                        .indexOf(query) !== -1;
+                }));
+            });
+        }
+        var close = qs('[data-close-detail]');
+        if (close) close.addEventListener('click', function () {
+            state.selectedProject = null;
+            qs('[data-project-detail]').hidden = true;
+            setProjectFocusMode(false);
+        });
+        qsa('[data-tab]').forEach(function (button) {
+            if (['chat', 'ai', 'analysis'].indexOf(button.dataset.tab) !== -1) {
+                button.classList.add('hidden');
+                return;
+            }
+            if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
+                button.classList.add('hidden');
+                return;
+            }
+            if (button.dataset.tab === 'finance' && !canSeeFinances()) {
+                button.classList.add('hidden');
+                return;
+            }
+            button.addEventListener('click', function () {
+                qsa('[data-tab]').forEach(function (node) { node.classList.remove('active'); });
+                qsa('[data-panel]').forEach(function (node) { node.classList.remove('active'); });
+                button.classList.add('active');
+                qs('[data-panel="' + button.dataset.tab + '"]').classList.add('active');
+            });
+        });
     }
 
     function setProjectFocusMode(enabled) {
@@ -1396,6 +1425,88 @@
         return 'low';
     }
 
+    function renderProjectList(projects) {
+        var root = qs('[data-projects-list]');
+        if (!root) return;
+        if (!projects.length) {
+            root.innerHTML = '<div class="muted">Объекты пока не найдены.</div>';
+            return;
+        }
+        var sortedProjects = projects.slice().sort(function (left, right) {
+            var leftCompleted = isCompletedProject(left) ? 1 : 0;
+            var rightCompleted = isCompletedProject(right) ? 1 : 0;
+            if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+            return Number(right.id) - Number(left.id);
+        });
+        var criticalByProject = {};
+        var criticalItems = state.dashboard && Array.isArray(state.dashboard.criticalItems) ? state.dashboard.criticalItems : [];
+        criticalItems.forEach(function (item) {
+            criticalByProject[item.projectId] = (criticalByProject[item.projectId] || 0) + 1;
+        });
+        root.innerHTML = sortedProjects.map(function (project) {
+            var progress = percent(project.progress);
+            var criticalCount = criticalByProject[project.id] || 0;
+            var completed = isCompletedProject(project);
+            var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">Нехватки: ' + criticalCount + '</span>' : '';
+            var statusBadge = completed ? '<span class="badge success">Завершен</span>' : '<span class="badge">' + escapeHtml(project.status) + '</span>';
+            return '<article class="project-card ui-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
+                '<div class="project-top"><div><h3>' + escapeHtml(project.title) + '</h3><p>' + escapeHtml(project.address) + '</p></div><div class="project-badges">' + statusBadge + riskBadge + '</div></div>' +
+                '<div class="meta-grid">' +
+                    '<div><span>Заказчик</span><strong>' + escapeHtml(project.client_name) + '</strong></div>' +
+                    '<div><span>Бюджет</span><strong>' + escapeHtml(project.budget == null ? 'Скрыто' : money(project.budget)) + '</strong></div>' +
+                    '<div><span>Дедлайн</span><strong>' + escapeHtml(project.deadline_at || '—') + '</strong></div>' +
+                '</div>' +
+                '<div class="progress-head"><span>Готовность</span><b>' + progress + '%</b></div><div class="progress"><i style="width:' + progress + '%"></i></div>' +
+            '</article>';
+        }).join('');
+        qsa('[data-project-id]', root).forEach(function (card) {
+            card.addEventListener('click', function () {
+                openProject(Number(card.dataset.projectId));
+            });
+        });
+    }
+
+    function renderProjectList(projects) {
+        var root = qs('[data-projects-list]');
+        if (!root) return;
+        if (!projects.length) {
+            root.innerHTML = '<div class="muted">Объекты пока не найдены.</div>';
+            return;
+        }
+        var sortedProjects = projects.slice().sort(function (left, right) {
+            var leftCompleted = isCompletedProject(left) ? 1 : 0;
+            var rightCompleted = isCompletedProject(right) ? 1 : 0;
+            if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+            return Number(right.id) - Number(left.id);
+        });
+        var criticalByProject = {};
+        var criticalItems = state.dashboard && Array.isArray(state.dashboard.criticalItems) ? state.dashboard.criticalItems : [];
+        criticalItems.forEach(function (item) {
+            criticalByProject[item.projectId] = (criticalByProject[item.projectId] || 0) + 1;
+        });
+        root.innerHTML = sortedProjects.map(function (project) {
+            var progress = percent(project.progress);
+            var criticalCount = criticalByProject[project.id] || 0;
+            var completed = isCompletedProject(project);
+            var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">Нехватки: ' + criticalCount + '</span>' : '';
+            var statusBadge = completed ? '<span class="badge success">Завершен</span>' : '<span class="badge">' + escapeHtml(project.status || 'В работе') + '</span>';
+            return '<article class="project-card ui-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
+                '<div class="project-top"><div><h3>' + escapeHtml(project.title) + '</h3><p>' + escapeHtml(project.address || 'Адрес не указан') + '</p></div><div class="project-badges">' + statusBadge + riskBadge + '</div></div>' +
+                '<div class="meta-grid">' +
+                    '<div><span>Заказчик</span><strong>' + escapeHtml(project.client_name || 'Не указан') + '</strong></div>' +
+                    '<div><span>Бюджет</span><strong>' + escapeHtml(project.budget == null ? 'Скрыто' : money(project.budget)) + '</strong></div>' +
+                    '<div><span>Дедлайн</span><strong>' + escapeHtml(project.deadline_at || '—') + '</strong></div>' +
+                '</div>' +
+                renderStrongProgress(progress, 'Готовность объекта', false) +
+            '</article>';
+        }).join('');
+        qsa('[data-project-id]', root).forEach(function (card) {
+            card.addEventListener('click', function () {
+                openProject(Number(card.dataset.projectId));
+            });
+        });
+    }
+
     function isCompletedProject(project) {
         var status = String(project && project.status || '').toLocaleLowerCase('ru');
         return ['заверш', 'сан', 'закрыт', 'completed', 'done', 'approved'].some(function (part) {
@@ -1411,6 +1522,116 @@
         if (start && start > APP_TODAY) return ' is-upcoming';
         return '';
     }
+
+    renderScheduleRows = function (stages, customerMode) {
+        var today = APP_TODAY;
+        if (!stages.length) return '<p class="muted">Нет этапов для отображения.</p>';
+        return '<div class="timeline">' + stages.map(function (stage) {
+            var start = customerMode ? (stage.customer_start || stage.planned_start || '—') : (stage.planned_start || '—');
+            var end = customerMode ? (stage.customer_end || stage.planned_end || '—') : (stage.planned_end || '—');
+            var summary = customerMode
+                ? (start + ' — ' + end + ' • ' + statusLabel(stage.status_code))
+                : buildScheduleStageSummary(stage, today);
+            var kicker = [timelineStageKindLabel(stage), !customerMode ? (stage.responsible || '') : ''].filter(Boolean).join(' • ');
+            return '<div class="timeline-row ' + scheduleTimelineClass(stage, today) + timelineStageKindClass(stage) + '">' +
+                '<div class="timeline-main">' +
+                    (kicker ? '<small class="timeline-kicker">' + escapeHtml(kicker) + '</small>' : '') +
+                    '<b>' + escapeHtml(stage.title) + '</b><span>' + escapeHtml(summary) + '</span>' +
+                '</div>' +
+                renderTimelineProgressCell(stage) +
+                '<div class="timeline-badges">' + renderScheduleStageBadges(stage, today, customerMode) + '</div>' +
+            '</div>';
+        }).join('') + '</div>';
+    };
+
+    renderSectionScheduleRow = function (section, range) {
+        var planStyle = scheduleBarStyle(section.startDate, section.endDate, range);
+        var assumptionBadge = section.hasAssumptions ? '<span class="badge warn">Есть допущения</span>' : '<span class="badge success">По нормам</span>';
+        var sources = Array.isArray(section.sources) ? section.sources.slice(0, 3) : [];
+        var items = Array.isArray(section.items) ? section.items : [];
+        return '<article class="section-schedule-card' + sectionScheduleCardClass(section) + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title">' +
+                    '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml((section.startDate || '—') + ' - ' + (section.endDate || '—')) + '</small></div>' +
+                    '<div class="project-badges">' +
+                        '<span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span>' +
+                        '<span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' +
+                        '<span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' +
+                        assumptionBadge +
+                    '</div>' +
+                '</div>' +
+                '<div class="section-schedule-track">' +
+                    '<div class="schedule-gantt-track">' +
+                        '<span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' +
+                        (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') +
+                    '</div>' +
+                    '<div class="section-schedule-track-meta"><span>Плановый интервал</span><strong>' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</strong></div>' +
+                '</div>' +
+                '<div class="section-schedule-meta">' +
+                    '<strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong>' +
+                    '<span>' + escapeHtml('чисто по нормам: ' + String(section.estimatedHours || 0) + ' чел.-ч') + '</span>' +
+                '</div>' +
+                (sources.length ? '<div class="section-schedule-sources">' + sources.map(function (source) {
+                    var label = escapeHtml(source.label || 'Источник');
+                    if (source.url) {
+                        return '<a href="' + escapeHtml(source.url) + '" target="_blank" rel="noreferrer">' + label + '</a>';
+                    }
+                    return '<span>' + label + '</span>';
+                }).join('') + '</div>' : '') +
+                '<div class="section-schedule-items">' + items.slice(0, 8).map(function (item) {
+                    return '<div class="section-schedule-item">' +
+                        '<span>' + escapeHtml(item.title) + '</span>' +
+                        '<small>' + escapeHtml(String(item.planned_qty) + ' ' + item.unit + ' • ' + Math.round(Number(item.estimated_hours || 0) * 10) / 10 + ' чел.-ч') + '</small>' +
+                    '</div>';
+                }).join('') + (items.length > 8 ? '<div class="section-schedule-item more"><span>Еще работ: ' + escapeHtml(String(items.length - 8)) + '</span></div>' : '') + '</div>' +
+            '</div>' +
+        '</article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div>' +
+                '<div class="section-schedule-empty">Собираем расчет по смете...</div>' +
+            '</section>';
+        }
+        if (summary.error) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div>' +
+                '<div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div>' +
+            '</section>';
+        }
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div>' +
+            '</section>';
+        }
+        var range = {
+            start: summary.startDate,
+            end: summary.finishDate,
+            totalDays: Math.max(1, Number(summary.totalDays || 1))
+        };
+        return '<section class="card section-schedule-board">' +
+            '<div class="card-head">' +
+                '<div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов и плановое окно по каждому разделу.</span></div>' +
+                '<button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button>' +
+            '</div>' +
+            '<div class="execution-summary">' +
+                stat('Старт', summary.startDate || '—') +
+                stat('Финиш', summary.finishDate || '—') +
+                stat('Разделов', String(sections.length)) +
+                stat('Дней', String(summary.totalDays || 0)) +
+                stat('Основа', 'Работы сметы') +
+            '</div>' +
+            renderScheduleScale(range) +
+            '<div class="section-schedule-list">' + sections.map(function (section) {
+                return renderSectionScheduleRow(section, range);
+            }).join('') + '</div>' +
+        '</section>';
+    };
 
     function finalFormatScheduleDate(iso) {
         return formatDisplayDate(iso);
@@ -1441,6 +1662,146 @@
             '<p><span>Ускорение:</span> ' + escapeHtml(sectionAccelerationShortHint(section)) + '</p>' +
         '</article>';
     };
+
+    renderSectionScheduleRow = function (section, range) {
+        var planStyle = scheduleBarStyle(section.startDate, section.endDate, range);
+        var assumptionBadge = section.hasAssumptions ? '<span class="badge warn">Есть допущения</span>' : '<span class="badge success">По нормам</span>';
+        var items = Array.isArray(section.items) ? section.items : [];
+        var topItems = items.slice(0, 3).map(function (item) { return item.title; }).filter(Boolean).join(' • ');
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title">' +
+                    '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalFormatScheduleDate(section.startDate) + ' - ' + finalFormatScheduleDate(section.endDate)) + '</small></div>' +
+                    '<div class="project-badges"><span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span><span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' + assumptionBadge + '</div>' +
+                '</div>' +
+                '<div class="section-schedule-track"><div class="schedule-gantt-track"><span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' + (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') + '</div><div class="section-schedule-track-meta"><span>Плановый интервал</span><strong>' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</strong></div></div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml('чисто по нормам: ' + String(Math.round(Number(section.estimatedHours || 0))) + ' чел.-ч') + '</span></div>' +
+                '<div class="section-schedule-reco"><span>Как ускорить</span><strong>' + escapeHtml(sectionAccelerationHint(section)) + '</strong></div>' +
+                (topItems ? '<div class="section-schedule-caption">' + escapeHtml(topItems) + '</div>' : '') +
+            '</div>' +
+        '</article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var range = { start: summary.startDate, end: summary.finishDate, totalDays: Math.max(1, Number(summary.totalDays || 1)) };
+        return '<section class="card section-schedule-board">' +
+            '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов и плановое окно по каждому разделу.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' +
+                stat('Старт', finalFormatScheduleDate(summary.startDate)) +
+                stat('Финиш', finalFormatScheduleDate(summary.finishDate)) +
+                stat('Разделов', String(sections.length)) +
+                stat('Дней', String(summary.totalDays || 0)) +
+                stat('Основа', 'Работы сметы') +
+            '</div>' +
+            '<div class="section-schedule-brief-list">' + sections.map(function (section) { return renderSectionScheduleBrief(section); }).join('') + '</div>' +
+            renderScheduleScale(range) +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(section, range); }).join('') + '</div>' +
+        '</section>';
+    };
+
+    renderSchedulePanel = function (stages, project) {
+        var planner = renderSchedulePlanner(project, stages);
+        var forecast = renderSectionScheduleForecast(project);
+        return planner + forecast;
+        var internal = stages;
+        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
+        return planner + forecast + '<div class="schedule-split">' +
+            '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
+            '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
+        '</div>';
+    };
+
+    function openProject(projectId) {
+        var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+        if (!project) return;
+        state.selectedProject = project;
+        setProjectFocusMode(true);
+        qs('[data-project-detail]').hidden = false;
+        qs('[data-detail-title]').textContent = project.title;
+        activateProjectTab('overview');
+        var detailCard = qs('[data-project-detail]');
+        if (detailCard && typeof detailCard.scrollIntoView === 'function') {
+            detailCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        var focusRoot = qs('[data-project-focus]');
+        if (!focusRoot) {
+            var overviewPanel = qs('[data-panel="overview"]');
+            if (overviewPanel) {
+                overviewPanel.insertAdjacentHTML('beforebegin', '<section class="project-focus" data-project-focus></section>');
+                focusRoot = qs('[data-project-focus]');
+            }
+        }
+        if (focusRoot) focusRoot.innerHTML = renderProjectFocus(project) + renderStrongProgress(percent(project.progress), 'Текущая готовность', true);
+        qs('[data-panel="overview"]').innerHTML =
+            '<div class="object-actions">' +
+                '<a href="/app/warehouse">Склад</a>' +
+                '<a href="/app/schedule">График работ</a>' +
+                '<a href="/app/logs">Журнал работ</a>' +
+                '<a href="/app/chats">Чаты</a>' +
+                (state.user && isAdminRole() ? '<a href="/app/reports">Отчетность</a>' : '') +
+            '</div>' +
+            '<div class="data-grid">' +
+                dataItem('Адрес', project.address || 'Не указано') +
+                dataItem('Город', project.city || 'Не указано') +
+                dataItem('Регион', project.region || 'Не указано') +
+                dataItem('Заказчик', project.client_name || 'Не указано') +
+                dataItem('Номер договора', project.contract_no || 'Не указано') +
+                dataItem('Дата договора', project.contract_date || '—') +
+                dataItem('Статус', project.status || 'Подготовка') +
+                dataItem('Прогресс', percent(project.progress) + '%') +
+                dataItem('Бюджет', project.budget == null ? 'Скрыто ролью' : money(project.budget)) +
+                dataItem('Оплачено', project.paid == null ? 'Скрыто ролью' : money(project.paid)) +
+                dataItem('Старт', project.started_at || '—') +
+                dataItem('Дедлайн', project.deadline_at || '—') +
+            '</div>' +
+            (project.description ? '<div class="object-description">' + escapeHtml(project.description) + '</div>' : '') +
+            '<section class="subsection"><div class="card-head"><h3>Назначения на объект</h3></div><div data-project-assignments>Загрузка назначений...</div></section>';
+        qs('[data-panel="execution"]').innerHTML = '<p class="muted">Загрузка структуры объекта...</p>';
+        qs('[data-panel="schedule"]').innerHTML = renderSchedule(project);
+        qs('[data-panel="tasks"]').innerHTML = '<p class="muted">Загрузка задач...</p>';
+        qs('[data-panel="documents"]').innerHTML = '<p class="muted">Загрузка документов...</p>';
+        qs('[data-panel="chat"]').innerHTML = '<p class="muted">Загрузка чатов...</p>';
+        qs('[data-panel="ai"]').innerHTML = renderAi(project, []);
+        loadMaterials(project.id, function (items) {
+            var overview = qs('[data-panel="overview"]');
+            if (overview && !qs('[data-project-overview-materials]', overview)) {
+                overview.insertAdjacentHTML('beforeend', '<section class="subsection"><div class="card-head"><h3>Материалы по смете и складу</h3></div><div data-project-overview-materials></div></section>');
+            }
+            var overviewMaterials = qs('[data-project-overview-materials]', overview || document);
+            loadMaterialInsights(project.id, function (insights) {
+                qs('[data-panel="materials"]').innerHTML = renderMaterials(items, project.id, insights);
+                if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(items, project.id, insights);
+                bindProjectChainActions();
+                qs('[data-panel="ai"]').innerHTML = renderAi(project, items);
+            });
+        });
+        loadAnalysis(project.id, function (analysis) {
+            qs('[data-panel="ai"]').innerHTML = renderBackendAnalysis(analysis);
+        });
+        loadStages(project.id, function (stages) {
+            qs('[data-panel="execution"]').innerHTML = renderExecutionPanel(stages, project.id);
+            qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            if ((schedulePanel && schedulePanel.classList.contains('active')) || (worksPanel && worksPanel.classList.contains('active'))) {
+                loadExecutionInsights(project.id, stages);
+            }
+        });
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    }
 
     function dataItem(label, value) {
 
@@ -1664,30 +2025,27 @@
         kind = kind === 'work' ? 'work' : 'material';
         if (!state.marketAnalysisByProject[projectId]) state.marketAnalysisByProject[projectId] = {};
         var cache = state.marketAnalysisByProject[projectId][kind];
-        if (!force && cache && !cache.error && Array.isArray(cache.rows)) {
+        if (!force && cache && cache.rows) {
             callback(cache);
             return;
         }
         if (cache && cache.loading) return;
         state.marketAnalysisByProject[projectId][kind] = { loading: true, rows: [] };
         api('/api/projects/' + projectId + '/market-analysis?kind=' + kind).then(function (data) {
-            var rows = Array.isArray(data && data.rows) ? data.rows : [];
             state.marketAnalysisByProject[projectId][kind] = {
                 loading: false,
-                error: rows.length ? '' : String(data && data.error || ''),
-                rows: rows,
-                summary: data && data.summary || {},
-                estimateId: data && data.estimateId || ''
+                error: '',
+                rows: Array.isArray(data.rows) ? data.rows : [],
+                summary: data.summary || {},
+                estimateId: data.estimateId || ''
             };
             callback(state.marketAnalysisByProject[projectId][kind]);
         }).catch(function (error) {
-            var payload = error && error.payload || {};
-            var rows = Array.isArray(payload.rows) ? payload.rows : [];
             state.marketAnalysisByProject[projectId][kind] = {
                 loading: false,
-                error: rows.length ? '' : (payload.error || 'market_analysis_failed'),
-                rows: rows,
-                summary: payload.summary || {}
+                error: (error && error.payload && error.payload.error) || 'market_analysis_failed',
+                rows: [],
+                summary: {}
             };
             callback(state.marketAnalysisByProject[projectId][kind]);
         });
@@ -1753,11 +2111,11 @@
                 var materialsHtml = renderMaterials(state.materialsByProject[projectId], projectId, insights || {});
                 var materialsPanel = qs('[data-panel="materials"]');
                 if (materialsPanel && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                    safeReplaceChildren(materialsPanel, materialsHtml);
+                    materialsPanel.innerHTML = materialsHtml;
                 }
                 var overviewMaterials = qs('[data-project-overview-materials]');
                 if (overviewMaterials && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                    safeReplaceChildren(overviewMaterials, materialsHtml);
+                    overviewMaterials.innerHTML = materialsHtml;
                 }
                 bindProjectChainActions();
             }
@@ -2140,6 +2498,19 @@
         });
     }
 
+    function renderSchedulePanel(stages, project) {
+        var drawer = renderAutoScheduleDrawer(project);
+        var planner = renderSchedulePlanner(project, stages);
+        var controlBoard = renderScheduleStateBoard(project);
+        if (!stages.length) return drawer + planner + controlBoard + renderSchedule(project);
+        var internal = stages;
+        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
+        return drawer + planner + controlBoard + '<div class="schedule-split">' +
+            '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
+            '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
+        '</div>';
+    }
+
     function renderAutoScheduleDrawer(project) {
         if (!project || !canManageSchedule()) return '';
         return '<div class="drawer-overlay" data-auto-schedule-overlay aria-hidden="true"></div>' +
@@ -2164,153 +2535,43 @@
         '</section>';
     }
 
-
     function renderScheduleRows(stages, customerMode) {
         var today = APP_TODAY;
-        stages = Array.isArray(stages) ? stages : [];
-        if (!stages.length) return '<p class="muted">\u041f\u043e\u043a\u0430 \u043d\u0435\u0442 \u044d\u0442\u0430\u043f\u043e\u0432 \u0434\u043b\u044f \u0433\u0440\u0430\u0444\u0438\u043a\u0430.</p>';
+        if (!stages.length) return '<p class="muted">Нет этапов для отображения.</p>';
         return '<div class="timeline">' + stages.map(function (stage) {
-            var start = customerMode ? (stage.customer_start || stage.planned_start || '\u2014') : (stage.planned_start || '\u2014');
-            var end = customerMode ? (stage.customer_end || stage.planned_end || '\u2014') : (stage.planned_end || '\u2014');
+            var progress = percent(stage.progress);
+            var start = customerMode ? (stage.customer_start || stage.planned_start || '—') : (stage.planned_start || '—');
+            var end = customerMode ? (stage.customer_end || stage.planned_end || '—') : (stage.planned_end || '—');
             var summary = customerMode
-                ? (start + ' \u2014 ' + end + ' \u2022 ' + statusLabel(stage.status_code))
+                ? (start + ' — ' + end + ' • ' + statusLabel(stage.status_code))
                 : buildScheduleStageSummary(stage, today);
-            var kicker = [timelineStageKindLabel(stage), !customerMode ? (stage.responsible || '') : ''].filter(Boolean).join(' \u2022 ');
-            return '<div class="timeline-row ' + scheduleTimelineClass(stage, today) + timelineStageKindClass(stage) + '">' +
-                '<div class="timeline-main">' +
-                    (kicker ? '<small class="timeline-kicker">' + escapeHtml(kicker) + '</small>' : '') +
-                    '<b>' + escapeHtml(stage.title) + '</b><span>' + escapeHtml(summary) + '</span>' +
-                '</div>' +
-                renderTimelineProgressCell(stage) +
+            return '<div class="timeline-row ' + scheduleTimelineClass(stage, today) + '">' +
+                '<div class="timeline-main"><b>' + escapeHtml(stage.title) + '</b><span>' + escapeHtml(summary) + '</span></div>' +
+                '<i style="width:' + progress + '%"></i>' +
+                '<strong>' + progress + '%</strong>' +
                 '<div class="timeline-badges">' + renderScheduleStageBadges(stage, today, customerMode) + '</div>' +
             '</div>';
         }).join('') + '</div>';
     }
 
-    function renderSectionScheduleRow(project, section) {
-        section = section || {};
-        var items = Array.isArray(section.items) ? section.items : [];
-        var progress = scheduleSectionProgress(project.id, section);
-        var isOpen = isScheduleSectionOpen(project.id, section, false);
-        var digest = finalSectionWorkDigest(section);
-        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
-        var details = items.map(function (item) {
-            var workDone = isScheduleWorkDone(project.id, section.title, item);
-            return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '">' +
-                '<input type="checkbox" data-section-work-check data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(section.title || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
-                '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</b><small>' + escapeHtml(formatWorkLine(item) || '\u041e\u0431\u044a\u0435\u043c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</small></span>' +
-            '</label>';
-        }).join('') || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0440\u0430\u0431\u043e\u0442 \u0434\u043b\u044f \u043e\u0442\u043c\u0435\u0442\u043a\u0438.</div>';
-        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + (isOpen ? ' is-open' : '') + '">' +
-            '<div class="section-schedule-main">' +
-                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + escapeHtml(project.id) + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
-                    '<div class="section-schedule-summary-head">' +
-                        '<div class="section-schedule-summary-copy">' +
-                            '<div class="section-schedule-heading"><div class="section-schedule-title"><h4>' + escapeHtml(section.title || '') + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div></div>' +
-                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' \u0440\u0430\u0431\u043e\u0442') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' \u0447\u0435\u043b.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' \u0433\u043e\u0442\u043e\u0432\u043e') + '</span>' : '') + '</div>' +
-                        '</div>' +
-                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
-                    '</div>' +
-                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(progress.percent)) + '%</b></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' \u0438\u0437 ' + String(progress.total) + ' \u0440\u0430\u0431\u043e\u0442 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e') : '\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u043f\u043e\u0441\u043b\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0441\u043c\u0435\u0442\u044b') + '</span></div></div>' +
-                    '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
-                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
-                '</div>' +
-                renderScheduleSectionDetailsShell(isOpen, details) +
-            '</div>' +
-        '</article>';
-    }
-
-    function renderSectionScheduleForecast(project) {
-        var summary = project ? state.sectionScheduleByProject[project.id] : null;
-        if (!project) return '';
-        if (!summary) {
-            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u0421\u0447\u0438\u0442\u0430\u0435\u043c \u0434\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c \u043f\u043e \u0440\u0430\u0431\u043e\u0447\u0438\u043c \u043f\u043e\u0437\u0438\u0446\u0438\u044f\u043c.</span></div></div><div class="section-schedule-empty">\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u043c \u0440\u0430\u0441\u0447\u0435\u0442 \u043f\u043e \u0441\u043c\u0435\u0442\u0435...</div></section>';
-        }
-        if (summary.error) {
-            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u0421\u0447\u0438\u0442\u0430\u0435\u043c \u0434\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c \u043f\u043e \u0440\u0430\u0431\u043e\u0447\u0438\u043c \u043f\u043e\u0437\u0438\u0446\u0438\u044f\u043c.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
-        }
-        var sections = Array.isArray(summary.sections) ? summary.sections : [];
-        if (!sections.length) {
-            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u0412 \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0440\u0430\u0431\u043e\u0447\u0438\u0445 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0434\u043b\u044f \u0440\u0430\u0441\u0447\u0435\u0442\u0430.</span></div></div></section>';
-        }
-        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
-        var scheduleEndDate = deadline || summary.finishDate;
-        var daysLeft = scheduleEndDate ? daysBetween(APP_TODAY, scheduleEndDate) : null;
-        var overallProgress = projectScheduleProgress(project, summary);
-        var projectDeadlineState = scheduleDeadlineState(summary.startDate, scheduleEndDate, overallProgress.percent, summary.totalDays);
-        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441, \u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u044b\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u044b \u0438 \u0444\u0430\u043a\u0442 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044f \u0440\u0430\u0431\u043e\u0442.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + escapeHtml(project.id) + '">\u041f\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u0442\u044c</button></div>' +
-            '<div class="execution-summary">' + stat('\u0421\u0442\u0430\u0440\u0442', finalGraphDate(summary.startDate)) + stat('\u0414\u0435\u0434\u043b\u0430\u0439\u043d', finalGraphDate(scheduleEndDate)) + stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c \u0434\u043d\u0435\u0439', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(sections.length)) + '</div>' +
-            renderPinnedScheduleBrief(project, summary, sections) +
-            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' \u0438\u0437 ' + String(overallProgress.total) + ' \u0440\u0430\u0431\u043e\u0442 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043e') : '\u041e\u0442\u043c\u0435\u0447\u0430\u0439\u0442\u0435 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043d\u044b\u0435 \u0440\u0430\u0431\u043e\u0442\u044b \u0432\u043d\u0443\u0442\u0440\u0438 \u0440\u0430\u0437\u0434\u0435\u043b\u043e\u0432') + '</span></div>' +
-                '<div class="section-schedule-progress section-schedule-progress-mapped"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(overallProgress.percent)) + '%</b>' + renderScheduleSectionMilestones(project, sections, summary.startDate, scheduleEndDate) + '</div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div>' +
-                '<div class="schedule-progress-legend"><span><i class="is-done"></i> \u0440\u0430\u0437\u0434\u0435\u043b \u0437\u0430\u043a\u0440\u044b\u0442</span><span><i class="is-open"></i> \u0440\u0430\u0437\u0434\u0435\u043b \u0432 \u0440\u0430\u0431\u043e\u0442\u0435</span></div></div>' +
-            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
-    }
-
-    function bindSectionScheduleRefresh(projectId) {
-        qsa('[data-section-schedule-refresh]').forEach(function (button) {
-            if (button.dataset.bound === '1') return;
-            button.dataset.bound = '1';
-            button.addEventListener('click', function () {
-                var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.selectedProject;
-                var startInput = qs('[data-auto-schedule-form] input[name="start_date"]');
-                var requestedStart = startInput && startInput.value ? startInput.value : ((project && project.started_at) || APP_TODAY);
-                button.disabled = true;
-                loadSectionScheduleForecast(projectId, requestedStart, function () {
-                    button.disabled = false;
-                    if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
-                    var stages = state.stagesByProject[projectId] || [];
-                    var panel = qs('[data-panel="schedule"]');
-                    if (panel) safeReplaceChildren(panel, renderSchedulePanel(stages, state.selectedProject));
-                    bindAutoScheduleForm(projectId);
-                    bindScheduleStatusActions(projectId);
-                    bindSectionScheduleRefresh(projectId);
-                    bindSectionScheduleInteractions(projectId);
-                    bindActualQuantityInputs(projectId);
-                    loadSelectedProjectMaterialSchedule(true);
-                }, true);
-            });
-        });
-        bindSectionScheduleInteractions(projectId);
-        bindActualQuantityInputs(projectId);
-    }
-
-    function renderSchedulePanel(stages, project) {
-        stages = Array.isArray(stages) ? stages : [];
-        var drawer = renderAutoScheduleDrawer(project);
-        var planner = renderSchedulePlanner(project, stages);
-        var forecast = renderSectionScheduleForecast(project);
-        var procurement = renderScheduleProcurementBoard(project);
-        var controlBoard = renderScheduleStateBoard(project);
-        var materialCalendar = project && !hasRole('customer') ? renderMaterialScheduleContainer(project.id) : '';
-        if (!stages.length) return drawer + materialCalendar + planner + forecast + procurement + controlBoard + renderSchedule(project);
-        var internal = stages;
-        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
-        return drawer + materialCalendar + planner + forecast + procurement + controlBoard + '<div class="schedule-split">' +
-            '<section class="card schedule-card"><div class="card-head"><h3>\u0412\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u0438\u0439 \u0433\u0440\u0430\u0444\u0438\u043a</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
-            '<section class="card schedule-card"><div class="card-head"><h3>\u0412\u0435\u0440\u0441\u0438\u044f \u0434\u043b\u044f \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0430</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
-        '</div>';
-    }
-
     function buildScheduleStageSummary(stage, today) {
         var parts = [
-            (stage.planned_start || '\u2014') + ' \u2014 ' + (stage.planned_end || '\u2014'),
+            (stage.planned_start || '—') + ' — ' + (stage.planned_end || '—'),
             statusLabel(stage.status_code)
         ];
         if (stage.fact_start || stage.fact_end) {
-            parts.push('\u0444\u0430\u043a\u0442: ' + (stage.fact_start || '\u2014') + ' \u2014 ' + (stage.fact_end || '\u2014'));
+            parts.push('факт: ' + (stage.fact_start || '—') + ' — ' + (stage.fact_end || '—'));
         }
         if (stage.responsible) {
             parts.push(stage.responsible);
         }
         if (isStageBehindPlan(stage, today)) {
-            parts.push('\u043e\u0442\u0441\u0442\u0430\u0432\u0430\u043d\u0438\u0435 \u043e\u0442 \u0442\u0435\u043c\u043f\u0430');
+            parts.push('отставание от темпа');
         } else if (isStageOverdue(stage, today)) {
-            parts.push('\u0441\u0440\u043e\u043a \u043f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d');
+            parts.push('срок просрочен');
         }
-        return parts.join(' \u2022 ');
+        return parts.join(' • ');
     }
-
 
     function scheduleTimelineClass(stage, today) {
         if (stage.status_code === 'blocked') return 'timeline-risk';
@@ -2323,22 +2584,21 @@
     function renderScheduleStageBadges(stage, today, customerMode) {
         var badges = [];
         if (stage.status_code === 'blocked') {
-            badges.push('<span class="badge danger">\u0411\u043b\u043e\u043a\u0435\u0440</span>');
+            badges.push('<span class="badge danger">Блокер</span>');
         } else if (isStageOverdue(stage, today)) {
-            badges.push('<span class="badge danger">\u041f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d</span>');
+            badges.push('<span class="badge danger">Просрочен</span>');
         } else if (isStageBehindPlan(stage, today)) {
-            badges.push('<span class="badge warn">\u041e\u0442\u0441\u0442\u0430\u0435\u0442</span>');
+            badges.push('<span class="badge warn">Отстает</span>');
         } else if (percent(stage.progress) >= 100 || stage.status_code === 'approved' || stage.status_code === 'completed') {
-            badges.push('<span class="badge success">\u0417\u0430\u043a\u0440\u044b\u0442</span>');
+            badges.push('<span class="badge success">Закрыт</span>');
         } else {
             badges.push('<span class="badge">' + escapeHtml(statusLabel(stage.status_code)) + '</span>');
         }
         if (!customerMode && stage.depends_on_materials) {
-            badges.push('<span class="badge warn">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</span>');
+            badges.push('<span class="badge warn">Материалы</span>');
         }
         return badges.join('');
     }
-
 
     function closeAutoScheduleDrawer() {
         document.body.classList.remove('drawer-open');
@@ -2789,10 +3049,115 @@
         });
     }
 
+    function renderProjectFinances(projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        root.innerHTML =
+            '<section class="stats-grid">' +
+                stat('План расходов', money(summary.plannedExpense || 0)) +
+                stat('Оплачено расходов', money(summary.paidExpense || 0), summary.paidExpense > (summary.plannedExpense || 0) ? 'danger' : '') +
+                stat('Поступило', money(summary.paidIncome || 0)) +
+                stat('Баланс', money(summary.balance || 0), (summary.balance || 0) < 0 ? 'danger' : '') +
+            '</section>' +
+            renderFinanceCreateForm() +
+            '<section class="subsection"><div class="card-head"><h3>Финансовые операции</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">По объекту пока нет финансовых операций.</p>') +
+            '</div></section>';
+        bindFinanceCreateForm(projectId);
+        bindFinanceEditors(projectId);
+    }
 
+    function renderFinanceCreateForm() {
+        return '<section class="subsection"><div class="card-head"><h3>Добавить операцию</h3></div>' +
+            '<form class="supplier-form" data-finance-create-form>' +
+                '<label><span>Тип</span><select name="direction"><option value="expense">Расход</option><option value="income">Поступление</option></select></label>' +
+                '<label><span>Категория</span><input name="category" placeholder="Материалы, подрядчик, аванс"></label>' +
+                '<label><span>Вид оплаты</span><select name="payment_kind"><option value="cash">Наличные</option><option value="bank_no_vat">Безнал без НДС</option><option value="bank_vat">Безнал с НДС</option></select></label>' +
+                '<label><span>Сумма</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
+                '<label><span>НДС %</span><input name="vat_percent" type="number" min="0" step="0.01" value="0"></label>' +
+                '<label><span>Плановая дата</span><input name="planned_date" type="date"></label>' +
+                '<label><span>Фактическая дата</span><input name="paid_date" type="date"></label>' +
+                '<label><span>Контрагент</span><input name="counterparty_name" placeholder="Поставщик или заказчик"></label>' +
+                '<label><span>Статус</span><select name="status"><option value="planned">Запланировано</option><option value="approved">Согласовано</option><option value="paid">Оплачено</option><option value="cancelled">Отменено</option></select></label>' +
+                '<label class="wide"><span>Комментарий</span><textarea name="notes" placeholder="Счет, пояснение, привязка к поставке"></textarea></label>' +
+                '<div class="form-error" data-finance-create-error></div>' +
+                '<button class="primary" type="submit">Сохранить операцию</button>' +
+            '</form></section>';
+    }
 
+    function renderFinanceRow(item) {
+        return '<form class="finance-row" data-finance-edit-form data-finance-id="' + item.id + '">' +
+            '<div><b>' + escapeHtml(item.category || financeDirectionLabel(item.direction)) + '</b><small>' + escapeHtml(financeDirectionLabel(item.direction) + ' • ' + financePaymentLabel(item.payment_kind)) + '</small><small>' + escapeHtml(item.counterparty_name || 'Контрагент не указан') + '</small></div>' +
+            '<div><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>НДС ' + escapeHtml(Number(item.vat_percent || 0)) + '%</small></div>' +
+            '<div><small>План</small><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></div>' +
+            '<div><small>Факт</small><input name="paid_date" type="date" value="' + escapeHtml(item.paid_date || '') + '"></div>' +
+            '<div><small>Статус</small><select name="status">' +
+                '<option value="planned"' + (item.status === 'planned' ? ' selected' : '') + '>Запланировано</option>' +
+                '<option value="approved"' + (item.status === 'approved' ? ' selected' : '') + '>Согласовано</option>' +
+                '<option value="paid"' + (item.status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
+                '<option value="cancelled"' + (item.status === 'cancelled' ? ' selected' : '') + '>Отменено</option>' +
+            '</select></div>' +
+            '<button class="ghost" type="submit">Сохранить</button>' +
+        '</form>';
+    }
 
+    function bindFinanceCreateForm(projectId) {
+        var form = qs('[data-finance-create-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-finance-create-error]');
+            if (error) error.classList.remove('active');
+            api('/api/projects/' + projectId + '/finances', {
+                method: 'POST',
+                body: JSON.stringify({
+                    direction: form.direction.value,
+                    category: form.category.value.trim(),
+                    payment_kind: form.payment_kind.value,
+                    amount: Number(form.amount.value || 0),
+                    vat_percent: Number(form.vat_percent.value || 0),
+                    planned_date: form.planned_date.value,
+                    paid_date: form.paid_date.value,
+                    counterparty_name: form.counterparty_name.value.trim(),
+                    status: form.status.value,
+                    notes: form.notes.value.trim()
+                })
+            }).then(function () {
+                form.reset();
+                form.direction.value = 'expense';
+                form.payment_kind.value = 'cash';
+                form.status.value = 'planned';
+                loadProjectFinances(projectId);
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить финансовую операцию';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
 
+    function bindFinanceEditors(projectId) {
+        qsa('[data-finance-edit-form]').forEach(function (form) {
+            if (form.dataset.bound === '1') return;
+            form.dataset.bound = '1';
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                api('/api/finances/' + form.dataset.financeId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        planned_date: form.planned_date.value,
+                        paid_date: form.paid_date.value,
+                        status: form.status.value,
+                        notes: form.notes.value.trim()
+                    })
+                }).then(function () {
+                    loadProjectFinances(projectId);
+                });
+            });
+        });
+    }
     function renderDocumentUpload(projectId) {
         if (hasRole('customer')) return '';
         return '<form class="document-upload-form" data-document-upload-form data-project-id="' + projectId + '">' +
@@ -4031,7 +4396,72 @@
             stat('С блокерами', blockers, blockers ? 'danger' : '');
     }
 
+    function renderLogsList(project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        if (!logs.length) {
+            root.innerHTML = '<p class="muted">По объекту «' + escapeHtml(project.title) + '» пока нет дневных отчетов.</p>';
+            return;
+        }
+        root.innerHTML = logs.map(function (log) {
+            return '<article class="log-card">' +
+                '<div class="log-top">' +
+                    '<div><span>' + escapeHtml(log.report_date || '—') + '</span><h4>' + escapeHtml(log.title) + '</h4></div>' +
+                    '<div class="project-badges"><span class="badge">' + escapeHtml(log.workers_count || 0) + ' чел.</span>' +
+                    '<span class="badge ' + (Number(log.is_client_visible) === 1 ? '' : 'warn') + '">' + (Number(log.is_client_visible) === 1 ? 'Видно заказчику' : 'Внутренний') + '</span></div>' +
+                '</div>' +
+                '<p>' + escapeHtml(log.work_done) + '</p>' +
+                '<div class="log-details">' +
+                    (log.equipment ? '<div><span>Техника</span><strong>' + escapeHtml(log.equipment) + '</strong></div>' : '') +
+                    (log.blockers ? '<div class="log-risk"><span>Блокер</span><strong>' + escapeHtml(log.blockers) + '</strong></div>' : '') +
+                    (log.next_steps ? '<div><span>Дальше</span><strong>' + escapeHtml(log.next_steps) + '</strong></div>' : '') +
+                '</div>' +
+                '<small class="muted">Автор отчета: ' + escapeHtml(log.author_name || '—') + '</small>' +
+            '</article>';
+        }).join('');
+    }
 
+    function bindLogForm() {
+        var form = qs('[data-log-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-log-error]');
+            if (error) error.classList.remove('active');
+            var projectId = Number(form.project_id.value);
+            api('/api/projects/' + projectId + '/daily-logs', {
+                method: 'POST',
+                body: JSON.stringify({
+                    report_date: form.report_date.value,
+                    title: form.title.value.trim(),
+                    work_done: form.work_done.value.trim(),
+                    workers_count: Number(form.workers_count.value || 0),
+                    equipment: form.equipment.value.trim(),
+                    blockers: form.blockers.value.trim(),
+                    next_steps: form.next_steps.value.trim(),
+                    is_client_visible: form.is_client_visible.value === '1'
+                })
+            }).then(function () {
+                var keepProject = form.project_id.value;
+                form.reset();
+                form.project_id.value = keepProject;
+                form.report_date.value = APP_TODAY;
+                var pageSelect = qs('[data-logs-project]');
+                if (pageSelect) pageSelect.value = keepProject;
+                var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.projects[0];
+                loadProjectLogs(projectId, function (logs) {
+                    renderLogsStats(logs);
+                    renderLogsList(project, logs);
+                });
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить отчет';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
 
     function renderLogsPage() {
         var list = qs('[data-logs-list]');
@@ -4349,6 +4779,55 @@
             var ai = qs('[data-dashboard-ai]');
             if (ai) ai.textContent = 'Отчетность доступна только директору.';
         });
+    }
+
+    function renderMaterials(items, projectId, insights) {
+        if (!items.length) return '<p class="muted">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
+        var required = items.filter(function (item) { return item.supplyStatus === 'required'; }).length;
+        var soon = items.filter(function (item) { return item.supplyStatus === 'soon'; }).length;
+        var planned = items.filter(function (item) { return item.supplyStatus === 'planned'; }).length;
+        var safe = items.filter(function (item) { return item.supplyStatus === 'in_stock'; }).length;
+        insights = insights || {};
+        return '<div class="execution-summary">' +
+            stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(items.length)) +
+            stat('\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f', String(required), required ? 'danger' : '') +
+            stat('\u0421\u043a\u043e\u0440\u043e', String(soon), soon ? 'warn' : '') +
+            stat('\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c', String(planned), planned ? 'warn' : '') +
+            stat('\u0412 \u043d\u0430\u043b\u0438\u0447\u0438\u0438', String(safe)) +
+            stat('\u041d\u0435\u0445\u0432\u0430\u0442\u043a\u0438', String(items.filter(function (item) { return Number(item.missingQty) > 0; }).length), items.some(function (item) { return Number(item.missingQty) > 0; }) ? 'danger' : '') +
+        '</div><div class="materials-list">' + items.map(function (item) { return materialRow(item, projectId, insights[Number(item.id)] || null); }).join('') + '</div>';
+    }
+
+    function materialRow(item, projectId, insight) {
+        var missing = Number(item.missingQty) || 0;
+        var meta = [
+            '\u041f\u043e \u0441\u043c\u0435\u0442\u0435: ' + item.plannedQty + ' ' + escapeHtml(item.unit),
+            '\u043a\u0443\u043f\u043b\u0435\u043d\u043e: ' + item.purchasedQty,
+            '\u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u043e: ' + item.usedQty,
+            '\u043e\u0441\u0442\u0430\u0442\u043e\u043a: ' + item.stockQty,
+            item.needByDate ? '\u043d\u0443\u0436\u043d\u043e \u043a ' + item.needByDate : '',
+            item.stageTitle ? '\u044d\u0442\u0430\u043f: ' + item.stageTitle : ''
+        ].filter(Boolean).join(' \u2022 ');
+        var supplyNote = '';
+        if (insight) {
+            supplyNote = insight.selected
+                ? '\u0412\u044b\u0431\u0440\u0430\u043d \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a: ' + insight.selected
+                : insight.quoted
+                    ? '\u041f\u0440\u043e\u0441\u0447\u0438\u0442\u0430\u043d\u043e \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0439: ' + insight.quoted
+                    : insight.called
+                        ? '\u0423\u0436\u0435 \u0432 \u043e\u0431\u0437\u0432\u043e\u043d\u0435: ' + insight.called
+                        : '\u0412 \u0440\u0430\u0431\u043e\u0442\u0435 \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432: ' + insight.total;
+        } else if (canManageSuppliers()) {
+            supplyNote = '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a \u043f\u043e \u044d\u0442\u043e\u0439 \u043f\u043e\u0437\u0438\u0446\u0438\u0438 \u0435\u0449\u0435 \u043d\u0435 \u0437\u0430\u0432\u0435\u0434\u0435\u043d\u2011';
+        }
+        var actions = '<div class="material-chain-actions">' +
+            (canManageSuppliers() ? '<a class="ghost material-link" href="/app/suppliers?projectId=' + projectId + '&materialId=' + item.id + '">\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a</a>' : '') +
+            (canSeeFinances() ? '<button class="ghost material-link" type="button" data-open-finance-tab>\u0424\u0438\u043d\u0430\u043d\u0441\u044b</button>' : '') +
+        '</div>';
+        return '<div class="material-row material-row-linked">' +
+            '<div><b>' + escapeHtml(item.title) + '</b><small>' + meta + (item.notes ? '<br>' + escapeHtml(item.notes) : '') + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + '</small></div>' +
+            '<div class="material-chain-side"><span class="badge ' + planningStatusClass(item.supplyStatus || (missing > 0 ? 'required' : 'in_stock')) + '">' + escapeHtml(item.supplyLabel || (missing > 0 ? ('\u041d\u0443\u0436\u043d\u043e \u0437\u0430\u043a\u0440\u044b\u0442\u044c \u043d\u0435\u0445\u0432\u0430\u0442\u043a\u0443: ' + missing + ' ' + item.unit) : '\u0421\u0442\u0430\u0442\u0443\u0441 \u043f\u043e\u0441\u0442\u0430\u0432\u043a\u0438 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d')) + '</span>' + actions + '</div>' +
+        '</div>';
     }
 
     function loadProjectHub(projectId, project, loadingToken) {
@@ -5662,7 +6141,92 @@ function renderLogsDayView(project, logs) {
         root.innerHTML = cards.length ? cards.join('') : '';
     }
 
+    function renderLogsList(project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        if (!logs.length) {
+            root.innerHTML = '<p class="muted">По объекту "' + escapeHtml(project.title) + '" пока нет дневных отчетов.</p>';
+            return;
+        }
+        root.innerHTML = logs.map(function (log) {
+            return '<article class="log-card">' +
+                '<div class="log-top">' +
+                    '<div><span>' + escapeHtml(log.report_date || '—') + '</span><h4>' + escapeHtml(log.title) + '</h4></div>' +
+                    '<div class="project-badges">' +
+                        (log.progress_percent != null && log.progress_percent !== '' ? '<span class="badge success">' + escapeHtml(Math.round(Number(log.progress_percent) || 0)) + '%</span>' : '') +
+                        '<span class="badge">' + escapeHtml(log.workers_count || 0) + ' чел.</span>' +
+                        '<span class="badge ' + (Number(log.is_client_visible) === 1 ? '' : 'warn') + '">' + (Number(log.is_client_visible) === 1 ? 'Видно заказчику' : 'Внутренний') + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<p>' + escapeHtml(log.work_done) + '</p>' +
+                '<div class="log-details">' +
+                    (log.equipment ? '<div><span>Техника</span><strong>' + escapeHtml(log.equipment) + '</strong></div>' : '') +
+                    (log.blockers ? '<div class="log-risk"><span>Блокер</span><strong>' + escapeHtml(log.blockers) + '</strong></div>' : '') +
+                    (log.next_steps ? '<div><span>Дальше</span><strong>' + escapeHtml(log.next_steps) + '</strong></div>' : '') +
+                '</div>' +
+                (log.raw_input ? '<small class="muted">Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                '<small class="muted">Автор отчета: ' + escapeHtml(log.author_name || '—') + '</small>' +
+            '</article>';
+        }).join('');
+    }
 
+    function bindLogForm() {
+        var form = qs('[data-log-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-log-error]');
+            if (error) error.classList.remove('active');
+            var projectId = Number(form.project_id.value);
+            api('/api/projects/' + projectId + '/daily-logs', {
+                method: 'POST',
+                body: JSON.stringify({
+                    report_date: form.report_date.value,
+                    title: form.title.value.trim(),
+                    work_done: form.work_done.value.trim(),
+                    workers_count: Number(form.workers_count.value || 0),
+                    equipment: form.equipment.value.trim(),
+                    blockers: form.blockers.value.trim(),
+                    next_steps: form.next_steps.value.trim(),
+                    progress_percent: form.progress_percent ? form.progress_percent.value : '',
+                    raw_input: form.raw_input ? form.raw_input.value.trim() : '',
+                    is_client_visible: form.is_client_visible.value === '1'
+                })
+            }).then(function (data) {
+                var keepProject = form.project_id.value;
+                var selectedDate = form.report_date.value || APP_TODAY;
+                form.reset();
+                form.project_id.value = keepProject;
+                form.report_date.value = APP_TODAY;
+                state.logsSelectedDateByProject[projectId] = selectedDate;
+                state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
+                var pageSelect = qs('[data-logs-project]');
+                if (pageSelect) pageSelect.value = keepProject;
+                if (data && data.project) {
+                    updateProjectInState(data.project);
+                    renderProjectStats();
+                    renderProjectCritical();
+                    renderProjectList(state.projects);
+                }
+                closeSideDrawer(qs('[data-drawer-id="project-report-create"]'));
+                var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.projects[0];
+                loadProjectLogs(projectId, function (logs) {
+                    loadProjectNotifications(projectId, function (notifications) {
+                        renderLogsStats(logs, notifications);
+                        renderLogsAlerts(notifications);
+                        renderLogsCalendar(project, logs);
+                        renderLogsList(project, logs);
+                    });
+                });
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить отчет';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
     function canCreateProjectReport() {
         return !hasRole('customer');
     }
@@ -5802,7 +6366,23 @@ function renderLogsDayView(project, logs) {
         });
     }
 
-
+    function renderProjectOverviewActions(project) {
+        var actions = [
+            '<button class="ghost" type="button" data-project-tab-target="materials">Материалы</button>',
+            '<button class="ghost" type="button" data-project-tab-target="schedule">График работ</button>',
+            '<button class="ghost" type="button" data-project-tab-target="reports">Отчеты</button>',
+            '<button class="ghost" type="button" data-project-tab-target="tasks">Задачи</button>',
+            '<button class="ghost" type="button" data-project-tab-target="documents">Документы</button>',
+            '<a href="/app/logs">Журнал работ</a>'
+        ];
+        if (canSeeFinances()) {
+            actions.splice(5, 0, '<button class="ghost" type="button" data-project-tab-target="finance">Финансы</button>');
+        }
+        if (project && project.id) {
+            actions[actions.length - 1] = '<a href="/app/logs?projectId=' + project.id + '">Журнал работ</a>';
+        }
+        return '<div class="object-actions">' + actions.join('') + '</div>';
+    }
 
     function renderProjectOverviewHero(project) {
         var status = project.status || 'Подготовка';
@@ -6001,6 +6581,182 @@ function renderLogsDayView(project, logs) {
                 }).finally(function () {
                     select.disabled = false;
                 });
+            });
+        });
+    }
+
+    function renderProjectList(projects) {
+        var root = qs('[data-projects-list]');
+        if (!root) return;
+        if (!projects.length) {
+            root.innerHTML = '<div class="muted">Объекты пока не найдены.</div>';
+            return;
+        }
+        var sortedProjects = projects.slice().sort(function (left, right) {
+            var leftCompleted = isCompletedProject(left) ? 1 : 0;
+            var rightCompleted = isCompletedProject(right) ? 1 : 0;
+            if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+            return Number(right.id) - Number(left.id);
+        });
+        var criticalByProject = {};
+        var criticalItems = state.dashboard && Array.isArray(state.dashboard.criticalItems) ? state.dashboard.criticalItems : [];
+        criticalItems.forEach(function (item) {
+            criticalByProject[item.projectId] = (criticalByProject[item.projectId] || 0) + 1;
+        });
+        root.innerHTML = sortedProjects.map(function (project) {
+            var progress = percent(project.progress);
+            var criticalCount = criticalByProject[project.id] || 0;
+            var completed = isCompletedProject(project);
+            var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">Нехватки: ' + criticalCount + '</span>' : '';
+            var statusBadge = completed ? '<span class="badge success">Завершен</span>' : '<span class="badge">' + escapeHtml(project.status || 'В работе') + '</span>';
+            var editButton = isAdminRole()
+                ? '<button class="project-card-menu" type="button" aria-label="Редактировать объект" data-project-edit="' + project.id + '">&#8942;</button>'
+                : '';
+            return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + project.id + '">' +
+                '<div class="project-top">' +
+                    '<div><h3>' + escapeHtml(project.title) + '</h3><p>' + escapeHtml(project.address || 'Адрес не указан') + '</p></div>' +
+                    '<div class="project-card-tools"><div class="project-badges">' + statusBadge + riskBadge + '</div>' + editButton + '</div>' +
+                '</div>' +
+                '<div class="meta-grid">' +
+                    '<div><span>Заказчик</span><strong>' + escapeHtml(project.client_name || 'Не указан') + '</strong></div>' +
+                    '<div><span>Бюджет</span><strong>' + escapeHtml(project.budget == null ? 'Скрыто' : money(project.budget)) + '</strong></div>' +
+                    '<div><span>Дедлайн</span><strong>' + escapeHtml(project.deadline_at || '—') + '</strong></div>' +
+                '</div>' +
+                renderStrongProgress(progress, 'Готовность объекта', false) +
+            '</article>';
+        }).join('');
+        qsa('[data-project-id]', root).forEach(function (card) {
+            card.addEventListener('click', function (event) {
+                if (event.target && event.target.closest('[data-project-edit]')) return;
+                openProject(Number(card.dataset.projectId));
+            });
+        });
+        qsa('[data-project-edit]', root).forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                openProjectEdit(Number(button.dataset.projectEdit));
+            });
+        });
+    }
+
+    function openProject(projectId) {
+        var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+        if (!project) return;
+        state.selectedProject = project;
+        setProjectFocusMode(true);
+        qs('[data-project-detail]').hidden = false;
+        qs('[data-detail-title]').textContent = project.title;
+        activateProjectTab('overview');
+        var detailCard = qs('[data-project-detail]');
+        if (detailCard && typeof detailCard.scrollIntoView === 'function') {
+            detailCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        var focusRoot = qs('[data-project-focus]');
+        if (focusRoot) {
+            focusRoot.innerHTML = '';
+            focusRoot.hidden = true;
+        }
+        qs('[data-panel="overview"]').innerHTML =
+            renderProjectOverviewHero(project) +
+            renderProjectOverviewActions(project) +
+            '<section class="subsection"><div class="card-head"><h3>Назначения на объект</h3></div><div data-project-assignments>Загрузка назначений...</div></section>';
+        qs('[data-panel="execution"]').innerHTML = '<p class="muted">Загрузка структуры объекта...</p>';
+        qs('[data-panel="schedule"]').innerHTML = renderSchedule(project);
+        qs('[data-panel="tasks"]').innerHTML = '<p class="muted">Загрузка задач...</p>';
+        qs('[data-panel="documents"]').innerHTML = '<p class="muted">Загрузка документов...</p>';
+        qs('[data-panel="chat"]').innerHTML = '<p class="muted">Загрузка чатов...</p>';
+        qs('[data-panel="ai"]').innerHTML = renderAi(project, []);
+        bindProjectOverviewActions();
+        loadMaterials(project.id, function (items) {
+            var overview = qs('[data-panel="overview"]');
+            if (overview && !qs('[data-project-overview-materials]', overview)) {
+                overview.insertAdjacentHTML('beforeend', '<section class="subsection"><div class="card-head"><h3>Материалы по смете и складу</h3></div><div data-project-overview-materials></div></section>');
+            }
+            var overviewMaterials = qs('[data-project-overview-materials]', overview || document);
+            loadMaterialInsights(project.id, function (insights) {
+                qs('[data-panel="materials"]').innerHTML = renderMaterials(items, project.id, insights);
+                if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(items, project.id, insights);
+                bindProjectChainActions();
+                qs('[data-panel="ai"]').innerHTML = renderAi(project, items);
+            });
+        });
+        loadAnalysis(project.id, function (analysis) {
+            qs('[data-panel="ai"]').innerHTML = renderBackendAnalysis(analysis);
+        });
+        loadStages(project.id, function (stages) {
+            qs('[data-panel="execution"]').innerHTML = renderExecutionPanel(stages, project.id);
+            qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            loadExecutionInsights(project.id, stages);
+        });
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    }
+
+    function renderProjectsPage() {
+        if (isAdminRole()) {
+            loadCompanies(populateProjectCompanySelects);
+        }
+        ensureProjectEditCard();
+        bindProjectCreate();
+        bindProjectEditForm();
+        bindProjectBootstrapForm();
+        var bootstrapForm = qs('[data-project-bootstrap-form]');
+        if (bootstrapForm && bootstrapForm.closest('section')) {
+            bootstrapForm.closest('section').hidden = true;
+        }
+        renderProjectStats();
+        renderProjectCritical();
+        renderProjectList(state.projects);
+        var search = qs('[data-project-search]');
+        if (search && search.dataset.bound !== '1') {
+            search.dataset.bound = '1';
+            search.addEventListener('input', function () {
+                var query = search.value.toLocaleLowerCase('ru');
+                renderProjectList(state.projects.filter(function (project) {
+                    return [project.title, project.address, project.client_name, project.status]
+                        .join(' ')
+                        .toLocaleLowerCase('ru')
+                        .indexOf(query) !== -1;
+                }));
+            });
+        }
+        var close = qs('[data-close-detail]');
+        if (close && close.dataset.bound !== '1') {
+            close.dataset.bound = '1';
+            close.addEventListener('click', function () {
+                state.selectedProject = null;
+                qs('[data-project-detail]').hidden = true;
+                setProjectFocusMode(false);
+                try {
+                    var closeParams = new URLSearchParams(location.search);
+                    closeParams.delete('openProject');
+                    var closeQuery = closeParams.toString();
+                    history.replaceState(null, '', location.pathname + (closeQuery ? '?' + closeQuery : ''));
+                } catch (error) {}
+            });
+        }
+        qsa('[data-tab]').forEach(function (button) {
+            if (button.dataset.projectTabBound === '1') return;
+            if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
+                button.classList.add('hidden');
+                return;
+            }
+            if (button.dataset.tab === 'finance' && !canSeeFinances()) {
+                button.classList.add('hidden');
+                return;
+            }
+            button.dataset.projectTabBound = '1';
+            button.addEventListener('click', function () {
+                activateProjectTab(button.dataset.tab);
             });
         });
     }
@@ -6223,6 +6979,74 @@ function renderLogsDayView(project, logs) {
         if (page === 'reports') initReportsPage();
     }
 
+    function renderProjectsPage() {
+        if (isAdminRole()) {
+            loadCompanies(populateProjectCompanySelects);
+        }
+        ensureProjectEditCard();
+        bindProjectCreate();
+        bindProjectEditForm();
+        bindProjectBootstrapForm();
+        var bootstrapForm = qs('[data-project-bootstrap-form]');
+        if (bootstrapForm && bootstrapForm.closest('section')) {
+            bootstrapForm.closest('section').hidden = true;
+        }
+        renderProjectStats();
+        renderProjectCritical();
+        renderProjectList(state.projects);
+        var search = qs('[data-project-search]');
+        if (search && search.dataset.bound !== '1') {
+            search.dataset.bound = '1';
+            search.addEventListener('input', function () {
+                var query = search.value.toLocaleLowerCase('ru');
+                renderProjectList(state.projects.filter(function (project) {
+                    return [project.title, project.address, project.client_name, project.status]
+                        .join(' ')
+                        .toLocaleLowerCase('ru')
+                        .indexOf(query) !== -1;
+                }));
+            });
+        }
+        var close = qs('[data-close-detail]');
+        if (close && close.dataset.bound !== '1') {
+            close.dataset.bound = '1';
+            close.addEventListener('click', function () {
+                state.selectedProject = null;
+                qs('[data-project-detail]').hidden = true;
+                setProjectFocusMode(false);
+                try {
+                    var closeParams = new URLSearchParams(location.search);
+                    closeParams.delete('openProject');
+                    var closeQuery = closeParams.toString();
+                    history.replaceState(null, '', location.pathname + (closeQuery ? '?' + closeQuery : ''));
+                } catch (error) {}
+            });
+        }
+        qsa('[data-tab]').forEach(function (button) {
+            if (button.dataset.projectTabBound === '1') return;
+            if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
+                button.classList.add('hidden');
+                return;
+            }
+            if (button.dataset.tab === 'finance' && !canSeeFinances()) {
+                button.classList.add('hidden');
+                return;
+            }
+            button.dataset.projectTabBound = '1';
+            button.addEventListener('click', function () {
+                activateProjectTab(button.dataset.tab);
+            });
+        });
+        var params = new URLSearchParams(location.search);
+        var openProjectId = Number(params.get('openProject') || 0);
+        if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
+            var matched = state.projects.some(function (project) { return Number(project.id) === openProjectId; });
+            if (matched) {
+                openProject(openProjectId);
+            }
+        }
+    }
+
     function bindAutobotImmersiveMode() {
         if (page !== 'autobot' || window.__pmbiAutobotImmersiveBound) return;
         window.__pmbiAutobotImmersiveBound = true;
@@ -6301,6 +7125,91 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    function openProject(projectId) {
+        var root = qs('[data-project-detail]');
+        if (!root) return;
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        if (!project) return;
+        state.selectedProject = project;
+        root.hidden = false;
+        setProjectFocusMode(true);
+        ensureProjectWorksTab();
+
+        var detailTitle = qs('[data-project-title]') || qs('[data-detail-title]');
+        var overviewPanel = qs('[data-panel="overview"]');
+        var executionPanel = qs('[data-panel="execution"]');
+        var materialsPanel = qs('[data-panel="materials"]');
+        var worksPanel = qs('[data-panel="works"]');
+        var schedulePanel = qs('[data-panel="schedule"]');
+        var tasksPanel = qs('[data-panel="tasks"]');
+        var financePanel = qs('[data-panel="finance"]');
+        var documentsPanel = qs('[data-panel="documents"]');
+        var chatPanel = qs('[data-panel="chat"]');
+        var aiPanel = qs('[data-panel="ai"]');
+
+        if (detailTitle) detailTitle.textContent = project.title || 'Карточка объекта';
+        if (overviewPanel) overviewPanel.innerHTML = renderProjectOverview(project);
+        if (executionPanel) executionPanel.innerHTML = '<p class="muted">Загружаем структуру объекта...</p>';
+        if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загружаем материалы...</p>';
+        if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загружаем работы...</p>';
+        if (schedulePanel) schedulePanel.innerHTML = '<p class="muted">Откройте вкладку, чтобы загрузить график.</p>';
+        if (tasksPanel) tasksPanel.innerHTML = '<p class="muted">Загружаем задачи...</p>';
+        if (financePanel) financePanel.innerHTML = '';
+        if (documentsPanel) documentsPanel.innerHTML = '<p class="muted">Загружаем документы...</p>';
+        if (chatPanel) chatPanel.innerHTML = '<p class="muted">Загружаем чат...</p>';
+        if (aiPanel) aiPanel.innerHTML = '';
+
+        bindProjectOverviewActions();
+        activateProjectTab('overview');
+
+        loadMaterials(project.id, function (items) {
+            if (materialsPanel) {
+                materialsPanel.innerHTML = renderMaterials(items, project.id, state.materialInsightsByProject[project.id] || null);
+            }
+            var overviewMaterials = qs('[data-panel="overview-materials"]') || qs('[data-project-overview-materials]');
+            if (overviewMaterials && typeof renderOverviewMaterials === 'function') {
+                overviewMaterials.innerHTML = renderOverviewMaterials(items);
+            }
+            if (state.stagesByProject[project.id] && worksPanel) {
+                worksPanel.innerHTML = renderWorksPanel(state.stagesByProject[project.id], items);
+            }
+        });
+
+        loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            var stages = state.stagesByProject[project.id] || [];
+            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages, project);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+        });
+
+        loadAnalysis(project.id, function (analysis) {
+            if (aiPanel) aiPanel.innerHTML = renderBackendAnalysis(analysis);
+        });
+
+        loadStages(project.id, function (stages) {
+            if (executionPanel) executionPanel.innerHTML = renderExecutionPanel(stages, project.id);
+            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages, project);
+            if (worksPanel) {
+                worksPanel.innerHTML = renderWorksPanel(stages, state.materialsByProject[project.id] || []);
+            }
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+            loadExecutionInsights(project.id, stages);
+        });
+
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    }
+
     loadProjectNotifications = function (projectId, callback) {
         api('/api/projects/' + projectId + '/notifications').then(function (data) {
             state.notificationsByProject[projectId] = data || null;
@@ -6371,6 +7280,20 @@ function renderLogsDayView(project, logs) {
         '</section>';
     }
 
+    renderSchedulePanel = function (stages, project) {
+        var planner = renderSchedulePlanner(project, stages);
+        var forecast = renderSectionScheduleForecast(project);
+        var procurement = renderScheduleProcurementBoard(project);
+        var controlBoard = renderScheduleStateBoard(project);
+        if (!stages.length) return planner + forecast + procurement + controlBoard + renderSchedule(project);
+        var internal = stages;
+        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
+        return planner + forecast + procurement + controlBoard + '<div class="schedule-split">' +
+            '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
+            '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
+        '</div>';
+    };
+
     function isTimelineStageStarted(stage) {
         var progress = percent(stage.progress);
         var status = String(stage.status_code || '').trim();
@@ -6407,6 +7330,39 @@ function renderLogsDayView(project, logs) {
             '<strong class="timeline-progress-value">' + (isDone ? '100%' : (progress + '%')) + '</strong>';
     }
 
+    renderScheduleRows = function (stages, customerMode) {
+        var today = APP_TODAY;
+        if (!stages.length) return '<p class="muted">Нет этапов для отображения.</p>';
+        return '<div class="timeline">' + stages.map(function (stage) {
+            var progress = percent(stage.progress);
+            var progressTrackClass = progress <= 0 ? ' timeline-progress-empty' : '';
+            var start = customerMode ? (stage.customer_start || stage.planned_start || '—') : (stage.planned_start || '—');
+            var end = customerMode ? (stage.customer_end || stage.planned_end || '—') : (stage.planned_end || '—');
+            var summary = customerMode
+                ? (start + ' — ' + end + ' • ' + statusLabel(stage.status_code))
+                : buildScheduleStageSummary(stage, today);
+            return '<div class="timeline-row ' + scheduleTimelineClass(stage, today) + '">' +
+                '<div class="timeline-main"><b>' + escapeHtml(stage.title) + '</b><span>' + escapeHtml(summary) + '</span></div>' +
+                '<div class="timeline-progress' + progressTrackClass + '">' + (progress > 0 ? '<i style="width:' + progress + '%"></i>' : '') + '</div>' +
+                '<strong class="timeline-progress-value">' + progress + '%</strong>' +
+                '<div class="timeline-badges">' + renderScheduleStageBadges(stage, today, customerMode) + '</div>' +
+            '</div>';
+        }).join('') + '</div>';
+    };
+
+    renderSchedulePanel = function (stages, project) {
+        var planner = renderSchedulePlanner(project, stages);
+        var forecast = renderSectionScheduleForecast(project);
+        var procurement = renderScheduleProcurementBoard(project);
+        if (!stages.length) return planner + forecast + procurement + renderSchedule(project);
+        var internal = stages;
+        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
+        return planner + forecast + procurement + '<div class="schedule-split">' +
+            '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
+            '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
+        '</div>';
+    };
+
     function getProjectTabMode(projectId, tab) {
         if (!state.projectTabModesByProject[projectId]) state.projectTabModesByProject[projectId] = {};
         return state.projectTabModesByProject[projectId][tab] || 'list';
@@ -6418,45 +7374,92 @@ function renderLogsDayView(project, logs) {
     }
 
     function marketErrorLabel(code) {
-        if (code === 'estimate_not_linked') return '\u041e\u0431\u044a\u0435\u043a\u0442 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0441\u0432\u044f\u0437\u0430\u043d \u0441\u043e \u0441\u043c\u0435\u0442\u043e\u0439 AutoBot.';
-        if (code === 'autobot_unavailable') return '\u0414\u0430\u043d\u043d\u044b\u0435 \u0440\u044b\u043d\u043a\u0430 \u043f\u043e\u043a\u0430 \u043d\u0435 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u044b. \u041f\u043e\u0432\u0442\u043e\u0440\u0438 \u0430\u043d\u0430\u043b\u0438\u0437.';
-        return '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0430\u043d\u0430\u043b\u0438\u0437 \u0440\u044b\u043d\u043a\u0430.';
+        if (code === 'estimate_not_linked') return 'Объект пока не связан со сметой AutoBot.';
+        if (code === 'autobot_unavailable') return 'AutoBot сейчас недоступен, попробуй чуть позже.';
+        return 'Не удалось загрузить анализ рынка.';
     }
 
     function formatMarketDelta(delta) {
-        if (delta == null) return '<span class="muted">&mdash;</span>';
-        if (delta === 0) return '<span class="market-delta market-delta-even">\u0420\u043e\u0432\u043d\u043e \u043f\u043e \u0441\u043c\u0435\u0442\u0435</span>';
+        if (delta == null) return '<span class="muted">—</span>';
+        if (delta === 0) return '<span class="market-delta market-delta-even">Ровно по смете</span>';
         var cls = delta < 0 ? 'market-delta-save' : 'market-delta-over';
-        var label = delta < 0 ? '\u041d\u0438\u0436\u0435' : '\u0412\u044b\u0448\u0435';
-        return '<span class="market-delta ' + cls + '">' + label + ' \u043d\u0430 ' + escapeHtml(money(Math.abs(delta))) + '</span>';
+        var label = delta < 0 ? 'Ниже' : 'Выше';
+        return '<span class="market-delta ' + cls + '">' + label + ' на ' + escapeHtml(money(Math.abs(delta))) + '</span>';
     }
 
     function renderMarketSources(row) {
         var sources = Array.isArray(row.sources) ? row.sources : [];
-        if (!sources.length) return '<span class="muted">\u041d\u0435\u0442 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u043e\u0432</span>';
+        if (!sources.length) return '<span class="muted">Нет источников</span>';
         var visible = sources.slice(0, 3).map(function (source) {
-            var label = source.domain || source.title || '\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a';
+            var label = source.domain || source.title || 'Источник';
             return '<a href="' + escapeHtml(source.url || '#') + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>';
         }).join('');
         var more = row.sourceCount > 3 ? '<span class="market-source-more">+' + (row.sourceCount - 3) + '</span>' : '';
         return '<div class="market-sources">' + visible + more + '</div>';
     }
 
+    function renderMarketTable(rows, kind) {
+        if (!rows.length) {
+            return '<div class="market-empty">По этому разделу пока нет строк для анализа.</div>';
+        }
+        return '<div class="market-table-wrap"><table class="market-table">' +
+            '<thead><tr>' +
+                '<th>Позиция</th>' +
+                '<th>Смета</th>' +
+                '<th>Рынок</th>' +
+                '<th>Разница</th>' +
+                '<th>Источники</th>' +
+            '</tr></thead><tbody>' +
+            rows.map(function (row) {
+                var meta = [
+                    row.sectionTitle || '',
+                    row.plannedQty ? ('Объем: ' + row.plannedQty + ' ' + (row.unit || '')) : '',
+                    row.positionIndex ? ('№ ' + row.positionIndex) : ''
+                ].filter(Boolean).join(' • ');
+                var marketCell = row.marketPrice == null
+                    ? '<span class="market-missing">Нет данных</span>'
+                    : '<strong>' + escapeHtml(money(row.marketPrice)) + '</strong>' +
+                        (row.marketType ? '<small>' + escapeHtml(kind === 'work' ? 'Работы AutoBot' : 'Рынок AutoBot') + '</small>' : '');
+                return '<tr>' +
+                    '<td><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || 'Без раздела') + '</small></td>' +
+                    '<td><strong>' + escapeHtml(money(row.estimateUnitPrice || 0)) + '</strong><small>Всего: ' + escapeHtml(money(row.estimateTotal || 0)) + '</small></td>' +
+                    '<td>' + marketCell + (row.statusNote ? '<small>' + escapeHtml(row.statusNote) + '</small>' : '') + '</td>' +
+                    '<td>' + formatMarketDelta(row.deltaPerUnit) + '</td>' +
+                    '<td>' + renderMarketSources(row) + '</td>' +
+                '</tr>';
+            }).join('') +
+            '</tbody></table></div>';
+    }
 
+    function renderProjectMarketBlock(projectId, kind) {
+        var cache = (state.marketAnalysisByProject[projectId] || {})[kind];
+        if (!cache || cache.loading) {
+            return '<div class="market-empty">Собираем анализ рынка из AutoBot...</div>';
+        }
+        if (cache.error) {
+            return '<div class="market-empty">' + escapeHtml(marketErrorLabel(cache.error)) + '</div>';
+        }
+        var summary = cache.summary || {};
+        return '<div class="execution-summary">' +
+            stat('Всего позиций', String(summary.total || 0)) +
+            stat('Есть рынок', String(summary.withMarketData || 0), summary.withMarketData ? '' : 'warn') +
+            stat('Без рынка', String(summary.withoutMarketData || 0), summary.withoutMarketData ? 'warn' : '') +
+        '</div>' + renderMarketTable(cache.rows || [], kind);
+    }
 
     function renderProjectTabViewSwitcher(projectId, tab, title, subtitle) {
         var mode = getProjectTabMode(projectId, tab);
         return '<div class="market-toolbar">' +
             '<div><h3>' + escapeHtml(title) + '</h3><p>' + escapeHtml(subtitle) + '</p></div>' +
             '<div class="segmented compact" data-market-switcher>' +
-                '<button type="button" class="' + (mode === 'list' ? 'active' : '') + '" data-market-mode="list" data-market-tab="' + tab + '">\u0421\u043f\u0438\u0441\u043e\u043a</button>' +
-                '<button type="button" class="' + (mode === 'market' ? 'active' : '') + '" data-market-mode="market" data-market-tab="' + tab + '">\u0410\u043d\u0430\u043b\u0438\u0437 \u0440\u044b\u043d\u043a\u0430</button>' +
+                '<button type="button" class="' + (mode === 'list' ? 'active' : '') + '" data-market-mode="list" data-market-tab="' + tab + '">Список</button>' +
+                '<button type="button" class="' + (mode === 'market' ? 'active' : '') + '" data-market-mode="market" data-market-tab="' + tab + '">Анализ рынка</button>' +
             '</div>' +
         '</div>';
     }
 
     function renderProjectMaterialsTab(project, items, insights) {
-        var header = renderProjectTabViewSwitcher(project.id, 'materials', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', '\u0421\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0438 \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 \u0432\u0438\u0434 \u0441 \u0446\u0435\u043d\u0430\u043c\u0438 \u0440\u044b\u043d\u043a\u0430 \u0438\u0437 AutoBot.');
+        var header = renderProjectTabViewSwitcher(project.id, 'materials', 'Материалы', 'Список позиций и отдельный вид с ценами рынка из AutoBot.');
         if (getProjectTabMode(project.id, 'materials') === 'market') {
             return header + renderProjectMarketBlock(project.id, 'material');
         }
@@ -6464,7 +7467,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderProjectWorksTab(project, stages, items) {
-        var header = renderProjectTabViewSwitcher(project.id, 'works', '\u0420\u0430\u0431\u043e\u0442\u044b', '\u0422\u0435\u043a\u0443\u0449\u0438\u0435 \u0440\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u0438 \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u0430\u044f \u0441\u0432\u043e\u0434\u043a\u0430 \u043f\u043e \u0440\u044b\u043d\u043e\u0447\u043d\u044b\u043c \u0446\u0435\u043d\u0430\u043c.');
+        var header = renderProjectTabViewSwitcher(project.id, 'works', 'Работы', 'Текущие работы по смете и отдельная сводка по рыночным ценам.');
         if (getProjectTabMode(project.id, 'works') === 'market') {
             return header + renderProjectMarketBlock(project.id, 'work');
         }
@@ -6477,21 +7480,21 @@ function renderLogsDayView(project, logs) {
         if (tab === 'materials') {
             var materialsPanel = qs('[data-panel="materials"]');
             if (materialsPanel) {
-                safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(
+                materialsPanel.innerHTML = renderProjectMaterialsTab(
                     project,
                     state.materialsByProject[projectId] || [],
                     state.materialInsightsByProject[projectId] || {}
-                ));
+                );
             }
         }
         if (tab === 'works') {
             var worksPanel = qs('[data-panel="works"]');
             if (worksPanel) {
-                safeReplaceChildren(worksPanel, renderProjectWorksTab(
+                worksPanel.innerHTML = renderProjectWorksTab(
                     project,
                     state.stagesByProject[projectId] || [],
                     state.materialsByProject[projectId] || []
-                ));
+                );
             }
         }
         bindProjectMarketToggles(projectId);
@@ -6517,6 +7520,97 @@ function renderLogsDayView(project, logs) {
             });
         });
     }
+
+    openProject = function (projectId) {
+        var root = qs('[data-project-detail]');
+        if (!root) return;
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        if (!project) return;
+        state.selectedProject = project;
+        root.hidden = false;
+        setProjectFocusMode(true);
+        ensureProjectWorksTab();
+
+        var detailTitle = qs('[data-project-title]') || qs('[data-detail-title]');
+        var overviewPanel = qs('[data-panel="overview"]');
+        var executionPanel = qs('[data-panel="execution"]');
+        var materialsPanel = qs('[data-panel="materials"]');
+        var worksPanel = qs('[data-panel="works"]');
+        var schedulePanel = qs('[data-panel="schedule"]');
+        var tasksPanel = qs('[data-panel="tasks"]');
+        var financePanel = qs('[data-panel="finance"]');
+        var documentsPanel = qs('[data-panel="documents"]');
+        var chatPanel = qs('[data-panel="chat"]');
+        var aiPanel = qs('[data-panel="ai"]');
+
+        if (detailTitle) detailTitle.textContent = project.title || 'Карточка объекта';
+        if (overviewPanel) overviewPanel.innerHTML = renderProjectOverview(project);
+        if (executionPanel) executionPanel.innerHTML = '<p class="muted">Загружаем структуру объекта...</p>';
+        if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загружаем материалы...</p>';
+        if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загружаем работы...</p>';
+        if (schedulePanel) schedulePanel.innerHTML = '<p class="muted">Откройте вкладку, чтобы загрузить график.</p>';
+        if (tasksPanel) tasksPanel.innerHTML = '<p class="muted">Загружаем задачи...</p>';
+        if (financePanel) financePanel.innerHTML = '';
+        if (documentsPanel) documentsPanel.innerHTML = '<p class="muted">Загружаем документы...</p>';
+        if (chatPanel) chatPanel.innerHTML = '<p class="muted">Загружаем чат...</p>';
+        if (aiPanel) aiPanel.innerHTML = '';
+
+        bindProjectOverviewActions();
+        activateProjectTab('overview');
+
+        loadMaterials(project.id, function (items) {
+            if (materialsPanel) {
+                materialsPanel.innerHTML = renderMaterials(items, project.id, state.materialInsightsByProject[project.id] || null);
+            }
+            var overviewMaterials = qs('[data-panel="overview-materials"]') || qs('[data-project-overview-materials]');
+            if (overviewMaterials && typeof renderOverviewMaterials === 'function') {
+                overviewMaterials.innerHTML = renderOverviewMaterials(items);
+            }
+            if (state.stagesByProject[project.id] && worksPanel) {
+                worksPanel.innerHTML = renderWorksPanel(state.stagesByProject[project.id], items);
+            }
+        });
+
+        loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            var stages = state.stagesByProject[project.id] || [];
+            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages, project);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+        });
+
+        loadAnalysis(project.id, function (analysis) {
+            if (aiPanel) aiPanel.innerHTML = renderBackendAnalysis(analysis);
+        });
+
+        loadStages(project.id, function (stages) {
+            if (executionPanel) executionPanel.innerHTML = renderExecutionPanel(stages, project.id);
+            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages, project);
+            if (worksPanel) {
+                worksPanel.innerHTML = renderWorksPanel(stages, state.materialsByProject[project.id] || []);
+            }
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+            loadExecutionInsights(project.id, stages);
+        });
+
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    };
+
+    renderSchedulePanel = function (stages, project) {
+        var planner = renderSchedulePlanner(project, stages);
+        var forecast = renderSectionScheduleForecast(project);
+        return planner + forecast;
+    };
 
     function initShell() {
         applySidebarPreference();
@@ -7044,6 +8138,204 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
+    function renderWorksPanel(estimateItems, stages) {
+        var estimateWorks = (estimateItems || []).filter(function (item) {
+            return normalizeItemKindClient(item.itemKind || item.item_kind) === 'work';
+        });
+        if (estimateWorks.length) {
+            var groupedEstimateWorks = groupEstimateItemsBySection(estimateWorks);
+            return '<div class="execution-summary">' +
+                stat('Работ', String(estimateWorks.length)) +
+                stat('Разделов', String(groupedEstimateWorks.length)) +
+                stat('Источник', 'Смета') +
+            '</div>' +
+            groupedEstimateWorks.map(function (group) {
+                return '<section class="subsection">' +
+                    '<div class="card-head"><h3>' + escapeHtml(group.sectionTitle) + '</h3><span class="muted">' + escapeHtml(String(group.items.length) + ' поз.') + '</span></div>' +
+                    '<div class="materials-list">' + group.items.map(renderEstimateWorkRow).join('') + '</div>' +
+                '</section>';
+            }).join('');
+        }
+
+        var stageData = buildStageMaps(stages || []);
+        var works = (stages || []).filter(function (stage) {
+            var stageKind = String(stage.stage_kind || '').trim().toLowerCase();
+            var children = stageData.childrenMap[Number(stage.id)] || [];
+            return stageKind === 'work' || (stageKind && stageKind !== 'section' && children.length === 0);
+        });
+        if (!works.length) {
+            return '<p class="muted">Работы по разделам появятся после импорта сметы/структуры с разбивкой.</p>';
+        }
+        var grouped = {};
+        var order = [];
+        works.forEach(function (stage) {
+            var root = stageRootSection(stage, stageData.stageMap);
+            var sectionTitle = String(root && root.title || 'Без раздела').trim() || 'Без раздела';
+            if (!grouped[sectionTitle]) {
+                grouped[sectionTitle] = [];
+                order.push(sectionTitle);
+            }
+            grouped[sectionTitle].push(stage);
+        });
+        return '<div class="execution-summary">' +
+            stat('Работ', String(works.length)) +
+            stat('Разделов', String(order.length)) +
+            stat('Источник', 'График') +
+        '</div>' +
+        order.map(function (sectionTitle) {
+            return '<section class="subsection">' +
+                '<div class="card-head"><h3>' + escapeHtml(sectionTitle) + '</h3><span class="muted">' + escapeHtml(String(grouped[sectionTitle].length) + ' работ') + '</span></div>' +
+                '<div class="materials-list">' + grouped[sectionTitle].map(function (stage) {
+                    return renderStageWorkRow(stage, stageData.stageMap);
+                }).join('') + '</div>' +
+            '</section>';
+        }).join('');
+    }
+
+    function renderMaterials(items, projectId, insights) {
+        var materialItems = (items || []).filter(function (item) {
+            return normalizeItemKindClient(item.itemKind || item.item_kind) !== 'work';
+        });
+        return renderMaterialsGrouped(materialItems, projectId, insights || {});
+    }
+
+    function openProject(projectId) {
+        var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+        if (!project) return;
+        ensureProjectWorksSurface();
+        state.selectedProject = project;
+        setProjectFocusMode(true);
+        qs('[data-project-detail]').hidden = false;
+        qs('[data-detail-title]').textContent = project.title;
+        activateProjectTab('overview');
+        var detailCard = qs('[data-project-detail]');
+        if (detailCard && typeof detailCard.scrollIntoView === 'function') {
+            detailCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        var focusRoot = qs('[data-project-focus]');
+        if (focusRoot) {
+            focusRoot.innerHTML = '';
+            focusRoot.hidden = true;
+        }
+        qs('[data-panel="overview"]').innerHTML =
+            renderProjectOverviewHero(project) +
+            renderProjectOverviewActions(project) +
+            '<section class="subsection"><div class="card-head"><h3>Назначения на объект</h3></div><div data-project-assignments>Загрузка назначений...</div></section>';
+        qs('[data-panel="execution"]').innerHTML = '<p class="muted">Загрузка структуры объекта...</p>';
+        qs('[data-panel="materials"]').innerHTML = '<p class="muted">Загрузка материалов...</p>';
+        if (qs('[data-panel="works"]')) qs('[data-panel="works"]').innerHTML = '<p class="muted">Загрузка работ...</p>';
+        qs('[data-panel="schedule"]').innerHTML = renderSchedule(project);
+        qs('[data-panel="tasks"]').innerHTML = '<p class="muted">Загрузка задач...</p>';
+        qs('[data-panel="documents"]').innerHTML = '<p class="muted">Загрузка документов...</p>';
+        qs('[data-panel="chat"]').innerHTML = '<p class="muted">Загрузка чатов...</p>';
+        qs('[data-panel="ai"]').innerHTML = renderAi(project, []);
+        bindProjectOverviewActions();
+        loadMaterials(project.id, function (items) {
+            var overview = qs('[data-panel="overview"]');
+            if (overview && !qs('[data-project-overview-materials]', overview)) {
+                overview.insertAdjacentHTML('beforeend', '<section class="subsection"><div class="card-head"><h3>Материалы по смете</h3></div><div data-project-overview-materials></div></section>');
+            }
+            var overviewMaterials = qs('[data-project-overview-materials]', overview || document);
+            loadMaterialInsights(project.id, function (insights) {
+                qs('[data-panel="materials"]').innerHTML = renderMaterials(items, project.id, insights);
+                if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(items, project.id, insights);
+                bindProjectChainActions();
+                qs('[data-panel="ai"]').innerHTML = renderAi(project, items.filter(function (item) {
+                    return normalizeItemKindClient(item.itemKind || item.item_kind) !== 'work';
+                }));
+                loadStages(project.id, function (stages) {
+                    var worksPanel = qs('[data-panel="works"]');
+                    if (worksPanel) worksPanel.innerHTML = renderWorksPanel(items, stages);
+                    qs('[data-panel="execution"]').innerHTML = renderExecutionPanel(stages, project.id);
+                    qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
+                    bindStageCreateForm(project.id);
+                    bindStageEditors(project.id);
+                    bindAutoScheduleForm(project.id);
+                    bindScheduleStatusActions(project.id);
+                    loadExecutionInsights(project.id, stages);
+                });
+            });
+        });
+        loadAnalysis(project.id, function (analysis) {
+            qs('[data-panel="ai"]').innerHTML = renderBackendAnalysis(analysis);
+        });
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    }
+
+    function renderProjectsPage() {
+        ensureProjectWorksSurface();
+        if (isAdminRole()) {
+            loadCompanies(populateProjectCompanySelects);
+        }
+        ensureProjectEditCard();
+        bindProjectCreate();
+        bindProjectEditForm();
+        bindProjectBootstrapForm();
+        var bootstrapForm = qs('[data-project-bootstrap-form]');
+        if (bootstrapForm && bootstrapForm.closest('section')) {
+            bootstrapForm.closest('section').hidden = true;
+        }
+        renderProjectStats();
+        renderProjectCritical();
+        renderProjectList(state.projects);
+        var search = qs('[data-project-search]');
+        if (search && search.dataset.bound !== '1') {
+            search.dataset.bound = '1';
+            search.addEventListener('input', function () {
+                var query = search.value.toLocaleLowerCase('ru');
+                renderProjectList(state.projects.filter(function (project) {
+                    return [project.title, project.address, project.client_name, project.status]
+                        .join(' ')
+                        .toLocaleLowerCase('ru')
+                        .indexOf(query) !== -1;
+                }));
+            });
+        }
+        var close = qs('[data-close-detail]');
+        if (close && close.dataset.bound !== '1') {
+            close.dataset.bound = '1';
+            close.addEventListener('click', function () {
+                state.selectedProject = null;
+                qs('[data-project-detail]').hidden = true;
+                setProjectFocusMode(false);
+                try {
+                    var closeParams = new URLSearchParams(location.search);
+                    closeParams.delete('openProject');
+                    var closeQuery = closeParams.toString();
+                    history.replaceState(null, '', location.pathname + (closeQuery ? '?' + closeQuery : ''));
+                } catch (error) {}
+            });
+        }
+        qsa('[data-tab]').forEach(function (button) {
+            if (button.dataset.projectTabBound === '1') return;
+            if (state.user && hasRole('customer') && ['execution', 'materials', 'works', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
+                button.classList.add('hidden');
+                return;
+            }
+            if (button.dataset.tab === 'finance' && !canSeeFinances()) {
+                button.classList.add('hidden');
+                return;
+            }
+            button.dataset.projectTabBound = '1';
+            button.addEventListener('click', function () {
+                activateProjectTab(button.dataset.tab);
+            });
+        });
+        var params = new URLSearchParams(location.search);
+        var openProjectId = Number(params.get('openProject') || 0);
+        if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
+            var matched = state.projects.some(function (project) { return Number(project.id) === openProjectId; });
+            if (matched) {
+                openProject(openProjectId);
+            }
+        }
+    }
+
     function syncDrawerBodyState() {
         var hasOpenDrawer = qsa('.side-drawer[data-open="1"], .project-edit-modal[data-open="1"]').length > 0;
         document.body.classList.toggle('side-drawer-open', hasOpenDrawer);
@@ -7318,8 +8610,72 @@ function renderLogsDayView(project, logs) {
         loadSelected();
     }
 
+    function bindLogForm() {
+        var form = qs('[data-log-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-log-error]');
+            if (error) error.classList.remove('active');
+            var projectId = Number(form.project_id.value);
+            api('/api/projects/' + projectId + '/daily-logs', {
+                method: 'POST',
+                body: JSON.stringify({
+                    report_date: form.report_date.value,
+                    title: form.title.value.trim(),
+                    work_done: form.work_done.value.trim(),
+                    workers_count: Number(form.workers_count.value || 0),
+                    equipment: form.equipment.value.trim(),
+                    blockers: form.blockers.value.trim(),
+                    next_steps: form.next_steps.value.trim(),
+                    progress_percent: form.progress_percent ? form.progress_percent.value : '',
+                    raw_input: form.raw_input ? form.raw_input.value.trim() : '',
+                    is_client_visible: form.is_client_visible.value === '1'
+                })
+            }).then(function (data) {
+                var keepProject = form.project_id.value;
+                var selectedDate = form.report_date.value || APP_TODAY;
+                form.reset();
+                form.project_id.value = keepProject;
+                form.report_date.value = APP_TODAY;
+                state.logsSelectedDateByProject[projectId] = selectedDate;
+                state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
+                var pageSelect = qs('[data-logs-project]');
+                if (pageSelect) pageSelect.value = keepProject;
+                if (data && data.project) updateProjectInState(data.project);
+                var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.projects[0];
+                loadProjectLogs(projectId, function (logs) {
+                    loadProjectNotifications(projectId, function (notifications) {
+                        renderLogsStats(logs, notifications);
+                        renderLogsAlerts(notifications);
+                        renderLogsCalendar(project, logs);
+                        renderLogsList(project, logs);
+                    });
+                });
+                closeSideDrawer(qs('[data-drawer-id="log-create"]'));
+                closeSideDrawer(qs('[data-drawer-id="project-report-create"]'));
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить отчёт';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
 
-
+    function ensureProjectWorksTab() {
+        var tabsRoot = qs('[data-project-detail] .tabs');
+        if (tabsRoot && !qs('[data-tab="works"]', tabsRoot)) {
+            var materialsTab = qs('[data-tab="materials"]', tabsRoot);
+            if (materialsTab) materialsTab.insertAdjacentHTML('afterend', '<button class="tab" data-tab="works">Работы</button>');
+        }
+        var detail = qs('[data-project-detail]');
+        if (detail && !qs('[data-panel="works"]', detail)) {
+            var materialsPanel = qs('[data-panel="materials"]', detail);
+            if (materialsPanel) materialsPanel.insertAdjacentHTML('afterend', '<div class="tab-panel" data-panel="works"></div>');
+        }
+    }
 
     function groupMaterialsBySection(items) {
         var groups = {};
@@ -7426,6 +8782,251 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
+    function renderWorksPanel(stages, items) {
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) {
+            return '<p class="muted">Работы по смете пока не загружены.</p>';
+        }
+
+        var groups = {};
+        var order = [];
+
+        workStages.forEach(function (stage) {
+            var sectionTitle = rootSectionTitleForStage(stage, stageMap);
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            groups[sectionTitle].stageRows.push(stage);
+        });
+
+        estimateWorks.forEach(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            groups[sectionTitle].estimateRows.push(item);
+        });
+
+        var active = workStages.filter(function (stage) {
+            return ['started', 'in_progress'].indexOf(stage.status_code) !== -1;
+        }).length;
+        var done = workStages.filter(function (stage) {
+            return ['completed', 'approved'].indexOf(stage.status_code) !== -1 || percent(stage.progress) >= 100;
+        }).length;
+        var blocked = workStages.filter(function (stage) {
+            return stage.status_code === 'blocked';
+        }).length;
+
+        return '<div class="execution-summary">' +
+            stat('Разделов', String(order.length)) +
+            stat('Работ', String(workStages.length || estimateWorks.length)) +
+            stat('В работе', String(active), active ? 'warn' : '') +
+            stat('Завершено', String(done)) +
+            stat('Блокеры', String(blocked), blocked ? 'danger' : '') +
+            stat('Позиции сметы', String(estimateWorks.length)) +
+        '</div><div class="estimate-section-list">' + order.map(function (title) {
+            var group = groups[title];
+            return '<section class="estimate-section">' +
+                '<div class="card-head estimate-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(materialSectionLabel(order.indexOf(title))) + '</h3><span class="badge estimate-section-count">' + escapeHtml(group.stageRows.length + group.estimateRows.length) + ' поз.</span></div><small>' + escapeHtml(title) + '</small></div>' +
+                '<div class="materials-list">' +
+                    group.stageRows.map(function (stage) {
+                        var meta = [
+                            stagePathLabel(stage, stageMap),
+                            stage.planned_start && stage.planned_end ? (stage.planned_start + ' — ' + stage.planned_end) : '',
+                            stage.responsible || ''
+                        ].filter(Boolean).join(' • ');
+                        return '<div class="material-row work-row">' +
+                            '<div><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || 'Работа') + '</small></div>' +
+                            '<div class="material-chain-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div>' +
+                        '</div>';
+                    }).join('') +
+                    group.estimateRows.map(renderEstimateWorkItem).join('') +
+                '</div>' +
+            '</section>';
+        }).join('') + '</div>';
+    }
+
+    function renderMaterials(items, projectId, insights) {
+        var materials = (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
+        if (!materials.length) return '<p class="muted">Материалы по смете пока не загружены.</p>';
+        var required = materials.filter(function (item) { return item.supplyStatus === 'required'; }).length;
+        var soon = materials.filter(function (item) { return item.supplyStatus === 'soon'; }).length;
+        var planned = materials.filter(function (item) { return item.supplyStatus === 'planned'; }).length;
+        var safe = materials.filter(function (item) { return item.supplyStatus === 'in_stock'; }).length;
+        insights = insights || {};
+        var groups = groupMaterialsBySection(materials);
+        return '<div class="execution-summary">' +
+            stat('Всего позиций', String(materials.length)) +
+            stat('Разделов', String(groups.length)) +
+            stat('Требуется', String(required), required ? 'danger' : '') +
+            stat('Скоро', String(soon), soon ? 'warn' : '') +
+            stat('Запланировать', String(planned), planned ? 'warn' : '') +
+            stat('В наличии', String(safe)) +
+        '</div>' + renderGroupedMaterials(groups, projectId, insights);
+    }
+
+    function openProject(projectId) {
+        var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+        if (!project) return;
+        ensureProjectWorksTab();
+        state.selectedProject = project;
+        setProjectFocusMode(true);
+        qs('[data-project-detail]').hidden = false;
+        qs('[data-detail-title]').textContent = project.title;
+        activateProjectTab('overview');
+        var detailCard = qs('[data-project-detail]');
+        if (detailCard && typeof detailCard.scrollIntoView === 'function') {
+            detailCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        var focusRoot = qs('[data-project-focus]');
+        if (focusRoot) {
+            focusRoot.innerHTML = '';
+            focusRoot.hidden = true;
+        }
+        qs('[data-panel="overview"]').innerHTML =
+            renderProjectOverviewHero(project) +
+            renderProjectOverviewActions(project) +
+            '<section class="subsection"><div class="card-head"><h3>Назначения на объект</h3></div><div data-project-assignments>Загрузка назначений...</div></section>';
+        qs('[data-panel="execution"]').innerHTML = '<p class="muted">Загрузка структуры объекта...</p>';
+        qs('[data-panel="materials"]').innerHTML = '<p class="muted">Загрузка материалов...</p>';
+        if (qs('[data-panel="works"]')) qs('[data-panel="works"]').innerHTML = '<p class="muted">Загрузка работ...</p>';
+        qs('[data-panel="schedule"]').innerHTML = renderSchedule(project);
+        qs('[data-panel="tasks"]').innerHTML = '<p class="muted">Загрузка задач...</p>';
+        qs('[data-panel="documents"]').innerHTML = '<p class="muted">Загрузка документов...</p>';
+        qs('[data-panel="chat"]').innerHTML = '<p class="muted">Загрузка чатов...</p>';
+        qs('[data-panel="ai"]').innerHTML = renderAi(project, []);
+        bindProjectOverviewActions();
+        loadMaterials(project.id, function (items) {
+            var overview = qs('[data-panel="overview"]');
+            if (overview && !qs('[data-project-overview-materials]', overview)) {
+                overview.insertAdjacentHTML('beforeend', '<section class="subsection"><div class="card-head"><h3>Материалы по смете</h3></div><div data-project-overview-materials></div></section>');
+            }
+            var overviewMaterials = qs('[data-project-overview-materials]', overview || document);
+            loadMaterialInsights(project.id, function (insights) {
+                qs('[data-panel="materials"]').innerHTML = renderMaterials(items, project.id, insights);
+                if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(items, project.id, insights);
+                bindProjectChainActions();
+                qs('[data-panel="ai"]').innerHTML = renderAi(project, items);
+                if (state.stagesByProject[project.id] && qs('[data-panel="works"]')) {
+                    qs('[data-panel="works"]').innerHTML = renderWorksPanel(state.stagesByProject[project.id], items);
+                }
+            });
+        });
+        loadAnalysis(project.id, function (analysis) {
+            qs('[data-panel="ai"]').innerHTML = renderBackendAnalysis(analysis);
+        });
+        loadStages(project.id, function (stages) {
+            qs('[data-panel="execution"]').innerHTML = renderExecutionPanel(stages, project.id);
+            qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
+            if (qs('[data-panel="works"]')) {
+                qs('[data-panel="works"]').innerHTML = renderWorksPanel(stages, state.materialsByProject[project.id] || []);
+            }
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            loadExecutionInsights(project.id, stages);
+        });
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    }
+
+    function renderProjectsPage() {
+        renderProjectList(state.projects);
+        try {
+            ensureProjectWorksTab();
+        } catch (error) {}
+        var params = new URLSearchParams(location.search);
+        var openProjectId = Number(params.get('openProject') || 0);
+        try {
+            if (isAdminRole()) {
+                loadCompanies(populateProjectCompanySelects);
+            }
+        } catch (error) {}
+        try { ensureProjectEditCard(); } catch (error) {}
+        try { bindProjectCreate(); } catch (error) {}
+        try { bindProjectEditForm(); } catch (error) {}
+        try { bindProjectBootstrapForm(); } catch (error) {}
+        var bootstrapForm = qs('[data-project-bootstrap-form]');
+        if (bootstrapForm && bootstrapForm.closest('section')) {
+            bootstrapForm.closest('section').hidden = true;
+        }
+        try { renderProjectStats(); } catch (error) {}
+        try { renderProjectCritical(); } catch (error) {}
+        renderProjectList(state.projects);
+        var search = qs('[data-project-search]');
+        if (search && search.dataset.bound !== '1') {
+            search.dataset.bound = '1';
+            search.addEventListener('input', function () {
+                var query = search.value.toLocaleLowerCase('ru');
+                renderProjectList(state.projects.filter(function (project) {
+                    return [project.title, project.address, project.client_name, project.status]
+                        .join(' ')
+                        .toLocaleLowerCase('ru')
+                        .indexOf(query) !== -1;
+                }));
+            });
+        }
+        var close = qs('[data-close-detail]');
+        if (close && close.dataset.bound !== '1') {
+            close.dataset.bound = '1';
+            close.addEventListener('click', function () {
+                state.selectedProject = null;
+                qs('[data-project-detail]').hidden = true;
+                setProjectFocusMode(false);
+                document.documentElement.classList.remove('projects-booting');
+                try {
+                    var closeParams = new URLSearchParams(location.search);
+                    closeParams.delete('openProject');
+                    var closeQuery = closeParams.toString();
+                    history.replaceState(null, '', location.pathname + (closeQuery ? '?' + closeQuery : ''));
+                } catch (error) {}
+            });
+        }
+        qsa('[data-tab]').forEach(function (button) {
+            if (button.dataset.projectTabBound === '1') return;
+            if (state.user && hasRole('customer') && ['execution', 'materials', 'works', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
+                button.classList.add('hidden');
+                return;
+            }
+            if (button.dataset.tab === 'finance' && !canSeeFinances()) {
+                button.classList.add('hidden');
+                return;
+            }
+            button.dataset.projectTabBound = '1';
+            button.addEventListener('click', function () {
+                activateProjectTab(button.dataset.tab);
+            });
+        });
+        if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
+            var matched = state.projects.some(function (project) { return Number(project.id) === openProjectId; });
+            if (matched) {
+                openProject(openProjectId);
+                return;
+            }
+        }
+        state.selectedProject = null;
+        if (qs('[data-project-detail]')) {
+            qs('[data-project-detail]').hidden = true;
+        }
+        setProjectFocusMode(false);
+        document.documentElement.classList.remove('projects-booting');
+    }
+
     function loadSectionScheduleForecast(projectId, startDate, callback, force) {
         state.sectionScheduleByProject = state.sectionScheduleByProject || {};
         var requestedStart = startDate || APP_TODAY;
@@ -7450,6 +9051,194 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    function renderSectionScheduleForecast(project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div>' +
+                '<div class="section-schedule-empty">Собираем расчет по смете...</div>' +
+            '</section>';
+        }
+        if (summary.error) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div>' +
+                '<div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div>' +
+            '</section>';
+        }
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div>' +
+            '</section>';
+        }
+        var range = {
+            start: summary.startDate,
+            end: summary.finishDate,
+            totalDays: Math.max(1, Number(summary.totalDays || 1))
+        };
+        return '<section class="card section-schedule-board">' +
+            '<div class="card-head">' +
+                '<div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов, расчет в днях для бригады среднего уровня.</span></div>' +
+                '<button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button>' +
+            '</div>' +
+            '<div class="execution-summary">' +
+                stat('Старт', summary.startDate || '—') +
+                stat('Финиш', summary.finishDate || '—') +
+                stat('Разделов', String(sections.length)) +
+                stat('Дней', String(summary.totalDays || 0)) +
+                stat('Основа', 'Работы сметы') +
+            '</div>' +
+            renderScheduleScale(range) +
+            '<div class="section-schedule-list">' + sections.map(function (section) {
+                return renderSectionScheduleRow(section, range);
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function renderSectionScheduleRow(section, range) {
+        var planStyle = scheduleBarStyle(section.startDate, section.endDate, range);
+        var assumptionBadge = section.hasAssumptions ? '<span class="badge warn">Есть допущения</span>' : '<span class="badge success">По нормам</span>';
+        var sources = Array.isArray(section.sources) ? section.sources.slice(0, 3) : [];
+        var items = Array.isArray(section.items) ? section.items : [];
+        return '<article class="section-schedule-card">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title">' +
+                    '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml((section.startDate || '—') + ' - ' + (section.endDate || '—')) + '</small></div>' +
+                    '<div class="project-badges">' +
+                        '<span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span>' +
+                        '<span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' +
+                        '<span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' +
+                        assumptionBadge +
+                    '</div>' +
+                '</div>' +
+                '<div class="section-schedule-track">' +
+                    '<div class="schedule-gantt-track">' +
+                        '<span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' +
+                        (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') +
+                    '</div>' +
+                '</div>' +
+                '<div class="section-schedule-meta">' +
+                    '<strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong>' +
+                    '<span>' + escapeHtml('чисто по нормам: ' + String(section.estimatedHours || 0) + ' чел.-ч') + '</span>' +
+                '</div>' +
+                (sources.length ? '<div class="section-schedule-sources">' + sources.map(function (source) {
+                    var label = escapeHtml(source.label || 'Источник');
+                    if (source.url) {
+                        return '<a href="' + escapeHtml(source.url) + '" target="_blank" rel="noreferrer">' + label + '</a>';
+                    }
+                    return '<span>' + label + '</span>';
+                }).join('') + '</div>' : '') +
+                '<div class="section-schedule-items">' + items.slice(0, 8).map(function (item) {
+                    return '<div class="section-schedule-item">' +
+                        '<span>' + escapeHtml(item.title) + '</span>' +
+                        '<small>' + escapeHtml(String(item.planned_qty) + ' ' + item.unit + ' • ' + Math.round(Number(item.estimated_hours || 0) * 10) / 10 + ' чел.-ч') + '</small>' +
+                    '</div>';
+                }).join('') + (items.length > 8 ? '<div class="section-schedule-item more"><span>Еще работ: ' + escapeHtml(String(items.length - 8)) + '</span></div>' : '') + '</div>' +
+            '</div>' +
+        '</article>';
+    }
+
+    function bindSectionScheduleRefresh(projectId) {
+        qsa('[data-section-schedule-refresh]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.selectedProject;
+                var startInput = qs('[data-auto-schedule-form] input[name="start_date"]');
+                var requestedStart = startInput && startInput.value ? startInput.value : ((project && project.started_at) || APP_TODAY);
+                button.disabled = true;
+                loadSectionScheduleForecast(projectId, requestedStart, function () {
+                    button.disabled = false;
+                    if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+                    var stages = state.stagesByProject[projectId] || [];
+                    qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, state.selectedProject);
+                    bindAutoScheduleForm(projectId);
+                    bindScheduleStatusActions(projectId);
+                    bindSectionScheduleRefresh(projectId);
+                }, true);
+            });
+        });
+    }
+
+    function renderSchedulePanel(stages, project) {
+        var drawer = renderAutoScheduleDrawer(project);
+        var planner = renderSchedulePlanner(project, stages);
+        var forecast = renderSectionScheduleForecast(project);
+        var controlBoard = renderScheduleStateBoard(project);
+        if (!stages.length) return drawer + planner + forecast + controlBoard + renderSchedule(project);
+        var internal = stages;
+        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
+        return drawer + planner + forecast + controlBoard + '<div class="schedule-split">' +
+            '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
+            '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
+        '</div>';
+    }
+
+    function openProject(projectId) {
+        var root = qs('[data-project-detail]');
+        if (!root) return;
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        if (!project) return;
+        state.selectedProject = project;
+        root.hidden = false;
+        setProjectFocusMode(true);
+        ensureProjectWorksTab();
+        qs('[data-project-title]').textContent = project.title;
+        qs('[data-panel="overview"]').innerHTML = renderProjectOverview(project);
+        qs('[data-panel="materials"]').innerHTML = '<p class="muted">Загружаем материалы...</p>';
+        if (qs('[data-panel="works"]')) qs('[data-panel="works"]').innerHTML = '<p class="muted">Загружаем работы...</p>';
+        qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+        qs('[data-panel="tasks"]').innerHTML = '';
+        qs('[data-panel="documents"]').innerHTML = '';
+        qs('[data-panel="executive"]').innerHTML = '';
+        qs('[data-panel="chat"]').innerHTML = '';
+        qs('[data-panel="analysis"]').innerHTML = '';
+        if (qs('[data-panel="finance"]')) qs('[data-panel="finance"]').innerHTML = '';
+        bindProjectOverviewActions();
+        activateProjectTab('overview');
+
+        loadMaterials(project.id, function (items) {
+            qs('[data-panel="materials"]').innerHTML = renderMaterials(items, project.id, state.materialInsightsByProject[project.id] || null);
+            if (qs('[data-panel="overview-materials"]')) {
+                qs('[data-panel="overview-materials"]').innerHTML = renderOverviewMaterials(items);
+            }
+            if (state.stagesByProject[project.id] && qs('[data-panel="works"]')) {
+                qs('[data-panel="works"]').innerHTML = renderWorksPanel(state.stagesByProject[project.id], items);
+            }
+        });
+        loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+            var stages = state.stagesByProject[project.id] || [];
+            qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+        });
+        loadAnalysis(project.id, function (analysis) {
+            qs('[data-panel="ai"]').innerHTML = renderBackendAnalysis(analysis);
+        });
+        loadStages(project.id, function (stages) {
+            qs('[data-panel="execution"]').innerHTML = renderExecutionPanel(stages, project.id);
+            qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
+            if (qs('[data-panel="works"]')) {
+                qs('[data-panel="works"]').innerHTML = renderWorksPanel(stages, state.materialsByProject[project.id] || []);
+            }
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+            loadExecutionInsights(project.id, stages);
+        });
+        loadTasks(project.id);
+        if (canSeeFinances()) loadProjectFinances(project.id);
+        loadDocuments(project.id);
+        loadProjectChats(project.id);
+        loadProjectAssignments(project.id);
+        bindProjectChainActions();
+    }
+
     function finalSectionScheduleCardClass(section) {
         var start = String(section.startDate || '').trim();
         var end = String(section.endDate || '').trim();
@@ -7458,6 +9247,27 @@ function renderLogsDayView(project, logs) {
         if (start && start > APP_TODAY) return ' is-upcoming';
         return '';
     }
+
+    renderScheduleRows = function (stages, customerMode) {
+        var today = APP_TODAY;
+        if (!stages.length) return '<p class="muted">Нет этапов для отображения.</p>';
+        return '<div class="timeline">' + stages.map(function (stage) {
+            var start = customerMode ? (stage.customer_start || stage.planned_start || '—') : (stage.planned_start || '—');
+            var end = customerMode ? (stage.customer_end || stage.planned_end || '—') : (stage.planned_end || '—');
+            var summary = customerMode
+                ? (start + ' — ' + end + ' • ' + statusLabel(stage.status_code))
+                : buildScheduleStageSummary(stage, today);
+            var kicker = [timelineStageKindLabel(stage), !customerMode ? (stage.responsible || '') : ''].filter(Boolean).join(' • ');
+            return '<div class="timeline-row ' + scheduleTimelineClass(stage, today) + timelineStageKindClass(stage) + '">' +
+                '<div class="timeline-main">' +
+                    (kicker ? '<small class="timeline-kicker">' + escapeHtml(kicker) + '</small>' : '') +
+                    '<b>' + escapeHtml(stage.title) + '</b><span>' + escapeHtml(summary) + '</span>' +
+                '</div>' +
+                renderTimelineProgressCell(stage) +
+                '<div class="timeline-badges">' + renderScheduleStageBadges(stage, today, customerMode) + '</div>' +
+            '</div>';
+        }).join('') + '</div>';
+    };
 
     function sectionAccelerationHint(section) {
         var days = Number(section.estimatedDays || 0);
@@ -7493,6 +9303,104 @@ function renderLogsDayView(project, logs) {
             '<p><span>Ускорение:</span> ' + escapeHtml(sectionAccelerationShortHint(section)) + '</p>' +
         '</article>';
     }
+
+    renderSectionScheduleRow = function (section, range) {
+        var planStyle = scheduleBarStyle(section.startDate, section.endDate, range);
+        var assumptionBadge = section.hasAssumptions ? '<span class="badge warn">Есть допущения</span>' : '<span class="badge success">По нормам</span>';
+        var items = Array.isArray(section.items) ? section.items : [];
+        var topItems = items.slice(0, 3).map(function (item) {
+            return item.title;
+        }).filter(Boolean).join(' • ');
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title">' +
+                    '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml((section.startDate || '—') + ' - ' + (section.endDate || '—')) + '</small></div>' +
+                    '<div class="project-badges">' +
+                        '<span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span>' +
+                        '<span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' +
+                        '<span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' +
+                        assumptionBadge +
+                    '</div>' +
+                '</div>' +
+                '<div class="section-schedule-track">' +
+                    '<div class="schedule-gantt-track">' +
+                        '<span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' +
+                        (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') +
+                    '</div>' +
+                    '<div class="section-schedule-track-meta"><span>Плановый интервал</span><strong>' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</strong></div>' +
+                '</div>' +
+                '<div class="section-schedule-meta">' +
+                    '<strong>' + escapeHtml(String(section.bufferedHours || section.estimatedHours || 0) + ' чел.-ч') + '</strong>' +
+                    '<span>' + escapeHtml('чисто по нормам: ' + String(section.estimatedHours || 0) + ' чел.-ч') + '</span>' +
+                '</div>' +
+                '<div class="section-schedule-reco">' +
+                    '<span>Как ускорить</span>' +
+                    '<strong>' + escapeHtml(sectionAccelerationHint(section)) + '</strong>' +
+                '</div>' +
+                (topItems ? '<div class="section-schedule-caption">' + escapeHtml(topItems) + '</div>' : '') +
+            '</div>' +
+        '</article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div>' +
+                '<div class="section-schedule-empty">Собираем расчет по смете...</div>' +
+            '</section>';
+        }
+        if (summary.error) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div>' +
+                '<div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div>' +
+            '</section>';
+        }
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) {
+            return '<section class="card section-schedule-board">' +
+                '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div>' +
+            '</section>';
+        }
+        var range = {
+            start: summary.startDate,
+            end: summary.finishDate,
+            totalDays: Math.max(1, Number(summary.totalDays || 1))
+        };
+        return '<section class="card section-schedule-board">' +
+            '<div class="card-head">' +
+                '<div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов и плановое окно по каждому разделу.</span></div>' +
+                '<button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button>' +
+            '</div>' +
+            '<div class="execution-summary">' +
+                stat('Старт', summary.startDate || '—') +
+                stat('Финиш', summary.finishDate || '—') +
+                stat('Разделов', String(sections.length)) +
+                stat('Дней', String(summary.totalDays || 0)) +
+                stat('Основа', 'Работы сметы') +
+            '</div>' +
+            '<div class="section-schedule-brief-list">' + sections.map(function (section) {
+                return renderSectionScheduleBrief(section);
+            }).join('') + '</div>' +
+            renderScheduleScale(range) +
+            '<div class="section-schedule-list">' + sections.map(function (section) {
+                return renderSectionScheduleRow(section, range);
+            }).join('') + '</div>' +
+        '</section>';
+    };
+
+    renderSchedulePanel = function (stages, project) {
+        var planner = renderSchedulePlanner(project, stages);
+        var forecast = renderSectionScheduleForecast(project);
+        return planner + forecast;
+        var internal = stages;
+        var customer = stages.filter(function (stage) { return Number(stage.is_client_visible) === 1; });
+        return planner + forecast + '<div class="schedule-split">' +
+            '<section class="card schedule-card"><div class="card-head"><h3>Внутренний график</h3></div>' + renderScheduleRows(internal, false) + '</section>' +
+            '<section class="card schedule-card"><div class="card-head"><h3>График для заказчика</h3></div>' + renderScheduleRows(customer, true) + '</section>' +
+        '</div>';
+    };
 
     function initShell() {
         applySidebarPreference();
@@ -7584,6 +9492,266 @@ function renderLogsDayView(project, logs) {
         '</div>';
     };
 
+    renderSectionScheduleRow = function (project, section) {
+        var items = Array.isArray(section.items) ? section.items : [];
+        var progress = scheduleSectionProgress(project.id, section);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+                    '<div class="section-schedule-summary-head">' +
+                        '<div class="section-schedule-summary-copy">' +
+                            '<div class="section-schedule-heading">' +
+                                '<div class="section-schedule-title"><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                            '</div>' +
+                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
+                        '</div>' +
+                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
+                    '</div>' +
+                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(progress.percent)) + '%</b></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
+                    '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
+                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                '</div>' +
+                (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
+                    var workDone = isScheduleWorkDone(project.id, section.title, item);
+                    return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '"><input type="checkbox" data-section-work-check data-project-id="' + project.id + '" data-section-title="' + escapeHtml(section.title) + '" data-work-title="' + escapeHtml(item.title) + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '><span class="section-work-check-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>';
+                }).join('') + (items.length ? '' : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>') + '</div>' : '') +
+            '</div></article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Фактический прогресс по разделам и отмеченным работам.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('До дедлайна', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Прогресс по разделам</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div><div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
+
+    materialRow = function (item, projectId, insight) {
+        var missing = Number(item.missingQty) || 0;
+        var stock = Number(item.stockQty) || 0;
+        var planned = Number(item.plannedQty) || 0;
+        var unitLabel = String(item.unit || '').trim() || 'ед.';
+        var meta = [
+            'По смете: ' + item.plannedQty + ' ' + escapeHtml(item.unit),
+            'куплено: ' + item.purchasedQty,
+            'использовано: ' + item.usedQty,
+            'остаток: ' + item.stockQty,
+            item.needByDate ? 'нужно к ' + item.needByDate : '',
+            item.stageTitle ? 'этап: ' + item.stageTitle : ''
+        ].filter(Boolean).join(' • ');
+        var supplyNote = '';
+        if (insight) {
+            supplyNote = insight.selectedName
+                ? 'Выбран поставщик: ' + insight.selectedName
+                : insight.quoted
+                    ? 'Просчитано предложений: ' + insight.quoted
+                    : insight.called
+                        ? 'Уже в обзвоне: ' + insight.called
+                        : 'В работе поставщиков: ' + insight.total;
+        } else if (canManageSuppliers()) {
+            supplyNote = 'Поставщик по этой позиции еще не заведен';
+        }
+        var actions = '<div class="material-chain-actions">' + renderMaterialSupplierPicker(projectId, item, insight) + '</div>';
+        var statusLabel = finalSectionSummaryNumber(stock) + '/' + finalSectionSummaryNumber(planned) + ' ' + unitLabel;
+        return '<div class="material-row material-row-linked">' +
+            '<div><b>' + escapeHtml(item.title) + '</b><small>' + meta + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + '</small></div>' +
+            '<div class="material-chain-side"><span class="badge ' + planningStatusClass(item.supplyStatus || (missing > 0 ? 'required' : 'in_stock')) + '">' + escapeHtml(statusLabel) + '</span>' + actions + '</div>' +
+        '</div>';
+    };
+
+    renderEstimateWorkItem = function (item) {
+        var plannedQty = Number(item.plannedQty || item.planned_qty || 0);
+        var unitLabel = String(item.unit || '').trim() || 'ед.';
+        var estimatedHours = Number(item.estimated_hours || item.estimatedHours || 0);
+        var meta = [
+            item.unit ? ('Ед.: ' + item.unit) : '',
+            item.stageTitle ? ('Этап: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var sideBadges = [
+            '<span class="badge work-amount-badge">' + escapeHtml(finalSectionSummaryNumber(plannedQty) + ' ' + unitLabel) + '</span>'
+        ];
+        if (estimatedHours > 0) {
+            sideBadges.push('<span class="badge work-hours-badge">' + escapeHtml(finalSectionSummaryNumber(estimatedHours) + ' чел.-ч') + '</span>');
+        }
+        return '<div class="material-row work-row">' +
+            '<div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta || 'Работа из сметы') + '</small></div>' +
+            '<div class="material-chain-side work-row-side">' + sideBadges.join('') + '</div>' +
+        '</div>';
+    };
+
+    openProject = function (projectId) {
+        try {
+            var root = qs('[data-project-detail]');
+            if (!root) return;
+
+            var project = state.projects.find(function (item) {
+                return Number(item.id) === Number(projectId);
+            });
+            if (!project) return;
+            try {
+                var projectParams = new URLSearchParams(location.search);
+                projectParams.set('openProject', String(projectId));
+                var projectQuery = projectParams.toString();
+                history.replaceState(null, '', location.pathname + (projectQuery ? '?' + projectQuery : ''));
+            } catch (historyError) {}
+
+            function panel(name) {
+                return qs('[data-panel="' + name + '"]');
+            }
+
+            var overviewPanel = panel('overview');
+            var materialsPanel = panel('materials');
+            var worksPanel = panel('works');
+            var schedulePanel = panel('schedule');
+            var reportsPanel = panel('reports');
+            var tasksPanel = panel('tasks');
+            var financePanel = panel('finance');
+            var documentsPanel = panel('documents');
+            var chatPanel = panel('chat');
+            var aiPanel = panel('ai');
+            var titleNode = qs('[data-detail-title]');
+
+            state.selectedProject = project;
+            root.hidden = false;
+            setProjectFocusMode(true);
+            ensureProjectWorksTab();
+            document.documentElement.classList.remove('projects-booting');
+            document.documentElement.classList.remove('project-route-loading');
+
+            if (!worksPanel) worksPanel = panel('works');
+            if (titleNode) titleNode.textContent = project.title;
+            if (overviewPanel) {
+                overviewPanel.innerHTML =
+                    renderProjectOverviewHero(project) +
+                    renderProjectOverviewActions(project) +
+                    '<section class="subsection"><div class="card-head"><h3>Назначения на объект</h3></div><div data-project-assignments>Загрузка назначений...</div></section>' +
+                    '<section class="subsection"><div class="card-head"><h3>Материалы по смете</h3></div><div data-project-overview-materials><p class="muted">Загружаем материалы...</p></div></section>';
+            }
+            if (materialsPanel) materialsPanel.innerHTML = '<p class="muted">Загружаем материалы...</p>';
+            if (worksPanel) worksPanel.innerHTML = '<p class="muted">Загружаем работы...</p>';
+            if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+            if (reportsPanel) reportsPanel.innerHTML = '<p class="muted">Собираем отчеты по объекту...</p>';
+            if (tasksPanel) tasksPanel.innerHTML = '';
+            if (financePanel) financePanel.innerHTML = '';
+            if (documentsPanel) documentsPanel.innerHTML = '';
+            if (chatPanel) chatPanel.innerHTML = '';
+            if (aiPanel) aiPanel.innerHTML = '<p class="muted">Собираем аналитику...</p>';
+
+            bindProjectOverviewActions();
+            activateProjectTab('overview');
+
+            loadMaterials(project.id, function (items) {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (materialsPanel) {
+                    materialsPanel.innerHTML = renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null);
+                }
+                var overviewMaterials = qs('[data-project-overview-materials]');
+                if (overviewMaterials) {
+                    overviewMaterials.innerHTML = renderMaterials(items, project.id, state.materialInsightsByProject[project.id] || null);
+                }
+                if (panel('works')) {
+                    panel('works').innerHTML = renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items);
+                }
+                bindProjectMarketToggles(project.id);
+            });
+
+            loadMaterialInsights(project.id, function (insights) {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (materialsPanel && state.materialsByProject[project.id]) {
+                    materialsPanel.innerHTML = renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {});
+                }
+                var overviewMaterials = qs('[data-project-overview-materials]');
+                if (overviewMaterials && state.materialsByProject[project.id]) {
+                    overviewMaterials.innerHTML = renderMaterials(state.materialsByProject[project.id] || [], project.id, insights || {});
+                }
+                bindProjectMarketToggles(project.id);
+                bindProjectChainActions();
+            });
+
+            loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (schedulePanel) {
+                    schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+                }
+                bindAutoScheduleForm(project.id);
+                bindScheduleStatusActions(project.id);
+                bindSectionScheduleRefresh(project.id);
+            });
+
+            loadProjectNotifications(project.id, function () {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (schedulePanel) {
+                    schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[project.id] || [], project);
+                }
+                bindAutoScheduleForm(project.id);
+                bindScheduleStatusActions(project.id);
+                bindSectionScheduleRefresh(project.id);
+            });
+
+            loadAnalysis(project.id, function (analysis) {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (aiPanel) aiPanel.innerHTML = renderBackendAnalysis(analysis);
+            });
+
+            loadStages(project.id, function (stages) {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(stages, project);
+                if (panel('works')) {
+                    panel('works').innerHTML = renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []);
+                }
+                bindStageCreateForm(project.id);
+                bindStageEditors(project.id);
+                bindAutoScheduleForm(project.id);
+                bindScheduleStatusActions(project.id);
+                bindSectionScheduleRefresh(project.id);
+                loadExecutionInsights(project.id, stages);
+                bindProjectMarketToggles(project.id);
+            });
+
+            loadProjectMarketAnalysis(project.id, 'material', function () {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (getProjectTabMode(project.id, 'materials') !== 'market') return;
+                rerenderProjectMarketTab(project.id, 'materials');
+            });
+
+            loadProjectMarketAnalysis(project.id, 'work', function () {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(project.id)) return;
+                if (getProjectTabMode(project.id, 'works') !== 'market') return;
+                rerenderProjectMarketTab(project.id, 'works');
+            });
+
+            refreshProjectReportsTab(project.id);
+            loadTasks(project.id);
+            if (canSeeFinances()) loadProjectFinances(project.id);
+            loadDocuments(project.id);
+            loadProjectChats(project.id);
+            loadProjectAssignments(project.id);
+            bindProjectChainActions();
+            bindProjectMarketToggles(project.id);
+        } catch (error) {
+            document.documentElement.classList.remove('project-route-loading');
+            var fallbackRoot = qs('[data-project-detail]');
+            var fallbackOverview = qs('[data-panel="overview"]');
+            if (fallbackRoot) fallbackRoot.hidden = false;
+            if (fallbackOverview) {
+                fallbackOverview.innerHTML = '<section class="subsection"><div class="card-head"><h3>Не удалось открыть объект</h3></div><p class="muted">Мы поймали ошибку рендера. Обнови страницу, а я уже поправил этот путь.</p></section>';
+            }
+            activateProjectTab('overview');
+            try { console.error(error); } catch (consoleError) {}
+        }
+    };
 
     renderProjectReportForm = function (project) {
         if (!canCreateProjectReport()) return '';
@@ -7745,6 +9913,38 @@ function renderLogsDayView(project, logs) {
         bindProjectReportDeleteActions();
     };
 
+    renderLogsList = function (project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        if (!logs.length) {
+            root.innerHTML = '<p class="muted">По объекту "' + escapeHtml(project.title) + '" пока нет дневных отчетов.</p>';
+            return;
+        }
+        root.innerHTML = logs.map(function (log) {
+            return '<article class="log-card">' +
+                '<div class="log-top">' +
+                    '<div><span>' + escapeHtml(log.report_date || '—') + '</span><h4>' + escapeHtml(log.title) + '</h4></div>' +
+                    '<div class="log-top-side">' +
+                        '<div class="project-badges">' +
+                            (log.progress_percent != null && log.progress_percent !== '' ? '<span class="badge success">' + escapeHtml(Math.round(Number(log.progress_percent) || 0)) + '%</span>' : '') +
+                            '<span class="badge">' + escapeHtml(log.workers_count || 0) + ' чел.</span>' +
+                            '<span class="badge ' + (Number(log.is_client_visible) === 1 ? '' : 'warn') + '">' + (Number(log.is_client_visible) === 1 ? 'Видно заказчику' : 'Внутренний') + '</span>' +
+                        '</div>' +
+                        renderProjectReportDeleteButton(project.id, log, true) +
+                    '</div>' +
+                '</div>' +
+                '<p>' + escapeHtml(log.work_done) + '</p>' +
+                '<div class="log-details">' +
+                    (log.equipment ? '<div><span>Техника</span><strong>' + escapeHtml(log.equipment) + '</strong></div>' : '') +
+                    (log.blockers ? '<div class="log-risk"><span>Блокер</span><strong>' + escapeHtml(log.blockers) + '</strong></div>' : '') +
+                    (log.next_steps ? '<div><span>Дальше</span><strong>' + escapeHtml(log.next_steps) + '</strong></div>' : '') +
+                '</div>' +
+                (log.raw_input ? '<small class="muted">Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                '<small class="muted">Автор отчета: ' + escapeHtml(log.author_name || '—') + '</small>' +
+            '</article>';
+        }).join('');
+        bindProjectReportDeleteActions();
+    };
 
     function finalGraphDate(iso) {
         return formatDisplayDate(iso);
@@ -7831,6 +10031,46 @@ function renderLogsDayView(project, logs) {
             '<div class="section-schedule-brief-duration"><strong>' + escapeHtml(String(section.estimatedDays || 0)) + '</strong><span>дн.</span></div>' +
             '<p>' + escapeHtml(digest.lead + (digest.volume ? (' • ' + digest.volume) : '')) + '</p>' +
         '</article>';
+    };
+
+    renderSectionScheduleRow = function (section, range) {
+        var assumptionBadge = section.hasAssumptions ? '<span class="badge warn">Есть допущения</span>' : '<span class="badge success">По нормам</span>';
+        var items = Array.isArray(section.items) ? section.items : [];
+        var digest = finalSectionWorkDigest(section);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title">' +
+                    '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                    '<div class="project-badges"><span class="badge">' + escapeHtml(String(section.workItems || items.length || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span><span class="badge success">' + escapeHtml(String(section.estimatedDays || 0) + ' дн.') + '</span>' + assumptionBadge + '</div>' +
+                '</div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml('чисто по нормам: ' + String(Math.round(Number(section.estimatedHours || 0))) + ' чел.-ч') + '</span></div>' +
+                '<div class="section-schedule-reco"><span>Работы раздела</span><strong>' + escapeHtml(digest.lead) + '</strong>' + (digest.volume ? '<small>' + escapeHtml(digest.volume) + '</small>' : '') + '</div>' +
+                (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+            '</div>' +
+        '</article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var range = { start: summary.startDate, end: summary.finishDate, totalDays: Math.max(1, Number(summary.totalDays || 1)) };
+        return '<section class="card section-schedule-board">' +
+            '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов и плановое окно по каждому разделу.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' +
+                stat('Старт', finalGraphDate(summary.startDate)) +
+                stat('Дедлайн', finalGraphDate(summary.finishDate)) +
+                stat('Разделов', String(sections.length)) +
+                stat('Дней', String(summary.totalDays || 0)) +
+                stat('Основа', 'Работы сметы') +
+            '</div>' +
+            '<div class="section-schedule-brief-list">' + sections.map(function (section) { return renderSectionScheduleBrief(section); }).join('') + '</div>' +
+            renderScheduleScale(range) +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(section, range); }).join('') + '</div>' +
+        '</section>';
     };
 
     function scheduleChecklistStorageKey(projectId) {
@@ -8110,15 +10350,13 @@ function renderLogsDayView(project, logs) {
         if (!project || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
         var stages = state.stagesByProject[projectId] || [];
         var items = state.materialsByProject[projectId] || [];
-        safeReplaceChildren(qs('[data-panel="schedule"]'), renderSchedulePanel(stages, project));
+        qs('[data-panel="schedule"]').innerHTML = renderSchedulePanel(stages, project);
         if (qs('[data-panel="works"]')) {
-            safeReplaceChildren(qs('[data-panel="works"]'), renderWorksPanel(stages, items));
+            qs('[data-panel="works"]').innerHTML = renderWorksPanel(stages, items);
         }
         bindAutoScheduleForm(projectId);
         bindScheduleStatusActions(projectId);
         bindSectionScheduleRefresh(projectId);
-        bindSectionScheduleInteractions(projectId);
-        bindActualQuantityInputs(projectId);
     }
 
     function bindSectionScheduleInteractions(projectId) {
@@ -8166,6 +10404,102 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    var baseBindSectionScheduleRefresh = bindSectionScheduleRefresh;
+    bindSectionScheduleRefresh = function (projectId) {
+        baseBindSectionScheduleRefresh(projectId);
+        bindSectionScheduleInteractions(projectId);
+    };
+
+    renderEstimateWorkItem = function (item, sectionTitle, projectId) {
+        var isDone = projectId ? isScheduleWorkDone(projectId, sectionTitle, item) : false;
+        var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
+        var meta = [
+            item.unit ? ('Ед.: ' + item.unit) : '',
+            plannedQty != null && plannedQty !== '' ? ('Объем: ' + formattedWorkQty(plannedQty)) : '',
+            item.stageTitle ? ('Этап: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var hours = Number(item.estimated_hours || item.estimatedHours || 0);
+        return '<div class="material-row work-row' + (isDone ? ' work-row-done' : '') + '">' +
+            '<div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta || 'Работа из сметы') + (item.notes ? '<br>' + escapeHtml(item.notes) : '') + '</small></div>' +
+            '<div class="work-row-side">' +
+                '<span class="badge work-amount-badge">' + escapeHtml(formattedWorkQty(plannedQty || 0) + ' ' + (item.unit || 'ед.')) + '</span>' +
+                (hours > 0 ? '<span class="badge work-hours-badge">' + escapeHtml((Math.round(hours * 10) / 10).toString().replace('.', ',') + ' чел.-ч') + '</span>' : '') +
+                (isDone ? '<span class="badge success">Готово</span>' : '') +
+            '</div>' +
+        '</div>';
+    };
+
+    renderWorksPanel = function (stages, items) {
+        var projectId = state.selectedProject ? state.selectedProject.id : null;
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) {
+            return '<p class="muted">Работы по смете пока не загружены.</p>';
+        }
+
+        var groups = {};
+        var order = [];
+
+        workStages.forEach(function (stage) {
+            var sectionTitle = rootSectionTitleForStage(stage, stageMap);
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            groups[sectionTitle].stageRows.push(stage);
+        });
+
+        estimateWorks.forEach(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            groups[sectionTitle].estimateRows.push(item);
+        });
+
+        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            return isScheduleWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+
+        return '<div class="execution-summary">' +
+            stat('Разделов', String(order.length)) +
+            stat('Работ', String(estimateWorks.length || workStages.length)) +
+            stat('Готово', String(doneEstimateWorks)) +
+            stat('Осталось', String(Math.max(0, estimateWorks.length - doneEstimateWorks)), estimateWorks.length - doneEstimateWorks ? 'warn' : '') +
+        '</div><div class="estimate-section-list">' + order.map(function (title, index) {
+            var group = groups[title];
+            var totalEstimateRows = group.estimateRows.length;
+            var doneRows = projectId ? group.estimateRows.filter(function (item) {
+                return isScheduleWorkDone(projectId, title, item);
+            }).length : 0;
+            return '<section class="estimate-section">' +
+                '<div class="card-head estimate-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(materialSectionLabel(index)) + '</h3><span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + totalEstimateRows)) + ' поз.</span>' + (totalEstimateRows ? '<span class="badge">' + escapeHtml(String(doneRows) + '/' + String(totalEstimateRows) + ' работ') + '</span>' : '') + '</div><small>' + escapeHtml(title) + '</small></div>' +
+                '<div class="materials-list">' +
+                    group.stageRows.map(function (stage) {
+                        var meta = [
+                            stagePathLabel(stage, stageMap),
+                            stage.planned_start && stage.planned_end ? (stage.planned_start + ' — ' + stage.planned_end) : '',
+                            stage.responsible || ''
+                        ].filter(Boolean).join(' • ');
+                        return '<div class="material-row work-row">' +
+                            '<div><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || 'Работа') + '</small></div>' +
+                            '<div class="material-chain-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div>' +
+                        '</div>';
+                    }).join('') +
+                    group.estimateRows.map(function (item) {
+                        return renderEstimateWorkItem(item, title, projectId);
+                    }).join('') +
+                '</div>' +
+            '</section>';
+        }).join('') + '</div>';
+    };
 
     renderSectionScheduleBrief = function (section) {
         var project = state.selectedProject;
@@ -8181,6 +10515,69 @@ function renderLogsDayView(project, logs) {
             '<div class="section-schedule-brief-duration' + (deadlineState.kind ? (' is-' + deadlineState.kind) : '') + '"><strong>' + escapeHtml(briefValue) + '</strong><span>' + escapeHtml(briefLabel) + '</span></div>' +
             '<p>' + escapeHtml(finalSectionWorkDigest(section).lead) + '</p>' +
         '</article>';
+    };
+
+    renderSectionScheduleRow = function (project, section, index) {
+        var items = Array.isArray(section.items) ? section.items : [];
+        var progress = scheduleSectionProgress(project.id, section);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title">' +
+                    '<div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                    '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
+                '</div>' +
+                '<button class="section-schedule-toggle" type="button" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' + (isOpen ? 'Свернуть раздел' : 'Открыть работы') + '</button>' +
+                '<div class="section-schedule-progress">' +
+                    '<div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div>' +
+                    '<div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(String(progress.done) + '/' + String(progress.total || 0) + ' работ') + '</span></div>' +
+                '</div>' +
+                '<div class="section-schedule-track">' +
+                    '<div class="schedule-gantt-track">' +
+                        '<span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' +
+                        (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') +
+                    '</div>' +
+                    '<div class="section-schedule-track-meta' + (deadlineState.kind ? (' is-' + deadlineState.kind) : '') + '"><span>Плановый интервал</span><strong>' + escapeHtml(deadlineState.label) + '</strong></div>' +
+                '</div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || 'Объемы будут считаться по работам раздела') + '</span></div>' +
+                (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
+                    var workDone = isScheduleWorkDone(project.id, section.title, item);
+                    return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '">' +
+                        '<input type="checkbox" data-section-work-check data-project-id="' + project.id + '" data-section-title="' + escapeHtml(section.title) + '" data-work-title="' + escapeHtml(item.title) + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
+                        '<span class="section-work-check-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span>' +
+                    '</label>';
+                }).join('') + (items.length ? '' : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>') + '</div>' : '') +
+            '</div>' +
+        '</article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var range = { start: summary.startDate, end: summary.finishDate, totalDays: Math.max(1, Number(summary.totalDays || 1)) };
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board">' +
+            '<div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов и контроль по факту выполнения работ.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' +
+                stat('Старт', finalGraphDate(summary.startDate)) +
+                stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) +
+                stat('До дедлайна', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) +
+                stat('Разделов', String(sections.length)) +
+            '</div>' +
+            '<div class="section-schedule-brief-list">' + sections.map(function (section) { return renderSectionScheduleBrief(section); }).join('') + '</div>' +
+            renderScheduleScale(range) +
+            '<div class="section-schedule-list">' + sections.map(function (section, index) { return renderSectionScheduleRow(project, section, range, index); }).join('') + '</div>' +
+        '</section>';
     };
 
     function reportEffectsState(projectId) {
@@ -8531,10 +10928,10 @@ function renderLogsDayView(project, logs) {
         var worksPanel = qs('[data-panel="works"]');
         var schedulePanel = qs('[data-panel="schedule"]');
         var overviewMaterials = qs('[data-project-overview-materials]');
-        if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, materials, insights));
-        if (overviewMaterials) safeReplaceChildren(overviewMaterials, renderMaterials(materials, project.id, insights));
-        if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[projectId] || [], materials));
-        if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(state.stagesByProject[projectId] || [], project));
+        if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(project, materials, insights);
+        if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(materials, project.id, insights);
+        if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, state.stagesByProject[projectId] || [], materials);
+        if (schedulePanel) schedulePanel.innerHTML = renderSchedulePanel(state.stagesByProject[projectId] || [], project);
         bindProjectChainActions();
         bindProjectMarketToggles(projectId);
         bindAutoScheduleForm(projectId);
@@ -8566,6 +10963,25 @@ function renderLogsDayView(project, logs) {
         if (manualScheduleDone(projectId, sectionTitle, item)) return true;
         var effects = reportEffectsState(projectId);
         return effects.works[scheduleWorkKey(sectionTitle, item)] === 1;
+    };
+
+    var baseRenderMaterials = renderMaterials;
+    renderMaterials = function (items, projectId, insights) {
+        var effectiveItems = (items || []).map(function (item) {
+            return effectiveMaterialFromReports(projectId, item);
+        });
+        return baseRenderMaterials(effectiveItems, projectId, insights);
+    };
+
+    var baseMaterialRow = materialRow;
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = effectiveMaterialFromReports(projectId, item);
+        var html = baseMaterialRow(effectiveItem, projectId, insight);
+        if (effectiveItem.reportApplied && Number(effectiveItem.purchasedQty || 0) >= Number(effectiveItem.plannedQty || 0)) {
+            html = html.replace('material-row material-row-linked', 'material-row material-row-linked material-row-done');
+            html = html.replace('</small></div>', '<br><span class="material-report-mark">\u0417\u0430\u043a\u0440\u044b\u0442\u043e \u043f\u043e \u043e\u0442\u0447\u0435\u0442\u0430\u043c</span></small></div>');
+        }
+        return html;
     };
 
     function ensureReportPreviewRoot(form) {
@@ -8652,408 +11068,39 @@ function renderLogsDayView(project, logs) {
         });
     }
 
-    function renderProjectList(projects) {
-        var root = qs('[data-projects-list]');
-        if (!root) return;
-        try {
-            projects = Array.isArray(projects) ? projects : [];
-            if (!projects.length) {
-                safeReplaceChildren(root, '<div class="muted">\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043e\u0431\u044a\u0435\u043a\u0442\u043e\u0432 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442.</div>');
-                return;
-            }
-            var sortedProjects = projects.slice().sort(function (left, right) {
-                var leftCompleted = isCompletedProject(left) ? 1 : 0;
-                var rightCompleted = isCompletedProject(right) ? 1 : 0;
-                if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
-                return Number(right && right.id || 0) - Number(left && left.id || 0);
-            });
-            var criticalByProject = {};
-            var criticalItems = state.dashboard && Array.isArray(state.dashboard.criticalItems) ? state.dashboard.criticalItems : [];
-            criticalItems.forEach(function (item) {
-                criticalByProject[item.projectId] = (criticalByProject[item.projectId] || 0) + 1;
-            });
-            safeReplaceChildren(root, sortedProjects.map(function (project) {
-                project = project || {};
-                var progress = percent(project.progress);
-                var criticalCount = criticalByProject[project.id] || 0;
-                var completed = isCompletedProject(project);
-                var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">\u041d\u0435\u0445\u0432\u0430\u0442\u043a\u0438: ' + criticalCount + '</span>' : '';
-                var statusBadge = completed ? '<span class="badge success">\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043d</span>' : '<span class="badge">' + escapeHtml(project.status || '\u0412 \u0440\u0430\u0431\u043e\u0442\u0435') + '</span>';
-                var editButton = isAdminRole()
-                    ? '<button class="project-card-menu" type="button" aria-label="\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442" data-project-edit="' + escapeHtml(project.id || '') + '">&#8942;</button>'
-                    : '';
-                return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + escapeHtml(project.id || '') + '">' +
-                    '<div class="project-top">' +
-                        '<div><h3>' + escapeHtml(project.title || '\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f') + '</h3><p>' + escapeHtml(project.address || '\u0410\u0434\u0440\u0435\u0441 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</p></div>' +
-                        '<div class="project-card-tools"><div class="project-badges">' + statusBadge + riskBadge + '</div>' + editButton + '</div>' +
-                    '</div>' +
-                    '<div class="meta-grid">' +
-                        '<div><span>\u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a</span><strong>' + escapeHtml(project.client_name || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</strong></div>' +
-                        '<div><span>\u0411\u044e\u0434\u0436\u0435\u0442</span><strong>' + escapeHtml(project.budget == null ? '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d' : money(project.budget)) + '</strong></div>' +
-                        '<div><span>\u0414\u0435\u0434\u043b\u0430\u0439\u043d</span><strong>' + escapeHtml(project.deadline_at || '\u2014') + '</strong></div>' +
-                    '</div>' +
-                    renderStrongProgress(progress, '\u041f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u043e\u0431\u044a\u0435\u043a\u0442\u0430', false) +
-                '</article>';
-            }).join(''));
-            qsa('[data-project-id]', root).forEach(function (card) {
-                if (card.dataset.projectCardBound === '1') return;
-                card.dataset.projectCardBound = '1';
-                card.addEventListener('click', function (event) {
-                    if (event.target && event.target.closest('[data-project-edit]')) return;
-                    openProject(Number(card.dataset.projectId));
-                });
-            });
-            qsa('[data-project-edit]', root).forEach(function (button) {
-                if (button.dataset.projectEditBound === '1') return;
-                button.dataset.projectEditBound = '1';
-                button.addEventListener('click', function (event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openProjectEdit(Number(button.dataset.projectEdit));
-                });
-            });
-        } catch (error) {
-            console.error('renderProjectList failed', error);
-            safeReplaceChildren(root, '<div class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u0440\u0438\u0441\u043e\u0432\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442\u044b.</div>');
-        }
-    }
+    var baseBindLogForm = bindLogForm;
+    bindLogForm = function () {
+        baseBindLogForm();
+        bindReportPreview();
+    };
 
-
-    function renderProjectsPage() {
-        try {
-            if (isAdminRole()) loadCompanies(populateProjectCompanySelects);
-            ensureProjectEditCard();
-            bindProjectCreate();
-            bindProjectEditForm();
-            bindProjectBootstrapForm();
-            var bootstrapForm = qs('[data-project-bootstrap-form]');
-            if (bootstrapForm && bootstrapForm.closest('section')) bootstrapForm.closest('section').hidden = true;
-            renderProjectStats();
-            renderProjectCritical();
-            renderProjectList(state.projects);
-            var search = qs('[data-project-search]');
-            if (search && search.dataset.bound !== '1') {
-                search.dataset.bound = '1';
-                search.addEventListener('input', function () {
-                    try {
-                        var query = search.value.toLocaleLowerCase('ru');
-                        renderProjectList((state.projects || []).filter(function (project) {
-                            return [project && project.title, project && project.address, project && project.client_name, project && project.status]
-                                .join(' ')
-                                .toLocaleLowerCase('ru')
-                                .indexOf(query) !== -1;
-                        }));
-                    } catch (error) {
-                        console.error('Project search render failed', error);
-                        renderProjectList(state.projects || []);
-                    }
-                });
-            }
-            var close = qs('[data-close-detail]');
-            if (close && close.dataset.bound !== '1') {
-                close.dataset.bound = '1';
-                close.addEventListener('click', function () {
-                    state.selectedProject = null;
-                    var detail = qs('[data-project-detail]');
-                    if (detail) detail.hidden = true;
-                    setProjectFocusMode(false);
-                    try {
-                        var closeParams = new URLSearchParams(location.search);
-                        closeParams.delete('openProject');
-                        var closeQuery = closeParams.toString();
-                        history.replaceState(null, '', location.pathname + (closeQuery ? '?' + closeQuery : ''));
-                    } catch (error) {}
-                });
-            }
-            qsa('[data-tab]').forEach(function (button) {
-                if (button.dataset.projectTabBound === '1') return;
-                if (state.user && hasRole('customer') && ['execution', 'materials', 'tasks', 'finance'].indexOf(button.dataset.tab) !== -1) {
-                    button.classList.add('hidden');
-                    return;
-                }
-                if (button.dataset.tab === 'finance' && !canSeeFinances()) {
-                    button.classList.add('hidden');
-                    return;
-                }
-                button.dataset.projectTabBound = '1';
-                button.addEventListener('click', function () {
-                    activateProjectTab(button.dataset.tab);
-                });
-            });
-            var params = new URLSearchParams(location.search);
-            var openProjectId = Number(params.get('openProject') || 0);
-            if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
-                var matched = (state.projects || []).some(function (project) { return Number(project.id) === openProjectId; });
-                if (matched) openProject(openProjectId);
-            }
-        } catch (error) {
-            console.error('renderProjectsPage failed', error);
-            renderProjectList(Array.isArray(state.projects) ? state.projects : []);
-        }
-    }
-
-
-    function materialRow(item, projectId, insight) {
-        item = item || {};
-        var effectiveItem = materialEffectiveForProgress(projectId, effectiveMaterialFromReports(projectId, item));
-        var progress = materialActualProgress(projectId, effectiveItem);
-        var isDone = progress.total > 0 && progress.actual >= progress.total;
-        var warehouseBadge = renderWarehouseMatchBadge(projectId, effectiveItem);
-        var deliveryField = renderMaterialDeliveryField(projectId, effectiveItem);
-        var reportMark = effectiveItem.reportApplied && Number(effectiveItem.purchasedQty || 0) >= Number(effectiveItem.plannedQty || 0)
-            ? '<br><span class="material-report-mark">\u0423\u0447\u0442\u0435\u043d\u043e \u0438\u0437 \u043e\u0442\u0447\u0435\u0442\u0430</span>'
-            : '';
-        return '<div class="material-row work-row estimate-compact-row material-estimate-row' + (isDone ? ' material-row-done work-row-done' : '') + (progress.actual > 0 && !isDone ? ' material-row-partial' : '') + '">' +
-            '<div class="work-row-main">' +
-                '<label class="section-work-check section-material-check quantity-work-check estimate-compact-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
-                    '<input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(effectiveItem.id || '') + '" data-material-title="' + escapeHtml(effectiveItem.title || '') + '" data-material-unit="' + escapeHtml(effectiveItem.unit || '') + '" data-material-qty="' + escapeHtml(String(effectiveItem.plannedQty != null ? effectiveItem.plannedQty : effectiveItem.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
-                    '<span class="section-work-check-copy"><b>' + escapeHtml(effectiveItem.title || '') + '</b>' + reportMark + '</span>' +
-                '</label>' +
-                warehouseBadge +
-            '</div>' +
-            '<div class="work-row-side estimate-compact-side">' +
-                renderCompactActualQtyEditor('material', projectId, '', effectiveItem, progress) +
-                deliveryField +
-                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a', selected: insight && insight.selectedName ? insight.selectedName : '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a', none: '\u041d\u0435\u0442 \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432' }, 'supplier') + '</div>' +
-            '</div>' +
-        '</div>';
-    }
-
-
-    function renderMaterials(items, projectId, insights) {
-        var materials = (items || []).filter(function (item) {
-            return String(item.itemKind || 'material').toLowerCase() !== 'work';
-        }).map(function (item) {
-            return effectiveMaterialFromReports(projectId, item);
-        });
-        if (!materials.length) return '<p class="muted">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
-        var progress = materialProgress(projectId, materials);
-        var filteredMaterials = filterItemsByCounterparty(projectId, materials, 'supplier', insights || {});
-        var groups = groupMaterialsBySection(filteredMaterials);
-        var totalSections = estimateTotalSectionCount(items, groups.map(function (group) { return group.title; }));
-        var filterEmpty = filteredMaterials.length ? '' : '<div class="market-empty">\u041f\u043e \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u043e\u043c\u0443 \u0444\u0438\u043b\u044c\u0442\u0440\u0443 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442.</div>';
-        return '<div class="execution-summary material-progress-summary estimate-summary-compact">' +
-            stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(materials.length)) +
-            stat('\u0412\u0441\u0435\u0433\u043e \u0440\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(totalSections)) +
-            stat('\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u043e\u0432 \u0437\u0430\u043a\u0440\u044b\u0442\u043e', String(progress.done) + ' \u0438\u0437 ' + String(progress.total), progress.total && progress.done >= progress.total ? 'success' : '') +
-        '</div>' +
-        renderCounterpartyFilter(projectId, 'supplier', materials, insights || {}) +
-        filterEmpty +
-        (filteredMaterials.length ? renderGroupedMaterials(groups, projectId, insights || {}) : '');
-    }
-
-
-    function renderWorksPanel(stages, items) {
-        var projectId = state.selectedProject ? state.selectedProject.id : null;
-        var stageMap = buildStageLookup(stages || []);
-        var workStages = (stages || []).filter(function (stage) { return String(stage.stage_kind || '') !== 'section'; });
-        var estimateWorks = (items || []).filter(function (item) { return String(item.itemKind || '').toLowerCase() === 'work'; });
-        if (!workStages.length && !estimateWorks.length) return '<p class="muted">\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
-        var filteredEstimateWorks = projectId ? filterItemsByCounterparty(projectId, estimateWorks, 'contractor', state.materialInsightsByProject[projectId] || {}) : estimateWorks;
-        var isCounterpartyFiltered = projectId && counterpartyFilterValue(projectId, 'contractor') !== 'all';
-        var visibleWorkStages = isCounterpartyFiltered ? [] : workStages;
-        var groups = {};
-        var order = [];
-        function ensureGroup(title) {
-            var sectionTitle = String(title || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
-            if (!groups[sectionTitle]) {
-                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
-                order.push(sectionTitle);
-            }
-            return groups[sectionTitle];
-        }
-        visibleWorkStages.forEach(function (stage) { ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage); });
-        filteredEstimateWorks.forEach(function (item) { ensureGroup(item.sectionTitle || item.stageTitle).estimateRows.push(item); });
-        var originalSectionOrder = order.slice();
-        var sectionNumbers = buildEstimateSectionNumberMap(originalSectionOrder);
-        var scheduleOrder = workScheduleSections(projectId).map(function (section) { return String(section.title || '').trim(); }).filter(Boolean);
-        if (scheduleOrder.length) {
-            var scheduledMap = {};
-            order = scheduleOrder.filter(function (title) {
-                if (!groups[title]) return false;
-                scheduledMap[title] = 1;
-                return true;
-            }).concat(order.filter(function (title) { return !scheduledMap[title]; }));
-        }
-        order.sort(function (left, right) {
-            var leftNumber = sectionNumbers[left] || explicitEstimateSectionNumber(left) || 9999;
-            var rightNumber = sectionNumbers[right] || explicitEstimateSectionNumber(right) || 9999;
-            if (leftNumber !== rightNumber) return leftNumber - rightNumber;
-            return originalSectionOrder.indexOf(left) - originalSectionOrder.indexOf(right);
-        });
-        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
-            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
-            return isProjectWorkDone(projectId, sectionTitle, item);
-        }).length : 0;
-        var totalWorkPositions = estimateWorks.length || workStages.length;
-        var doneWorkPositions = estimateWorks.length ? doneEstimateWorks : workStages.filter(function (stage) { return Number(stage.progress || 0) >= 100; }).length;
-        var totalSections = estimateTotalSectionCount(items, order);
-        return '<div class="execution-summary work-progress-summary">' +
-            stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(totalWorkPositions)) +
-            stat('\u0412\u0441\u0435\u0433\u043e \u0440\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(totalSections)) +
-            stat('\u0420\u0430\u0431\u043e\u0442 \u0433\u043e\u0442\u043e\u0432\u043e', String(doneWorkPositions) + ' \u0438\u0437 ' + String(totalWorkPositions), totalWorkPositions && doneWorkPositions >= totalWorkPositions ? 'success' : '') +
-        '</div>' +
-        renderCounterpartyFilter(projectId, 'contractor', estimateWorks, state.materialInsightsByProject[projectId] || {}) +
-        (filteredEstimateWorks.length || visibleWorkStages.length ? '<div class="estimate-section-list">' + order.map(function (title, index) {
-            var group = groups[title];
-            var workProgress = workProgressForRows(projectId, title, group.estimateRows);
-            var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
-            var open = isEstimateSectionOpen(projectId, 'works', title, index);
-            var head = renderEstimateAccordionHead(
-                projectId,
-                'works',
-                title,
-                index,
-                '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : ''),
-                scheduleMeta.html + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length) + ' \u043f\u043e\u0437.') + '</span>',
-                '',
-                sectionProgressStrip(workProgress, { total: 0, done: 0 })
-            );
-            return '<section class="estimate-section estimate-section-card estimate-section-collapsible work-section-card' + scheduleMeta.className + (open ? ' is-open' : '') + '">' +
-                head +
-                renderEstimateSectionBody(open,
-                    group.stageRows.map(function (stage) {
-                        var meta = [stagePathLabel(stage, stageMap), stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' \u2022 ');
-                        return '<div class="material-row work-row"><div class="work-row-main"><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' \u2022 ' + percent(stage.progress) + '%</span></div></div>';
-                    }).join('') +
-                    group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('')
-                ) +
-            '</section>';
-        }).join('') + '</div>' : '<div class="market-empty">\u041f\u043e \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u043e\u043c\u0443 \u0444\u0438\u043b\u044c\u0442\u0440\u0443 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442.</div>');
-    }
-
-
-    function openProject(projectId) {
-        var root = qs('[data-project-detail]');
-        if (!root) return;
-        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
-        if (!project) return;
-        var loadingToken = beginProjectLoading(project.id);
-        try {
-            var params = new URLSearchParams(location.search);
-            params.set('openProject', String(projectId));
-            history.replaceState(null, '', location.pathname + '?' + params.toString());
-        } catch (historyError) {}
-        function panel(name) { return qs('[data-panel="' + name + '"]'); }
-        state.selectedProject = project;
-        root.hidden = false;
-        setProjectFocusMode(true);
-        ensureProjectWorksTab();
-        document.documentElement.classList.remove('projects-booting');
-        document.documentElement.classList.remove('project-route-loading');
-        var overviewPanel = panel('overview');
-        var materialsPanel = panel('materials');
-        var worksPanel = panel('works');
-        var schedulePanel = panel('schedule');
-        var reportsPanel = panel('reports');
-        var tasksPanel = panel('tasks');
-        var financePanel = panel('finance');
-        var documentsPanel = panel('documents');
-        var chatPanel = panel('chat');
-        var aiPanel = panel('ai');
-        var titleNode = qs('[data-detail-title]') || qs('[data-project-title]');
-        var scheduleRenderTimer = null;
-        function renderScheduleNow(stages) {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(stages || state.stagesByProject[project.id] || [], project));
-            bindAutoScheduleForm(project.id);
-            bindScheduleStatusActions(project.id);
-            bindSectionScheduleRefresh(project.id);
-            loadSelectedProjectMaterialSchedule(false);
-        }
-        function queueScheduleRender(stages) {
-            if (scheduleRenderTimer) clearTimeout(scheduleRenderTimer);
-            scheduleRenderTimer = setTimeout(function () {
-                scheduleRenderTimer = null;
-                renderScheduleNow(stages);
-            }, 80);
-        }
-        if (titleNode) titleNode.textContent = project.title || '\u041e\u0442\u043a\u0440\u044b\u0442\u044b\u0439 \u043e\u0431\u044a\u0435\u043a\u0442';
-        if (overviewPanel) safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
-        if (materialsPanel) safeReplaceChildren(materialsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b...</p>');
-        if (worksPanel) safeReplaceChildren(worksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0440\u0430\u0431\u043e\u0442\u044b...</p>');
-        renderScheduleNow(state.stagesByProject[project.id] || []);
-        if (reportsPanel) safeReplaceChildren(reportsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043e\u0442\u0447\u0435\u0442\u044b...</p>');
-        if (tasksPanel) safeReplaceChildren(tasksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0437\u0430\u0434\u0430\u0447\u0438...</p>');
-        if (financePanel) safeReplaceChildren(financePanel, canSeeFinances() ? '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0444\u0438\u043d\u0430\u043d\u0441\u044b...</p>' : '');
-        if (documentsPanel) safeReplaceChildren(documentsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b...</p>');
-        if (chatPanel) safeReplaceChildren(chatPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0447\u0430\u0442...</p>');
-        if (aiPanel) safeReplaceChildren(aiPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0430\u043d\u0430\u043b\u0438\u0437...</p>');
-        bindProjectOverviewActions();
-        activateProjectTab('overview');
-        loadMaterials(project.id, function (items) {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null));
-            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items));
-            bindProjectMarketToggles(project.id);
-            bindProjectChainActions();
-            bindMaterialManualChecks(project.id);
-        });
-        loadMaterialInsights(project.id, function (insights) {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            if (materialsPanel && state.materialsByProject[project.id]) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {}));
-            bindProjectMarketToggles(project.id);
-            bindProjectChainActions();
-        });
-        loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            queueScheduleRender(state.stagesByProject[project.id] || []);
-        });
-        loadProjectNotifications(project.id, function () {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            queueScheduleRender(state.stagesByProject[project.id] || []);
-        });
-        loadAnalysis(project.id, function (analysis) {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            if (aiPanel) safeReplaceChildren(aiPanel, renderBackendAnalysis(analysis));
-        });
-        loadStages(project.id, function (stages) {
-            if (!isCurrentProject(project.id, loadingToken)) return;
-            queueScheduleRender(stages);
-            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []));
-            bindStageCreateForm(project.id);
-            bindStageEditors(project.id);
-            bindMaterialManualChecks(project.id);
-            loadExecutionInsights(project.id, stages);
-        });
-        refreshProjectReportsTab(project.id, loadingToken);
-        loadTasks(project.id, loadingToken);
-        if (canSeeFinances()) loadProjectFinances(project.id, loadingToken);
-        loadDocuments(project.id, loadingToken);
-        loadProjectChats(project.id, loadingToken);
-        loadProjectAssignments(project.id, loadingToken);
-        bindProjectChainActions();
-    }
-
-    function renderProjectOverviewActions(project) {
+    renderProjectOverviewActions = function (project) {
         var actions = [
-            '<button class="ghost" type="button" data-project-tab-target="materials">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</button>',
-            '<button class="ghost" type="button" data-project-tab-target="works">\u0420\u0430\u0431\u043e\u0442\u044b</button>',
-            '<button class="ghost" type="button" data-project-tab-target="schedule">\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</button>',
-            '<button class="ghost" type="button" data-project-tab-target="reports">\u041e\u0442\u0447\u0435\u0442\u044b</button>',
-            '<button class="ghost" type="button" data-project-tab-target="tasks">\u0417\u0430\u0434\u0430\u0447\u0438</button>',
-            '<button class="ghost" type="button" data-project-tab-target="documents">\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b</button>',
-            '<a href="/app/logs">\u0416\u0443\u0440\u043d\u0430\u043b \u0440\u0430\u0431\u043e\u0442</a>'
+            '<button class="ghost" type="button" data-project-tab-target="materials">Материалы</button>',
+            '<button class="ghost" type="button" data-project-tab-target="works">Работы</button>',
+            '<button class="ghost" type="button" data-project-tab-target="schedule">График работ</button>',
+            '<button class="ghost" type="button" data-project-tab-target="reports">Отчеты</button>',
+            '<button class="ghost" type="button" data-project-tab-target="tasks">Задачи</button>',
+            '<button class="ghost" type="button" data-project-tab-target="documents">Документы</button>',
+            '<a href="/app/logs">Журнал работ</a>'
         ];
-        if (canSeeFinances()) actions.splice(5, 0, '<button class="ghost" type="button" data-project-tab-target="finance">\u0424\u0438\u043d\u0430\u043d\u0441\u044b</button>');
-        if (project && project.id) actions[actions.length - 1] = '<a href="/app/logs?projectId=' + project.id + '">\u0416\u0443\u0440\u043d\u0430\u043b \u0440\u0430\u0431\u043e\u0442</a>';
+        if (canSeeFinances()) actions.splice(5, 0, '<button class="ghost" type="button" data-project-tab-target="finance">Финансы</button>');
+        if (project && project.id) actions[actions.length - 1] = '<a href="/app/logs?projectId=' + project.id + '">Журнал работ</a>';
         return '<div class="object-actions">' + actions.join('') + '</div>';
-    }
+    };
 
-
-    function ensureProjectWorksTab() {
+    ensureProjectWorksTab = function () {
         var tabsRoot = qs('[data-project-detail] .tabs');
         if (tabsRoot && !qs('[data-tab="works"]', tabsRoot)) {
             var materialsTab = qs('[data-tab="materials"]', tabsRoot);
-            if (materialsTab) materialsTab.insertAdjacentHTML('afterend', '<button class="tab" data-tab="works">\u0420\u0430\u0431\u043e\u0442\u044b</button>');
+            if (materialsTab) materialsTab.insertAdjacentHTML('afterend', '<button class="tab" data-tab="works">Работы</button>');
         }
         var detail = qs('[data-project-detail]');
         if (detail && !qs('[data-panel="works"]', detail)) {
             var materialsPanel = qs('[data-panel="materials"]', detail);
             if (materialsPanel) materialsPanel.insertAdjacentHTML('afterend', '<div class="tab-panel" data-panel="works"></div>');
         }
-    }
-
+    };
 
     var PROJECT_STATUS_OPTIONS = ['Подготовка', 'В работе', 'На паузе', 'Завершен'];
 
@@ -9067,7 +11114,6 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderProjectStatusControl(project) {
-        var status = project && project.status ? project.status : '\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0430';
         if (!isAdminRole()) return '<span class="badge">' + escapeHtml(status) + '</span>';
         return '<label class="project-status-control">' +
             '<span>Статус</span>' +
@@ -9127,6 +11173,125 @@ function renderLogsDayView(project, logs) {
         var header = renderProjectTabViewSwitcher(project.id, 'works', 'Работы', 'Работы из сметы, объемы и отметка выполнения по графику.');
         if (getProjectTabMode(project.id, 'works') === 'market') return header + renderProjectMarketBlock(project.id, 'work');
         return header + renderWorksPanel(stages, items);
+    };
+
+    openProject = function (projectId) {
+        var root = qs('[data-project-detail]');
+        if (!root) return;
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
+        if (!project) return;
+        var loadingToken = beginProjectLoading(project.id);
+
+        try {
+            var params = new URLSearchParams(location.search);
+            params.set('openProject', String(projectId));
+            history.replaceState(null, '', location.pathname + '?' + params.toString());
+        } catch (historyError) {}
+
+        function panel(name) {
+            return qs('[data-panel="' + name + '"]');
+        }
+
+        state.selectedProject = project;
+        root.hidden = false;
+        setProjectFocusMode(true);
+        ensureProjectWorksTab();
+        document.documentElement.classList.remove('projects-booting');
+        document.documentElement.classList.remove('project-route-loading');
+
+        var overviewPanel = panel('overview');
+        var materialsPanel = panel('materials');
+        var worksPanel = panel('works');
+        var schedulePanel = panel('schedule');
+        var reportsPanel = panel('reports');
+        var tasksPanel = panel('tasks');
+        var financePanel = panel('finance');
+        var documentsPanel = panel('documents');
+        var chatPanel = panel('chat');
+        var aiPanel = panel('ai');
+        var titleNode = qs('[data-detail-title]');
+        var scheduleRenderTimer = null;
+
+        function renderScheduleNow(stages) {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(stages || state.stagesByProject[project.id] || [], project));
+            bindAutoScheduleForm(project.id);
+            bindScheduleStatusActions(project.id);
+            bindSectionScheduleRefresh(project.id);
+        }
+
+        function queueScheduleRender(stages) {
+            if (scheduleRenderTimer) clearTimeout(scheduleRenderTimer);
+            scheduleRenderTimer = setTimeout(function () {
+                scheduleRenderTimer = null;
+                renderScheduleNow(stages);
+            }, 80);
+        }
+
+        if (titleNode) titleNode.textContent = project.title || 'Карточка объекта';
+        if (overviewPanel) {
+            safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
+        }
+        if (materialsPanel) safeReplaceChildren(materialsPanel, '<p class="muted">Загрузка материалов...</p>');
+        if (worksPanel) safeReplaceChildren(worksPanel, '<p class="muted">Загрузка работ...</p>');
+        renderScheduleNow(state.stagesByProject[project.id] || []);
+        if (reportsPanel) safeReplaceChildren(reportsPanel, '<p class="muted">Загрузка отчетов...</p>');
+        if (tasksPanel) safeReplaceChildren(tasksPanel, '<p class="muted">Загрузка задач...</p>');
+        if (financePanel) safeReplaceChildren(financePanel, canSeeFinances() ? '<p class="muted">Загрузка финансов...</p>' : '');
+        if (documentsPanel) safeReplaceChildren(documentsPanel, '<p class="muted">Загрузка документов...</p>');
+        if (chatPanel) safeReplaceChildren(chatPanel, '<p class="muted">Загрузка чата...</p>');
+        if (aiPanel) safeReplaceChildren(aiPanel, '<p class="muted">Загрузка анализа...</p>');
+
+        bindProjectOverviewActions();
+        activateProjectTab('overview');
+
+        loadMaterials(project.id, function (items) {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null));
+            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items));
+            bindProjectMarketToggles(project.id);
+        });
+
+        loadMaterialInsights(project.id, function (insights) {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (materialsPanel && state.materialsByProject[project.id]) {
+                safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {}));
+            }
+            bindProjectMarketToggles(project.id);
+            bindProjectChainActions();
+        });
+
+        loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            queueScheduleRender(state.stagesByProject[project.id] || []);
+        });
+
+        loadProjectNotifications(project.id, function () {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            queueScheduleRender(state.stagesByProject[project.id] || []);
+        });
+
+        loadAnalysis(project.id, function (analysis) {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            if (aiPanel) safeReplaceChildren(aiPanel, renderBackendAnalysis(analysis));
+        });
+
+        loadStages(project.id, function (stages) {
+            if (!isCurrentProject(project.id, loadingToken)) return;
+            queueScheduleRender(stages);
+            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []));
+            bindStageCreateForm(project.id);
+            bindStageEditors(project.id);
+            loadExecutionInsights(project.id, stages);
+        });
+
+        refreshProjectReportsTab(project.id, loadingToken);
+        loadTasks(project.id, loadingToken);
+        if (canSeeFinances()) loadProjectFinances(project.id, loadingToken);
+        loadDocuments(project.id, loadingToken);
+        loadProjectChats(project.id, loadingToken);
+        loadProjectAssignments(project.id, loadingToken);
+        bindProjectChainActions();
     };
 
     renderProjectReportForm = function (project) {
@@ -9346,6 +11511,35 @@ function renderLogsDayView(project, logs) {
         bindProjectReportDeleteActions();
     };
 
+    renderLogsList = function (project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        if (!logs.length) {
+            root.innerHTML = '<p class="muted">По объекту "' + escapeHtml(project.title) + '" пока нет сохраненных отчетов.</p>';
+            return;
+        }
+        root.innerHTML = logs.map(function (log) {
+            return '<article class="log-card">' +
+                '<div class="log-top">' +
+                    '<div><span>' + escapeHtml(log.report_date || 'Без даты') + '</span><h4>' + escapeHtml(log.title) + '</h4></div>' +
+                    '<div class="log-top-side"><div class="project-badges">' +
+                        (log.progress_percent != null && log.progress_percent !== '' ? '<span class="badge success">' + escapeHtml(Math.round(Number(log.progress_percent) || 0)) + '%</span>' : '') +
+                        '<span class="badge">' + escapeHtml(log.workers_count || 0) + ' чел.</span>' +
+                        '<span class="badge ' + (Number(log.is_client_visible) === 1 ? '' : 'warn') + '">' + (Number(log.is_client_visible) === 1 ? 'Заказчику' : 'Внутренний') + '</span>' +
+                    '</div>' + renderProjectReportDeleteButton(project.id, log, true) + '</div>' +
+                '</div>' +
+                '<p>' + escapeHtml(log.work_done) + '</p>' +
+                '<div class="log-details">' +
+                    (log.equipment ? '<div><span>Техника / поставки</span><strong>' + escapeHtml(log.equipment) + '</strong></div>' : '') +
+                    (log.blockers ? '<div class="log-risk"><span>Блокеры</span><strong>' + escapeHtml(log.blockers) + '</strong></div>' : '') +
+                    (log.next_steps ? '<div><span>Следующий шаг</span><strong>' + escapeHtml(log.next_steps) + '</strong></div>' : '') +
+                '</div>' +
+                (log.raw_input ? '<small class="muted">Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                '<small class="muted">Автор: ' + escapeHtml(log.author_name || 'Без автора') + '</small>' +
+            '</article>';
+        }).join('');
+        bindProjectReportDeleteActions();
+    };
 
     finalSectionWorkDigest = function (section) {
         var items = Array.isArray(section.items) ? section.items : [];
@@ -9410,6 +11604,213 @@ function renderLogsDayView(project, logs) {
         '</article>';
     };
 
+    renderSectionScheduleRow = function (project, section, index) {
+        var items = Array.isArray(section.items) ? section.items : [];
+        var progress = scheduleSectionProgress(project.id, section);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-title"><div><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div></div>' +
+                '<button class="section-schedule-toggle" type="button" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' + (isOpen ? 'Свернуть раздел' : 'Открыть работы') + '</button>' +
+                '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(String(progress.done) + '/' + String(progress.total || 0) + ' работ') + '</span></div></div>' +
+                '<div class="section-schedule-track"><div class="schedule-gantt-track"><span class="schedule-gantt-today" style="left:' + scheduleTodayPercent(range) + '%"></span>' + (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan" style="' + planStyle + '"></span>' : '') + '</div><div class="section-schedule-track-meta' + (deadlineState.kind ? (' is-' + deadlineState.kind) : '') + '"><span>Плановый интервал</span><strong>' + escapeHtml(deadlineState.label) + '</strong></div></div>' +
+                '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || 'Объемы будут считаться по работам раздела') + '</span></div>' +
+                (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
+                    var workDone = isScheduleWorkDone(project.id, section.title, item);
+                    return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '"><input type="checkbox" data-section-work-check data-project-id="' + project.id + '" data-section-title="' + escapeHtml(section.title) + '" data-work-title="' + escapeHtml(item.title) + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '><span class="section-work-check-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>';
+                }).join('') + (items.length ? '' : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>') + '</div>' : '') +
+            '</div></article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var range = { start: summary.startDate, end: summary.finishDate, totalDays: Math.max(1, Number(summary.totalDays || 1)) };
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Последовательность разделов и контроль по факту выполнения работ.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('До дедлайна', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + '</div>' +
+            '<div class="section-schedule-brief-list">' + sections.map(function (section) { return renderSectionScheduleBrief(section); }).join('') + '</div>' + renderScheduleScale(range) + '<div class="section-schedule-list">' + sections.map(function (section, index) { return renderSectionScheduleRow(project, section, range, index); }).join('') + '</div></section>';
+    };
+
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = effectiveMaterialFromReports(projectId, item);
+        var missing = Number(effectiveItem.missingQty) || 0;
+        var stock = Number(effectiveItem.stockQty) || 0;
+        var planned = Number(effectiveItem.plannedQty) || 0;
+        var unitLabel = String(effectiveItem.unit || '').trim() || 'ед.';
+        var meta = [
+            'По смете: ' + finalSectionSummaryNumber(effectiveItem.plannedQty) + ' ' + unitLabel,
+            'куплено: ' + finalSectionSummaryNumber(effectiveItem.purchasedQty),
+            'использовано: ' + finalSectionSummaryNumber(effectiveItem.usedQty),
+            'остаток: ' + finalSectionSummaryNumber(effectiveItem.stockQty),
+            effectiveItem.needByDate ? ('нужно к ' + effectiveItem.needByDate) : '',
+            effectiveItem.stageTitle ? ('этап: ' + effectiveItem.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var supplyNote = '';
+        if (insight) {
+            supplyNote = insight.selectedName
+                ? 'Выбран поставщик: ' + insight.selectedName
+                : insight.quoted
+                    ? 'Просчитано предложений: ' + insight.quoted
+                    : insight.called
+                        ? 'Уже в обзвоне: ' + insight.called
+                        : 'В работе поставщиков: ' + insight.total;
+        } else if (canManageSuppliers()) {
+            supplyNote = 'Поставщик по этой позиции еще не выбран.';
+        }
+        var statusLabel = finalSectionSummaryNumber(stock) + '/' + finalSectionSummaryNumber(planned) + ' ' + unitLabel;
+        return '<div class="material-row material-row-linked' + (effectiveItem.reportApplied && Number(effectiveItem.purchasedQty || 0) >= Number(effectiveItem.plannedQty || 0) ? ' material-row-done' : '') + '">' +
+            '<div><b>' + escapeHtml(effectiveItem.title) + '</b><small>' + escapeHtml(meta) + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + (effectiveItem.reportApplied && Number(effectiveItem.purchasedQty || 0) >= Number(effectiveItem.plannedQty || 0) ? '<br><span class="material-report-mark">Закрыто по отчетам</span>' : '') + '</small></div>' +
+            '<div class="material-chain-side"><span class="badge ' + planningStatusClass(effectiveItem.supplyStatus || (missing > 0 ? 'required' : 'in_stock')) + '">' + escapeHtml(statusLabel) + '</span><div class="material-chain-actions">' + renderMaterialSupplierPicker(projectId, effectiveItem, insight) + '</div></div>' +
+        '</div>';
+    };
+
+    renderEstimateWorkItem = function (item, sectionTitle, projectId) {
+        var isDone = projectId ? isScheduleWorkDone(projectId, sectionTitle, item) : false;
+        var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
+        var meta = [
+            item.unit ? ('Ед.: ' + item.unit) : '',
+            plannedQty != null && plannedQty !== '' ? ('Объем: ' + formattedWorkQty(plannedQty)) : '',
+            item.stageTitle ? ('Этап: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var hours = Number(item.estimated_hours || item.estimatedHours || 0);
+        return '<div class="material-row work-row' + (isDone ? ' work-row-done' : '') + '">' +
+            '<div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta || 'Работа из сметы') + (item.notes ? '<br>' + escapeHtml(item.notes) : '') + '</small></div>' +
+            '<div class="work-row-side"><span class="badge work-amount-badge">' + escapeHtml(formattedWorkQty(plannedQty || 0) + ' ' + (item.unit || 'ед.')) + '</span>' +
+            (hours > 0 ? '<span class="badge work-hours-badge">' + escapeHtml((Math.round(hours * 10) / 10).toString().replace('.', ',') + ' чел.-ч') + '</span>' : '') +
+            (isDone ? '<span class="badge success">Готово</span>' : '') + '</div></div>';
+    };
+
+    renderWorksPanel = function (stages, items) {
+        var projectId = state.selectedProject ? state.selectedProject.id : null;
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) return '<p class="muted">Работы по смете пока не загружены.</p>';
+        var groups = {};
+        var order = [];
+        workStages.forEach(function (stage) {
+            var sectionTitle = rootSectionTitleForStage(stage, stageMap);
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            groups[sectionTitle].stageRows.push(stage);
+        });
+        estimateWorks.forEach(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            groups[sectionTitle].estimateRows.push(item);
+        });
+        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            return isScheduleWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        return '<div class="execution-summary">' +
+            stat('Разделов', String(order.length)) +
+            stat('Работ', String(estimateWorks.length || workStages.length)) +
+            stat('Готово', String(doneEstimateWorks)) +
+            stat('Осталось', String(Math.max(0, estimateWorks.length - doneEstimateWorks)), estimateWorks.length - doneEstimateWorks ? 'warn' : '') +
+        '</div><div class="estimate-section-list">' + order.map(function (title, index) {
+            var group = groups[title];
+            var totalEstimateRows = group.estimateRows.length;
+            var doneRows = projectId ? group.estimateRows.filter(function (item) {
+                return isScheduleWorkDone(projectId, title, item);
+            }).length : 0;
+            return '<section class="estimate-section"><div class="card-head estimate-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(materialSectionLabel(index)) + '</h3><span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + totalEstimateRows)) + ' поз.</span>' + (totalEstimateRows ? '<span class="badge">' + escapeHtml(String(doneRows) + '/' + String(totalEstimateRows) + ' работ') + '</span>' : '') + '</div><small>' + escapeHtml(title) + '</small></div><div class="materials-list">' +
+                group.stageRows.map(function (stage) {
+                    var meta = [
+                        stagePathLabel(stage, stageMap),
+                        stage.planned_start && stage.planned_end ? (stage.planned_start + ' — ' + stage.planned_end) : '',
+                        stage.responsible || ''
+                    ].filter(Boolean).join(' • ');
+                    return '<div class="material-row work-row"><div><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || 'Работа') + '</small></div><div class="material-chain-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+                }).join('') +
+                group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId); }).join('') +
+            '</div></section>';
+        }).join('') + '</div>';
+    };
+
+    renderSectionScheduleRow = function (project, section) {
+        var items = Array.isArray(section.items) ? section.items : [];
+        var progress = scheduleSectionProgress(project.id, section);
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + project.id + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+                    '<div class="section-schedule-summary-head">' +
+                        '<div class="section-schedule-summary-copy">' +
+                            '<div class="section-schedule-heading">' +
+                                '<div class="section-schedule-title"><h4>' + escapeHtml(section.title) + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div>' +
+                            '</div>' +
+                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(progress.total || section.workItems || 0) + ' работ') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' чел.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (progress.total ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(progress.total) + ' готово') + '</span>' : '') + '</div>' +
+                        '</div>' +
+                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
+                    '</div>' +
+                    '<div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(progress.percent)) + '%</b></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' из ' + String(progress.total) + ' работ выполнено') : 'Работы появятся после загрузки сметы') + '</span></div></div>' +
+                    '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
+                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                '</div>' +
+                (isOpen ? '<div class="section-schedule-details">' + items.map(function (item) {
+                    var workDone = isScheduleWorkDone(project.id, section.title, item);
+                    return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '"><input type="checkbox" data-section-work-check data-project-id="' + project.id + '" data-section-title="' + escapeHtml(section.title) + '" data-work-title="' + escapeHtml(item.title) + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '><span class="section-work-check-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>';
+                }).join('') + (items.length ? '' : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>') + '</div>' : '') +
+            '</div></article>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Фактический прогресс по разделам и отмеченным работам.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('До дедлайна', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Прогресс по разделам</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div><div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Считаем длительность по рабочим позициям и типовым нормам.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var daysLeft = deadline ? daysBetween(APP_TODAY, deadline) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, deadline || summary.finishDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График по разделам сметы</h3><span class="muted">Фактический прогресс по разделам и отмеченным работам.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(deadline || summary.finishDate)) + stat('Осталось дней', daysLeft == null ? '—' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + '</div>' +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Прогресс по разделам</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div><div class="section-schedule-progress"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span></div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
 
     function scheduleMilestonePercent(isoDate, startDate, endDate) {
         var start = isoTime(startDate);
@@ -9430,6 +11831,27 @@ function renderLogsDayView(project, logs) {
         }).join('');
         return rows ? '<div class="schedule-progress-milestones">' + rows + '</div>' : '';
     }
+
+    renderSectionScheduleForecast = function (project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Считаем длительность по рабочим позициям.</span></div></div><div class="section-schedule-empty">Собираем расчет по смете...</div></section>';
+        if (summary.error) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Считаем длительность по рабочим позициям.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">В смете пока нет рабочих позиций для расчета.</span></div></div></section>';
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var scheduleEndDate = deadline || summary.finishDate;
+        var daysLeft = scheduleEndDate ? daysBetween(APP_TODAY, scheduleEndDate) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, scheduleEndDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>График работ</h3><span class="muted">Общий прогресс, контрольные разделы и факт выполнения работ.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + project.id + '">Пересчитать</button></div>' +
+            '<div class="execution-summary">' + stat('Старт', finalGraphDate(summary.startDate)) + stat('Дедлайн', finalGraphDate(scheduleEndDate)) + stat('Осталось дней', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('Разделов', String(sections.length)) + '</div>' +
+            renderPinnedScheduleBrief(project, summary, sections) +
+            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>Общий прогресс</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' из ' + String(overallProgress.total) + ' работ отмечено') : 'Отмечайте выполненные работы внутри разделов') + '</span></div>' +
+                '<div class="section-schedule-progress section-schedule-progress-mapped"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span><b class="section-schedule-progress-value">' + escapeHtml(String(overallProgress.percent)) + '%</b>' + renderScheduleSectionMilestones(project, sections, summary.startDate, scheduleEndDate) + '</div><div class="section-schedule-progress-meta"><strong>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div>' +
+                '<div class="schedule-progress-legend"><span><i class="is-done"></i> раздел закрыт</span><span><i class="is-open"></i> раздел в работе</span></div></div>' +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    };
 
     function materialChecklistStorageKey(projectId) {
         return 'pmbi.material.checklist.' + String(projectId || '');
@@ -9599,6 +12021,50 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var missing = Number(effectiveItem.missingQty) || 0;
+        var stock = Number(effectiveItem.stockQty) || 0;
+        var planned = Number(effectiveItem.plannedQty) || 0;
+        var unitLabel = String(effectiveItem.unit || '').trim() || '\u0435\u0434.';
+        var isDone = isMaterialDone(projectId, item);
+        var meta = [
+            '\u041f\u043e \u0441\u043c\u0435\u0442\u0435: ' + finalSectionSummaryNumber(effectiveItem.plannedQty) + ' ' + unitLabel,
+            '\u043a\u0443\u043f\u043b\u0435\u043d\u043e: ' + finalSectionSummaryNumber(effectiveItem.purchasedQty),
+            '\u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u043e: ' + finalSectionSummaryNumber(effectiveItem.usedQty),
+            '\u043e\u0441\u0442\u0430\u0442\u043e\u043a: ' + finalSectionSummaryNumber(effectiveItem.stockQty),
+            effectiveItem.needByDate ? ('\u043d\u0443\u0436\u043d\u043e \u043a ' + effectiveItem.needByDate) : '',
+            effectiveItem.stageTitle ? ('\u044d\u0442\u0430\u043f: ' + effectiveItem.stageTitle) : ''
+        ].filter(Boolean).join(' \u2022 ');
+        var supplyNote = '';
+        if (insight) {
+            supplyNote = insight.selectedName
+                ? '\u0412\u044b\u0431\u0440\u0430\u043d \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a: ' + insight.selectedName
+                : insight.quoted
+                    ? '\u041f\u0440\u043e\u0441\u0447\u0438\u0442\u0430\u043d\u043e \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0439: ' + insight.quoted
+                    : insight.called
+                        ? '\u0423\u0436\u0435 \u0432 \u043e\u0431\u0437\u0432\u043e\u043d\u0435: ' + insight.called
+                        : '\u0412 \u0440\u0430\u0431\u043e\u0442\u0435 \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432: ' + insight.total;
+        } else if (canManageSuppliers()) {
+            supplyNote = '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a \u043f\u043e \u044d\u0442\u043e\u0439 \u043f\u043e\u0437\u0438\u0446\u0438\u0438 \u0435\u0449\u0435 \u043d\u0435 \u0432\u044b\u0431\u0440\u0430\u043d.';
+        }
+        var completionQty = Math.max(
+            stock,
+            Number(effectiveItem.purchasedQty || 0),
+            Number(effectiveItem.usedQty || 0),
+            isDone ? planned : 0
+        );
+        var completionLabel = planned > 0
+            ? (finalSectionSummaryNumber(completionQty) + '/' + finalSectionSummaryNumber(planned) + ' ' + unitLabel)
+            : (isDone ? '\u0417\u0430\u043a\u0440\u044b\u0442\u043e' : finalSectionSummaryNumber(stock) + ' ' + unitLabel);
+        var closeMark = effectiveItem.manualClosed ? '\u0417\u0430\u043a\u0440\u044b\u0442\u043e \u0432\u0440\u0443\u0447\u043d\u0443\u044e' : (effectiveItem.reportApplied && isDone ? '\u0417\u0430\u043a\u0440\u044b\u0442\u043e \u043f\u043e \u043e\u0442\u0447\u0435\u0442\u0430\u043c' : '');
+        return '<div class="material-row material-row-linked' + (isDone ? ' material-row-done' : '') + '">' +
+            '<label class="material-row-check" title="' + escapeHtml(isDone ? '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b \u0437\u0430\u043a\u0440\u044b\u0442' : '\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b \u0432\u0440\u0443\u0447\u043d\u0443\u044e') + '"><input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '><span></span></label>' +
+            '<div><b>' + escapeHtml(effectiveItem.title) + '</b><small>' + escapeHtml(meta) + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + (closeMark ? '<br><span class="material-report-mark">' + escapeHtml(closeMark) + '</span>' : '') + '</small></div>' +
+            '<div class="material-chain-side"><span class="badge material-complete-badge ' + planningStatusClass(effectiveItem.supplyStatus || (missing > 0 ? 'required' : 'in_stock')) + '">' + escapeHtml(completionLabel) + '</span><div class="material-chain-actions">' + renderMaterialSupplierPicker(projectId, effectiveItem, insight) + '</div></div>' +
+        '</div>';
+    };
+
     renderGroupedMaterials = function (groups, projectId, insights) {
         insights = insights || {};
         return '<div class="estimate-section-list">' + (groups || []).map(function (group, index) {
@@ -9612,6 +12078,30 @@ function renderLogsDayView(project, logs) {
                 }).join('') + '</div>' +
             '</section>';
         }).join('') + '</div>';
+    };
+
+    renderMaterials = function (items, projectId, insights) {
+        var materials = (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
+        if (!materials.length) return '<p class="muted">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
+        var effectiveMaterials = materials.map(function (item) {
+            return materialEffectiveForProgress(projectId, item);
+        });
+        var required = effectiveMaterials.filter(function (item) { return item.supplyStatus === 'required'; }).length;
+        var soon = effectiveMaterials.filter(function (item) { return item.supplyStatus === 'soon'; }).length;
+        var planned = effectiveMaterials.filter(function (item) { return item.supplyStatus === 'planned'; }).length;
+        var progress = materialProgress(projectId, materials);
+        var groups = groupMaterialsBySection(materials);
+        return '<div class="execution-summary material-progress-summary">' +
+            stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(materials.length)) +
+            stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(groups.length)) +
+            stat('\u0417\u0430\u043a\u0440\u044b\u0442\u043e', String(progress.done) + ' \u0438\u0437 ' + String(progress.total), progress.total && progress.done >= progress.total ? 'success' : '') +
+            stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c', String(progress.left), progress.left ? 'warn' : '') +
+            stat('\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f', String(required), required ? 'danger' : '') +
+            stat('\u0421\u043a\u043e\u0440\u043e', String(soon), soon ? 'warn' : '') +
+            stat('\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c', String(planned), planned ? 'warn' : '') +
+        '</div>' + renderGroupedMaterials(groups, projectId, insights || {});
     };
 
     function workScheduleSections(projectId) {
@@ -9647,6 +12137,97 @@ function renderLogsDayView(project, logs) {
         };
     }
 
+    renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
+        var isDone = projectId ? isProjectWorkDone(projectId, sectionTitle, item) : false;
+        var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
+        var calculatedVolume = formatCalculatedWorkVolume(item);
+        var meta = [
+            item.unit ? ('\u0415\u0434.: ' + item.unit) : '',
+            plannedQty != null && plannedQty !== '' ? ('\u041e\u0431\u044a\u0435\u043c: ' + formattedWorkQty(plannedQty)) : '',
+            calculatedVolume ? ('\u0418\u0442\u043e\u0433\u043e: ' + calculatedVolume) : '',
+            item.stageTitle ? ('\u042d\u0442\u0430\u043f: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' \u2022 ');
+        var hours = Number(item.estimated_hours || item.estimatedHours || 0);
+        var badges = [];
+        if (calculatedVolume) badges.push('<span class="badge work-total-badge success">' + escapeHtml(calculatedVolume) + '</span>');
+        else badges.push('<span class="badge work-amount-badge">' + escapeHtml(formattedWorkQty(plannedQty || 0) + ' ' + (item.unit || '\u0435\u0434.')) + '</span>');
+        if (hours > 0) badges.push('<span class="badge work-hours-badge">' + escapeHtml(finalSectionSummaryNumber(hours) + ' \u0447\u0435\u043b.-\u0447') + '</span>');
+        if (isDone) badges.push('<span class="badge success">\u0413\u043e\u0442\u043e\u0432\u043e</span>');
+        return '<div class="material-row work-row' + (isDone ? ' work-row-done' : '') + (!isDone && riskKind ? (' work-row-' + riskKind) : '') + '">' +
+            '<div class="work-row-main">' + renderWorkManualCheck(item, sectionTitle, projectId) + '</div>' +
+            '<div class="work-row-side">' + badges.join('') + '</div>' +
+        '</div>';
+    };
+
+    renderWorksPanel = function (stages, items) {
+        var projectId = state.selectedProject ? state.selectedProject.id : null;
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) return '<p class="muted">\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
+        var groups = {};
+        var order = [];
+        function ensureGroup(title) {
+            var sectionTitle = String(title || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            return groups[sectionTitle];
+        }
+        workStages.forEach(function (stage) {
+            ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage);
+        });
+        estimateWorks.forEach(function (item) {
+            ensureGroup(item.sectionTitle || item.stageTitle).estimateRows.push(item);
+        });
+        var scheduleOrder = workScheduleSections(projectId).map(function (section) {
+            return String(section.title || '').trim();
+        }).filter(Boolean);
+        if (scheduleOrder.length) {
+            var scheduledMap = {};
+            order = scheduleOrder.filter(function (title) {
+                if (!groups[title]) return false;
+                scheduledMap[title] = 1;
+                return true;
+            }).concat(order.filter(function (title) {
+                return !scheduledMap[title];
+            }));
+        }
+        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
+            return isProjectWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        return '<div class="execution-summary work-progress-summary">' +
+            stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(order.length)) +
+            stat('\u0420\u0430\u0431\u043e\u0442', String(estimateWorks.length || workStages.length)) +
+            stat('\u0420\u0430\u0431\u043e\u0442 \u0433\u043e\u0442\u043e\u0432\u043e', String(doneEstimateWorks) + ' \u0438\u0437 ' + String(estimateWorks.length), estimateWorks.length && doneEstimateWorks >= estimateWorks.length ? 'success' : '') +
+            stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c', String(Math.max(0, estimateWorks.length - doneEstimateWorks)), estimateWorks.length - doneEstimateWorks ? 'warn' : '') +
+        '</div><div class="estimate-section-list">' + order.map(function (title, index) {
+            var group = groups[title];
+            var workProgress = workProgressForRows(projectId, title, group.estimateRows);
+            var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
+            return '<section class="estimate-section work-section-card' + scheduleMeta.className + '">' +
+                '<div class="card-head estimate-section-head work-section-head"><div class="estimate-section-title"><h3>' + escapeHtml(scheduleMeta.heading) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : '') + '</div><div class="work-section-head-side">' + scheduleMeta.html + '</div><small>' + escapeHtml(title) + '</small></div>' +
+                sectionProgressStrip(workProgress, { total: 0, done: 0 }) +
+                '<div class="materials-list">' +
+                    group.stageRows.map(function (stage) {
+                        var meta = [
+                            stagePathLabel(stage, stageMap),
+                            stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '',
+                            stage.responsible || ''
+                        ].filter(Boolean).join(' \u2022 ');
+                        return '<div class="material-row work-row"><div><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</small></div><div class="material-chain-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' \u2022 ' + percent(stage.progress) + '%</span></div></div>';
+                    }).join('') +
+                    group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('') +
+                '</div>' +
+            '</section>';
+        }).join('') + '</div>';
+    };
 
     function rerenderProjectMaterialAndWorkViews(projectId) {
         var project = state.projects.find(function (item) {
@@ -9659,9 +12240,9 @@ function renderLogsDayView(project, logs) {
         var materialsPanel = qs('[data-panel="materials"]');
         var worksPanel = qs('[data-panel="works"]');
         var overviewMaterials = qs('[data-project-overview-materials]');
-        if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, materials, insights));
-        if (overviewMaterials) safeReplaceChildren(overviewMaterials, renderMaterials(materials, project.id, insights));
-        if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, stages, materials));
+        if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(project, materials, insights);
+        if (overviewMaterials) overviewMaterials.innerHTML = renderMaterials(materials, project.id, insights);
+        if (worksPanel) worksPanel.innerHTML = renderProjectWorksTab(project, stages, materials);
         bindProjectMarketToggles(projectId);
         bindProjectChainActions();
         bindSectionScheduleRefresh(projectId);
@@ -9689,6 +12270,12 @@ function renderLogsDayView(project, logs) {
     bindProjectChainActions = function () {
         baseBindProjectChainActionsFinal();
         if (state.selectedProject && state.selectedProject.id) bindMaterialManualChecks(state.selectedProject.id);
+    };
+
+    var baseBindSectionScheduleRefreshFinal = bindSectionScheduleRefresh;
+    bindSectionScheduleRefresh = function (projectId) {
+        baseBindSectionScheduleRefreshFinal(projectId);
+        bindMaterialManualChecks(projectId);
     };
 
     var baseLoadMaterialsForManualChecks = loadMaterials;
@@ -9936,6 +12523,26 @@ function renderLogsDayView(project, logs) {
         });
     };
 
+    renderLogsList = function (project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        if (!logs.length) {
+            root.innerHTML = '<p class="muted">По объекту "' + escapeHtml(project.title) + '" пока нет сохраненных отчетов.</p>';
+            return;
+        }
+        root.innerHTML = '<div class="report-archive-list">' + logs.map(function (log) {
+            return '<article class="report-archive-card">' +
+                '<div class="report-archive-head">' +
+                    '<div><span>Сохраненный отчет</span><h4>' + escapeHtml(log.title || ('Отчет за ' + (log.report_date || 'дату'))) + '</h4></div>' +
+                    '<div class="report-archive-side"><span class="badge success">' + escapeHtml(finalGraphDate(log.report_date)) + '</span>' + renderProjectReportDeleteButton(project.id, log, true) + '</div>' +
+                '</div>' +
+                '<p>' + escapeHtml(log.work_done || 'Текст отчета не указан') + '</p>' +
+                (log.raw_input ? '<small>Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                '<small>Автор: ' + escapeHtml(log.author_name || 'Без автора') + '</small>' +
+            '</article>';
+        }).join('') + '</div>';
+        bindProjectReportDeleteActions();
+    };
 
     renderProjectReportsPanel = function (project) {
         return '<div class="project-reports-shell">' +
@@ -9980,6 +12587,48 @@ function renderLogsDayView(project, logs) {
         });
     };
 
+    renderLogsList = function (project, logs) {
+        var roots = qsa('[data-report-archive-list]');
+        if (!roots.length) roots = qsa('[data-panel="reports"] [data-logs-list]');
+        if (!roots.length) roots = qsa('[data-logs-list]');
+        if (!roots.length) return;
+        project = project || {};
+        logs = Array.isArray(logs) ? logs : [];
+        var canBindDelete = typeof bindProjectReportDeleteActions === 'function';
+        function archiveDate(value) {
+            if (!value) return '-';
+            try {
+                return typeof finalGraphDate === 'function' ? finalGraphDate(value) : value;
+            } catch (error) {
+                return value;
+            }
+        }
+        var html = '';
+        try {
+            html = !logs.length
+                ? '<div class="report-archive-empty"><b>Архив пока пустой</b><span>После сохранения отчета он появится здесь отдельной карточкой.</span></div>'
+                : '<div class="report-archive-list">' + logs.map(function (log) {
+                    log = log || {};
+                    var reportTitle = log.title || ('Отчет за ' + (log.report_date || 'дату'));
+                    var reportText = log.work_done || log.raw_input || 'Текст отчета не указан';
+                    return '<article class="report-archive-card">' +
+                        '<div class="report-archive-head">' +
+                            '<div><span>Сохраненный отчет</span><h4>' + escapeHtml(reportTitle) + '</h4></div>' +
+                            '<div class="report-archive-side"><span class="badge success">' + escapeHtml(archiveDate(log.report_date)) + '</span></div>' +
+                        '</div>' +
+                        '<p>' + escapeHtml(reportText) + '</p>' +
+                        (log.raw_input ? '<small>Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                        '<small>Автор: ' + escapeHtml(log.author_name || 'Без автора') + '</small>' +
+                    '</article>';
+                }).join('') + '</div>';
+        } catch (error) {
+            html = '<div class="report-archive-empty"><b>Отчеты найдены: ' + escapeHtml(String(logs.length)) + '</b><span>Не удалось собрать карточки архива: ' + escapeHtml(error && error.message ? error.message : 'ошибка интерфейса') + '</span></div>';
+        }
+        roots.forEach(function (root) {
+            root.innerHTML = html;
+        });
+        if (canBindDelete) bindProjectReportDeleteActions();
+    };
 
     renderReportPreviewHtml = function (projectId, draft) {
         draft = draft || { text: '', workMatches: [], materialMatches: [] };
@@ -10275,293 +12924,12 @@ function renderLogsDayView(project, logs) {
         });
     }
 
-
-
-
-
-
-
-
-
-
-    function renderLogsList(project, logs) {
-        var root = qs('[data-logs-list]');
-        if (!root) return;
-        logs = Array.isArray(logs) ? logs : [];
-        if (!logs.length) {
-            root.innerHTML = '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 "' + escapeHtml(project && project.title ? project.title : '\u041e\u0431\u044a\u0435\u043a\u0442') + '" \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043d\u044b\u0445 \u043e\u0442\u0447\u0435\u0442\u043e\u0432.</p>';
-            return;
-        }
-        root.innerHTML = '<div class="report-archive-list">' + logs.map(function (log) {
-            var title = log.title || ('\u041e\u0442\u0447\u0435\u0442 \u0437\u0430 ' + (log.report_date || '\u0434\u0430\u0442\u0443'));
-            var visibility = Number(log.is_client_visible) === 1 ? '\u0412\u0438\u0434\u043d\u043e \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443' : '\u0412\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u0438\u0439';
-            return '<article class="report-archive-card log-card">' +
-                '<div class="report-archive-head log-top">' +
-                    '<div><span>\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043d\u044b\u0439 \u043e\u0442\u0447\u0435\u0442</span><h4>' + escapeHtml(title) + '</h4></div>' +
-                    '<div class="report-archive-side project-badges">' +
-                        '<span class="badge success">' + escapeHtml(finalGraphDate(log.report_date)) + '</span>' +
-                        (log.progress_percent != null && log.progress_percent !== '' ? '<span class="badge success">' + escapeHtml(Math.round(Number(log.progress_percent) || 0)) + '%</span>' : '') +
-                        '<span class="badge">' + escapeHtml(log.workers_count || 0) + ' \u0447\u0435\u043b.</span>' +
-                        '<span class="badge ' + (Number(log.is_client_visible) === 1 ? '' : 'warn') + '">' + visibility + '</span>' +
-                        renderProjectReportDeleteButton(project && project.id, log, true) +
-                    '</div>' +
-                '</div>' +
-                '<p>' + escapeHtml(log.work_done || '\u0422\u0435\u043a\u0441\u0442 \u043e\u0442\u0447\u0435\u0442\u0430 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</p>' +
-                '<div class="log-details">' +
-                    (log.equipment ? '<div><span>\u0422\u0435\u0445\u043d\u0438\u043a\u0430</span><strong>' + escapeHtml(log.equipment) + '</strong></div>' : '') +
-                    (log.blockers ? '<div class="log-risk"><span>\u0411\u043b\u043e\u043a\u0435\u0440</span><strong>' + escapeHtml(log.blockers) + '</strong></div>' : '') +
-                    (log.next_steps ? '<div><span>\u0414\u0430\u043b\u044c\u0448\u0435</span><strong>' + escapeHtml(log.next_steps) + '</strong></div>' : '') +
-                '</div>' +
-                (log.raw_input ? '<small class="muted">\u0418\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u0432\u0432\u043e\u0434: ' + escapeHtml(log.raw_input) + '</small>' : '') +
-                '<small class="muted">\u0410\u0432\u0442\u043e\u0440: ' + escapeHtml(log.author_name || '\u0411\u0435\u0437 \u0430\u0432\u0442\u043e\u0440\u0430') + '</small>' +
-            '</article>';
-        }).join('') + '</div>';
-        bindProjectReportDeleteActions();
-    }
-
-    function bindLogForm() {
+    var baseBindLogFormForReportVoice = bindLogForm;
+    bindLogForm = function () {
         bindReportPreview();
         bindReportVoiceInputs();
-        qsa('[data-log-form]').forEach(function (form) {
-            if (!form || form.dataset.bound === '1') return;
-            form.dataset.bound = '1';
-            form.addEventListener('submit', function (event) {
-                event.preventDefault();
-                var error = qs('[data-log-error]', form) || qs('[data-log-error]');
-                if (error) error.classList.remove('active');
-                var projectId = Number(form.project_id && form.project_id.value || 0);
-                var selectedDate = form.report_date && form.report_date.value ? form.report_date.value : APP_TODAY;
-                withSubmitLock(form, function () {
-                    return api('/api/projects/' + projectId + '/daily-logs', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            report_date: selectedDate,
-                            title: form.title ? form.title.value.trim() : '',
-                            work_done: form.work_done ? form.work_done.value.trim() : '',
-                            workers_count: Number(form.workers_count && form.workers_count.value || 0),
-                            equipment: form.equipment ? form.equipment.value.trim() : '',
-                            blockers: form.blockers ? form.blockers.value.trim() : '',
-                            next_steps: form.next_steps ? form.next_steps.value.trim() : '',
-                            progress_percent: form.progress_percent ? form.progress_percent.value : '',
-                            raw_input: form.raw_input ? form.raw_input.value.trim() : '',
-                            is_client_visible: form.is_client_visible ? form.is_client_visible.value === '1' : true
-                        })
-                    }).then(function (data) {
-                        var keepProject = form.project_id && form.project_id.value ? form.project_id.value : String(projectId);
-                        form.reset();
-                        if (form.project_id) form.project_id.value = keepProject;
-                        if (form.report_date) form.report_date.value = APP_TODAY;
-                        state.logsSelectedDateByProject[projectId] = selectedDate;
-                        state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
-                        var pageSelect = qs('[data-logs-project]');
-                        if (pageSelect) pageSelect.value = keepProject;
-                        if (data && data.project) {
-                            updateProjectInState(data.project);
-                            renderProjectStats();
-                            renderProjectCritical();
-                            renderProjectList(state.projects);
-                        }
-                        closeSideDrawer(qs('[data-drawer-id="log-create"]'));
-                        closeSideDrawer(qs('[data-drawer-id="project-report-create"]'));
-                        var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.selectedProject || state.projects[0] || { id: projectId, title: '\u041e\u0431\u044a\u0435\u043a\u0442' };
-                        loadProjectLogs(projectId, function (logs) {
-                            loadProjectNotifications(projectId, function (notifications) {
-                                renderLogsStats(logs, notifications);
-                                renderLogsAlerts(notifications);
-                                renderLogsCalendar(project, logs);
-                                renderLogsList(project, logs);
-                            });
-                        });
-                    }).catch(function (err) {
-                        var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043e\u0442\u0447\u0435\u0442');
-                        if (error) {
-                            error.textContent = message;
-                            error.classList.add('active');
-                        }
-                    });
-                });
-            });
-        });
-    }
-
-    function renderFinanceInvoiceForm() {
-        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442 \u0432 \u0444\u0438\u043d\u043f\u043b\u0430\u043d</h3><span class="muted">PDF, PNG, JPG \u043e\u0442\u043a\u0440\u043e\u044e\u0442\u0441\u044f \u0432 \u043f\u0440\u0435\u0432\u044c\u044e, Excel \u0431\u0443\u0434\u0435\u0442 \u0440\u0430\u0437\u043e\u0431\u0440\u0430\u043d \u043f\u043e \u0448\u0430\u0431\u043b\u043e\u043d\u0443.</span></div></div>' +
-            '<form class="finance-invoice-form" data-finance-invoice-form>' +
-                '<label class="finance-suggest-field"><span>\u041d\u0430 \u0447\u0442\u043e \u0443\u0445\u043e\u0434\u044f\u0442 \u0434\u0435\u043d\u044c\u0433\u0438</span><input name="category" autocomplete="off" placeholder="\u041d\u0430\u043f\u0440\u0438\u043c\u0435\u0440: \u0440\u043e\u0437\u0435\u0442\u043a\u0438, \u043a\u0430\u0431\u0435\u043b\u044c, \u0434\u0435\u043c\u043e\u043d\u0442\u0430\u0436..." required><div class="finance-suggestion-list" data-finance-suggestions hidden></div></label>' +
-                '<label><span>\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442</span><input name="counterparty_name" placeholder="\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a / \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a"></label>' +
-                '<label><span>\u0421\u0443\u043c\u043c\u0430</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
-                '<label><span>\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c \u0434\u043e</span><input name="planned_date" type="date"></label>' +
-                '<label><span>\u041e\u043f\u043b\u0430\u0442\u0430</span><select name="payment_kind"><option value="bank_no_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0431\u0435\u0437 \u041d\u0414\u0421</option><option value="bank_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0441 \u041d\u0414\u0421</option><option value="cash">\u041d\u0430\u043b\u0438\u0447\u043d\u044b\u0435</option></select></label>' +
-                '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status"><option value="approved" selected>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option><option value="planned">\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option></select></label>' +
-                '<label class="wide finance-file-field"><span>\u041f\u0440\u0438\u043a\u0440\u0435\u043f\u0438\u0442\u0435 \u0444\u0430\u0439\u043b</span><input class="custom-file-input" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></label>' +
-                '<label class="wide"><span>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</span><input name="notes" placeholder="\u041d\u043e\u043c\u0435\u0440 \u0441\u0447\u0435\u0442\u0430, \u0443\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u0435 \u0438\u043b\u0438 \u043f\u043e\u0441\u0442\u0430\u0432\u043a\u0430"></label>' +
-                '<div class="form-error" data-finance-invoice-error></div>' +
-                '<button class="primary" type="submit">\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442</button>' +
-            '</form></section>';
-    }
-
-    function renderFinanceRow(item) {
-        var direction = item.direction === 'income' ? 'income' : 'expense';
-        var status = item.status || 'planned';
-        var title = item.category || financeDirectionLabel(direction);
-        var counterparty = item.counterparty_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
-        return '<form class="finance-row finance-history-row ui-card is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
-            '<div class="finance-row-top"><div class="finance-row-title">' +
-                '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
-                '<b>' + escapeHtml(title) + '</b>' +
-                '<small>' + escapeHtml(financePaymentLabel(item.payment_kind) + ' - ' + counterparty) + '</small>' +
-                (item.notes ? '<em>' + escapeHtml(item.notes) + '</em>' : '') +
-                renderFinanceStatusTracker(status) +
-            '</div><div class="finance-row-side">' + renderFinanceDocumentSlot(item) +
-                '<div class="finance-row-amount"><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>\u041d\u0414\u0421 ' + escapeHtml(Number(item.vat_percent || 0)) + '%</small></div>' +
-            '</div></div>' +
-            '<div class="finance-row-controls">' +
-                '<label><span>\u041f\u043b\u0430\u043d</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
-                '<label><span>\u0424\u0430\u043a\u0442</span><input name="paid_date" type="date" value="' + escapeHtml(item.paid_date || '') + '"></label>' +
-                '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status">' +
-                    '<option value="planned"' + (status === 'planned' ? ' selected' : '') + '>\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option>' +
-                    '<option value="approved"' + (status === 'approved' ? ' selected' : '') + '>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option>' +
-                    '<option value="paid"' + (status === 'paid' ? ' selected' : '') + '>\u041e\u043f\u043b\u0430\u0447\u0435\u043d\u043e</option>' +
-                    '<option value="cancelled"' + (status === 'cancelled' ? ' selected' : '') + '>\u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e</option>' +
-                '</select></label>' +
-                '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
-                '<button class="ghost compact" type="submit">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c</button>' +
-                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact" type="button" data-finance-confirm-payment data-director-finance>\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443</button>' : '') +
-            '</div></form>';
-    }
-
-    function renderProjectFinances(projectId, items, summary) {
-        var root = qs('[data-panel="finance"]');
-        if (!root) return;
-        items = Array.isArray(items) ? items : [];
-        summary = summary || {};
-        if (isForemanRole()) {
-            root.innerHTML = '<div class="finance-entry-grid finance-foreman-upload-only">' + renderFinanceInvoiceForm() + '</div>';
-            bindFinanceInvoiceForm(projectId);
-            applyRoleVisibility(root);
-            return;
-        }
-        root.innerHTML =
-            '<div data-director-finance>' + renderFinanceHero(projectId, summary) + '</div>' +
-            '<div data-director-finance>' + renderFinancePlanFromInvoices(items, summary) + '</div>' +
-            '<div class="finance-entry-grid"><div data-director-finance>' + renderFinanceIncomeForm() + '</div>' + renderFinanceInvoiceForm() + '</div>' +
-            '<section class="subsection finance-history-card ui-card" data-director-finance><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
-                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0445 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0439.</p>') +
-            '</div></section>';
-        bindFinanceIncomeForm(projectId);
-        bindFinanceInvoiceForm(projectId);
-        bindFinanceEditors(projectId);
-        bindFinanceDocumentActions();
-        applyRoleVisibility(root);
-    }
-
-    function bindFinanceInvoiceForm(projectId) {
-        var form = qs('[data-finance-invoice-form]');
-        if (!form || form.dataset.bound === '1') return;
-        form.dataset.bound = '1';
-        bindFinanceSuggestions(projectId, form);
-        form.addEventListener('submit', function (event) {
-            event.preventDefault();
-            var error = qs('[data-finance-invoice-error]', form) || qs('[data-finance-invoice-error]');
-            if (error) error.classList.remove('active');
-            withSubmitLock(form, function () {
-                var file = form.file && form.file.files && form.file.files[0];
-                var request;
-                if (file) {
-                    var formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('category', form.category.value.trim());
-                    formData.append('counterparty_name', form.counterparty_name.value.trim());
-                    formData.append('amount', form.amount.value || '0');
-                    formData.append('planned_date', form.planned_date.value);
-                    formData.append('payment_kind', form.payment_kind.value);
-                    formData.append('status', form.status.value || 'approved');
-                    formData.append('notes', form.notes.value.trim());
-                    request = apiFormData('/api/projects/' + projectId + '/finances/invoice-upload', formData);
-                } else {
-                    request = api('/api/projects/' + projectId + '/finances', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            direction: 'expense',
-                            category: form.category.value.trim(),
-                            payment_kind: form.payment_kind.value,
-                            amount: Number(form.amount.value || 0),
-                            vat_percent: form.payment_kind.value === 'bank_vat' ? 20 : 0,
-                            planned_date: form.planned_date.value,
-                            paid_date: '',
-                            counterparty_name: form.counterparty_name.value.trim(),
-                            status: form.status.value || 'approved',
-                            notes: form.notes.value.trim()
-                        })
-                    });
-                }
-                return request.then(function (data) {
-                    if (data && data.parsedInvoice) {
-                        form.category.value = data.parsedInvoice.category || form.category.value;
-                        form.counterparty_name.value = data.parsedInvoice.counterparty_name || form.counterparty_name.value;
-                        form.amount.value = data.parsedInvoice.amount || form.amount.value;
-                        showFinanceToast('\u0421\u0447\u0435\u0442 Excel \u0440\u0430\u0441\u043f\u043e\u0437\u043d\u0430\u043d \u0438 \u043f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443');
-                    }
-                    loadProjectFinances(projectId);
-                }).catch(function (err) {
-                    var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442');
-                    if (message === '\u041e\u0448\u0438\u0431\u043a\u0430: \u0424\u043e\u0440\u043c\u0430\u0442 \u0444\u0430\u0439\u043b\u0430 \u043d\u0435 \u0441\u043e\u043e\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0448\u0430\u0431\u043b\u043e\u043d\u0443 \u043e\u0442\u0447\u0435\u0442\u0430') showFinanceToast(message);
-                    if (error) {
-                        error.textContent = message;
-                        error.classList.add('active');
-                    }
-                });
-            });
-        });
-    }
-
-    function bindFinanceEditors(projectId) {
-        qsa('[data-finance-edit-form]').forEach(function (form) {
-            if (!form || form.dataset.bound === '1') return;
-            form.dataset.bound = '1';
-            function payload(status) {
-                return {
-                    planned_date: form.planned_date ? form.planned_date.value : '',
-                    paid_date: status === 'paid' ? (form.paid_date && form.paid_date.value ? form.paid_date.value : APP_TODAY) : (form.paid_date ? form.paid_date.value : ''),
-                    status: status,
-                    notes: form.notes ? form.notes.value.trim() : ''
-                };
-            }
-            form.addEventListener('submit', function (event) {
-                event.preventDefault();
-                var status = form.status ? form.status.value : 'planned';
-                withSubmitLock(form, function () {
-                    return api('/api/finances/' + form.dataset.financeId + '/update', {
-                        method: 'POST',
-                        body: JSON.stringify(payload(status))
-                    }).then(function () {
-                        loadProjectFinances(projectId);
-                    }).catch(function (err) {
-                        showFinanceToast(appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0441\u0447\u0435\u0442'));
-                    });
-                });
-            });
-            qsa('[data-finance-confirm-payment]', form).forEach(function (button) {
-                if (button.dataset.bound === '1') return;
-                button.dataset.bound = '1';
-                button.addEventListener('click', function () {
-                    withSubmitLock(button, function () {
-                        return api('/api/finance/pay-invoice', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                finance_id: Number(form.dataset.financeId),
-                                paid_date: APP_TODAY
-                            })
-                        }).then(function () {
-                            loadProjectFinances(projectId);
-                        }).catch(function (err) {
-                            showFinanceToast(appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443'));
-                        });
-                    });
-                });
-            });
-        });
-    }
+        return baseBindLogFormForReportVoice();
+    };
 
     function financePlanBucket(item) {
         var dateText = String(item.planned_date || item.paid_date || '').trim();
@@ -10629,9 +12997,98 @@ function renderLogsDayView(project, logs) {
         '</section>';
     }
 
+    function renderFinanceInvoiceForm() {
+        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>Добавить счет в финплан</h3><span class="muted">Быстро заносим счет, сумму и срок оплаты.</span></div></div>' +
+            '<form class="finance-invoice-form" data-finance-invoice-form>' +
+                '<label><span>Счет / назначение</span><input name="category" placeholder="Счет за розетки, кабель, подрядчик" required></label>' +
+                '<label><span>Контрагент</span><input name="counterparty_name" placeholder="Поставщик"></label>' +
+                '<label><span>Сумма</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
+                '<label><span>Оплатить до</span><input name="planned_date" type="date"></label>' +
+                '<label><span>Оплата</span><select name="payment_kind"><option value="bank_no_vat">Безнал без НДС</option><option value="bank_vat">Безнал с НДС</option><option value="cash">Наличные</option></select></label>' +
+                '<label><span>Статус</span><select name="status"><option value="planned">Запланировано</option><option value="approved">Согласовано</option></select></label>' +
+                '<label class="wide"><span>Комментарий</span><input name="notes" placeholder="Номер счета, что именно покупаем"></label>' +
+                '<div class="form-error" data-finance-invoice-error></div>' +
+                '<button class="primary" type="submit">Добавить счет</button>' +
+            '</form></section>';
+    }
 
+    renderProjectFinances = function (projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        root.innerHTML =
+            '<section class="stats-grid">' +
+                stat('План расходов', money(summary.plannedExpense || 0)) +
+                stat('Оплачено расходов', money(summary.paidExpense || 0), summary.paidExpense > (summary.plannedExpense || 0) ? 'danger' : '') +
+                stat('Поступило', money(summary.paidIncome || 0)) +
+                stat('Баланс', money(summary.balance || 0), (summary.balance || 0) < 0 ? 'danger' : '') +
+            '</section>' +
+            renderFinancePlanFromInvoices(items, summary) +
+            renderFinanceInvoiceForm() +
+            '<section class="subsection"><div class="card-head"><h3>Все финансовые операции</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">По объекту пока нет финансовых операций.</p>') +
+            '</div></section>';
+        bindFinanceInvoiceForm(projectId);
+        bindFinanceEditors(projectId);
+    };
 
+    function bindFinanceInvoiceForm(projectId) {
+        var form = qs('[data-finance-invoice-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-finance-invoice-error]');
+            if (error) error.classList.remove('active');
+            api('/api/projects/' + projectId + '/finances', {
+                method: 'POST',
+                body: JSON.stringify({
+                    direction: 'expense',
+                    category: form.category.value.trim(),
+                    payment_kind: form.payment_kind.value,
+                    amount: Number(form.amount.value || 0),
+                    vat_percent: form.payment_kind.value === 'bank_vat' ? 20 : 0,
+                    planned_date: form.planned_date.value,
+                    paid_date: '',
+                    counterparty_name: form.counterparty_name.value.trim(),
+                    status: form.status.value,
+                    notes: form.notes.value.trim()
+                })
+            }).then(function () {
+                form.reset();
+                form.payment_kind.value = 'bank_no_vat';
+                form.status.value = 'planned';
+                loadProjectFinances(projectId);
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось добавить счет';
+                    error.classList.add('active');
+                }
+            });
+        });
+    }
 
+    bindFinanceEditors = function (projectId) {
+        qsa('[data-finance-edit-form]').forEach(function (form) {
+            if (form.dataset.bound === '1') return;
+            form.dataset.bound = '1';
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                api('/api/finances/' + form.dataset.financeId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        planned_date: form.planned_date ? form.planned_date.value : '',
+                        paid_date: form.paid_date ? form.paid_date.value : '',
+                        status: form.status ? form.status.value : 'planned',
+                        notes: form.notes ? form.notes.value.trim() : ''
+                    })
+                }).then(function () {
+                    loadProjectFinances(projectId);
+                });
+            });
+        });
+    };
 
     function financeEstimateTotal(projectId, summary) {
         var apiTotal = Number(summary && summary.estimateTotal);
@@ -10695,6 +13152,20 @@ function renderLogsDayView(project, logs) {
         '</section>';
     }
 
+    renderFinanceInvoiceForm = function () {
+        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>Добавить счет в финплан</h3><span class="muted">Начни писать назначение, и CRM подскажет материалы или работы из сметы.</span></div></div>' +
+            '<form class="finance-invoice-form" data-finance-invoice-form>' +
+                '<label class="finance-suggest-field"><span>На что уходят деньги</span><input name="category" autocomplete="off" placeholder="Например: розетки, кабель, демонтаж..." required><div class="finance-suggestion-list" data-finance-suggestions hidden></div></label>' +
+                '<label><span>Контрагент</span><input name="counterparty_name" placeholder="Поставщик / подрядчик"></label>' +
+                '<label><span>Сумма</span><input name="amount" type="number" min="0" step="0.01" required></label>' +
+                '<label><span>Оплатить до</span><input name="planned_date" type="date"></label>' +
+                '<label><span>Оплата</span><select name="payment_kind"><option value="bank_no_vat">Безнал без НДС</option><option value="bank_vat">Безнал с НДС</option><option value="cash">Наличные</option></select></label>' +
+                '<label><span>Статус</span><select name="status"><option value="planned">Запланировано</option><option value="approved">Согласовано</option></select></label>' +
+                '<label class="wide"><span>Комментарий</span><input name="notes" placeholder="Номер счета, уточнение или поставка"></label>' +
+                '<div class="form-error" data-finance-invoice-error></div>' +
+                '<button class="primary" type="submit">Добавить счет</button>' +
+            '</form></section>';
+    };
 
     function renderFinanceIncomeForm() {
         return '<section class="subsection finance-income-card"><div class="card-head"><div><h3>Поступление денег</h3><span class="muted">Сюда заносим оплату от заказчика, аванс или другое пополнение баланса.</span></div></div>' +
@@ -10709,6 +13180,22 @@ function renderLogsDayView(project, logs) {
             '</form></section>';
     }
 
+    renderProjectFinances = function (projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        root.innerHTML =
+            renderFinanceHero(projectId, summary) +
+            renderFinancePlanFromInvoices(items, summary) +
+            '<div class="finance-entry-grid">' + renderFinanceIncomeForm() + renderFinanceInvoiceForm() + '</div>' +
+            '<section class="subsection finance-history-card"><div class="card-head"><h3>Все финансовые операции</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">По объекту пока нет финансовых операций.</p>') +
+            '</div></section>';
+        bindFinanceIncomeForm(projectId);
+        bindFinanceInvoiceForm(projectId);
+        bindFinanceEditors(projectId);
+    };
 
     function bindFinanceIncomeForm(projectId) {
         var form = qs('[data-finance-income-form]');
@@ -10747,6 +13234,37 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    renderFinanceRow = function (item) {
+        var direction = item.direction === 'income' ? 'income' : 'expense';
+        var status = item.status || 'planned';
+        var title = item.category || financeDirectionLabel(direction);
+        var counterparty = item.counterparty_name || 'Контрагент не указан';
+        var meta = financeDirectionLabel(direction) + ' • ' + financePaymentLabel(item.payment_kind);
+        return '<form class="finance-row finance-history-row is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+            '<div class="finance-row-top">' +
+                '<div class="finance-row-title">' +
+                    '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
+                    '<b>' + escapeHtml(title) + '</b>' +
+                    '<small>' + escapeHtml(meta) + '</small>' +
+                    '<small>' + escapeHtml(counterparty) + '</small>' +
+                    (item.notes ? '<em>' + escapeHtml(item.notes) + '</em>' : '') +
+                '</div>' +
+                '<div class="finance-row-amount"><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>НДС ' + escapeHtml(Number(item.vat_percent || 0)) + '%</small></div>' +
+            '</div>' +
+            '<div class="finance-row-controls">' +
+                '<label><span>План</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                '<label><span>Факт</span><input name="paid_date" type="date" value="' + escapeHtml(item.paid_date || '') + '"></label>' +
+                '<label><span>Статус</span><select name="status">' +
+                    '<option value="planned"' + (status === 'planned' ? ' selected' : '') + '>Запланировано</option>' +
+                    '<option value="approved"' + (status === 'approved' ? ' selected' : '') + '>Согласовано</option>' +
+                    '<option value="paid"' + (status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
+                    '<option value="cancelled"' + (status === 'cancelled' ? ' selected' : '') + '>Отменено</option>' +
+                '</select></label>' +
+                '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
+                '<button class="ghost compact" type="submit">Сохранить</button>' +
+            '</div>' +
+        '</form>';
+    };
 
     function bindFinanceSuggestions(projectId, form) {
         var input = form && form.category;
@@ -10793,6 +13311,13 @@ function renderLogsDayView(project, logs) {
             root.hidden = true;
         });
     }
+
+    var baseBindFinanceInvoiceFormSuggest = bindFinanceInvoiceForm;
+    bindFinanceInvoiceForm = function (projectId) {
+        baseBindFinanceInvoiceFormSuggest(projectId);
+        var form = qs('[data-finance-invoice-form]');
+        if (form) bindFinanceSuggestions(projectId, form);
+    };
 
     function reminderProjectTitle(projectId) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
@@ -11313,8 +13838,61 @@ function renderLogsDayView(project, logs) {
         '</div>';
     };
 
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var progress = materialActualProgress(projectId, item);
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        var meta = [
+            'по смете: ' + quantityText(progress.total) + ' ' + progress.unit,
+            progress.hasMultiplier ? ('из сметы: ' + quantityText(progress.rawQty) + ' x ' + quantityText(progress.multiplier) + (progress.rawUnit ? (' ' + progress.rawUnit) : '')) : '',
+            effectiveItem.needByDate ? ('нужно к ' + effectiveItem.needByDate) : '',
+            effectiveItem.stageTitle ? ('этап: ' + effectiveItem.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var supplyNote = insight && insight.selectedName ? ('Выбран поставщик: ' + insight.selectedName) : '';
+        return '<div class="material-row material-row-linked' + (isDone ? ' material-row-done' : '') + (progress.actual > 0 && !isDone ? ' material-row-partial' : '') + '">' +
+            '<label class="material-row-check" title="' + escapeHtml(isDone ? 'Материал закрыт' : 'Закрыть материал полностью') + '"><input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '><span></span></label>' +
+            '<div><b>' + escapeHtml(effectiveItem.title) + '</b><small>' + escapeHtml(meta) + (supplyNote ? '<br>' + escapeHtml(supplyNote) : '') + '</small></div>' +
+            '<div class="material-chain-side">' + renderActualQtyEditor('material', projectId, '', item, progress) + '<div class="material-chain-actions">' + renderMaterialSupplierPicker(projectId, effectiveItem, insight) + '</div></div>' +
+        '</div>';
+    };
+
+    renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
+        var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty, unit: quantityPlanInfo(item).unit };
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        var plannedQty = item.plannedQty != null ? item.plannedQty : item.planned_qty;
+        var calculatedVolume = formatCalculatedWorkVolume(item);
+        var meta = [
+            item.unit ? ('Ед.: ' + item.unit) : '',
+            plannedQty != null && plannedQty !== '' ? ('Объем: ' + formattedWorkQty(plannedQty)) : '',
+            calculatedVolume ? ('Итого: ' + calculatedVolume) : '',
+            item.stageTitle ? ('Этап: ' + item.stageTitle) : ''
+        ].filter(Boolean).join(' • ');
+        var hours = Number(item.estimated_hours || item.estimatedHours || 0);
+        var badges = [];
+        if (hours > 0) badges.push('<span class="badge work-hours-badge">' + escapeHtml(finalSectionSummaryNumber(hours) + ' чел.-ч') + '</span>');
+        if (isDone) badges.push('<span class="badge success">Готово</span>');
+        else if (progress.actual > 0) badges.push('<span class="badge warn">Частично</span>');
+        return '<div class="material-row work-row' + (isDone ? ' work-row-done' : '') + (progress.actual > 0 && !isDone ? ' work-row-partial' : '') + (!isDone && riskKind ? (' work-row-' + riskKind) : '') + '">' +
+            '<div class="work-row-main">' + renderWorkManualCheck(item, sectionTitle, projectId) + '</div>' +
+            '<div class="work-row-side">' + badges.join('') + '</div>' +
+        '</div>';
+    };
 
     var baseRenderSectionScheduleRowQuantity = renderSectionScheduleRow;
+    renderSectionScheduleRow = function (project, section, index) {
+        var html = baseRenderSectionScheduleRowQuantity(project, section, index);
+        if (!section || !Array.isArray(section.items)) return html;
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var detailsHtml = section.items.length ? section.items.map(function (item) {
+                return renderWorkManualCheck(item, section.title, project.id);
+            }).join('') : '<div class="section-schedule-empty inline">В этом разделе пока нет работ для отметки.</div>';
+        var detailsShell = renderScheduleSectionDetailsShell(isOpen, detailsHtml);
+        html = html.replace('<article class="section-schedule-card', '<article class="section-schedule-card' + (isOpen ? ' is-open' : ''));
+        if (/<div class="section-schedule-details">[\s\S]*?<\/div>(?=<\/div><\/article>)/.test(html)) {
+            return html.replace(/<div class="section-schedule-details">[\s\S]*?<\/div>(?=<\/div><\/article>)/, detailsShell);
+        }
+        return html.replace(/<\/div><\/article>$/, detailsShell + '</div></article>');
+    };
 
     function actualQuantityInputItem(input) {
         return {
@@ -11559,6 +14137,12 @@ function renderLogsDayView(project, logs) {
     bindProjectChainActions = function () {
         baseBindProjectChainActionsForQuantities();
         if (state.selectedProject && state.selectedProject.id) bindActualQuantityInputs(state.selectedProject.id);
+    };
+
+    var baseBindSectionScheduleRefreshForQuantities = bindSectionScheduleRefresh;
+    bindSectionScheduleRefresh = function (projectId) {
+        baseBindSectionScheduleRefreshForQuantities(projectId);
+        bindActualQuantityInputs(projectId);
     };
 
     function isScheduleProjectOpen(projectId) {
@@ -11961,12 +14545,11 @@ function renderLogsDayView(project, logs) {
     function renderCompactActualQtyEditor(kind, projectId, sectionTitle, item, progress) {
         var itemId = kind === 'material' ? (item && item.id || '') : '';
         var stepValue = Math.abs((progress.total || 0) - Math.round(progress.total || 0)) < 0.0001 ? '1' : '0.1';
-        return '<label class="quantity-actual-editor quantity-actual-compact quantity-actual-' + escapeHtml(kind) + '" title="\u041d\u0430\u0436\u043c\u0438\u0442\u0435, \u0447\u0442\u043e\u0431\u044b \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u0444\u0430\u043a\u0442">' +
-            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> <small>\u0438\u0437</small> <em>' + escapeHtml(quantityText(progress.total)) + '</em></span>' +
-            '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || '\u0435\u0434.') + '</em></div>' +
+        return '<label class="quantity-actual-editor quantity-actual-compact quantity-actual-' + escapeHtml(kind) + '" title="Нажмите, чтобы указать факт">' +
+            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> <small>из</small> <em>' + escapeHtml(quantityText(progress.total)) + '</em></span>' +
+            '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || 'ед.') + '</em></div>' +
         '</label>';
     }
-
 
     function renderCounterpartyPicker(projectId, item, insight, labels, kind) {
         if (!canManageSuppliers()) return '';
@@ -12009,27 +14592,64 @@ function renderLogsDayView(project, logs) {
             }) || null;
         }
         return '<div class="material-supplier-picker counterparty-picker">' +
-            '<button class="ghost material-link compact' + (isSelected ? ' is-selected' : '') + '" type="button" data-supplier-toggle data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-counterparty-kind="' + escapeHtml(kind) + '">' + escapeHtml(isSelected ? (selectedByType.name || labels.selected || '\u0412\u044b\u0431\u0440\u0430\u043d') : (labels.empty || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442')) + '</button>' +
+            '<button class="ghost material-link compact' + (isSelected ? ' is-selected' : '') + '" type="button" data-supplier-toggle data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-counterparty-kind="' + escapeHtml(kind) + '">' + escapeHtml(isSelected ? (selectedByType.name || labels.selected || 'Выбран') : (labels.empty || 'Контрагент')) + '</button>' +
             '<div class="material-supplier-menu" data-supplier-menu hidden>' +
-                '<div class="material-supplier-menu-title">' + escapeHtml(kind === 'contractor' ? '\u0421\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u043e\u0432' : '\u0421\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432') + '</div>' +
+                '<div class="material-supplier-menu-title">' + escapeHtml(kind === 'contractor' ? 'Список подрядчиков' : 'Список поставщиков') + '</div>' +
                 '<button class="material-supplier-option material-supplier-option-empty" type="button" data-supplier-select data-supplier-clear data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-offer-id="' + escapeHtml(selectedByType && selectedByType.id || '') + '" data-candidate-type="' + escapeHtml(kind) + '">' +
-                    '<strong>\u2014</strong>' +
+                    '<strong>—</strong>' +
                 '</button>' +
                 ((companies.length || extraOptions.length) ? companies.map(function (company) {
                     var offer = offerForCompany(company) || {};
                     var companyId = Number(company.id || 0);
                     var selected = !!(selectedByType && (Number(selectedByType.companyId || 0) === companyId || String(selectedByType.name || '').trim() === String(company.name || '').trim()));
-                    var meta = [company.phone || '', company.email || '', company.inn ? ('\u0418\u041d\u041d ' + company.inn) : ''].filter(Boolean).join(' \u2022 ');
-                    return '<button class="material-supplier-option' + (selected ? ' is-selected' : '') + '" type="button" data-supplier-select data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-offer-id="' + escapeHtml(offer.id || '') + '" data-company-id="' + escapeHtml(companyId) + '" data-company-name="' + escapeHtml(company.name || '') + '" data-candidate-type="' + escapeHtml(kind) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(itemQty == null ? '' : String(itemQty)) + '" data-status="' + escapeHtml(offer.status || 'new') + '" data-price="' + escapeHtml(offer.price || 0) + '" data-qty="' + escapeHtml(offer.qty || itemQty || 0) + '" data-phone="' + escapeHtml(offer.phone || company.phone || '') + '" data-source-url="' + escapeHtml(offer.sourceUrl || '') + '" data-notes="' + escapeHtml(offer.notes || '') + '"><strong>' + escapeHtml(company.name || '') + '</strong>' + (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') + '</button>';
+                    var meta = [company.phone || '', company.email || '', company.inn ? ('ИНН ' + company.inn) : ''].filter(Boolean).join(' • ');
+                    return '<button class="material-supplier-option' + (selected ? ' is-selected' : '') + '" type="button" ' +
+                        'data-supplier-select ' +
+                        'data-project-id="' + escapeHtml(projectId) + '" ' +
+                        'data-material-id="' + escapeHtml(item.id) + '" ' +
+                        'data-offer-id="' + escapeHtml(offer.id || '') + '" ' +
+                        'data-company-id="' + escapeHtml(companyId) + '" ' +
+                        'data-company-name="' + escapeHtml(company.name || '') + '" ' +
+                        'data-candidate-type="' + escapeHtml(kind) + '" ' +
+                        'data-item-title="' + escapeHtml(item && item.title || '') + '" ' +
+                        'data-item-unit="' + escapeHtml(item && item.unit || '') + '" ' +
+                        'data-item-qty="' + escapeHtml(itemQty == null ? '' : String(itemQty)) + '" ' +
+                        'data-status="' + escapeHtml(offer.status || 'new') + '" ' +
+                        'data-price="' + escapeHtml(offer.price || 0) + '" ' +
+                        'data-qty="' + escapeHtml(offer.qty || itemQty || 0) + '" ' +
+                        'data-phone="' + escapeHtml(offer.phone || company.phone || '') + '" ' +
+                        'data-source-url="' + escapeHtml(offer.sourceUrl || '') + '" ' +
+                        'data-notes="' + escapeHtml(offer.notes || '') + '">' +
+                        '<strong>' + escapeHtml(company.name || '') + '</strong>' +
+                        (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') +
+                    '</button>';
                 }).join('') + extraOptions.map(function (option) {
                     var sameItem = Number(option.estimateItemId || 0) === Number(item && item.id || 0);
-                    var meta = [option.company || '', option.phone || '', option.price > 0 ? (finalSectionSummaryNumber(option.price) + ' \u20bd') : ''].filter(Boolean).join(' \u2022 ');
-                    return '<button class="material-supplier-option' + (option.status === 'selected' && sameItem ? ' is-selected' : '') + '" type="button" data-supplier-select data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id) + '" data-offer-id="' + escapeHtml(sameItem ? option.id : '') + '" data-company-id="' + escapeHtml(option.companyId || '') + '" data-company-name="' + escapeHtml(option.name || '') + '" data-candidate-type="' + escapeHtml(kind) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(itemQty == null ? '' : String(itemQty)) + '" data-status="' + escapeHtml(option.status || 'new') + '" data-price="' + escapeHtml(option.price || 0) + '" data-qty="' + escapeHtml(option.qty || itemQty || 0) + '" data-phone="' + escapeHtml(option.phone || '') + '" data-source-url="' + escapeHtml(option.sourceUrl || '') + '" data-notes="' + escapeHtml(option.notes || '') + '"><strong>' + escapeHtml(option.name || '') + '</strong>' + (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') + '</button>';
-                }).join('') : '<div class="material-supplier-empty">' + escapeHtml(labels.none || '\u041d\u0435\u0442 \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u043e\u0432') + '</div>') +
+                    var meta = [option.company || '', option.phone || '', option.price > 0 ? (finalSectionSummaryNumber(option.price) + ' ₽') : ''].filter(Boolean).join(' • ');
+                    return '<button class="material-supplier-option' + (option.status === 'selected' && sameItem ? ' is-selected' : '') + '" type="button" ' +
+                        'data-supplier-select ' +
+                        'data-project-id="' + escapeHtml(projectId) + '" ' +
+                        'data-material-id="' + escapeHtml(item.id) + '" ' +
+                        'data-offer-id="' + escapeHtml(sameItem ? option.id : '') + '" ' +
+                        'data-company-id="' + escapeHtml(option.companyId || '') + '" ' +
+                        'data-company-name="' + escapeHtml(option.name || '') + '" ' +
+                        'data-candidate-type="' + escapeHtml(kind) + '" ' +
+                        'data-item-title="' + escapeHtml(item && item.title || '') + '" ' +
+                        'data-item-unit="' + escapeHtml(item && item.unit || '') + '" ' +
+                        'data-item-qty="' + escapeHtml(itemQty == null ? '' : String(itemQty)) + '" ' +
+                        'data-status="' + escapeHtml(option.status || 'new') + '" ' +
+                        'data-price="' + escapeHtml(option.price || 0) + '" ' +
+                        'data-qty="' + escapeHtml(option.qty || itemQty || 0) + '" ' +
+                        'data-phone="' + escapeHtml(option.phone || '') + '" ' +
+                        'data-source-url="' + escapeHtml(option.sourceUrl || '') + '" ' +
+                        'data-notes="' + escapeHtml(option.notes || '') + '">' +
+                        '<strong>' + escapeHtml(option.name || '') + '</strong>' +
+                        (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') +
+                    '</button>';
+                }).join('') : '<div class="material-supplier-empty">' + escapeHtml(labels.none || 'Нет контрагентов') + '</div>') +
             '</div>' +
         '</div>';
     }
-
 
     function bindEstimateSectionToggles(projectId) {
         if (!document.body.dataset.estimateSectionToggleDelegated) {
@@ -12050,6 +14670,24 @@ function renderLogsDayView(project, logs) {
         }
     }
 
+    materialRow = function (item, projectId, insight) {
+        var effectiveItem = materialEffectiveForProgress(projectId, item);
+        var progress = materialActualProgress(projectId, item);
+        var isDone = progress.total > 0 && progress.actual >= progress.total;
+        return '<div class="material-row work-row estimate-compact-row material-estimate-row' + (isDone ? ' material-row-done work-row-done' : '') + (progress.actual > 0 && !isDone ? ' material-row-partial' : '') + '">' +
+            '<div class="work-row-main">' +
+                '<label class="section-work-check section-material-check quantity-work-check estimate-compact-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
+                    '<input type="checkbox" data-section-material-check data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+                    '<span class="section-work-check-copy"><b>' + escapeHtml(effectiveItem.title) + '</b></span>' +
+                '</label>' +
+            '</div>' +
+            '<div class="work-row-side estimate-compact-side">' +
+                renderCompactActualQtyEditor('material', projectId, '', item, progress) +
+                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: 'Поставщик', selected: insight && insight.selectedName ? insight.selectedName : 'Поставщик', none: 'Нет поставщиков' }, 'supplier') + '</div>' +
+            '</div>' +
+        '</div>';
+    };
+
     renderEstimateWorkItem = function (item, sectionTitle, projectId, riskKind) {
         var insight = (state.materialInsightsByProject[projectId] || {})[Number(item.id)] || null;
         var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty, unit: quantityPlanInfo(item).unit };
@@ -12063,11 +14701,10 @@ function renderLogsDayView(project, logs) {
             '</div>' +
             '<div class="work-row-side estimate-compact-side">' +
                 renderCompactActualQtyEditor('work', projectId, sectionTitle, item, progress) +
-                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, item, insight, { empty: '\u041f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a', selected: insight && insight.selectedName ? insight.selectedName : '\u041f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a', none: '\u041d\u0435\u0442 \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u043e\u0432' }, 'contractor') + '</div>' +
+                '<div class="material-chain-actions">' + renderCounterpartyPicker(projectId, item, insight, { empty: 'Подрядчик', selected: insight && insight.selectedName ? insight.selectedName : 'Подрядчик', none: 'Нет подрядчиков' }, 'contractor') + '</div>' +
             '</div>' +
         '</div>';
     };
-
 
     function counterpartyFilterKey(kind) {
         return kind === 'contractor' || kind === 'works' || kind === 'work' ? 'contractor' : 'supplier';
@@ -12112,19 +14749,18 @@ function renderLogsDayView(project, logs) {
         }).length;
         var withoutCounterparty = Math.max(0, total - withCounterparty);
         var value = counterpartyFilterValue(projectId, type);
-        var nounWith = type === 'contractor' ? '\u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u043e\u043c' : '\u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u043c';
-        var nounWithout = type === 'contractor' ? '\u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u0430' : '\u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u0430';
+        var nounWith = type === 'contractor' ? 'подрядчиком' : 'поставщиком';
+        var nounWithout = type === 'contractor' ? 'подрядчика' : 'поставщика';
         return '<div class="counterparty-filter-bar">' +
-            '<label><span>\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442</span>' +
+            '<label><span>Контрагент</span>' +
                 '<select data-counterparty-filter data-project-id="' + escapeHtml(projectId || '') + '" data-counterparty-kind="' + escapeHtml(type) + '">' +
-                    '<option value="all"' + (value === 'all' ? ' selected' : '') + '>\u0412\u0441\u0435 \u043f\u043e\u0437\u0438\u0446\u0438\u0438 (' + escapeHtml(total) + ')</option>' +
-                    '<option value="with"' + (value === 'with' ? ' selected' : '') + '>\u0421 ' + escapeHtml(nounWith) + ' (' + escapeHtml(withCounterparty) + ')</option>' +
-                    '<option value="without"' + (value === 'without' ? ' selected' : '') + '>\u0411\u0435\u0437 ' + escapeHtml(nounWithout) + ' (' + escapeHtml(withoutCounterparty) + ')</option>' +
+                    '<option value="all"' + (value === 'all' ? ' selected' : '') + '>Все позиции (' + escapeHtml(total) + ')</option>' +
+                    '<option value="with"' + (value === 'with' ? ' selected' : '') + '>С ' + escapeHtml(nounWith) + ' (' + escapeHtml(withCounterparty) + ')</option>' +
+                    '<option value="without"' + (value === 'without' ? ' selected' : '') + '>Без ' + escapeHtml(nounWithout) + ' (' + escapeHtml(withoutCounterparty) + ')</option>' +
                 '</select>' +
             '</label>' +
         '</div>';
     }
-
 
     function bindCounterpartyFilters(projectId) {
         qsa('[data-counterparty-filter]').forEach(function (select) {
@@ -12172,9 +14808,8 @@ function renderLogsDayView(project, logs) {
     };
 
     function estimateSectionTitleForCount(item) {
-        return String(item && (item.sectionTitle || item.stageTitle) || '').trim() || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430';
+        return String(item && (item.sectionTitle || item.stageTitle) || '').trim() || 'Без раздела';
     }
-
 
     function estimateTotalSectionCount(items, fallbackOrder) {
         var seen = {};
@@ -12195,6 +14830,125 @@ function renderLogsDayView(project, logs) {
         return count;
     }
 
+    renderMaterials = function (items, projectId, insights) {
+        var materials = (items || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
+        if (!materials.length) return '<p class="muted">Материалы по смете пока не загружены.</p>';
+        var progress = materialProgress(projectId, materials);
+        var filteredMaterials = filterItemsByCounterparty(projectId, materials, 'supplier', insights || {});
+        var groups = groupMaterialsBySection(filteredMaterials);
+        var totalSections = estimateTotalSectionCount(items, groups.map(function (group) { return group.title; }));
+        var filterEmpty = filteredMaterials.length
+            ? ''
+            : '<div class="market-empty">По выбранному фильтру позиций нет.</div>';
+        return '<div class="execution-summary material-progress-summary estimate-summary-compact">' +
+            stat('Всего позиций', String(materials.length)) +
+            stat('Всего разделов', String(totalSections)) +
+            stat('Материалов закрыто', String(progress.done) + ' из ' + String(progress.total), progress.total && progress.done >= progress.total ? 'success' : '') +
+        '</div>' +
+        renderCounterpartyFilter(projectId, 'supplier', materials, insights || {}) +
+        filterEmpty +
+        (filteredMaterials.length ? renderGroupedMaterials(groups, projectId, insights || {}) : '');
+    };
+
+    renderWorksPanel = function (stages, items) {
+        var projectId = state.selectedProject ? state.selectedProject.id : null;
+        var stageMap = buildStageLookup(stages || []);
+        var workStages = (stages || []).filter(function (stage) {
+            return String(stage.stage_kind || '') !== 'section';
+        });
+        var estimateWorks = (items || []).filter(function (item) {
+            return String(item.itemKind || '').toLowerCase() === 'work';
+        });
+        if (!workStages.length && !estimateWorks.length) return '<p class="muted">Работы по смете пока не загружены.</p>';
+        var filteredEstimateWorks = projectId ? filterItemsByCounterparty(projectId, estimateWorks, 'contractor', state.materialInsightsByProject[projectId] || {}) : estimateWorks;
+        var isCounterpartyFiltered = projectId && counterpartyFilterValue(projectId, 'contractor') !== 'all';
+        var visibleWorkStages = isCounterpartyFiltered ? [] : workStages;
+        var groups = {};
+        var order = [];
+        function ensureGroup(title) {
+            var sectionTitle = String(title || '').trim() || 'Без раздела';
+            if (!groups[sectionTitle]) {
+                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                order.push(sectionTitle);
+            }
+            return groups[sectionTitle];
+        }
+        visibleWorkStages.forEach(function (stage) {
+            ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage);
+        });
+        filteredEstimateWorks.forEach(function (item) {
+            ensureGroup(item.sectionTitle || item.stageTitle).estimateRows.push(item);
+        });
+        var originalSectionOrder = order.slice();
+        var sectionNumbers = buildEstimateSectionNumberMap(originalSectionOrder);
+        var scheduleOrder = workScheduleSections(projectId).map(function (section) {
+            return String(section.title || '').trim();
+        }).filter(Boolean);
+        if (scheduleOrder.length) {
+            var scheduledMap = {};
+            order = scheduleOrder.filter(function (title) {
+                if (!groups[title]) return false;
+                scheduledMap[title] = 1;
+                return true;
+            }).concat(order.filter(function (title) {
+                return !scheduledMap[title];
+            }));
+        }
+        order.sort(function (left, right) {
+            var leftNumber = sectionNumbers[left] || explicitEstimateSectionNumber(left) || 9999;
+            var rightNumber = sectionNumbers[right] || explicitEstimateSectionNumber(right) || 9999;
+            if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+            return originalSectionOrder.indexOf(left) - originalSectionOrder.indexOf(right);
+        });
+        var doneEstimateWorks = projectId ? estimateWorks.filter(function (item) {
+            var sectionTitle = String(item.sectionTitle || item.stageTitle || '').trim() || 'Без раздела';
+            return isProjectWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        var totalWorkPositions = estimateWorks.length || workStages.length;
+        var doneWorkPositions = estimateWorks.length ? doneEstimateWorks : workStages.filter(function (stage) {
+            return Number(stage.progress || 0) >= 100;
+        }).length;
+        var totalSections = estimateTotalSectionCount(items, order);
+        return '<div class="execution-summary work-progress-summary">' +
+            stat('Всего позиций', String(totalWorkPositions)) +
+            stat('Всего разделов', String(totalSections)) +
+            stat('Работ готово', String(doneWorkPositions) + ' из ' + String(totalWorkPositions), totalWorkPositions && doneWorkPositions >= totalWorkPositions ? 'success' : '') +
+        '</div>' +
+        renderCounterpartyFilter(projectId, 'contractor', estimateWorks, state.materialInsightsByProject[projectId] || {}) +
+        (filteredEstimateWorks.length || visibleWorkStages.length ? '<div class="estimate-section-list">' + order.map(function (title, index) {
+            var group = groups[title];
+            var workProgress = workProgressForRows(projectId, title, group.estimateRows);
+            var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
+            var open = isEstimateSectionOpen(projectId, 'works', title, index);
+            var head = renderEstimateAccordionHead(
+                projectId,
+                'works',
+                title,
+                index,
+                '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : ''),
+                scheduleMeta.html + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length) + ' поз.') + '</span>',
+                '',
+                sectionProgressStrip(workProgress, { total: 0, done: 0 })
+            );
+            return '<section class="estimate-section estimate-section-card estimate-section-collapsible work-section-card' + scheduleMeta.className + (open ? ' is-open' : '') + '">' +
+                head +
+                renderEstimateSectionBody(open,
+                    group.stageRows.map(function (stage) {
+                        var meta = [
+                            stagePathLabel(stage, stageMap),
+                            stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '',
+                            stage.responsible || ''
+                        ].filter(Boolean).join(' • ');
+                        return '<div class="material-row work-row"><div class="work-row-main"><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || 'Работа') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+                    }).join('') +
+                    group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('')
+                ) +
+            '</section>';
+        }).join('') + '</div>' : '<div class="market-empty">По выбранному фильтру позиций нет.</div>');
+    };
+
     function marketSourceType(source) {
         var url = String(source && source.url || '').toLowerCase();
         return url.indexOf('avito') !== -1 ? 'avito' : (url ? 'other' : 'manual');
@@ -12203,9 +14957,8 @@ function renderLogsDayView(project, logs) {
     function marketCandidateTitle(row, source, kind) {
         var sourceTitle = String(source && source.title || '').trim();
         if (sourceTitle) return sourceTitle;
-        return (kind === 'work' ? '\u041f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a: ' : '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a: ') + String(row && row.title || '').trim();
+        return (kind === 'work' ? 'Подрядчик: ' : 'Поставщик: ') + String(row && row.title || '').trim();
     }
-
 
     function extractPhoneFromText(value) {
         var text = String(value || '');
@@ -12217,38 +14970,37 @@ function renderLogsDayView(project, logs) {
         if (!canManageSuppliers()) return '';
         var source = Array.isArray(row.sources) && row.sources.length ? row.sources[0] : {};
         var type = kind === 'work' ? 'contractor' : 'supplier';
-        var label = kind === 'work' ? '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u0430' : '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u0430';
+        var label = kind === 'work' ? 'Создать подрядчика' : 'Создать поставщика';
         var sourceText = [source.phone || '', source.snippet || '', source.title || '', row.statusNote || ''].join(' ');
-        return '<button class="ghost compact market-create-counterparty" type="button" data-market-create-offer data-project-id="' + escapeHtml(projectId) + '" data-market-tab="' + (kind === 'work' ? 'works' : 'materials') + '" data-candidate-type="' + escapeHtml(type) + '" data-candidate-name="' + escapeHtml(marketCandidateTitle(row, source, kind)) + '" data-estimate-item-id="' + escapeHtml(row.estimateItemId || '') + '" data-source-type="' + escapeHtml(marketSourceType(source)) + '" data-source-url="' + escapeHtml(source.url || '') + '" data-source-snippet="' + escapeHtml(source.snippet || '') + '" data-contact-phone="' + escapeHtml(source.phone || extractPhoneFromText(sourceText)) + '" data-price="' + escapeHtml(row.marketPrice == null ? (source.price || 0) : row.marketPrice) + '" data-qty="' + escapeHtml(row.plannedQty || 0) + '" data-unit="' + escapeHtml(row.unit || '') + '" data-notes="' + escapeHtml([row.title, source.snippet || '', source.domain || ''].filter(Boolean).join(' \u2022 ')) + '">' + label + '</button>';
+        return '<button class="ghost compact market-create-counterparty" type="button" data-market-create-offer data-project-id="' + escapeHtml(projectId) + '" data-market-tab="' + (kind === 'work' ? 'works' : 'materials') + '" data-candidate-type="' + escapeHtml(type) + '" data-candidate-name="' + escapeHtml(marketCandidateTitle(row, source, kind)) + '" data-estimate-item-id="' + escapeHtml(row.estimateItemId || '') + '" data-source-type="' + escapeHtml(marketSourceType(source)) + '" data-source-url="' + escapeHtml(source.url || '') + '" data-source-snippet="' + escapeHtml(source.snippet || '') + '" data-contact-phone="' + escapeHtml(source.phone || extractPhoneFromText(sourceText)) + '" data-price="' + escapeHtml(row.marketPrice == null ? (source.price || 0) : row.marketPrice) + '" data-qty="' + escapeHtml(row.plannedQty || 0) + '" data-unit="' + escapeHtml(row.unit || '') + '" data-notes="' + escapeHtml([row.title, source.snippet || '', source.domain || ''].filter(Boolean).join(' • ')) + '">' + label + '</button>';
     }
 
-
-    function renderMarketTable(rows, kind, projectId) {
+    renderMarketTable = function (rows, kind, projectId) {
         if (!rows.length) {
-            return '<div class="market-empty">\u041f\u043e \u044d\u0442\u043e\u043c\u0443 \u0440\u0430\u0437\u0434\u0435\u043b\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0441\u0442\u0440\u043e\u043a \u0434\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0437\u0430.</div>';
+            return '<div class="market-empty">По этому разделу пока нет строк для анализа.</div>';
         }
         return '<div class="market-table-wrap"><table class="market-table">' +
             '<thead><tr>' +
-                '<th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>' +
-                '<th>\u0421\u043c\u0435\u0442\u0430</th>' +
-                '<th>\u0420\u044b\u043d\u043e\u043a</th>' +
-                '<th>\u0420\u0430\u0437\u043d\u0438\u0446\u0430</th>' +
-                '<th>\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u0438</th>' +
-                '<th>\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435</th>' +
+                '<th>Позиция</th>' +
+                '<th>Смета</th>' +
+                '<th>Рынок</th>' +
+                '<th>Разница</th>' +
+                '<th>Источники</th>' +
+                '<th>Действие</th>' +
             '</tr></thead><tbody>' +
             rows.map(function (row) {
                 var meta = [
                     row.sectionTitle || '',
-                    row.plannedQty ? ('\u041e\u0431\u044a\u0435\u043c: ' + row.plannedQty + ' ' + (row.unit || '')) : '',
-                    row.positionIndex ? ('\u2116 ' + row.positionIndex) : ''
-                ].filter(Boolean).join(' \u2022 ');
+                    row.plannedQty ? ('Объем: ' + row.plannedQty + ' ' + (row.unit || '')) : '',
+                    row.positionIndex ? ('№ ' + row.positionIndex) : ''
+                ].filter(Boolean).join(' • ');
                 var marketCell = row.marketPrice == null
-                    ? '<span class="market-missing">\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445</span>'
+                    ? '<span class="market-missing">Нет данных</span>'
                     : '<strong>' + escapeHtml(money(row.marketPrice)) + '</strong>' +
-                        (row.marketType ? '<small>' + escapeHtml(kind === 'work' ? '\u0420\u0430\u0431\u043e\u0442\u044b AutoBot' : '\u0420\u044b\u043d\u043e\u043a AutoBot') + '</small>' : '');
+                        (row.marketType ? '<small>' + escapeHtml(kind === 'work' ? 'Работы AutoBot' : 'Рынок AutoBot') + '</small>' : '');
                 return '<tr>' +
-                    '<td><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430') + '</small></td>' +
-                    '<td><strong>' + escapeHtml(money(row.estimateUnitPrice || 0)) + '</strong><small>\u0412\u0441\u0435\u0433\u043e: ' + escapeHtml(money(row.estimateTotal || 0)) + '</small></td>' +
+                    '<td><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || 'Без раздела') + '</small></td>' +
+                    '<td><strong>' + escapeHtml(money(row.estimateUnitPrice || 0)) + '</strong><small>Всего: ' + escapeHtml(money(row.estimateTotal || 0)) + '</small></td>' +
                     '<td>' + marketCell + (row.statusNote ? '<small>' + escapeHtml(row.statusNote) + '</small>' : '') + '</td>' +
                     '<td>' + formatMarketDelta(row.deltaPerUnit) + '</td>' +
                     '<td>' + renderMarketSources(row) + '</td>' +
@@ -12256,36 +15008,34 @@ function renderLogsDayView(project, logs) {
                 '</tr>';
             }).join('') +
             '</tbody></table></div>';
-    }
+    };
 
-
-    function renderProjectMarketBlock(projectId, kind) {
+    renderProjectMarketBlock = function (projectId, kind) {
         var cache = (state.marketAnalysisByProject[projectId] || {})[kind];
         if (!cache || cache.loading) {
-            return '<div class="market-empty">\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u043c \u0430\u043d\u0430\u043b\u0438\u0437 \u0440\u044b\u043d\u043a\u0430 \u0438\u0437 AutoBot...</div>';
+            return '<div class="market-empty">Собираем анализ рынка из AutoBot...</div>';
         }
-        var rows = Array.isArray(cache.rows) ? cache.rows : [];
-        if (cache.error && !rows.length) {
+        if (cache.error) {
             return '<div class="market-empty">' + escapeHtml(marketErrorLabel(cache.error)) + '</div>';
         }
         var summary = cache.summary || {};
         return '<div class="execution-summary">' +
-            stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(summary.total || 0)) +
-            stat('\u0415\u0441\u0442\u044c \u0440\u044b\u043d\u043e\u043a', String(summary.withMarketData || 0), summary.withMarketData ? '' : 'warn') +
-            stat('\u0411\u0435\u0437 \u0440\u044b\u043d\u043a\u0430', String(summary.withoutMarketData || 0), summary.withoutMarketData ? 'warn' : '') +
-        '</div>' + renderMarketTable(rows, kind, projectId);
-    }
+            stat('Всего позиций', String(summary.total || 0)) +
+            stat('Есть рынок', String(summary.withMarketData || 0), summary.withMarketData ? '' : 'warn') +
+            stat('Без рынка', String(summary.withoutMarketData || 0), summary.withoutMarketData ? 'warn' : '') +
+        '</div>' + renderMarketTable(cache.rows || [], kind, projectId);
+    };
 
     function marketCounterpartyModal() {
         var modal = qs('[data-market-counterparty-modal]');
         if (modal) return modal;
         document.body.insertAdjacentHTML('beforeend',
             '<div class="market-counterparty-modal" data-market-counterparty-modal hidden>' +
-                '<button class="market-counterparty-backdrop" type="button" data-market-counterparty-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c"></button>' +
-                '<section class="market-counterparty-dialog" role="dialog" aria-modal="true" aria-label="\u0421\u043e\u0437\u0434\u0430\u043d\u0438\u0435 \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u0430">' +
+                '<button class="market-counterparty-backdrop" type="button" data-market-counterparty-close aria-label="Закрыть"></button>' +
+                '<section class="market-counterparty-dialog" role="dialog" aria-modal="true" aria-label="Создание контрагента">' +
                     '<div class="card-head">' +
-                        '<div><h3 data-market-counterparty-title>\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u0430</h3><span class="muted">\u0414\u0430\u043d\u043d\u044b\u0435 \u0432\u0437\u044f\u0442\u044b \u0438\u0437 \u0441\u0442\u0440\u043e\u043a\u0438 \u0430\u043d\u0430\u043b\u0438\u0437\u0430 \u0440\u044b\u043d\u043a\u0430.</span></div>' +
-                        '<button class="ghost" type="button" data-market-counterparty-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
+                        '<div><h3 data-market-counterparty-title>Создать контрагента</h3><span class="muted">Данные взяты из строки анализа рынка.</span></div>' +
+                        '<button class="ghost" type="button" data-market-counterparty-close>Закрыть</button>' +
                     '</div>' +
                     '<form class="supplier-form market-counterparty-form" data-market-counterparty-form>' +
                         '<input type="hidden" name="project_id">' +
@@ -12296,12 +15046,12 @@ function renderLogsDayView(project, logs) {
                         '<input type="hidden" name="price">' +
                         '<input type="hidden" name="qty">' +
                         '<input type="hidden" name="unit">' +
-                        '<label class="wide"><span>\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435</span><input name="name" required></label>' +
-                        '<label><span>\u0422\u0435\u043b\u0435\u0444\u043e\u043d</span><input name="phone" placeholder="+7..."></label>' +
-                        '<label><span>\u0421\u0430\u0439\u0442 / \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a</span><input name="source_url" placeholder="https://..."></label>' +
-                        '<label class="wide"><span>\u0417\u0430\u043c\u0435\u0442\u043a\u0430</span><textarea name="notes"></textarea></label>' +
+                        '<label class="wide"><span>Название</span><input name="name" required></label>' +
+                        '<label><span>Телефон</span><input name="phone" placeholder="+7..."></label>' +
+                        '<label><span>Сайт / источник</span><input name="source_url" placeholder="https://..."></label>' +
+                        '<label class="wide"><span>Заметка</span><textarea name="notes"></textarea></label>' +
                         '<div class="form-error" data-market-counterparty-error></div>' +
-                        '<button class="primary" type="submit" data-market-counterparty-submit>\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0438 \u043f\u0440\u0438\u0432\u044f\u0437\u0430\u0442\u044c</button>' +
+                        '<button class="primary" type="submit" data-market-counterparty-submit>Создать и привязать</button>' +
                     '</form>' +
                 '</section>' +
             '</div>'
@@ -12317,6 +15067,7 @@ function renderLogsDayView(project, logs) {
         });
         return modal;
     }
+
     function closeMarketCounterpartyModal() {
         var modal = qs('[data-market-counterparty-modal]');
         if (!modal) return;
@@ -12329,7 +15080,7 @@ function renderLogsDayView(project, logs) {
         var form = qs('[data-market-counterparty-form]', modal);
         var title = qs('[data-market-counterparty-title]', modal);
         var type = button.getAttribute('data-candidate-type') === 'contractor' ? 'contractor' : 'supplier';
-        if (title) title.textContent = type === 'contractor' ? '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u0430' : '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u0430';
+        if (title) title.textContent = type === 'contractor' ? 'Создать подрядчика' : 'Создать поставщика';
         form.project_id.value = button.getAttribute('data-project-id') || '';
         form.estimate_item_id.value = button.getAttribute('data-estimate-item-id') || '';
         form.candidate_type.value = type;
@@ -13231,6 +15982,11 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    var baseRenderSchedulePanelForMaterialSchedule = renderSchedulePanel;
+    renderSchedulePanel = function (stages, project) {
+        return baseRenderSchedulePanelForMaterialSchedule(stages, project);
+    };
+
     var baseRenderScheduleProjectDetailsForMaterialSchedule = renderScheduleProjectDetails;
     renderScheduleProjectDetails = function (project, details) {
         if (details && details.materialSchedule) setMaterialScheduleForProject(project.id, details.materialSchedule);
@@ -13254,7 +16010,28 @@ function renderLogsDayView(project, logs) {
             }
         }, force);
     };
+
+    var baseOpenProjectForMaterialSchedule = openProject;
     var materialScheduleOpenTokens = {};
+    openProject = function (projectId) {
+        if (state.isMaterialScheduleRendering) return;
+        baseOpenProjectForMaterialSchedule(projectId);
+        if (!projectId || hasRole('customer')) return;
+        var loadingToken = state.selectedProjectLoadingToken && state.selectedProjectLoadingToken.token;
+        var key = String(projectId);
+        var token = (materialScheduleOpenTokens[key] || 0) + 1;
+        materialScheduleOpenTokens[key] = token;
+        var run = function () {
+            if (state.isMaterialScheduleRendering) return;
+            loadMaterialSchedule(projectId, function () {
+                if (materialScheduleOpenTokens[key] !== token) return;
+                if (!isCurrentProject(projectId, loadingToken)) return;
+                if (!isSelectedProjectScheduleTabActive()) return;
+                replaceSelectedProjectMaterialCalendar(projectId);
+            }, false);
+        };
+        run();
+    };
 
     var baseActivateProjectTabForMaterialSchedule = activateProjectTab;
     activateProjectTab = function (tabName) {
@@ -13945,11 +16722,30 @@ function renderLogsDayView(project, logs) {
         var match = item && item.warehouseMatch;
         if (!match || Number(match.qty || 0) <= 0) return '';
         var exact = Number(match.score || 0) >= 0.92;
-        var label = exact ? '\u0415\u0441\u0442\u044c \u043d\u0430 \u0441\u043a\u043b\u0430\u0434\u0435' : '\u0412\u043e\u0437\u043c\u043e\u0436\u043d\u043e, \u0435\u0441\u0442\u044c \u043d\u0430 \u0441\u043a\u043b\u0430\u0434\u0435';
-        var title = '\u041d\u0430 \u0432\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u0435\u043c \u0441\u043a\u043b\u0430\u0434\u0435 \u0441\u0435\u0439\u0447\u0430\u0441 \u0435\u0441\u0442\u044c ' + warehouseQtyText(match) + '. \u041f\u043e\u0445\u043e\u0436\u0430\u044f \u043f\u043e\u0437\u0438\u0446\u0438\u044f: ' + (match.name || '') + '.';
-        return '<button class="warehouse-match-badge" type="button" data-warehouse-match-badge data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-warehouse-item-id="' + escapeHtml(match.id || '') + '" data-title="' + escapeHtml(item.title || '') + '" data-match-name="' + escapeHtml(match.name || '') + '" data-match-qty="' + escapeHtml(warehouseQtyText(match)) + '" data-match-score="' + escapeHtml(Math.round(Number(match.score || 0) * 100)) + '" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</button>';
+        var label = exact ? '📦 Есть на складе' : '📦 Возможно, есть на складе';
+        var title = 'На внутреннем складе сейчас есть ' + warehouseQtyText(match) + '. Похожая позиция: ' + (match.name || '') + '.';
+        return '<button class="warehouse-match-badge" type="button" ' +
+            'data-warehouse-match-badge ' +
+            'data-project-id="' + escapeHtml(projectId || '') + '" ' +
+            'data-material-id="' + escapeHtml(item.id || '') + '" ' +
+            'data-warehouse-item-id="' + escapeHtml(match.id || '') + '" ' +
+            'data-title="' + escapeHtml(item.title || '') + '" ' +
+            'data-match-name="' + escapeHtml(match.name || '') + '" ' +
+            'data-match-qty="' + escapeHtml(warehouseQtyText(match)) + '" ' +
+            'data-match-score="' + escapeHtml(Math.round(Number(match.score || 0) * 100)) + '" ' +
+            'title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</button>';
     }
 
+    var baseMaterialRowForWarehouseMatches = materialRow;
+    materialRow = function (item, projectId, insight) {
+        var html = baseMaterialRowForWarehouseMatches(item, projectId, insight);
+        var badge = renderWarehouseMatchBadge(projectId, item);
+        if (!badge) return html;
+        if (html.indexOf('</label></div><div class="work-row-side') !== -1) {
+            return html.replace('</label></div><div class="work-row-side', '</label>' + badge + '</div><div class="work-row-side');
+        }
+        return html.replace('</small></div>', '</small>' + badge + '</div>');
+    };
 
     function closeWarehouseMatchPopover() {
         qsa('[data-warehouse-match-popover]').forEach(function (node) {
@@ -14002,9 +16798,19 @@ function renderLogsDayView(project, logs) {
     function renderMaterialDeliveryField(projectId, item) {
         if (!item || String(item.itemKind || 'material').toLowerCase() === 'work') return '';
         var value = item.deliveryDays == null ? (item.estimatedDeliveryDays || '') : item.deliveryDays;
-        return '<label class="material-delivery-field" title="\u0421\u0440\u043e\u043a \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438 \u0432 \u0434\u043d\u044f\u0445"><span>\u0414\u043e\u0441\u0442\u0430\u0432\u043a\u0430</span><input type="number" min="0" max="90" step="1" value="' + escapeHtml(value == null ? '' : String(value)) + '" data-material-delivery-days data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '"></label>';
+        return '<label class="material-delivery-field" title="Срок доставки в днях"><span>Доставка</span><input type="number" min="0" max="90" step="1" value="' + escapeHtml(value == null ? '' : String(value)) + '" data-material-delivery-days data-project-id="' + escapeHtml(projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '"></label>';
     }
 
+    var baseMaterialRowForDeliveryDays = materialRow;
+    materialRow = function (item, projectId, insight) {
+        var html = baseMaterialRowForDeliveryDays(item, projectId, insight);
+        var field = renderMaterialDeliveryField(projectId, item);
+        if (!field) return html;
+        if (html.indexOf('<div class="material-chain-actions"') !== -1) {
+            return html.replace('<div class="material-chain-actions"', field + '<div class="material-chain-actions"');
+        }
+        return html.replace('</div></div>', field + '</div></div>');
+    };
 
     if (!document.body.dataset.materialDeliveryDelegated) {
         document.body.dataset.materialDeliveryDelegated = '1';
@@ -14022,7 +16828,7 @@ function renderLogsDayView(project, logs) {
                 if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
                 if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
                     var materialsPanel = qs('[data-panel="materials"]');
-                    if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(state.selectedProject, state.materialsByProject[projectId] || [], state.materialInsightsByProject[projectId] || {}));
+                    if (materialsPanel) materialsPanel.innerHTML = renderProjectMaterialsTab(state.selectedProject, state.materialsByProject[projectId] || [], state.materialInsightsByProject[projectId] || {});
                     var schedulePanel = qs('[data-panel="schedule"]');
                     if (schedulePanel) refreshMaterialScheduleProject(projectId, true);
                 }
@@ -14216,10 +17022,175 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
+    renderFinanceInvoiceForm = function () {
+        return '<section class="subsection finance-invoice-card"><div class="card-head"><div><h3>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442 \u0432 \u0444\u0438\u043d\u043f\u043b\u0430\u043d</h3><span class="muted">PDF, PNG, JPG \u043e\u0442\u043a\u0440\u043e\u044e\u0442\u0441\u044f \u0432 \u043f\u0440\u0435\u0432\u044c\u044e, Excel \u0431\u0443\u0434\u0435\u0442 \u0440\u0430\u0437\u043e\u0431\u0440\u0430\u043d \u043f\u043e \u0448\u0430\u0431\u043b\u043e\u043d\u0443.</span></div></div>' +
+            '<form class="finance-invoice-form" data-finance-invoice-form>' +
+                '<label class="finance-suggest-field"><span>\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435</span><input name="category" autocomplete="off" placeholder="\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435 \u0438\u0437 \u0441\u0447\u0435\u0442\u0430"><div class="finance-suggestion-list" data-finance-suggestions hidden></div></label>' +
+                '<label><span>\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442</span><input name="counterparty_name" placeholder="\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a / \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a"></label>' +
+                '<label><span>\u0421\u0443\u043c\u043c\u0430</span><input name="amount" type="number" min="0" step="0.01"></label>' +
+                '<label><span>\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c \u0434\u043e</span><input name="planned_date" type="date"></label>' +
+                '<label><span>\u041e\u043f\u043b\u0430\u0442\u0430</span><select name="payment_kind"><option value="bank_no_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0431\u0435\u0437 \u041d\u0414\u0421</option><option value="bank_vat">\u0411\u0435\u0437\u043d\u0430\u043b \u0441 \u041d\u0414\u0421</option><option value="cash">\u041d\u0430\u043b\u0438\u0447\u043d\u044b\u0435</option></select></label>' +
+                '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status"><option value="approved" selected>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option><option value="planned">\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option></select></label>' +
+                '<label class="wide finance-file-field"><span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; vertical-align: middle;"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>Прикрепите файл</span><input class="custom-file-input" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></label>' +
+                '<label class="wide"><span>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</span><input name="notes" placeholder="\u041d\u043e\u043c\u0435\u0440 \u0441\u0447\u0435\u0442\u0430, \u0443\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u0435 \u0438\u043b\u0438 \u043f\u043e\u0441\u0442\u0430\u0432\u043a\u0430"></label>' +
+                '<div class="form-error" data-finance-invoice-error></div>' +
+                '<button class="primary" type="submit">\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442</button>' +
+            '</form></section>';
+    };
 
+    renderFinanceRow = function (item) {
+        var direction = item.direction === 'income' ? 'income' : 'expense';
+        var status = item.status || 'planned';
+        var title = item.category || financeDirectionLabel(direction);
+        var counterparty = item.counterparty_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
+        return '<form class="finance-row finance-history-row ui-card is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+            '<div class="finance-row-top"><div class="finance-row-title">' +
+                '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
+                '<b>' + escapeHtml(title) + '</b>' +
+                '<small>' + escapeHtml(financePaymentLabel(item.payment_kind) + ' - ' + counterparty) + '</small>' +
+                (item.notes ? '<em>' + escapeHtml(item.notes) + '</em>' : '') +
+                renderFinanceStatusTracker(status) +
+            '</div><div class="finance-row-side">' + renderFinanceDocumentSlot(item) +
+                '<div class="finance-row-amount"><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>\u041d\u0414\u0421 ' + escapeHtml(Number(item.vat_percent || 0)) + '%</small></div>' +
+            '</div></div>' +
+            '<div class="finance-row-controls">' +
+                '<label><span>\u041f\u043b\u0430\u043d</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                '<label><span>\u0424\u0430\u043a\u0442</span><input name="paid_date" type="date" value="' + escapeHtml(item.paid_date || '') + '"></label>' +
+                '<label><span>\u0421\u0442\u0430\u0442\u0443\u0441</span><select name="status">' +
+                    '<option value="planned"' + (status === 'planned' ? ' selected' : '') + '>\u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043e</option>' +
+                    '<option value="approved"' + (status === 'approved' ? ' selected' : '') + '>\u041f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443</option>' +
+                    '<option value="paid"' + (status === 'paid' ? ' selected' : '') + '>\u041e\u043f\u043b\u0430\u0447\u0435\u043d\u043e</option>' +
+                    '<option value="cancelled"' + (status === 'cancelled' ? ' selected' : '') + '>\u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e</option>' +
+                '</select></label>' +
+                '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
+                '<button class="ghost compact" type="submit">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c</button>' +
+                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact" type="button" data-finance-confirm-payment data-director-finance>\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443</button>' : '') +
+            '</div></form>';
+    };
 
+    renderProjectFinances = function (projectId, items, summary) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        if (isForemanRole()) {
+            root.innerHTML = '<div class="finance-entry-grid finance-foreman-upload-only">' + renderFinanceInvoiceForm() + '</div>';
+            bindFinanceInvoiceForm(projectId);
+            applyRoleVisibility(root);
+            return;
+        }
+        root.innerHTML =
+            '<div data-director-finance>' + renderFinanceHero(projectId, summary) + '</div>' +
+            '<div data-director-finance>' + renderFinancePlanFromInvoices(items, summary) + '</div>' +
+            '<div class="finance-entry-grid"><div data-director-finance>' + renderFinanceIncomeForm() + '</div>' + renderFinanceInvoiceForm() + '</div>' +
+            '<section class="subsection finance-history-card ui-card" data-director-finance><div class="card-head"><h3>\u0412\u0441\u0435 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438</h3></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u044b\u0445 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0439.</p>') +
+            '</div></section>';
+        bindFinanceIncomeForm(projectId);
+        bindFinanceInvoiceForm(projectId);
+        bindFinanceEditors(projectId);
+        bindFinanceDocumentActions();
+        applyRoleVisibility(root);
+    };
 
+    bindFinanceInvoiceForm = function (projectId) {
+        var form = qs('[data-finance-invoice-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        bindFinanceSuggestions(projectId, form);
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-finance-invoice-error]');
+            if (error) error.classList.remove('active');
+            var file = form.file && form.file.files && form.file.files[0];
+            var request;
+            if (file) {
+                var formData = new FormData();
+                formData.append('file', file);
+                formData.append('category', form.category.value.trim());
+                formData.append('counterparty_name', form.counterparty_name.value.trim());
+                formData.append('amount', form.amount.value || '0');
+                formData.append('planned_date', form.planned_date.value);
+                formData.append('payment_kind', form.payment_kind.value);
+                formData.append('status', form.status.value || 'approved');
+                formData.append('notes', form.notes.value.trim());
+                request = apiFormData('/api/projects/' + projectId + '/finances/invoice-upload', formData);
+            } else {
+                request = api('/api/projects/' + projectId + '/finances', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        direction: 'expense',
+                        category: form.category.value.trim(),
+                        payment_kind: form.payment_kind.value,
+                        amount: Number(form.amount.value || 0),
+                        vat_percent: form.payment_kind.value === 'bank_vat' ? 20 : 0,
+                        planned_date: form.planned_date.value,
+                        paid_date: '',
+                        counterparty_name: form.counterparty_name.value.trim(),
+                        status: form.status.value || 'approved',
+                        notes: form.notes.value.trim()
+                    })
+                });
+            }
+            request.then(function (data) {
+                if (data && data.parsedInvoice) {
+                    form.category.value = data.parsedInvoice.category || '';
+                    form.counterparty_name.value = data.parsedInvoice.counterparty_name || '';
+                    form.amount.value = data.parsedInvoice.amount || '';
+                    showFinanceToast('\u0421\u0447\u0435\u0442 Excel \u0440\u0430\u0441\u043f\u043e\u0437\u043d\u0430\u043d \u0438 \u043f\u043e\u0434\u0430\u043d \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443');
+                }
+                loadProjectFinances(projectId);
+            }).catch(function (err) {
+                var message = err.payload && err.payload.error ? err.payload.error : '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0447\u0435\u0442';
+                if (message === '\u041e\u0448\u0438\u0431\u043a\u0430: \u0424\u043e\u0440\u043c\u0430\u0442 \u0444\u0430\u0439\u043b\u0430 \u043d\u0435 \u0441\u043e\u043e\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0448\u0430\u0431\u043b\u043e\u043d\u0443 \u043e\u0442\u0447\u0435\u0442\u0430') showFinanceToast(message);
+                if (error) {
+                    error.textContent = message;
+                    error.classList.add('active');
+                }
+            });
+        });
+    };
 
+    bindFinanceEditors = function (projectId) {
+        qsa('[data-finance-edit-form]').forEach(function (form) {
+            if (form.dataset.bound === '1') return;
+            form.dataset.bound = '1';
+            function payload(status) {
+                return {
+                    planned_date: form.planned_date ? form.planned_date.value : '',
+                    paid_date: status === 'paid' ? APP_TODAY : (form.paid_date ? form.paid_date.value : ''),
+                    status: status,
+                    notes: form.notes ? form.notes.value.trim() : ''
+                };
+            }
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                api('/api/finances/' + form.dataset.financeId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify(payload(form.status ? form.status.value : 'planned'))
+                }).then(function () {
+                    loadProjectFinances(projectId);
+                });
+            });
+            qsa('[data-finance-confirm-payment]', form).forEach(function (button) {
+                button.addEventListener('click', function () {
+                    button.disabled = true;
+                    api('/api/finance/pay-invoice', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            finance_id: Number(form.dataset.financeId),
+                            paid_date: APP_TODAY
+                        })
+                    }).then(function () {
+                        loadProjectFinances(projectId);
+                    }).catch(function () {
+                        button.disabled = false;
+                        showFinanceToast('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443');
+                    });
+                });
+            });
+        });
+    };
 
     function userHasRoleCode(user, role) {
         if (!user) return false;
