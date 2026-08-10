@@ -59,6 +59,111 @@ def create_audit(
     )
 
 
+def normalize_progress_section_id(value: object) -> str:
+    text = str(value or "").strip().lower()
+    return " ".join(text.split()) or "без раздела"
+
+
+def estimate_row_section_title(con: sqlite3.Connection, row: sqlite3.Row | dict) -> str:
+    stage_id = int(row["stage_id"] or 0) if row["stage_id"] else None
+    if stage_id:
+        stages = con.execute(
+            "SELECT id, title, parent_id FROM work_stages WHERE project_id = ?",
+            (row["project_id"],),
+        ).fetchall()
+        stage_map = {int(stage["id"]): stage for stage in stages}
+        current = stage_map.get(stage_id)
+        root = current
+        guard = 0
+        while current and current["parent_id"] and guard < 20:
+            parent = stage_map.get(int(current["parent_id"]))
+            if not parent:
+                break
+            root = parent
+            current = parent
+            guard += 1
+        if root and root["title"]:
+            return str(root["title"]).strip()
+    return str(resolved_estimate_section_title(row) or row["section_title"] or "").strip() or "Без раздела"
+
+
+def live_estimate_items_where(con: sqlite3.Connection, alias: str = "e") -> str:
+    prefix = f"{alias}." if alias else ""
+    clauses = [
+        f"{prefix}title IS NOT NULL",
+        f"trim({prefix}title) != ''",
+    ]
+    if "is_deleted" in table_columns(con, "estimate_items"):
+        clauses.append(f"COALESCE({prefix}is_deleted, 0) = 0")
+    return " AND ".join(clauses)
+
+
+def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id: str | None = None) -> dict:
+    live_where = live_estimate_items_where(con, "e")
+    rows = con.execute(
+        f"""
+        SELECT
+            e.id, e.project_id, e.title, e.section_title, e.stage_id, e.item_kind,
+            e.planned_qty, e.is_completed,
+            COALESCE(SUM(CASE WHEN s.move_type IN ('purchase', 'receipt') THEN s.qty ELSE 0 END), 0) AS covered_qty
+        FROM estimate_items e
+        LEFT JOIN stock_moves s ON s.estimate_item_id = e.id
+        WHERE e.project_id = ? AND {live_where}
+        GROUP BY e.id
+        """,
+        (project_id,),
+    ).fetchall()
+    section_totals: dict[str, dict] = {}
+    for row in rows:
+        title = estimate_row_section_title(con, row)
+        sid = normalize_progress_section_id(title)
+        bucket = section_totals.setdefault(sid, {"sectionId": sid, "sectionTitle": title, "total": 0, "done": 0, "percent": 0})
+        bucket["total"] += 1
+        planned = float(row["planned_qty"] or 0)
+        covered = float(row["covered_qty"] or 0)
+        is_material = normalize_estimate_item_kind(resolved_estimate_item_kind(row)) != "work"
+        purchased_done = is_material and planned > 0 and covered >= planned
+        if int(row["is_completed"] or 0) == 1 or purchased_done:
+            bucket["done"] += 1
+
+    for bucket in section_totals.values():
+        bucket["percent"] = int(round((bucket["done"] / bucket["total"]) * 100)) if bucket["total"] else 0
+
+    target_section = section_totals.get(normalize_progress_section_id(section_id)) if section_id else None
+    if not target_section and section_id:
+        target_section = {"sectionId": normalize_progress_section_id(section_id), "sectionTitle": section_id, "total": 0, "done": 0, "percent": 0}
+
+    total_positions = sum(item["total"] for item in section_totals.values())
+    total_done = sum(item["done"] for item in section_totals.values())
+    total_percent = int(round((total_done / total_positions) * 100)) if total_positions else 0
+    status = "completed" if total_percent >= 100 and total_positions else ("active" if total_percent > 0 else None)
+    if status:
+        con.execute("UPDATE projects SET progress = ?, status = ?, updated_at = ? WHERE id = ?", (total_percent, status, now_ts(), project_id))
+    else:
+        con.execute("UPDATE projects SET progress = ?, updated_at = ? WHERE id = ?", (total_percent, now_ts(), project_id))
+
+    stage_rows = con.execute(
+        "SELECT id, title FROM work_stages WHERE project_id = ? AND stage_kind = 'section'",
+        (project_id,),
+    ).fetchall()
+    for stage in stage_rows:
+        bucket = section_totals.get(normalize_progress_section_id(stage["title"]))
+        if not bucket:
+            continue
+        status_code = "completed" if bucket["percent"] >= 100 and bucket["total"] else ("in_progress" if bucket["percent"] > 0 else "not_started")
+        con.execute(
+            "UPDATE work_stages SET progress = ?, status_code = ?, updated_at = ? WHERE id = ?",
+            (bucket["percent"], status_code, now_ts(), stage["id"]),
+        )
+
+    return {
+        "section": target_section,
+        "sections": list(section_totals.values()),
+        "projectProgress": total_percent,
+        "totalProjectPercent": total_percent,
+    }
+
+
 STAGE_CATEGORY_KEYWORDS = {
     "prep": ["подготов", "демонтаж", "временн", "мобилиз", "размет", "геодез"],
     "concrete": ["котлован", "землян", "фундамент", "бетон", "монолит", "арматур", "стяжк"],
@@ -383,8 +488,9 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             guard += 1
         return str(root["title"]).strip() if root and root["title"] else None
 
+    live_where = live_estimate_items_where(con, "e")
     rows = con.execute(
-        """
+        f"""
         SELECT
             e.id,
             e.title,
@@ -400,6 +506,8 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             e.delivery_days,
             e.need_by_date,
             e.notes,
+            e.is_completed,
+            e.actual_qty,
             e.stage_id,
             ws.title AS stage_title,
             ws.planned_start AS stage_planned_start,
@@ -410,7 +518,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         FROM estimate_items e
         LEFT JOIN work_stages ws ON ws.id = e.stage_id
         LEFT JOIN stock_moves s ON s.estimate_item_id = e.id
-        WHERE e.project_id = ?
+        WHERE e.project_id = ? AND {live_where}
         GROUP BY e.id
         ORDER BY e.id
         """,
@@ -464,6 +572,8 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "purchasedQty": purchased,
                 "receivedQty": received,
                 "usedQty": used,
+                "actualQty": float(row["actual_qty"] or 0),
+                "isCompleted": bool(row["is_completed"]),
                 "stockQty": stock,
                 "missingQty": missing,
                 "usageProgress": usage_progress,
@@ -480,6 +590,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "stageId": row["stage_id"],
                 "stageTitle": row["stage_title"],
                 "sectionTitle": str(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or "").strip(),
+                "sectionId": normalize_progress_section_id(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or ""),
                 "supplyStatus": supply_status,
                 "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
             }
@@ -926,6 +1037,8 @@ def build_section_schedule_forecast(project: sqlite3.Row, work_items: list[sqlit
             "title": str(row["title"] or ""),
             "unit": str(row["unit"] or ""),
             "planned_qty": float(row["planned_qty"] or 0),
+            "actualQty": float(row["actual_qty"] or 0) if "actual_qty" in row.keys() else 0,
+            "isCompleted": bool(row["is_completed"]) if "is_completed" in row.keys() else False,
             "estimated_hours": round(float(estimate["hours"]), 2),
             "method": estimate["method"],
             "assumption": bool(estimate["assumption"]),
@@ -1338,11 +1451,12 @@ def api_project_section_schedule_forecast(handler, path: str) -> None:
         if not project:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
             return
+        live_where = live_estimate_items_where(con, "")
         rows = con.execute(
-            """
-            SELECT id, title, unit, planned_qty, item_kind, section_title
+            f"""
+            SELECT id, title, unit, planned_qty, item_kind, section_title, is_completed, actual_qty
             FROM estimate_items
-            WHERE project_id = ?
+            WHERE project_id = ? AND {live_where}
             ORDER BY id
             """,
             (project_id,),
@@ -1573,6 +1687,238 @@ def api_update_stage(handler, path: str) -> None:
         row = con.execute("SELECT * FROM work_stages WHERE id = ?", (stage_id,)).fetchone()
         con.commit()
     handler.send_json(HTTPStatus.OK, {"stage": dict(row), "project": serialize_project(project_row, user)})
+
+
+def api_update_estimate_item_completion(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] == "customer":
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    item_id = payload.get("item_id", payload.get("itemId"))
+    section_title = str(payload.get("section_title", payload.get("sectionTitle", "")) or "").strip()
+    is_completed = 1 if payload.get("completed", payload.get("isCompleted", False)) else 0
+    actual_qty = payload.get("actual_qty", payload.get("actualQty"))
+    try:
+        item_id = int(item_id) if item_id not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        item_id = None
+    with db() as con:
+        row = None
+        if item_id:
+            row = con.execute("SELECT * FROM estimate_items WHERE id = ? AND project_id = ?", (item_id, project_id)).fetchone()
+        if not row:
+            title = str(payload.get("title", "") or "").strip()
+            unit = str(payload.get("unit", "") or "").strip()
+            item_kind = normalize_estimate_item_kind(payload.get("kind", payload.get("itemKind", "")))
+            candidates = con.execute(
+                """
+                SELECT *
+                FROM estimate_items
+                WHERE project_id = ? AND lower(title) = lower(?) AND (? = '' OR unit = ?)
+                ORDER BY CASE WHEN lower(COALESCE(section_title, '')) = lower(?) THEN 0 ELSE 1 END, id
+                LIMIT 1
+                """,
+                (project_id, title, unit, unit, section_title),
+            ).fetchall() if title else []
+            row = next((item for item in candidates if not item_kind or normalize_estimate_item_kind(resolved_estimate_item_kind(item)) == item_kind), None)
+        if not row:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_item_not_found"})
+            return
+        planned_qty = float(row["planned_qty"] or 0)
+        try:
+            actual_value = float(actual_qty) if actual_qty not in (None, "") else (planned_qty if is_completed else 0.0)
+        except (TypeError, ValueError):
+            actual_value = planned_qty if is_completed else 0.0
+        actual_value = max(0.0, min(actual_value, planned_qty if planned_qty > 0 else actual_value))
+        if planned_qty > 0 and actual_value >= planned_qty:
+            is_completed = 1
+        con.execute(
+            "UPDATE estimate_items SET is_completed = ?, actual_qty = ?, updated_at = ? WHERE id = ?",
+            (is_completed, actual_value, now_ts(), row["id"]),
+        )
+        section_name = section_title or estimate_row_section_title(con, row)
+        progress = recalc_project_progress(con, project_id, section_name)
+        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        items = material_summary_rows(con, project_id)
+        create_audit(con, user["id"], "update_progress_item", "estimate_item", int(row["id"]), {"project_id": project_id, "completed": bool(is_completed), "section_id": progress["section"]["sectionId"] if progress["section"] else None})
+        con.commit()
+    handler.send_json(HTTPStatus.OK, {"id": int(row["id"]), "items": items, "progress": progress, "project": serialize_project(project_row, user)})
+
+
+def table_columns(con: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row["name"]) for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def api_project_section_bulk_complete(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] == "customer":
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    path_parts = path.strip("/").split("/")
+    path_section_raw = ""
+    if len(path_parts) >= 6 and path_parts[3] == "sections":
+        path_section_raw = urllib.parse.unquote(path_parts[4])
+    path_section_int = parse_path_int(path, 4)
+    section_raw = path_section_raw or str(payload.get("section_id", payload.get("sectionId", "")) or "")
+    section_title_raw = str(payload.get("section_title", payload.get("sectionTitle", "")) or "")
+    section_id = normalize_progress_section_id(section_raw or section_title_raw)
+    completed = 1 if payload.get("completed", True) else 0
+    raw_item_ids = payload.get("item_ids", payload.get("itemIds", []))
+    item_ids: list[int] = []
+    if isinstance(raw_item_ids, list):
+        for raw_id in raw_item_ids:
+            try:
+                item_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if item_id > 0 and item_id not in item_ids:
+                item_ids.append(item_id)
+    if not section_raw and not section_title_raw and not item_ids:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "section_required"})
+        return
+    with db() as con:
+        rows = con.execute(f"SELECT * FROM estimate_items WHERE project_id = ? AND {live_estimate_items_where(con, '')}", (project_id,)).fetchall()
+        stages = con.execute("SELECT id, title, parent_id FROM work_stages WHERE project_id = ?", (project_id,)).fetchall()
+        stage_by_id = {int(stage["id"]): stage for stage in stages}
+        matched_stage_ids: set[int] = set()
+        if path_section_int and path_section_int in stage_by_id:
+            matched_stage_ids.add(path_section_int)
+            stage_title = str(stage_by_id[path_section_int]["title"] or "").strip()
+            if stage_title:
+                section_id = normalize_progress_section_id(stage_title)
+                section_title_raw = section_title_raw or stage_title
+        for stage in stages:
+            title = str(stage["title"] or "").strip()
+            if section_id and normalize_progress_section_id(title) == section_id:
+                matched_stage_ids.add(int(stage["id"]))
+
+        def root_stage_id(stage_id: int | None) -> int | None:
+            current = stage_by_id.get(int(stage_id or 0))
+            root = current
+            guard = 0
+            while current and current["parent_id"] and guard < 20:
+                parent = stage_by_id.get(int(current["parent_id"]))
+                if not parent:
+                    break
+                root = parent
+                current = parent
+                guard += 1
+            return int(root["id"]) if root else None
+
+        project_item_ids = {int(row["id"]) for row in rows}
+        target_ids = [item_id for item_id in item_ids if item_id in project_item_ids]
+        if not target_ids:
+            for row in rows:
+                row_stage_id = int(row["stage_id"] or 0) if row["stage_id"] else None
+                row_section_id = normalize_progress_section_id(estimate_row_section_title(con, row))
+                direct_section_id = normalize_progress_section_id(row["section_title"] or "")
+                row_root_stage_id = root_stage_id(row_stage_id)
+                if (
+                    (section_id and (row_section_id == section_id or direct_section_id == section_id))
+                    or (path_section_int and row_stage_id == path_section_int)
+                    or (row_root_stage_id and row_root_stage_id in matched_stage_ids)
+                ):
+                    target_ids.append(int(row["id"]))
+        for item_id in sorted(set(target_ids)):
+            con.execute(
+                """
+                UPDATE estimate_items
+                SET is_completed = ?,
+                    actual_qty = CASE WHEN ? = 1 THEN planned_qty ELSE 0 END,
+                    procurement_status = CASE WHEN ? = 1 THEN ? ELSE procurement_status END,
+                    updated_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                (completed, completed, completed, "Закуплено", now_ts(), item_id, project_id),
+            )
+        for stage_id in matched_stage_ids:
+            con.execute(
+                "UPDATE work_stages SET progress = ?, status_code = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                (100 if completed else 0, "completed" if completed else "not_started", now_ts(), stage_id, project_id),
+            )
+
+        task_cols = table_columns(con, "tasks")
+        if "section_id" in task_cols and path_section_int:
+            con.execute(
+                "UPDATE tasks SET status = ?, updated_at = ? WHERE project_id = ? AND section_id = ?",
+                ("done" if completed else "open", now_ts(), project_id, path_section_int),
+            )
+        elif "section_title" in task_cols and (section_title_raw or section_id):
+            con.execute(
+                "UPDATE tasks SET status = ?, updated_at = ? WHERE project_id = ? AND lower(trim(section_title)) = lower(trim(?))",
+                ("done" if completed else "open", now_ts(), project_id, section_title_raw or section_raw),
+            )
+        elif "stage_id" in task_cols and matched_stage_ids:
+            placeholders = ",".join("?" for _ in matched_stage_ids)
+            con.execute(
+                f"UPDATE tasks SET status = ?, updated_at = ? WHERE project_id = ? AND stage_id IN ({placeholders})",
+                ("done" if completed else "open", now_ts(), project_id, *sorted(matched_stage_ids)),
+            )
+
+        section_title = section_title_raw or section_raw
+        if target_ids:
+            section_title = estimate_row_section_title(con, next(row for row in rows if int(row["id"]) in target_ids))
+        elif matched_stage_ids:
+            section_title = str(stage_by_id[sorted(matched_stage_ids)[0]]["title"] or section_title).strip()
+        progress = recalc_project_progress(con, project_id, section_title)
+        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        items = material_summary_rows(con, project_id)
+        create_audit(con, user["id"], "bulk_complete_section", "project", project_id, {"section_id": section_id, "path_section_id": path_section_int, "completed": bool(completed), "items": len(target_ids)})
+        con.execute(
+            """
+            INSERT INTO daily_logs (
+                project_id, report_date, title, work_done, workers_count, equipment, blockers, next_steps,
+                progress_percent, raw_input, is_client_visible, created_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                TODAY_ISO,
+                "Групповое закрытие раздела" if completed else "Раздел снят с выполнения",
+                f"Раздел «{section_title}»: {'выполнены/закуплены' if completed else 'сняты с выполнения'} все позиции ({len(target_ids)} шт.).",
+                0,
+                "",
+                "",
+                "",
+                progress.get("totalProjectPercent"),
+                json.dumps({"section_id": section_id, "path_section_id": path_section_int, "completed": bool(completed), "items": len(target_ids)}, ensure_ascii=False),
+                1,
+                user["id"],
+                now_ts(),
+                now_ts(),
+            ),
+        )
+        con.commit()
+    handler.send_json(
+        HTTPStatus.OK,
+        {
+            "success": True,
+            "section_id": section_id,
+            "project_progress": progress.get("totalProjectPercent", progress.get("projectProgress", 0)),
+            "items": items,
+            "progress": progress,
+            "project": serialize_project(project_row, user),
+        },
+    )
+
+
+def api_bulk_complete_section(handler, path: str) -> None:
+    return api_project_section_bulk_complete(handler, path)
 
 
 def api_project_tasks(handler, path: str) -> None:

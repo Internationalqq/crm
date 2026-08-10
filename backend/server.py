@@ -86,6 +86,8 @@ from schedule_tasks import (
     api_create_project_stage as schedule_api_create_project_stage,
     api_create_task as schedule_api_create_task,
     api_material_schedule as schedule_api_material_schedule,
+    api_project_section_bulk_complete as schedule_api_project_section_bulk_complete,
+    api_update_estimate_item_completion as schedule_api_update_estimate_item_completion,
     api_project_auto_schedule as schedule_api_project_auto_schedule,
     api_project_schedule_status as schedule_api_project_schedule_status,
     api_project_section_schedule_forecast as schedule_api_project_section_schedule_forecast,
@@ -397,6 +399,34 @@ def create_audit(
         """,
         (user_id, action, entity, entity_id, json.dumps(payload or {}, ensure_ascii=False), now_ts()),
     )
+
+
+def user_unique_conflict(con: sqlite3.Connection, email: str | None, phone: str | None, exclude_user_id: int | None = None) -> dict | None:
+    exclude_sql = " AND id <> ?" if exclude_user_id else ""
+    exclude_args = (exclude_user_id,) if exclude_user_id else ()
+    if email:
+        row = con.execute(
+            "SELECT id FROM users WHERE lower(email) = ?" + exclude_sql,
+            (email.lower(),) + exclude_args,
+        ).fetchone()
+        if row:
+            return {"error": "email_already_used", "message": "Этот Email уже зарегистрирован в системе"}
+    if phone:
+        row = con.execute(
+            "SELECT id FROM users WHERE phone = ?" + exclude_sql,
+            (phone,) + exclude_args,
+        ).fetchone()
+        if row:
+            return {"error": "phone_already_used", "message": "Этот номер телефона уже используется"}
+    return None
+
+
+def valid_user_email(email: str | None) -> bool:
+    return bool(email and re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email))
+
+
+def valid_user_phone(phone: str | None) -> bool:
+    return bool(phone and re.match(r"^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$", phone))
 
 
 def migrate_users_table(con: sqlite3.Connection) -> None:
@@ -1052,6 +1082,8 @@ def init_db() -> None:
                 "delivery_days": "INTEGER",
                 "need_by_date": "TEXT",
                 "notes": "TEXT",
+                "is_completed": "INTEGER NOT NULL DEFAULT 0",
+                "actual_qty": "REAL NOT NULL DEFAULT 0",
                 "updated_at": "INTEGER",
             },
         )
@@ -1539,6 +1571,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
 
+    def do_DELETE(self) -> None:
+        path = self.clean_path()
+        if path.startswith("/api/"):
+            self.handle_api("DELETE", path)
+            return
+        self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
+
     def clean_path(self) -> str:
         parsed = urllib.parse.urlsplit(self.path)
         path = urllib.parse.unquote(parsed.path)
@@ -1658,6 +1697,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_roles()
             elif method == "POST" and path == "/api/users/manage":
                 self.api_users_manage()
+            elif method == "DELETE" and path.startswith("/api/users/manage/"):
+                self.api_delete_managed_user(path)
             elif method == "POST" and path == "/api/finance/pay-invoice":
                 self.api_pay_invoice()
             elif method == "POST" and path == "/api/admin/users":
@@ -1732,6 +1773,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_auto_schedule(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/section-schedule-forecast"):
                 self.api_project_section_schedule_forecast(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/progress-item"):
+                schedule_api_update_estimate_item_completion(self, path)
+            elif method == "POST" and path.startswith("/api/projects/") and "bulk-complete" in path:
+                schedule_api_project_section_bulk_complete(self, path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/schedule-status"):
                 self.api_project_schedule_status(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/schedule-status"):
@@ -1828,16 +1873,26 @@ class PMBIHandler(BaseHTTPRequestHandler):
         ):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_user_data"})
             return
+        if not valid_user_email(email):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_email", "message": "Введите корректный Email"})
+            return
+        if not valid_user_phone(phone):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_phone", "message": "Введите корректный номер телефона"})
+            return
         clerk_user_id = None
         with db() as con:
             existing_login = con.execute("SELECT id FROM users WHERE login = ?", (login,)).fetchone()
             if existing_login:
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
                 return
+            unique_conflict = user_unique_conflict(con, email, phone)
+            if unique_conflict:
+                self.send_json(HTTPStatus.CONFLICT, unique_conflict)
+                return
             if clerk_enabled() and email:
                 existing_email = con.execute("SELECT id FROM users WHERE lower(email) = ?", (email.lower(),)).fetchone()
                 if existing_email:
-                    self.send_json(HTTPStatus.CONFLICT, {"error": "email_exists"})
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "email_already_used", "message": "Этот Email уже зарегистрирован в системе"})
                     return
         if clerk_enabled():
             first_name, last_name = split_person_name(name)
@@ -1909,6 +1964,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 """
                 SELECT id, login, email, phone, clerk_user_id, role, name, status, is_active, created_at
                 FROM users
+                WHERE is_active = 1
                 ORDER BY id
                 """
             ).fetchall()
@@ -2005,6 +2061,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not login or len(password) < 10 or (clerk_enabled() and not email):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_user_data"})
             return
+        if not valid_user_email(email):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_email", "message": "Введите корректный Email"})
+            return
+        if not valid_user_phone(phone):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_phone", "message": "Введите корректный номер телефона"})
+            return
 
         clerk_user_id = None
         with db() as con:
@@ -2012,10 +2074,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if existing_login:
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
                 return
+            unique_conflict = user_unique_conflict(con, email, phone)
+            if unique_conflict:
+                self.send_json(HTTPStatus.CONFLICT, unique_conflict)
+                return
             if clerk_enabled() and email:
                 existing_email = con.execute("SELECT id FROM users WHERE lower(email) = ?", (email.lower(),)).fetchone()
                 if existing_email:
-                    self.send_json(HTTPStatus.CONFLICT, {"error": "email_exists"})
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "email_already_used", "message": "Этот Email уже зарегистрирован в системе"})
                     return
             if project_ids:
                 placeholders = ",".join("?" for _ in project_ids)
@@ -2108,6 +2174,49 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "projectIds": project_ids,
             },
         )
+
+
+    def api_delete_managed_user(self, path: str) -> None:
+        actor = self.require_user()
+        if not actor:
+            return
+        if normalize_role(actor.get("role")) != "admin":
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "\u0423\u0434\u0430\u043b\u044f\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432 \u043c\u043e\u0436\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440"})
+            return
+        user_id = parse_path_int(path, 3)
+        if not user_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
+            return
+        if int(actor.get("id") or 0) == int(user_id):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "cannot_delete_self", "message": "\u041d\u0435\u043b\u044c\u0437\u044f \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u0435\u043a\u0443\u0449\u0438\u0439 \u0430\u043a\u043a\u0430\u0443\u043d\u0442"})
+            return
+        with db() as con:
+            user_row = con.execute("SELECT id, login, name FROM users WHERE id = ? AND is_active = 1", (user_id,)).fetchone()
+            if not user_row:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found", "message": "\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d"})
+                return
+            con.execute("DELETE FROM object_assignments WHERE user_id = ?", (user_id,))
+            con.execute("DELETE FROM user_project_access WHERE user_id = ?", (user_id,))
+            con.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
+            con.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            con.execute(
+                "UPDATE projects SET foreman_id = NULL, updated_at = ? WHERE foreman_id = ?",
+                (now_ts(), user_id),
+            )
+            con.execute(
+                "UPDATE users SET is_active = 0, status = 'deleted', updated_at = ? WHERE id = ?",
+                (now_ts(), user_id),
+            )
+            create_audit(
+                con,
+                actor["id"],
+                "delete_user",
+                "user",
+                user_id,
+                {"login": user_row["login"], "name": user_row["name"]},
+            )
+            con.commit()
+        self.send_json(HTTPStatus.OK, {"ok": True, "id": user_id})
 
 
 
