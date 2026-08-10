@@ -1,0 +1,1724 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+import urllib.parse
+from datetime import date, timedelta
+from http import HTTPStatus
+from pathlib import Path
+
+from auth import user_can_manage_documents, user_has_any_role
+from projects import serialize_project
+from warehouse import (
+    normalize_estimate_item_kind,
+    resolved_estimate_item_kind,
+    resolved_estimate_section_title,
+)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data"
+DB_PATH = DATA_DIR / "pmbi.sqlite3"
+TODAY_ISO = date.today().isoformat()
+
+
+def now_ts() -> int:
+    return int(time.time())
+
+
+def db() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def parse_path_int(path: str, index: int) -> int | None:
+    parts = path.strip("/").split("/")
+    try:
+        return int(parts[index])
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def create_audit(
+    con: sqlite3.Connection,
+    user_id: int | None,
+    action: str,
+    entity: str | None = None,
+    entity_id: int | None = None,
+    payload: dict | None = None,
+) -> None:
+    con.execute(
+        """
+        INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (user_id, action, entity, entity_id, json.dumps(payload or {}, ensure_ascii=False), now_ts()),
+    )
+
+
+STAGE_CATEGORY_KEYWORDS = {
+    "prep": ["подготов", "демонтаж", "временн", "мобилиз", "размет", "геодез"],
+    "concrete": ["котлован", "землян", "фундамент", "бетон", "монолит", "арматур", "стяжк"],
+    "masonry": ["кладк", "кирпич", "блок", "перегород", "каркас", "сварк", "металлоконструк"],
+    "roof": ["кровл", "крыша", "гидроизоляц", "утеплен"],
+    "facade": ["фасад", "витраж", "остеклен", "окн", "двер"],
+    "electrical": ["электр", "кабель", "щит", "слаботоч", "освещен"],
+    "plumbing": ["сантех", "водоснаб", "канализ", "отоплен", "труб", "радиатор"],
+    "ventilation": ["вентиляц", "дымоудал", "кондицион", "чиллер"],
+    "finishing": ["отдел", "штукатур", "шпаклев", "плитк", "окраск", "ламинат", "потол", "дверн"],
+    "landscape": ["благоустрой", "асфальт", "бордюр", "озеленен", "наруж"],
+    "handover": ["пуск", "исполн", "сдач", "акт", "комис", "документ"],
+}
+
+
+SECTION_SCHEDULE_RULES = [
+    {
+        "keywords": ("демонтаж оконных коробок", "каменных стенах"),
+        "hours_per_qty": 128.73,
+        "crew_size": 4,
+        "source_label": "ФЕРр 56-9-1: демонтаж оконных коробок в каменных стенах",
+        "source_url": "https://www.defsmeta.com/rfer/rfer56/rfer-56-09-001-01.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("установка в жилых и общественных зданиях оконных блоков из пвх профилей", "трехстворчатых"),
+        "hours_per_qty": 149.16,
+        "crew_size": 4,
+        "source_label": "ФЕР 10-01-034-08: установка трехстворчатых ПВХ-окон",
+        "source_url": "https://www.defsmeta.com/rfer/rfer10/rfer-10-01-034-08.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("установка подоконных досок из пвх",),
+        "hours_per_qty": 21.19,
+        "crew_size": 3,
+        "source_label": "ФЕР 10-01-035-01: установка подоконных досок из ПВХ",
+        "source_url": "https://files.stroyinf.ru/Data2/1/4293814/4293814969.htm",
+        "assumption": False,
+    },
+    {
+        "keywords": ("установка уголков пвх на клее",),
+        "hours_per_qty": 6.7,
+        "crew_size": 2,
+        "source_label": "ФЕР 15-01-070-01: установка уголков ПВХ на клее",
+        "source_url": "https://www.defsmeta.com/rfer15_2/rfer-15-01-070-01.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("устройство вентилируемых фасадов", "без теплоизоляционного слоя"),
+        "hours_per_qty": 207.98,
+        "crew_size": 4,
+        "source_label": "ФЕР 15-01-090-01: вентфасад без теплоизоляции",
+        "source_url": "https://www.defsmeta.com/rfer15_2/rfer-15-01-090-01.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("устройство вентилируемых фасадов", "с устройством теплоизоляционного слоя"),
+        "hours_per_qty": 334.66,
+        "crew_size": 4,
+        "source_label": "ФЕР 15-01-090-02: вентфасад с теплоизоляцией",
+        "source_url": "https://www.defsmeta.com/rfer15_2/rfer-15-01-090-02.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("устройство стяжек: цементных толщиной 20 мм",),
+        "hours_per_qty": 39.51,
+        "crew_size": 4,
+        "source_label": "ГЭСН 11-01-011-01: цементная стяжка 20 мм",
+        "source_url": "https://cs.smetnoedelo.ru/gesn2/gesn11-01-011-01.html",
+        "assumption": False,
+    },
+    {
+        "keywords": ("на каждые 5 мм изменения толщины стяжки",),
+        "hours_per_qty": 0.5,
+        "crew_size": 4,
+        "source_label": "ГЭСН 11-01-011-09: добавка на каждые 5 мм стяжки",
+        "source_url": "https://fgisrf.ru/frsn/fer/element/4f0007cc-f11b-4d16-98ed-cdf8494fd866",
+        "assumption": False,
+    },
+    {
+        "keywords": ("самовыравнивающейся смеси", "толщиной 3 мм"),
+        "hours_per_qty": 26.14,
+        "crew_size": 3,
+        "source_label": "ГЭСН 11-01-011-10: самовыравнивающаяся смесь 3 мм",
+        "source_url": "https://cs.smetnoedelo.ru/gesn2/gesn11-01-011-10.html",
+        "assumption": False,
+    },
+    {
+        "keywords": ("на каждый последующий слой толщиной 1 мм",),
+        "hours_per_qty": 2.33,
+        "crew_size": 3,
+        "source_label": "ГЭСН 11-01-011-11: добавка на каждый 1 мм слоя",
+        "source_url": "https://www.defsmeta.com/rgsn13/gsn_11/giesn-11-01-011-11.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("устройство покрытий: из линолеума", "свариванием полотнищ"),
+        "hours_per_qty": 51.82,
+        "crew_size": 3,
+        "source_label": "ГЭСН 11-01-036-01: укладка линолеума на клее",
+        "source_url": "https://www.defsmeta.com/rgsn14/gsn_11/giesn-11-01-036-01.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("разборка элементов облицовки потолков", "плит растровых"),
+        "hours_per_qty": 34.51,
+        "crew_size": 3,
+        "source_label": "ГЭСНр 63-7-2: разборка растрового потолка",
+        "source_url": "https://www.defsmeta.com/rgsnr3/gsnr_63/giesnr-63-07-002.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("устройство потолков: плитно-ячеистых", "оцинкованного профиля"),
+        "hours_per_qty": 102.46,
+        "crew_size": 3,
+        "source_label": "ГЭСН 15-01-047-15: потолок Армстронг по каркасу",
+        "source_url": "https://www.defsmeta.com/rgsn14/gsn_15/giesn-15-01-047-15.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("облицовка стен по одинарному металлическому каркасу", "гипсоволокнистыми листами", "одним слоем"),
+        "hours_per_qty": 84.0,
+        "crew_size": 3,
+        "source_label": "ФЕР 10-06-037-03: облицовка стен ГВЛ по каркасу",
+        "source_url": "https://www.defsmeta.com/rfer10/rfer-10-06-037-03.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("окраска водно-дисперсионными акриловыми составами улучшенная", "по сборным конструкциям стен"),
+        "hours_per_qty": 32.73,
+        "crew_size": 2,
+        "source_label": "ФЕР 15-04-005-03: улучшенная окраска стен водно-дисперсионными составами",
+        "source_url": "https://www.defsmeta.com/rfer15_2/rfer-15-04-005-03.php",
+        "assumption": False,
+    },
+    {
+        "keywords": ("розетка скрытого монтажа",),
+        "hours_per_qty": 0.3048,
+        "crew_size": 2,
+        "source_label": "ГЭСНм 08-03-591-09: розетка скрытой проводки",
+        "source_url": "https://cs.smetnoedelo.ru/gesnm2/gesnm08-03-591-09.html",
+        "assumption": False,
+    },
+    {
+        "keywords": ("разработка грунта вручную в траншеях",),
+        "hours_per_qty": 123.6,
+        "crew_size": 3,
+        "source_label": "ГЭСН 01-02-060-06: ручная разработка траншей, группа 2",
+        "source_url": "https://base.garant.ru/57505366/53925f69af584b25346d0c0b3ee74ea1/",
+        "assumption": False,
+    },
+    {
+        "keywords": ("прокладка трубопроводов канализации", "диаметром: 110 мм"),
+        "hours_per_qty": 56.0,
+        "crew_size": 3,
+        "source_label": "ФЕР 16-04-001-01: прокладка канализации ПЭ 110 мм",
+        "source_url": "https://cs.smetnoedelo.ru/fer/fer16-04-001-01.html",
+        "assumption": False,
+    },
+    {
+        "keywords": ("засыпка вручную траншей",),
+        "hours_per_qty": 88.5,
+        "crew_size": 3,
+        "source_label": "ГЭСН 01-02-061-01: ручная засыпка траншей",
+        "source_url": "https://cs.smetnoedelo.ru/fer/fer01-02-061-02.html",
+        "assumption": False,
+    },
+    {
+        "keywords": ("погрузка в автотранспортное средство", "мусор"),
+        "hours_per_qty": 0.35,
+        "crew_size": 2,
+        "source_label": "Укрупнённое допущение по ручной погрузке строительного мусора",
+        "source_url": "https://rags.ru/stroyka/text/50012/",
+        "assumption": True,
+    },
+    {
+        "keywords": ("перевозка грузов i класса автомобилями-самосвалами",),
+        "hours_per_qty": 0.18,
+        "crew_size": 1,
+        "source_label": "Укрупнённое допущение по рейсу самосвала на 25 км",
+        "source_url": "https://fgisrf.ru/frsn/fsscpg",
+        "assumption": True,
+    },
+]
+
+
+SECTION_SCHEDULE_FALLBACKS = {
+    "facade": {"crew_size": 4, "area100": 88.0, "len100": 18.0, "pcs100": 52.0, "area1": 1.0, "len1": 0.18, "ton": 24.0, "generic": 8.0},
+    "concrete": {"crew_size": 4, "area100": 46.0, "len100": 16.0, "vol100": 120.0, "area1": 0.46, "len1": 0.16, "generic": 7.0},
+    "finishing": {"crew_size": 3, "area100": 62.0, "len100": 14.0, "pcs100": 28.0, "area1": 0.62, "len1": 0.14, "generic": 6.0},
+    "electrical": {"crew_size": 2, "pcs1": 0.35, "pcs100": 35.0, "len100": 22.0, "len1": 0.22, "ton": 42.0, "generic": 4.0},
+    "plumbing": {"crew_size": 3, "len100": 56.0, "len1": 0.56, "vol100": 104.0, "area100": 72.0, "generic": 6.0},
+    "prep": {"crew_size": 3, "area100": 34.0, "len100": 10.0, "pcs100": 44.0, "ton": 8.0, "generic": 5.0},
+    "general": {"crew_size": 3, "area100": 60.0, "len100": 16.0, "pcs100": 36.0, "area1": 0.6, "len1": 0.16, "generic": 6.0},
+}
+
+
+SCHEDULE_SCOPE_KEYWORDS = {
+    "facade": ("окн", "фасад", "откос", "подокон", "жалюз", "витраж", "водоотлив", "уголок пвх"),
+    "concrete": ("стяжк", "бетон", "гидроизоляц", "пол", "наливн"),
+    "finishing": ("стен", "потол", "окраск", "облицовк", "линолеум", "плинтус", "гипс"),
+    "electrical": ("электр", "розет", "светиль", "кабел", "экран", "щит"),
+    "plumbing": ("канализац", "труб", "транше", "грунт", "радиатор"),
+    "prep": ("демонтаж", "разборка", "снятие", "вывоз мусора", "погрузка", "перевозка"),
+}
+
+
+def mark_project_schedule_draft(
+    con: sqlite3.Connection,
+    project_id: int,
+    *,
+    touch_internal: bool = True,
+    touch_customer: bool = True,
+    generated_at: str | None = None,
+) -> None:
+    project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        return
+
+    updates: list[str] = []
+    params: list[object] = []
+
+    if touch_internal:
+        internal_status = str(project["internal_schedule_status"] or "draft")
+        internal_version = int(project["internal_schedule_version"] or 1)
+        if internal_status == "approved":
+            internal_version += 1
+        updates.extend(
+            [
+                "internal_schedule_status = ?",
+                "internal_schedule_version = ?",
+                "internal_schedule_approved_at = NULL",
+            ]
+        )
+        params.extend(["draft", internal_version])
+
+    if touch_customer:
+        customer_status = str(project["customer_schedule_status"] or "draft")
+        customer_version = int(project["customer_schedule_version"] or 1)
+        if customer_status == "approved":
+            customer_version += 1
+        updates.extend(
+            [
+                "customer_schedule_status = ?",
+                "customer_schedule_version = ?",
+                "customer_schedule_approved_at = NULL",
+            ]
+        )
+        params.extend(["draft", customer_version])
+
+    if generated_at is not None:
+        updates.append("schedule_generated_at = ?")
+        params.append(generated_at)
+
+    if not updates:
+        return
+
+    updates.append("updated_at = ?")
+    params.extend([now_ts(), project_id])
+    con.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
+
+
+def update_project_schedule_status(
+    con: sqlite3.Connection,
+    project_id: int,
+    schedule_type: str,
+    action: str,
+) -> sqlite3.Row | None:
+    project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        return None
+
+    if action == "reset_to_draft":
+        mark_project_schedule_draft(
+            con,
+            project_id,
+            touch_internal=schedule_type in {"internal", "both"},
+            touch_customer=schedule_type in {"customer", "both"},
+        )
+        return con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+    updates: list[str] = []
+    params: list[object] = []
+    approved_at = TODAY_ISO
+    if schedule_type in {"internal", "both"}:
+        updates.extend(["internal_schedule_status = ?", "internal_schedule_approved_at = ?"])
+        params.extend(["approved", approved_at])
+    if schedule_type in {"customer", "both"}:
+        updates.extend(["customer_schedule_status = ?", "customer_schedule_approved_at = ?"])
+        params.extend(["approved", approved_at])
+    updates.append("updated_at = ?")
+    params.extend([now_ts(), project_id])
+    con.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
+    return con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+
+def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict]:
+    stage_rows = con.execute(
+        """
+        SELECT id, title, parent_id, stage_kind, position
+        FROM work_stages
+        WHERE project_id = ?
+        ORDER BY position, id
+        """,
+        (project_id,),
+    ).fetchall()
+    stage_map = {int(row["id"]): row for row in stage_rows}
+
+    def resolve_stage_root_title(stage_id: int | None) -> str | None:
+        if not stage_id:
+            return None
+        current = stage_map.get(int(stage_id))
+        root = None
+        guard = 0
+        while current and guard < 32:
+            root = current
+            parent_id = current["parent_id"]
+            if not parent_id:
+                break
+            current = stage_map.get(int(parent_id))
+            guard += 1
+        return str(root["title"]).strip() if root and root["title"] else None
+
+    rows = con.execute(
+        """
+        SELECT
+            e.id,
+            e.title,
+            e.unit,
+            e.planned_qty,
+            e.planned_price,
+            e.item_kind,
+            e.section_title,
+            e.article,
+            e.procurement_status,
+            e.warehouse_source,
+            e.warehouse_item_id,
+            e.delivery_days,
+            e.need_by_date,
+            e.notes,
+            e.stage_id,
+            ws.title AS stage_title,
+            ws.planned_start AS stage_planned_start,
+            ws.planned_end AS stage_planned_end,
+            COALESCE(SUM(CASE WHEN s.move_type = 'purchase' THEN s.qty ELSE 0 END), 0) AS purchased_qty,
+            COALESCE(SUM(CASE WHEN s.move_type = 'receipt' THEN s.qty ELSE 0 END), 0) AS received_qty,
+            COALESCE(SUM(CASE WHEN s.move_type = 'use' THEN s.qty ELSE 0 END), 0) AS used_qty
+        FROM estimate_items e
+        LEFT JOIN work_stages ws ON ws.id = e.stage_id
+        LEFT JOIN stock_moves s ON s.estimate_item_id = e.id
+        WHERE e.project_id = ?
+        GROUP BY e.id
+        ORDER BY e.id
+        """,
+        (project_id,),
+    ).fetchall()
+    items = []
+    for row in rows:
+        planned = float(row["planned_qty"])
+        purchased = float(row["purchased_qty"])
+        received = float(row["received_qty"])
+        used = float(row["used_qty"])
+        covered = max(purchased, received)
+        stock_base = received if received else purchased
+        stock = max(stock_base - used, 0)
+        missing = max(planned - covered, 0)
+        usage_progress = round(min(100, used / planned * 100), 1) if planned else 0
+        purchase_progress = round(min(100, covered / planned * 100), 1) if planned else 0
+        estimated_delivery_days = estimate_material_lead_days(
+            {
+                "title": row["title"],
+                "notes": row["notes"],
+                "unit": row["unit"],
+                "planned_qty": planned,
+                "planned_price": float(row["planned_price"] or 0),
+            }
+        )
+        delivery_days = int(row["delivery_days"]) if row["delivery_days"] is not None else int(estimated_delivery_days)
+        need_by_date = str(row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"] or "")
+        soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
+        if missing <= 0:
+            supply_status = "in_stock"
+            supply_label = "Есть в наличии"
+        elif need_by_date and need_by_date < TODAY_ISO:
+            supply_status = "required"
+            supply_label = "Требуется"
+        elif need_by_date and need_by_date <= soon_threshold:
+            supply_status = "soon"
+            supply_label = "Скоро потребуется"
+        else:
+            supply_status = "planned"
+            supply_label = "Нужно запланировать"
+        items.append(
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "itemKind": resolved_estimate_item_kind(row),
+                "unit": row["unit"],
+                "article": row["article"] or "",
+                "plannedQty": planned,
+                "plannedPrice": float(row["planned_price"] or 0),
+                "purchasedQty": purchased,
+                "receivedQty": received,
+                "usedQty": used,
+                "stockQty": stock,
+                "missingQty": missing,
+                "usageProgress": usage_progress,
+                "purchaseProgress": purchase_progress,
+                "needByDate": row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"],
+                "stageStartDate": row["stage_planned_start"],
+                "stageEndDate": row["stage_planned_end"],
+                "notes": row["notes"] or "",
+                "procurementStatus": row["procurement_status"] or "",
+                "warehouseSource": row["warehouse_source"] or "",
+                "warehouseItemId": row["warehouse_item_id"],
+                "deliveryDays": delivery_days,
+                "estimatedDeliveryDays": int(estimated_delivery_days),
+                "stageId": row["stage_id"],
+                "stageTitle": row["stage_title"],
+                "sectionTitle": str(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or "").strip(),
+                "supplyStatus": supply_status,
+                "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
+            }
+        )
+    return items
+
+
+def build_material_schedule_payload(
+    con: sqlite3.Connection,
+    project_id: int,
+    *,
+    warning_days: int = 5,
+    neutral_days: int = 7,
+) -> dict:
+    project = con.execute(
+        "SELECT id, title, started_at, deadline_at FROM projects WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    materials = [
+        item
+        for item in material_summary_rows(con, project_id)
+        if normalize_estimate_item_kind(item.get("itemKind")) != "work"
+    ]
+    selected_offers = con.execute(
+        """
+        SELECT estimate_item_id, candidate_name, company_id, source_url
+        FROM supplier_offers
+        WHERE project_id = ? AND candidate_type = 'supplier' AND status = 'selected'
+        ORDER BY updated_at DESC, created_at DESC, id DESC
+        """,
+        (project_id,),
+    ).fetchall()
+    supplier_by_item: dict[int, dict] = {}
+    for row in selected_offers:
+        item_id = row["estimate_item_id"]
+        if item_id is None or int(item_id) in supplier_by_item:
+            continue
+        supplier_by_item[int(item_id)] = {
+            "name": row["candidate_name"] or "",
+            "companyId": row["company_id"],
+            "sourceUrl": row["source_url"] or "",
+        }
+
+    today = parse_iso_date(TODAY_ISO) or date.today()
+    items: list[dict] = []
+    range_dates: list[date] = [today]
+    summary = {
+        "total": 0,
+        "purchased": 0,
+        "overdue": 0,
+        "warning": 0,
+        "neutral": 0,
+        "unscheduled": 0,
+    }
+
+    for material in materials:
+        material_id = int(material.get("id") or 0)
+        planned_qty = float(material.get("plannedQty") or 0)
+        planned_price = float(material.get("plannedPrice") or 0)
+        missing_qty = float(material.get("missingQty") or 0)
+        estimated_lead_days = estimate_material_lead_days(
+            {
+                "title": material.get("title"),
+                "notes": material.get("notes"),
+                "unit": material.get("unit"),
+                "planned_qty": planned_qty,
+                "planned_price": planned_price,
+            }
+        )
+        try:
+            lead_days = int(material.get("deliveryDays") if material.get("deliveryDays") is not None else estimated_lead_days)
+        except (TypeError, ValueError):
+            lead_days = int(estimated_lead_days)
+        lead_days = max(0, min(lead_days, 90))
+
+        deadline_date = parse_iso_date(str(material.get("needByDate") or material.get("stageStartDate") or material.get("stageEndDate") or ""))
+        purchase_start = deadline_date - timedelta(days=lead_days) if deadline_date else None
+        alert_start = purchase_start - timedelta(days=warning_days) if purchase_start else None
+
+        days_until_purchase = (purchase_start - today).days if purchase_start else None
+        days_until_deadline = (deadline_date - today).days if deadline_date else None
+        if missing_qty <= 0:
+            if float(material.get("receivedQty") or 0) >= planned_qty:
+                status = "purchased"
+                status_label = "Закуплено"
+            else:
+                status = "in_transit"
+                status_label = "В пути"
+            color = "done"
+            summary["purchased"] += 1
+        elif not deadline_date:
+            status = "unscheduled"
+            status_label = "Нет дедлайна"
+            color = "muted"
+            summary["unscheduled"] += 1
+        elif days_until_purchase is not None and days_until_purchase < 0:
+            status = "overdue"
+            status_label = "Просрочено"
+            color = "red"
+            summary["overdue"] += 1
+        elif days_until_purchase is not None and days_until_purchase <= warning_days:
+            status = "warning"
+            status_label = "Пора платить"
+            color = "yellow"
+            summary["warning"] += 1
+        else:
+            status = "neutral"
+            status_label = "В плане"
+            color = "green"
+            summary["neutral"] += 1
+
+        for value in (purchase_start, deadline_date, alert_start):
+            if value:
+                range_dates.append(value)
+
+        summary["total"] += 1
+        items.append(
+            {
+                "id": material_id,
+                "projectId": project_id,
+                "title": material.get("title") or "",
+                "unit": material.get("unit") or "",
+                "plannedQty": planned_qty,
+                "purchasedQty": float(material.get("purchasedQty") or 0),
+                "receivedQty": float(material.get("receivedQty") or 0),
+                "missingQty": missing_qty,
+                "purchaseProgress": float(material.get("purchaseProgress") or 0),
+                "status": status,
+                "statusLabel": status_label,
+                "color": color,
+                "purchaseStartDate": purchase_start.isoformat() if purchase_start else None,
+                "purchaseByDate": purchase_start.isoformat() if purchase_start else None,
+                "alertStartDate": alert_start.isoformat() if alert_start else None,
+                "deadlineDate": deadline_date.isoformat() if deadline_date else None,
+                "deliveryTargetDate": deadline_date.isoformat() if deadline_date else None,
+                "deliveryLeadDays": int(lead_days),
+                "estimatedDeliveryDays": int(estimated_lead_days),
+                "warningDays": int(warning_days),
+                "daysUntilPurchase": int(days_until_purchase) if days_until_purchase is not None else None,
+                "daysUntilDeadline": int(days_until_deadline) if days_until_deadline is not None else None,
+                "sectionTitle": material.get("sectionTitle") or "",
+                "relatedWork": {
+                    "stageId": material.get("stageId"),
+                    "title": material.get("stageTitle") or material.get("sectionTitle") or "",
+                    "startDate": material.get("stageStartDate"),
+                    "endDate": material.get("stageEndDate"),
+                },
+                "supplier": supplier_by_item.get(material_id),
+                "materialUrl": f"/app/projects?openProject={project_id}&tab=materials&materialId={material_id}",
+            }
+        )
+
+    items.sort(key=lambda item: (item["deadlineDate"] or "9999-12-31", item["purchaseStartDate"] or "9999-12-31", item["title"]))
+    start_date = min(range_dates)
+    end_date = max(range_dates)
+    if start_date == end_date:
+        end_date = start_date + timedelta(days=max(neutral_days, warning_days, 1))
+    return {
+        "projectId": project_id,
+        "projectTitle": project["title"] if project else "",
+        "today": today.isoformat(),
+        "settings": {
+            "warningDays": int(warning_days),
+            "neutralDays": int(neutral_days),
+        },
+        "range": {
+            "start": start_date.isoformat(),
+            "end": end_date.isoformat(),
+        },
+        "summary": summary,
+        "items": items,
+    }
+
+
+def parse_iso_date(value: str | None) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def count_threshold_hits(value: float, thresholds: list[float]) -> int:
+    return sum(1 for threshold in thresholds if value >= threshold)
+
+
+def classify_scope(text: str | None) -> str:
+    haystack = str(text or "").strip().lower()
+    for category, keywords in STAGE_CATEGORY_KEYWORDS.items():
+        if any(keyword in haystack for keyword in keywords):
+            return category
+    return "general"
+
+
+def estimate_stage_duration(stage: sqlite3.Row | dict, materials: list[dict]) -> int:
+    title = str(stage["title"] if isinstance(stage, sqlite3.Row) else stage.get("title", "")).strip().lower()
+    stage_kind = str(stage["stage_kind"] if isinstance(stage, sqlite3.Row) else stage.get("stage_kind", "work")).strip() or "work"
+    category = classify_scope(title)
+    base_map = {
+        "prep": 3,
+        "concrete": 8,
+        "masonry": 7,
+        "roof": 6,
+        "facade": 7,
+        "electrical": 8,
+        "plumbing": 8,
+        "ventilation": 9,
+        "finishing": 10,
+        "landscape": 5,
+        "handover": 3,
+        "general": 5,
+    }
+    base = base_map.get(category, 5)
+    if stage_kind == "section":
+        base = max(2, base - 2)
+    elif stage_kind == "subsection":
+        base = max(3, base - 1)
+    total_cost = sum(float(item.get("planned_qty", 0) or 0) * float(item.get("planned_price", 0) or 0) for item in materials)
+    total_qty = sum(float(item.get("planned_qty", 0) or 0) for item in materials)
+    material_count = len(materials)
+    duration = (
+        base
+        + count_threshold_hits(total_cost, [150_000, 400_000, 900_000, 1_800_000, 3_500_000])
+        + count_threshold_hits(total_qty, [20, 60, 140, 260, 500])
+        + count_threshold_hits(material_count, [2, 5, 9, 15])
+    )
+    if category == "handover":
+        duration = max(2, duration - 1)
+    return max(2 if stage_kind != "work" else 3, min(duration, 32 if stage_kind == "work" else 40))
+
+
+def estimate_material_lead_days(material: dict) -> int:
+    category = classify_scope(" ".join([
+        str(material.get("title", "")),
+        str(material.get("notes", "")),
+        str(material.get("unit", "")),
+    ]))
+    base_map = {
+        "facade": 16,
+        "electrical": 12,
+        "plumbing": 12,
+        "ventilation": 16,
+        "finishing": 8,
+        "roof": 10,
+        "concrete": 6,
+        "masonry": 7,
+        "prep": 4,
+        "landscape": 5,
+        "handover": 3,
+        "general": 7,
+    }
+    planned_qty = float(material.get("planned_qty", material.get("plannedQty", 0)) or 0)
+    planned_price = float(material.get("planned_price", material.get("plannedPrice", 0)) or 0)
+    amount = planned_qty * planned_price
+    extra = count_threshold_hits(amount, [250_000, 700_000, 1_500_000])
+    return min(24, base_map.get(category, 7) + extra)
+
+
+def build_procurement_alerts(
+    materials: list[dict],
+    stages: list[sqlite3.Row],
+    today_date: date,
+    section_start_dates: dict[str, str] | None = None,
+) -> dict:
+    stage_map = {int(row["id"]): dict(row) for row in stages}
+    section_start_dates = section_start_dates or {}
+    alerts: list[dict] = []
+    summary = {"critical": 0, "soon": 0, "watch": 0}
+    for material in materials:
+        if normalize_estimate_item_kind(material.get("itemKind", material.get("item_kind"))) == "work":
+            continue
+        missing_qty = float(material.get("missingQty", material.get("missing_qty", 0)) or 0)
+        if missing_qty <= 0:
+            continue
+        raw_stage_id = material.get("stageId", material.get("stage_id"))
+        try:
+            stage_id = int(raw_stage_id) if raw_stage_id not in (None, "", 0, "0") else 0
+        except (TypeError, ValueError):
+            stage_id = 0
+        stage = stage_map.get(stage_id)
+        section_title = str(material.get("sectionTitle") or "").strip()
+        stage_start = parse_iso_date(str((stage or {}).get("planned_start") or material.get("stageStartDate") or ""))
+        if not stage_start and section_title:
+            stage_start = parse_iso_date(section_start_dates.get(section_title))
+        if not stage_start:
+            continue
+        lead_days = estimate_material_lead_days(material)
+        order_by = parse_iso_date(str(material.get("needByDate", material.get("need_by_date", "")) or ""))
+        if not order_by:
+            order_by = stage_start - timedelta(days=lead_days)
+        days_until_start = (stage_start - today_date).days
+        days_until_order = (order_by - today_date).days
+        if days_until_start > 30 and days_until_order > 14:
+            continue
+        if days_until_order < 0:
+            status = "critical"
+            summary["critical"] += 1
+        elif days_until_order <= 3:
+            status = "critical"
+            summary["critical"] += 1
+        elif days_until_order <= 10:
+            status = "soon"
+            summary["soon"] += 1
+        else:
+            status = "watch"
+            summary["watch"] += 1
+        action_window_days = max(0, days_until_order)
+        alerts.append(
+            {
+                "materialId": int(material.get("id") or 0),
+                "title": str(material.get("title") or ""),
+                "unit": str(material.get("unit") or ""),
+                "missingQty": missing_qty,
+                "sectionTitle": section_title or str((stage or {}).get("title") or "").strip(),
+                "stageTitle": str(material.get("stageTitle") or (stage or {}).get("title") or section_title or "").strip(),
+                "startDate": stage_start.isoformat(),
+                "orderByDate": order_by.isoformat(),
+                "leadDays": int(lead_days),
+                "daysUntilStart": int(days_until_start),
+                "daysUntilOrder": int(days_until_order),
+                "actionWindowDays": int(action_window_days),
+                "status": status,
+            }
+        )
+    alerts.sort(key=lambda item: (item["daysUntilOrder"], item["daysUntilStart"], item["title"]))
+    return {"items": alerts[:10], "summary": summary}
+
+
+def normalize_schedule_text(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def classify_schedule_scope(text: str | None) -> str:
+    normalized = normalize_schedule_text(text)
+    for scope, keywords in SCHEDULE_SCOPE_KEYWORDS.items():
+        if any(keyword in normalized for keyword in keywords):
+            return scope
+    return "general"
+
+
+def infer_schedule_section_title(raw_section: str | None, title: str) -> str:
+    section = str(raw_section or "").strip()
+    if section:
+        return section
+    normalized_title = normalize_schedule_text(title)
+    if any(marker in normalized_title for marker in ("окн", "подокон", "жалюз", "откос", "фасад", "водоотлив", "отлив", "желоб", "уголк", "пвх")):
+        return "Раздел 1. Окна и фасад"
+    scope = classify_schedule_scope(title)
+    mapping = {
+        "facade": "Раздел 1. Окна и фасад",
+        "concrete": "Раздел 1. Общестроительные работы",
+        "electrical": "Раздел 1. Электромонтаж",
+        "plumbing": "Раздел 1. Инженерные сети",
+        "finishing": "Раздел 1. Отделка",
+        "prep": "Раздел 1. Подготовка",
+        "general": "Раздел 1. Прочие работы",
+    }
+    return mapping.get(scope, "Раздел 1. Прочие работы")
+
+
+def schedule_unit_family(unit: str) -> str:
+    text = normalize_schedule_text(unit)
+    if "100 м3" in text:
+        return "vol100"
+    if text == "м3":
+        return "vol1"
+    if "100 м2" in text:
+        return "area100"
+    if text == "м2":
+        return "area1"
+    if "100 м" in text:
+        return "len100"
+    if text == "м":
+        return "len1"
+    if "100 шт" in text:
+        return "pcs100"
+    if text.endswith("шт") or text == "шт":
+        return "pcs1"
+    if "1т" in text or text == "т":
+        return "ton"
+    return "generic"
+
+
+def normalized_schedule_qty(qty: float, unit_family: str) -> float:
+    if unit_family == "pcs100" and qty >= 20:
+        return qty / 100.0
+    return qty
+
+
+def estimate_schedule_work_item(item: sqlite3.Row | dict) -> dict:
+    title = str(item["title"] if isinstance(item, sqlite3.Row) else item.get("title", "")).strip()
+    unit = str(item["unit"] if isinstance(item, sqlite3.Row) else item.get("unit", "")).strip()
+    qty = float(item["planned_qty"] if isinstance(item, sqlite3.Row) else item.get("planned_qty", 0) or 0)
+    family = schedule_unit_family(unit)
+    qty = normalized_schedule_qty(qty, family)
+    text = normalize_schedule_text(title)
+    for rule in SECTION_SCHEDULE_RULES:
+        if all(keyword in text for keyword in rule["keywords"]):
+            return {
+                "hours": max(0.0, qty * float(rule["hours_per_qty"])),
+                "crew_size": int(rule["crew_size"]),
+                "source_label": rule["source_label"],
+                "source_url": rule["source_url"],
+                "assumption": bool(rule["assumption"]),
+                "method": "exact_norm",
+            }
+    scope = classify_schedule_scope(" ".join([title, unit]))
+    fallback = SECTION_SCHEDULE_FALLBACKS.get(scope, SECTION_SCHEDULE_FALLBACKS["general"])
+    rate = float(fallback.get(family, fallback.get("generic", 6.0)))
+    return {
+        "hours": max(0.0, qty * rate),
+        "crew_size": int(fallback.get("crew_size", 3)),
+        "source_label": "Укрупнённая оценка по типу работ и единице измерения",
+        "source_url": "",
+        "assumption": True,
+        "method": "heuristic",
+    }
+
+
+def build_section_schedule_forecast(project: sqlite3.Row, work_items: list[sqlite3.Row], start_at: date) -> dict:
+    sections: list[dict] = []
+    by_title: dict[str, dict] = {}
+    for row in work_items:
+        section_title = infer_schedule_section_title(row["section_title"], str(row["title"] or ""))
+        bucket = by_title.get(section_title)
+        if not bucket:
+            bucket = {
+                "title": section_title,
+                "scope": classify_schedule_scope(section_title + " " + str(row["title"] or "")),
+                "items": [],
+                "estimated_hours": 0.0,
+                "crew_size": 0,
+                "source_map": {},
+                "assumptions": False,
+                "first_item_id": int(row["id"]),
+            }
+            by_title[section_title] = bucket
+            sections.append(bucket)
+        estimate = estimate_schedule_work_item(row)
+        bucket["items"].append({
+            "id": int(row["id"]),
+            "title": str(row["title"] or ""),
+            "unit": str(row["unit"] or ""),
+            "planned_qty": float(row["planned_qty"] or 0),
+            "estimated_hours": round(float(estimate["hours"]), 2),
+            "method": estimate["method"],
+            "assumption": bool(estimate["assumption"]),
+            "source_label": estimate["source_label"],
+            "source_url": estimate["source_url"],
+        })
+        bucket["estimated_hours"] += float(estimate["hours"])
+        bucket["crew_size"] = max(int(bucket["crew_size"] or 0), int(estimate["crew_size"]))
+        bucket["assumptions"] = bucket["assumptions"] or bool(estimate["assumption"])
+        if estimate["source_label"] not in bucket["source_map"]:
+            bucket["source_map"][estimate["source_label"]] = {
+                "label": estimate["source_label"],
+                "url": estimate["source_url"],
+            }
+    sections.sort(key=lambda item: (item["first_item_id"], item["title"]))
+
+    cursor = start_at
+    total_hours = 0.0
+    for section in sections:
+        work_count = len(section["items"])
+        unmatched_count = sum(1 for item in section["items"] if item["assumption"])
+        buffer_factor = 1.0 + min(0.18, unmatched_count * 0.03 + max(0, work_count - 3) * 0.01)
+        buffered_hours = section["estimated_hours"] * buffer_factor
+        crew_size = max(1, int(section["crew_size"] or SECTION_SCHEDULE_FALLBACKS["general"]["crew_size"]))
+        duration_days = max(1, int((buffered_hours / max(1, crew_size * 8)) + 0.9999))
+        section["estimated_hours"] = round(section["estimated_hours"], 1)
+        section["buffered_hours"] = round(buffered_hours, 1)
+        section["estimated_days"] = duration_days
+        section["crew_size"] = crew_size
+        section["start_date"] = cursor.isoformat()
+        section["end_date"] = (cursor + timedelta(days=duration_days - 1)).isoformat()
+        section["sources"] = list(section["source_map"].values())
+        section["work_items"] = work_count
+        section.pop("source_map", None)
+        section.pop("first_item_id", None)
+        total_hours += buffered_hours
+        cursor = cursor + timedelta(days=duration_days)
+
+    finish_at = cursor - timedelta(days=1) if sections else start_at
+    total_days = max(0, (finish_at - start_at).days + 1) if sections else 0
+    return {
+        "projectId": int(project["id"]),
+        "startDate": start_at.isoformat(),
+        "finishDate": finish_at.isoformat() if sections else start_at.isoformat(),
+        "totalDays": total_days,
+        "totalHours": round(total_hours, 1),
+        "sections": [
+            {
+                "title": section["title"],
+                "scope": section["scope"],
+                "crewSize": section["crew_size"],
+                "estimatedHours": section["estimated_hours"],
+                "bufferedHours": section["buffered_hours"],
+                "estimatedDays": section["estimated_days"],
+                "startDate": section["start_date"],
+                "endDate": section["end_date"],
+                "workItems": section["work_items"],
+                "hasAssumptions": section["assumptions"],
+                "sources": section["sources"],
+                "items": section["items"],
+            }
+            for section in sections
+        ],
+    }
+
+
+def stage_sort_key(stage: sqlite3.Row | dict) -> tuple[int, int]:
+    if isinstance(stage, sqlite3.Row):
+        return (int(stage["position"] or 0), int(stage["id"] or 0))
+    return (int(stage.get("position", 0) or 0), int(stage.get("id", 0) or 0))
+
+
+def build_auto_schedule_plan(project: sqlite3.Row, stages: list[sqlite3.Row], materials: list[sqlite3.Row], start_at: date) -> dict:
+    stage_by_id = {int(stage["id"]): stage for stage in stages}
+    children_map: dict[int | None, list[sqlite3.Row]] = {}
+    for stage in stages:
+        parent_id = int(stage["parent_id"]) if stage["parent_id"] and int(stage["parent_id"]) in stage_by_id else None
+        children_map.setdefault(parent_id, []).append(stage)
+    for children in children_map.values():
+        children.sort(key=stage_sort_key)
+
+    leaf_ids = {stage_id for stage_id in stage_by_id if stage_id not in children_map}
+    candidate_stage_ids = [stage_id for stage_id in sorted(leaf_ids, key=lambda item: stage_sort_key(stage_by_id[item]))]
+    materials_by_stage: dict[int, list[dict]] = {}
+    auto_linked_materials: list[dict] = []
+    for raw in materials:
+        item = dict(raw)
+        stage_id = int(item["stage_id"]) if item["stage_id"] and int(item["stage_id"]) in stage_by_id else None
+        if not stage_id and candidate_stage_ids:
+            material_category = classify_scope(" ".join([str(item.get("title", "")), str(item.get("notes", ""))]))
+            for candidate_id in candidate_stage_ids:
+                stage_category = classify_scope(str(stage_by_id[candidate_id]["title"]))
+                if material_category != "general" and material_category == stage_category:
+                    stage_id = candidate_id
+                    break
+            if not stage_id:
+                stage_id = candidate_stage_ids[0]
+            auto_linked_materials.append({"id": int(item["id"]), "stage_id": stage_id})
+        if stage_id:
+            materials_by_stage.setdefault(stage_id, []).append(item)
+
+    stage_updates: list[dict] = []
+    material_updates: list[dict] = []
+
+    def walk(parent_id: int | None, cursor: date) -> tuple[date | None, date | None, date]:
+        first_start = None
+        last_end = None
+        for stage in children_map.get(parent_id, []):
+            stage_id = int(stage["id"])
+            linked_materials = materials_by_stage.get(stage_id, [])
+            child_nodes = children_map.get(stage_id, [])
+            if child_nodes:
+                child_start, child_end, next_cursor = walk(stage_id, cursor)
+                start = child_start or cursor
+                end = child_end or cursor
+                cursor = next_cursor
+            else:
+                duration = estimate_stage_duration(stage, linked_materials)
+                start = cursor
+                end = start + timedelta(days=duration - 1)
+                cursor = end + timedelta(days=1)
+            duration_days = max((end - start).days + 1, 1)
+            customer_shift = 0 if stage["stage_kind"] != "work" else min(2, max(0, duration_days // 10))
+            customer_tail = min(2, max(0, duration_days // 12))
+            depends_on_materials = bool(stage["depends_on_materials"]) or bool(linked_materials)
+            stage_updates.append(
+                {
+                    "id": stage_id,
+                    "planned_start": start.isoformat(),
+                    "planned_end": end.isoformat(),
+                    "customer_start": (start + timedelta(days=customer_shift)).isoformat(),
+                    "customer_end": (end + timedelta(days=customer_tail)).isoformat(),
+                    "depends_on_materials": 1 if depends_on_materials else 0,
+                    "duration_days": duration_days,
+                    "title": stage["title"],
+                }
+            )
+            if linked_materials:
+                for material in linked_materials:
+                    lead_days = estimate_material_lead_days(material)
+                    material_updates.append(
+                        {
+                            "id": int(material["id"]),
+                            "stage_id": stage_id,
+                            "need_by_date": start.isoformat(),
+                            "lead_days": lead_days,
+                            "title": material["title"],
+                        }
+                    )
+            if first_start is None or start < first_start:
+                first_start = start
+            if last_end is None or end > last_end:
+                last_end = end
+        return first_start, last_end, cursor
+
+    plan_start, plan_end, _ = walk(None, start_at)
+    sorted_stage_updates = sorted(stage_updates, key=lambda item: (item["planned_start"], item["id"]))
+    sorted_material_updates = sorted(material_updates, key=lambda item: (item["need_by_date"], item["title"]))
+    deadline_at = parse_iso_date(project["deadline_at"])
+    deadline_overrun_days = 0
+    if deadline_at and plan_end and plan_end > deadline_at:
+        deadline_overrun_days = (plan_end - deadline_at).days
+    return {
+        "project_start": (plan_start or start_at).isoformat(),
+        "project_end": (plan_end or start_at).isoformat(),
+        "stage_updates": sorted_stage_updates,
+        "material_updates": sorted_material_updates,
+        "auto_linked_materials": auto_linked_materials,
+        "deadline_overrun_days": deadline_overrun_days,
+        "longest_stages": sorted(sorted_stage_updates, key=lambda item: item["duration_days"], reverse=True)[:5],
+    }
+
+
+def api_material_schedule(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] == "customer":
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
+    try:
+        warning_days = int(query.get("warningDays", query.get("warning_days", ["5"]))[0])
+    except (TypeError, ValueError):
+        warning_days = 5
+    try:
+        neutral_days = int(query.get("neutralDays", query.get("neutral_days", ["7"]))[0])
+    except (TypeError, ValueError):
+        neutral_days = 7
+    warning_days = max(1, min(warning_days, 30))
+    neutral_days = max(warning_days, min(max(neutral_days, 1), 60))
+    fresh = str(query.get("fresh", [""])[0]).lower() in {"1", "true", "yes"}
+    with db() as con:
+        payload = None
+        if not fresh:
+            saved = con.execute(
+                "SELECT payload, updated_at FROM material_schedule_snapshots WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if saved:
+                try:
+                    payload = json.loads(saved["payload"])
+                    if isinstance(payload, dict):
+                        payload["saved"] = True
+                        payload["savedAt"] = saved["updated_at"]
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    payload = None
+        if payload is None:
+            payload = build_material_schedule_payload(
+                con,
+                project_id,
+                warning_days=warning_days,
+                neutral_days=neutral_days,
+            )
+    handler.send_json(HTTPStatus.OK, payload)
+
+
+def api_save_material_schedule(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] == "customer":
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    warning_days = 5
+    neutral_days = 7
+    try:
+        warning_days = int(payload.get("warningDays", payload.get("warning_days", warning_days)))
+    except (TypeError, ValueError):
+        warning_days = 5
+    try:
+        neutral_days = int(payload.get("neutralDays", payload.get("neutral_days", neutral_days)))
+    except (TypeError, ValueError):
+        neutral_days = 7
+    warning_days = max(1, min(warning_days, 30))
+    neutral_days = max(warning_days, min(max(neutral_days, 1), 60))
+    schedule = payload.get("schedule")
+    with db() as con:
+        if not isinstance(schedule, dict) or not isinstance(schedule.get("items"), list):
+            schedule = build_material_schedule_payload(
+                con,
+                project_id,
+                warning_days=warning_days,
+                neutral_days=neutral_days,
+            )
+        schedule["projectId"] = project_id
+        schedule["saved"] = True
+        schedule["savedAt"] = now_ts()
+        now = now_ts()
+        con.execute(
+            """
+            INSERT INTO material_schedule_snapshots (project_id, payload, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                payload = excluded.payload,
+                created_by = excluded.created_by,
+                updated_at = excluded.updated_at
+            """,
+            (project_id, json.dumps(schedule, ensure_ascii=False), user["id"], now, now),
+        )
+        create_audit(
+            con,
+            user["id"],
+            "save_material_schedule",
+            "project",
+            project_id,
+            {"items": len(schedule.get("items") or [])},
+        )
+        con.commit()
+    handler.send_json(HTTPStatus.OK, schedule)
+
+
+def api_project_auto_schedule(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if not user_can_manage_schedule(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    with db() as con:
+        project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            return
+        stages = con.execute(
+            "SELECT * FROM work_stages WHERE project_id = ? ORDER BY position, id",
+            (project_id,),
+        ).fetchall()
+        materials = con.execute(
+            """
+            SELECT id, title, unit, planned_qty, planned_price, stage_id, need_by_date, notes
+            FROM estimate_items
+            WHERE project_id = ?
+            ORDER BY id
+            """,
+            (project_id,),
+        ).fetchall()
+        if not stages:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "stages_required"})
+            return
+        if not materials:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "materials_required"})
+            return
+        requested_start = parse_iso_date(payload.get("start_date", payload.get("startDate")))
+        project_start = parse_iso_date(project["started_at"])
+        start_at = requested_start or project_start or date(2026, 7, 25)
+        plan = build_auto_schedule_plan(project, stages, materials, start_at)
+        for item in plan["stage_updates"]:
+            con.execute(
+                """
+                UPDATE work_stages
+                SET planned_start = ?, planned_end = ?, customer_start = ?, customer_end = ?,
+                    depends_on_materials = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    item["planned_start"],
+                    item["planned_end"],
+                    item["customer_start"],
+                    item["customer_end"],
+                    item["depends_on_materials"],
+                    now_ts(),
+                    item["id"],
+                ),
+            )
+        auto_stage_map = {item["id"]: item["stage_id"] for item in plan["auto_linked_materials"]}
+        for item in plan["material_updates"]:
+            target_stage_id = auto_stage_map.get(item["id"])
+            if target_stage_id:
+                con.execute(
+                    """
+                    UPDATE estimate_items
+                    SET stage_id = ?, need_by_date = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (target_stage_id, item["need_by_date"], now_ts(), item["id"]),
+                )
+            else:
+                con.execute(
+                    "UPDATE estimate_items SET need_by_date = ?, updated_at = ? WHERE id = ?",
+                    (item["need_by_date"], now_ts(), item["id"]),
+                )
+        if not project["started_at"]:
+            con.execute(
+                "UPDATE projects SET started_at = ?, updated_at = ? WHERE id = ?",
+                (plan["project_start"], now_ts(), project_id),
+            )
+        mark_project_schedule_draft(con, project_id, generated_at=TODAY_ISO)
+        material_schedule = build_material_schedule_payload(con, project_id)
+        create_audit(
+            con,
+            user["id"],
+            "auto_schedule_project",
+            "project",
+            project_id,
+            {
+                "start_date": plan["project_start"],
+                "finish_date": plan["project_end"],
+                "auto_linked_materials": len(plan["auto_linked_materials"]),
+                "deadline_overrun_days": plan["deadline_overrun_days"],
+            },
+        )
+        con.commit()
+        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    handler.send_json(
+        HTTPStatus.OK,
+        {
+            "project": serialize_project(project_row, user),
+            "summary": {
+                "projectStart": plan["project_start"],
+                "projectEnd": plan["project_end"],
+                "stagesPlanned": len(plan["stage_updates"]),
+                "materialsPlanned": len(plan["material_updates"]),
+                "materialsAutoLinked": len(plan["auto_linked_materials"]),
+                "deadlineOverrunDays": plan["deadline_overrun_days"],
+                "longestStages": plan["longest_stages"],
+                "procurementHotspots": plan["material_updates"][:8],
+            },
+            "materialSchedule": material_schedule,
+        },
+    )
+
+
+def api_project_section_schedule_forecast(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    payload = handler.read_json()
+    requested_start = parse_iso_date(payload.get("start_date", payload.get("startDate")))
+    with db() as con:
+        project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            return
+        rows = con.execute(
+            """
+            SELECT id, title, unit, planned_qty, item_kind, section_title
+            FROM estimate_items
+            WHERE project_id = ?
+            ORDER BY id
+            """,
+            (project_id,),
+        ).fetchall()
+    work_items = [
+        row
+        for row in rows
+        if normalize_estimate_item_kind(row["item_kind"]) == "work"
+    ]
+    if not work_items:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "works_required"})
+        return
+    project_start = parse_iso_date(project["started_at"])
+    start_at = requested_start or project_start or date(2026, 7, 27)
+    forecast = build_section_schedule_forecast(project, work_items, start_at)
+    handler.send_json(HTTPStatus.OK, forecast)
+
+
+def api_project_schedule_status(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    with db() as con:
+        project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+        return
+    handler.send_json(HTTPStatus.OK, {"scheduleControl": project_schedule_payload(project)})
+
+
+def api_update_project_schedule_status(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if not user_can_manage_schedule(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    schedule_type = str(payload.get("schedule_type", payload.get("scheduleType", "internal"))).strip() or "internal"
+    action = str(payload.get("action", "approve")).strip() or "approve"
+    if schedule_type not in {"internal", "customer", "both"}:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_schedule_type"})
+        return
+    if action not in {"approve", "reset_to_draft"}:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_action"})
+        return
+    with db() as con:
+        project = update_project_schedule_status(con, project_id, schedule_type, action)
+        if not project:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            return
+        create_audit(
+            con,
+            user["id"],
+            "update_project_schedule_status",
+            "project",
+            project_id,
+            {"schedule_type": schedule_type, "action": action},
+        )
+        con.commit()
+    handler.send_json(HTTPStatus.OK, {"project": serialize_project(project, user)})
+
+
+def api_project_stages(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    with db() as con:
+        if user["role"] == "customer":
+            rows = con.execute(
+                """
+                SELECT *
+                FROM work_stages
+                WHERE project_id = ? AND is_client_visible = 1
+                ORDER BY position, id
+                """,
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM work_stages WHERE project_id = ? ORDER BY position, id",
+                (project_id,),
+            ).fetchall()
+    handler.send_json(HTTPStatus.OK, {"stages": [dict(row) for row in rows]})
+
+
+def api_create_project_stage(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if not user_can_manage_documents(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    title = str(payload.get("title", "")).strip()
+    stage_kind = str(payload.get("stage_kind", payload.get("stageKind", "section"))).strip() or "section"
+    if not title or stage_kind not in {"section", "subsection", "work"}:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_stage_data"})
+        return
+    parent_id = payload.get("parent_id", payload.get("parentId"))
+    try:
+        parent_id = int(parent_id) if parent_id not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_parent_id"})
+        return
+    with db() as con:
+        project = con.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            return
+        if parent_id:
+            parent = con.execute(
+                "SELECT id FROM work_stages WHERE id = ? AND project_id = ?",
+                (parent_id, project_id),
+            ).fetchone()
+            if not parent:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "parent_not_found"})
+                return
+        next_position = con.execute(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM work_stages WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()[0]
+        cur = con.execute(
+            """
+            INSERT INTO work_stages (
+                project_id, title, position, parent_id, stage_kind, status_code,
+                planned_start, planned_end, customer_start, customer_end, progress,
+                responsible, notes, is_client_visible, depends_on_materials, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                title,
+                int(payload.get("position", next_position) or next_position),
+                parent_id,
+                stage_kind,
+                str(payload.get("status_code", payload.get("statusCode", "not_started"))).strip() or "not_started",
+                str(payload.get("planned_start", payload.get("plannedStart", ""))).strip() or None,
+                str(payload.get("planned_end", payload.get("plannedEnd", ""))).strip() or None,
+                str(payload.get("customer_start", payload.get("customerStart", ""))).strip() or None,
+                str(payload.get("customer_end", payload.get("customerEnd", ""))).strip() or None,
+                max(0, min(100, int(payload.get("progress", 0) or 0))),
+                str(payload.get("responsible", "")).strip() or None,
+                str(payload.get("notes", "")).strip() or None,
+                1 if payload.get("is_client_visible", payload.get("isClientVisible", True)) else 0,
+                1 if payload.get("depends_on_materials", payload.get("dependsOnMaterials", False)) else 0,
+                now_ts(),
+                now_ts(),
+            ),
+        )
+        mark_project_schedule_draft(con, project_id)
+        create_audit(con, user["id"], "create_stage", "work_stage", cur.lastrowid, {"project_id": project_id, "title": title, "stage_kind": stage_kind})
+        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        row = con.execute("SELECT * FROM work_stages WHERE id = ?", (cur.lastrowid,)).fetchone()
+        con.commit()
+    handler.send_json(HTTPStatus.CREATED, {"stage": dict(row), "project": serialize_project(project_row, user)})
+
+
+def api_update_stage(handler, path: str) -> None:
+    stage_id = parse_path_int(path, 2)
+    if not stage_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stage_id"})
+        return
+    payload = handler.read_json()
+    with db() as con:
+        stage = con.execute("SELECT * FROM work_stages WHERE id = ?", (stage_id,)).fetchone()
+        if not stage:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "stage_not_found"})
+            return
+        user = handler.require_project_access(int(stage["project_id"]))
+        if not user:
+            return
+        if not user_can_manage_documents(user):
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        status_code = str(payload.get("status_code", payload.get("statusCode", stage["status_code"]))).strip() or "not_started"
+        if status_code not in {"not_started", "started", "in_progress", "completed", "approved", "blocked", "overdue"}:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+            return
+        progress = max(0, min(100, int(payload.get("progress", stage["progress"]) or 0)))
+        con.execute(
+            """
+            UPDATE work_stages
+            SET title = ?, stage_kind = ?, status_code = ?, planned_start = ?, planned_end = ?,
+                customer_start = ?, customer_end = ?, fact_start = ?, fact_end = ?, progress = ?,
+                responsible = ?, notes = ?, is_client_visible = ?, depends_on_materials = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                str(payload.get("title", stage["title"])).strip() or stage["title"],
+                str(payload.get("stage_kind", payload.get("stageKind", stage["stage_kind"]))).strip() or stage["stage_kind"],
+                status_code,
+                str(payload.get("planned_start", payload.get("plannedStart", stage["planned_start"] or ""))).strip() or None,
+                str(payload.get("planned_end", payload.get("plannedEnd", stage["planned_end"] or ""))).strip() or None,
+                str(payload.get("customer_start", payload.get("customerStart", stage["customer_start"] or ""))).strip() or None,
+                str(payload.get("customer_end", payload.get("customerEnd", stage["customer_end"] or ""))).strip() or None,
+                str(payload.get("fact_start", payload.get("factStart", stage["fact_start"] or ""))).strip() or None,
+                str(payload.get("fact_end", payload.get("factEnd", stage["fact_end"] or ""))).strip() or None,
+                progress,
+                str(payload.get("responsible", stage["responsible"] or "")).strip() or None,
+                str(payload.get("notes", stage["notes"] or "")).strip() or None,
+                1 if payload.get("is_client_visible", payload.get("isClientVisible", bool(stage["is_client_visible"]))) else 0,
+                1 if payload.get("depends_on_materials", payload.get("dependsOnMaterials", bool(stage["depends_on_materials"]))) else 0,
+                now_ts(),
+                stage_id,
+            ),
+        )
+        mark_project_schedule_draft(con, int(stage["project_id"]))
+        create_audit(con, user["id"], "update_stage", "work_stage", stage_id, {"project_id": stage["project_id"], "status_code": status_code, "progress": progress})
+        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (stage["project_id"],)).fetchone()
+        row = con.execute("SELECT * FROM work_stages WHERE id = ?", (stage_id,)).fetchone()
+        con.commit()
+    handler.send_json(HTTPStatus.OK, {"stage": dict(row), "project": serialize_project(project_row, user)})
+
+
+def api_project_tasks(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] == "customer":
+        handler.send_json(HTTPStatus.OK, {"tasks": []})
+        return
+    with db() as con:
+        rows = con.execute(
+            """
+            SELECT t.*, u.name AS assignee_name
+            FROM tasks t
+            LEFT JOIN users u ON u.id = t.assignee_id
+            WHERE t.project_id = ?
+            ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, t.id DESC
+            """,
+            (project_id,),
+        ).fetchall()
+    handler.send_json(HTTPStatus.OK, {"tasks": [dict(row) for row in rows]})
+
+
+def api_create_task(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if not user_has_any_role(user, {"admin", "director"}):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    title = str(payload.get("title", "")).strip()
+    if not title:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_required"})
+        return
+    assignee_id = payload.get("assignee_id", payload.get("assigneeId"))
+    try:
+        assignee_id = int(assignee_id) if assignee_id not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_assignee_id"})
+        return
+    with db() as con:
+        if assignee_id:
+            assignee = con.execute("SELECT id FROM users WHERE id = ?", (assignee_id,)).fetchone()
+            if not assignee:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "assignee_not_found"})
+                return
+        cur = con.execute(
+            """
+            INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, due_at, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                title,
+                str(payload.get("description", "")).strip(),
+                str(payload.get("status", "open")).strip() or "open",
+                str(payload.get("priority", "normal")).strip() or "normal",
+                assignee_id,
+                str(payload.get("due_at", "")).strip() or None,
+                user["id"],
+                now_ts(),
+                now_ts(),
+            ),
+        )
+        con.commit()
+    handler.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid})
+
+
+def api_update_task(handler, path: str) -> None:
+    task_id = parse_path_int(path, 2)
+    if not task_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_task_id"})
+        return
+    payload = handler.read_json()
+    with db() as con:
+        task = con.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not task:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "task_not_found"})
+            return
+        user = handler.require_project_access(int(task["project_id"]))
+        if not user:
+            return
+        if user["role"] == "customer":
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        status = str(payload.get("status", task["status"])).strip() or "open"
+        if status not in {"open", "in_progress", "review", "done"}:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+            return
+        priority = str(payload.get("priority", task["priority"])).strip() or "normal"
+        if priority not in {"low", "normal", "high"}:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_priority"})
+            return
+        assignee_id = payload.get("assignee_id", payload.get("assigneeId", task["assignee_id"]))
+        try:
+            assignee_id = int(assignee_id) if assignee_id not in (None, "", 0, "0") else None
+        except (TypeError, ValueError):
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_assignee_id"})
+            return
+        if assignee_id:
+            assignee = con.execute("SELECT id FROM users WHERE id = ?", (assignee_id,)).fetchone()
+            if not assignee:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "assignee_not_found"})
+                return
+        con.execute(
+            """
+            UPDATE tasks
+            SET title = ?, description = ?, status = ?, priority = ?, assignee_id = ?, due_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                str(payload.get("title", task["title"])).strip() or task["title"],
+                str(payload.get("description", task["description"] or "")).strip(),
+                status,
+                priority,
+                assignee_id,
+                str(payload.get("due_at", payload.get("dueAt", task["due_at"] or ""))).strip() or None,
+                now_ts(),
+                task_id,
+            ),
+        )
+        create_audit(
+            con,
+            user["id"],
+            "update_task",
+            "task",
+            task_id,
+            {"project_id": task["project_id"], "status": status, "priority": priority},
+        )
+        row = con.execute(
+            """
+            SELECT t.*, u.name AS assignee_name
+            FROM tasks t
+            LEFT JOIN users u ON u.id = t.assignee_id
+            WHERE t.id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        con.commit()
+    handler.send_json(HTTPStatus.OK, {"task": dict(row)})

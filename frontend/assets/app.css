@@ -13213,17 +13213,18 @@ input[type="checkbox"][data-section-work-check]:focus-visible {
 input[type="checkbox"].custom-tg:checked,
 input[type="checkbox"][data-section-material-check]:checked,
 input[type="checkbox"][data-section-work-check]:checked {
-    background-color: var(--text-main, #1e293b);
-    border-color: var(--text-main, #1e293b);
+    background-color: #ffffff;
+    border-color: var(--accent-main, #2563eb);
 }
 
 input[type="checkbox"].custom-tg:checked::before,
 input[type="checkbox"][data-section-material-check]:checked::before,
 input[type="checkbox"][data-section-work-check]:checked::before {
-    content: "\2713";
-    color: #ffffff;
-    font-size: 13px;
-    font-weight: 900;
-    line-height: 1;
+    content: "";
+    width: 5px;
+    height: 9px;
+    border: solid var(--accent-main, #2563eb);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-1px, -1px);
 }
 
