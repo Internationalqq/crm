@@ -11685,7 +11685,100 @@ body[data-page="schedule"] .section-schedule-title small,
     --task-surface: #f8fafc;
     --task-hover-shadow: 0 16px 32px rgba(15, 23, 42, .10);
     display: grid;
+    position: relative;
     gap: 16px;
+}
+
+[data-panel="tasks"] .tasks-top-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+[data-panel="tasks"] .task-create-toggle {
+    color: #ffffff !important;
+}
+
+[data-panel="tasks"] .task-create-toggle i {
+    width: 16px;
+    height: 16px;
+}
+
+.task-modal-lock {
+    overflow: hidden;
+}
+
+.task-create-modal {
+    --task-radius: 8px;
+    --task-muted: #64748b;
+    position: fixed;
+    inset: 0;
+    z-index: 1210;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.task-create-modal[hidden] {
+    display: none !important;
+}
+
+.task-create-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, .46);
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+
+.task-create-dialog {
+    position: relative;
+    width: min(820px, calc(100vw - 32px));
+    max-height: min(720px, calc(100vh - 36px));
+    overflow: auto;
+    border: 1px solid rgba(226, 232, 240, .95);
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, .24);
+    opacity: 0;
+    transform: translateY(18px) scale(.97);
+    transition: opacity .2s ease, transform .2s ease;
+}
+
+.task-create-modal.is-open .task-create-backdrop {
+    opacity: 1;
+}
+
+.task-create-modal.is-open .task-create-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.task-create-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 2;
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #dbe5ee;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #475569;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+    cursor: pointer;
+}
+
+.task-create-close:hover {
+    color: #0f172a;
+    border-color: #b9c8d8;
+}
+
+.task-create-close i {
+    width: 17px;
+    height: 17px;
 }
 
 [data-panel="tasks"] .execution-summary {
@@ -11774,7 +11867,6 @@ body[data-page="schedule"] .section-schedule-title small,
 [data-panel="tasks"] .task-card:hover {
     border-color: #c8d7ea;
     box-shadow: var(--task-hover-shadow);
-    transform: translateY(-2px);
 }
 
 [data-panel="tasks"] .task-card-overdue {
@@ -11938,42 +12030,91 @@ body[data-page="schedule"] .section-schedule-title small,
     transform: translateY(-1px);
 }
 
-[data-panel="tasks"] .task-create-form {
+[data-panel="tasks"] .task-create-form,
+.task-create-modal .task-create-form {
     display: grid;
     grid-template-columns: 1fr !important;
     gap: 16px !important;
     padding: 16px;
     margin: 0;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
 }
 
-[data-panel="tasks"] .task-create-head {
+[data-panel="tasks"] .task-create-head,
+.task-create-modal .task-create-head {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
+    padding-right: 48px;
 }
 
-[data-panel="tasks"] .task-create-head h3 {
+[data-panel="tasks"] .task-create-head h3,
+.task-create-modal .task-create-head h3 {
     margin: 0;
     color: #172033;
     font-size: 16px;
     font-weight: 700;
 }
 
-[data-panel="tasks"] .task-create-head span {
+[data-panel="tasks"] .task-create-head span,
+.task-create-modal .task-create-head span {
     color: var(--task-muted);
     font-size: 12px;
     font-weight: 600;
 }
 
-[data-panel="tasks"] .task-create-grid {
+[data-panel="tasks"] .task-create-grid,
+.task-create-modal .task-create-grid {
     display: grid;
-    grid-template-columns: minmax(208px, 1.4fr) minmax(208px, 1.3fr) repeat(4, minmax(136px, 1fr)) auto;
-    gap: 8px;
-    align-items: center;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: end;
 }
 
-[data-panel="tasks"] .task-create-grid .primary {
+[data-panel="tasks"] .task-create-grid label,
+.task-create-modal .task-create-grid label {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    color: #526779;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+[data-panel="tasks"] .task-create-grid label.wide,
+.task-create-modal .task-create-grid label.wide {
+    grid-column: 1 / -1;
+}
+
+[data-panel="tasks"] .task-create-grid select,
+[data-panel="tasks"] .task-create-grid input,
+.task-create-modal .task-create-grid select,
+.task-create-modal .task-create-grid input {
+    min-height: 42px;
+    width: 100%;
+    border: 1px solid #d1dde8;
+    border-radius: 10px;
+    padding: 0 12px;
+    background: #fbfcfe;
+    color: #1b2f45;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+[data-panel="tasks"] .task-create-grid select:focus,
+[data-panel="tasks"] .task-create-grid input:focus,
+.task-create-modal .task-create-grid select:focus,
+.task-create-modal .task-create-grid input:focus {
+    border-color: #88b59d;
+    outline: 3px solid rgba(77,191,127,.14);
+}
+
+[data-panel="tasks"] .task-create-grid .primary,
+.task-create-modal .task-create-grid .primary {
+    justify-self: end;
+    min-width: 170px;
     min-height: 40px;
     padding: 0 16px;
     border-radius: var(--task-radius) !important;
@@ -12026,13 +12167,15 @@ body[data-page="schedule"] .section-schedule-title small,
     [data-panel="tasks"] .execution-summary,
     [data-panel="tasks"] .tasks-board,
     [data-panel="tasks"] .task-card-controls,
-    [data-panel="tasks"] .task-create-grid {
+    [data-panel="tasks"] .task-create-grid,
+    .task-create-modal .task-create-grid {
         grid-template-columns: 1fr;
     }
 
     [data-panel="tasks"] .task-card-top,
     [data-panel="tasks"] .task-card-footer,
-    [data-panel="tasks"] .task-create-head {
+    [data-panel="tasks"] .task-create-head,
+    .task-create-modal .task-create-head {
         align-items: flex-start;
         flex-direction: column;
         gap: 8px;
@@ -12040,6 +12183,23 @@ body[data-page="schedule"] .section-schedule-title small,
 
     [data-panel="tasks"] .task-deadline {
         justify-content: flex-start;
+    }
+
+    .task-create-modal {
+        padding: 10px;
+        align-items: end;
+    }
+
+    .task-create-dialog {
+        width: 100%;
+        max-height: calc(100vh - 20px);
+        border-radius: 14px 14px 0 0;
+        transform: translateY(28px);
+    }
+
+    .task-create-modal .task-create-grid .primary {
+        width: 100%;
+        min-width: 0;
     }
 }
 
@@ -12607,7 +12767,7 @@ textarea,
 [data-panel="tasks"] .task-card:hover {
     border-color: var(--border-hover);
     box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
-    transform: translateY(-1px);
+    transform: none;
 }
 
 [data-panel="tasks"] .task-card-top,
@@ -12642,10 +12802,15 @@ textarea,
     font-size: 15px;
     font-weight: 600;
     line-height: 1.35;
+    display: -webkit-box;
+    min-height: 41px;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
 [data-panel="tasks"] .task-card-body p {
-    min-height: 0;
+    min-height: 20px;
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -14069,12 +14234,8 @@ input[type="checkbox"][data-section-work-check]:checked::before {
 }
 
 input[type="checkbox"][data-bulk-section-check]:indeterminate::before {
-    content: "";
-    width: 9px;
-    height: 2px;
-    background: var(--accent-main, #2563eb);
-    border: 0;
-    transform: none;
+    content: none;
+    display: none;
 }
 
 .bulk-section-check {
@@ -15852,6 +16013,23 @@ button:hover svg.lucide {
     height: 16px;
 }
 
+[data-project-detail] .tabs .tab {
+    transition: background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+    will-change: transform;
+}
+
+[data-project-detail] .tabs .tab:hover {
+    transform: translateY(-1px);
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #2563eb;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, .12);
+}
+
+[data-project-detail] .tabs .tab.active:hover {
+    box-shadow: 0 10px 22px rgba(47, 111, 237, .16);
+}
+
 @media (max-width: 720px) {
     .projects-card-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -16053,8 +16231,127 @@ button:hover svg.lucide {
     width: min(320px, 34vw);
 }
 
-.finance-upload-shortcut {
-    white-space: nowrap;
+.finance-entry-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    padding: 2px 0;
+}
+
+.finance-action-button {
+    min-height: 42px;
+    gap: 8px;
+    border-radius: var(--base-radius) !important;
+}
+
+.finance-action-button i,
+.finance-form-close i {
+    width: 17px;
+    height: 17px;
+}
+
+.finance-modal-lock {
+    overflow: hidden;
+}
+
+.finance-form-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.finance-form-modal[hidden] {
+    display: none !important;
+}
+
+.finance-form-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, .46);
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+
+.finance-form-dialog {
+    position: relative;
+    width: min(940px, calc(100vw - 32px));
+    max-height: min(760px, calc(100vh - 36px));
+    overflow: auto;
+    padding: 0;
+    border: 1px solid rgba(226, 232, 240, .95);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, .24);
+    opacity: 0;
+    transform: translateY(18px) scale(.97);
+    transition: opacity .2s ease, transform .2s ease;
+}
+
+.finance-form-modal.is-open .finance-form-backdrop {
+    opacity: 1;
+}
+
+.finance-form-modal.is-open .finance-form-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.finance-form-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 2;
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #dbe5ee;
+    border-radius: 10px;
+    background: #fff;
+    color: #475569;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+    cursor: pointer;
+}
+
+.finance-form-close:hover {
+    color: #0f172a;
+    border-color: #b9c8d8;
+}
+
+.finance-form-pane {
+    padding: 18px;
+}
+
+.finance-form-dialog .finance-income-card,
+.finance-form-dialog .finance-invoice-card {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.finance-form-dialog .finance-income-form,
+.finance-form-dialog .finance-invoice-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.finance-form-dialog .finance-income-form .wide,
+.finance-form-dialog .finance-income-form .form-error,
+.finance-form-dialog .finance-invoice-form .wide,
+.finance-form-dialog .finance-invoice-form .form-error {
+    grid-column: 1 / -1 !important;
+}
+
+.finance-form-dialog .finance-income-form button,
+.finance-form-dialog .finance-invoice-form button {
+    justify-self: end;
+    min-width: 190px;
 }
 
 .finance-invoice-form button.primary {
@@ -17151,6 +17448,7 @@ body.drawer-open [data-auto-schedule-drawer] {
     min-height: 42px !important;
     padding: 0 16px !important;
     border-radius: 999px !important;
+    color: #ffffff !important;
     box-shadow: 0 10px 24px rgba(37, 99, 235, .16) !important;
 }
 
@@ -17158,6 +17456,16 @@ body.drawer-open [data-auto-schedule-drawer] {
 .report-date-badge i {
     width: 16px;
     height: 16px;
+}
+
+.report-page-head-action {
+    justify-content: flex-start !important;
+}
+
+.report-create-button span,
+.report-create-button i {
+    color: #ffffff !important;
+    stroke: currentColor !important;
 }
 
 .report-daily-layout.report-daily-layout-full {
@@ -18068,5 +18376,175 @@ body.reports-drawer-open {
     [data-project-detail] .material-calendar-day,
     [data-project-detail] .material-calendar-grid.is-week .material-calendar-day {
         min-height: 62px !important;
+    }
+}
+
+input[type="checkbox"][data-bulk-section-check]:indeterminate::before,
+input[type="checkbox"][data-section-material-check]:indeterminate::before,
+input[type="checkbox"][data-section-work-check]:indeterminate::before {
+    content: none !important;
+    display: none !important;
+}
+
+input[type="checkbox"][data-bulk-section-check]:indeterminate,
+input[type="checkbox"][data-section-material-check]:indeterminate,
+input[type="checkbox"][data-section-work-check]:indeterminate {
+    background: #ffffff !important;
+    border-color: var(--border-muted, #e2e8f0) !important;
+}
+
+[data-project-detail] .section-schedule-details {
+    padding: 8px 0 0 !important;
+}
+
+.section-schedule-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+}
+
+.section-schedule-detail-column {
+    min-width: 0;
+    display: grid;
+    gap: 7px;
+    padding: 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.section-schedule-detail-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.15;
+}
+
+.section-schedule-detail-title strong {
+    color: var(--ink);
+    font-weight: 950;
+}
+
+.section-schedule-detail-title span {
+    color: var(--muted);
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.section-schedule-detail-list {
+    display: grid;
+    gap: 5px;
+}
+
+.section-schedule-detail-list .section-work-check,
+.section-schedule-detail-list .quantity-work-check {
+    min-height: 34px !important;
+    padding: 7px 8px !important;
+    border-radius: 7px !important;
+}
+
+.section-schedule-detail-list .section-work-check-copy b,
+.section-schedule-detail-list .work-row-main b {
+    font-size: 12px !important;
+    line-height: 1.18 !important;
+}
+
+.section-schedule-detail-list .section-work-check-copy small,
+.section-schedule-detail-list .work-row-main small {
+    font-size: 10px !important;
+    line-height: 1.25 !important;
+}
+
+.calendar-modal-overlay .calendar-modal-card {
+    width: min(760px, calc(100vw - 28px)) !important;
+    max-width: 760px !important;
+    max-height: min(760px, calc(100vh - 36px)) !important;
+    padding: 18px !important;
+}
+
+.calendar-modal-list {
+    max-height: min(560px, calc(100vh - 190px)) !important;
+    overflow-y: auto !important;
+    padding-right: 4px !important;
+}
+
+.calendar-modal-row {
+    grid-template-columns: 24px minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 10px !important;
+    min-height: 46px !important;
+    padding: 10px !important;
+}
+
+.calendar-modal-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.calendar-modal-row-main strong {
+    font-size: 13px !important;
+    line-height: 1.25 !important;
+}
+
+.calendar-modal-row-main strong span {
+    display: inline-block !important;
+    margin-right: 5px;
+    color: #173863;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.calendar-modal-row-main small {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+}
+
+.material-calendar-day.is-selected,
+.material-calendar-grid.is-week .material-calendar-day.is-selected {
+    border-color: var(--accent-main, #2563eb) !important;
+    background: #eff6ff !important;
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .22) !important;
+}
+
+@media (max-width: 760px) {
+    .section-schedule-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .calendar-modal-overlay .calendar-modal-card {
+        width: calc(100vw - 18px) !important;
+        max-height: calc(100vh - 18px) !important;
+        padding: 14px !important;
+    }
+
+    .finance-form-modal {
+        padding: 10px;
+        align-items: end;
+    }
+
+    .finance-form-dialog {
+        width: 100%;
+        max-height: calc(100vh - 20px);
+        border-radius: 14px 14px 0 0;
+        transform: translateY(28px);
+    }
+
+    .finance-form-pane {
+        padding: 14px;
+    }
+
+    .finance-form-dialog .finance-income-form,
+    .finance-form-dialog .finance-invoice-form {
+        grid-template-columns: 1fr !important;
+    }
+
+    .finance-form-dialog .finance-income-form button,
+    .finance-form-dialog .finance-invoice-form button {
+        width: 100%;
+        min-width: 0;
     }
 }

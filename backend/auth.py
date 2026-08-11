@@ -314,7 +314,7 @@ def can_see_finances(user: dict) -> bool:
 
 
 def user_can_pay_invoices(user: dict) -> bool:
-    return user_has_any_role(user, {"director"})
+    return user_has_any_role(user, {"admin", "director"})
 
 
 def user_can_manage_schedule(user: dict) -> bool:

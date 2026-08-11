@@ -566,8 +566,8 @@ def api_update_finance_entry(handler, path: str) -> None:
 
 
 def api_pay_invoice(handler) -> None:
-    director = handler.require_role({"director"})
-    if not director:
+    payer = handler.require_role({"admin", "director"})
+    if not payer:
         return
     payload = handler.read_json()
     try:
@@ -601,7 +601,7 @@ def api_pay_invoice(handler) -> None:
         handler.recalc_project_finance_totals(con, int(row["project_id"]))
         create_audit(
             con,
-            director["id"],
+            payer["id"],
             "pay_invoice",
             "finance_entry",
             finance_id,

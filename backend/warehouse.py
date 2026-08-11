@@ -79,6 +79,16 @@ def normalize_estimate_item_kind(value: object) -> str:
     return "material"
 
 
+def canonical_estimate_section_title(value: object) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text:
+        return ""
+    normalized = text.lower().replace("ё", "е")
+    if normalized == "подготовка" or re.fullmatch(r"раздел\s*0?1\.?\s*подготовка", normalized):
+        return "Раздел 1. Окна и фасад"
+    return text
+
+
 def normalize_fuzzy_text(value: object) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).lower().replace("ё", "е")
     text = re.sub(r"\bпровод\b", "кабель", text)
@@ -291,6 +301,9 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         else:
             supply_status = "planned"
             supply_label = "Нужно запланировать"
+        section_title = canonical_estimate_section_title(
+            resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or ""
+        )
         items.append(
             {
                 "id": row["id"],
@@ -320,7 +333,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "estimatedDeliveryDays": int(estimated_delivery_days),
                 "stageId": row["stage_id"],
                 "stageTitle": row["stage_title"],
-                "sectionTitle": str(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or "").strip(),
+                "sectionTitle": section_title,
                 "supplyStatus": supply_status,
                 "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
             }

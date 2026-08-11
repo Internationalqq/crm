@@ -11,6 +11,7 @@ from pathlib import Path
 from auth import user_can_manage_documents, user_has_any_role
 from projects import serialize_project
 from warehouse import (
+    canonical_estimate_section_title,
     normalize_estimate_item_kind,
     resolved_estimate_item_kind,
     resolved_estimate_section_title,
@@ -60,7 +61,7 @@ def create_audit(
 
 
 def normalize_progress_section_id(value: object) -> str:
-    text = str(value or "").strip().lower()
+    text = canonical_estimate_section_title(value).strip().lower()
     return " ".join(text.split()) or "без раздела"
 
 
@@ -83,8 +84,8 @@ def estimate_row_section_title(con: sqlite3.Connection, row: sqlite3.Row | dict)
             current = parent
             guard += 1
         if root and root["title"]:
-            return str(root["title"]).strip()
-    return str(resolved_estimate_section_title(row) or row["section_title"] or "").strip() or "Без раздела"
+            return canonical_estimate_section_title(root["title"])
+    return canonical_estimate_section_title(resolved_estimate_section_title(row) or row["section_title"] or "") or "Без раздела"
 
 
 def live_estimate_items_where(con: sqlite3.Connection, alias: str = "e") -> str:
@@ -589,8 +590,12 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "estimatedDeliveryDays": int(estimated_delivery_days),
                 "stageId": row["stage_id"],
                 "stageTitle": row["stage_title"],
-                "sectionTitle": str(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or "").strip(),
-                "sectionId": normalize_progress_section_id(resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or ""),
+                "sectionTitle": canonical_estimate_section_title(
+                    resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or ""
+                ),
+                "sectionId": normalize_progress_section_id(
+                    resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or ""
+                ),
                 "supplyStatus": supply_status,
                 "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
             }
@@ -934,7 +939,7 @@ def classify_schedule_scope(text: str | None) -> str:
 
 
 def infer_schedule_section_title(raw_section: str | None, title: str) -> str:
-    section = str(raw_section or "").strip()
+    section = canonical_estimate_section_title(raw_section)
     if section:
         return section
     normalized_title = normalize_schedule_text(title)
@@ -947,7 +952,7 @@ def infer_schedule_section_title(raw_section: str | None, title: str) -> str:
         "electrical": "Раздел 1. Электромонтаж",
         "plumbing": "Раздел 1. Инженерные сети",
         "finishing": "Раздел 1. Отделка",
-        "prep": "Раздел 1. Подготовка",
+        "prep": "Раздел 1. Окна и фасад",
         "general": "Раздел 1. Прочие работы",
     }
     return mapping.get(scope, "Раздел 1. Прочие работы")
@@ -1088,6 +1093,7 @@ def build_section_schedule_forecast(project: sqlite3.Row, work_items: list[sqlit
         "sections": [
             {
                 "title": section["title"],
+                "sectionId": normalize_progress_section_id(section["title"]),
                 "scope": section["scope"],
                 "crewSize": section["crew_size"],
                 "estimatedHours": section["estimated_hours"],
