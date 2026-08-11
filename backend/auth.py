@@ -20,6 +20,14 @@ import jwt
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
+AVATARS_DIR = DATA_DIR / "avatars"
+AVATAR_MAX_BYTES = 5 * 1024 * 1024
+AVATAR_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 LOGIN_PATH = "/login"
 DEFAULT_AUTH_PATH = "/app/dashboard"
@@ -181,6 +189,7 @@ def user_payload(row: sqlite3.Row) -> dict:
         "roles": sorted(set(roles)),
         "roleLabel": ROLE_LABELS.get(role, role),
         "name": row["name"],
+        "avatarUrl": row["avatar_url"] if "avatar_url" in row.keys() else None,
     }
 
 
@@ -378,7 +387,7 @@ def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
         return None, "bad_clerk_token"
     with db() as con:
         row = con.execute(
-            "SELECT * FROM users WHERE clerk_user_id = ? AND is_active = 1",
+            "SELECT * FROM users WHERE clerk_user_id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
             (clerk_user_id,),
         ).fetchone()
         if row:
@@ -397,7 +406,7 @@ def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
         row = None
         if email:
             row = con.execute(
-                "SELECT * FROM users WHERE lower(email) = ? AND is_active = 1",
+                "SELECT * FROM users WHERE lower(email) = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
                 (email.lower(),),
             ).fetchone()
         if not row and email and email.lower() in CLERK_ADMIN_EMAILS:
@@ -405,7 +414,7 @@ def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
                 """
                 SELECT *
                 FROM users
-                WHERE is_active = 1 AND lower(login) = 'admin'
+                WHERE is_active = 1 AND COALESCE(is_deleted, 0) = 0 AND lower(login) = 'admin'
                 ORDER BY id
                 LIMIT 1
                 """
@@ -441,7 +450,7 @@ def current_user(handler) -> dict | None:
             SELECT u.*
             FROM sessions s
             JOIN users u ON u.id = s.user_id
-            WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1
+            WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1 AND COALESCE(u.is_deleted, 0) = 0
             """,
             (token_hash(token), now_ts()),
         ).fetchone()
@@ -494,11 +503,53 @@ def api_login(handler) -> None:
     if clerk_enabled():
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "clerk_enabled"})
         return
-    payload = handler.read_json()
+    content_type = handler.headers.get("Content-Type", "")
+    avatar_url_from_upload = None
+    if "multipart/form-data" in content_type:
+        form = handler.read_multipart()
+
+        def form_value(name: str) -> str:
+            item = form[name] if name in form else None
+            if item is None:
+                return ""
+            if isinstance(item, list):
+                item = item[0] if item else None
+            if item is None:
+                return ""
+            return str(getattr(item, "value", "") or "")
+
+        payload = {
+            "first_name": form_value("first_name"),
+            "last_name": form_value("last_name"),
+            "name": form_value("name"),
+            "avatar_url": form_value("avatar_url"),
+        }
+        avatar_item = form["avatar"] if "avatar" in form else None
+        if isinstance(avatar_item, list):
+            avatar_item = avatar_item[0] if avatar_item else None
+        if avatar_item is not None and getattr(avatar_item, "filename", ""):
+            mime_type = str(getattr(avatar_item, "type", "") or "").split(";", 1)[0].strip().lower()
+            ext = AVATAR_EXTENSIONS.get(mime_type)
+            if not ext:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_type", "message": "Загрузите PNG, JPG, WEBP или GIF"})
+                return
+            content = avatar_item.file.read(AVATAR_MAX_BYTES + 1)
+            if len(content) > AVATAR_MAX_BYTES:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "avatar_too_large", "message": "Аватарка должна быть меньше 5 МБ"})
+                return
+            AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+            storage_name = f"user_{user['id']}_{now_ts()}_{secrets.token_hex(6)}{ext}"
+            (AVATARS_DIR / storage_name).write_bytes(content)
+            avatar_url_from_upload = f"/api/auth/avatar/{storage_name}"
+    else:
+        payload = handler.read_json()
     login = str(payload.get("login", "")).strip()
     password = str(payload.get("password", ""))
     with db() as con:
-        row = con.execute("SELECT * FROM users WHERE login = ? AND is_active = 1", (login,)).fetchone()
+        row = con.execute(
+            "SELECT * FROM users WHERE login = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+            (login,),
+        ).fetchone()
         if not row or not verify_password(password, row["password_hash"]):
             handler.send_json(HTTPStatus.UNAUTHORIZED, {"error": "bad_credentials"})
             return
@@ -565,3 +616,68 @@ def api_me(handler) -> None:
         handler.send_json(HTTPStatus.UNAUTHORIZED, {"error": "auth_required"})
         return
     handler.send_json(HTTPStatus.OK, {"user": user})
+
+
+def api_update_profile(handler) -> None:
+    user = require_user(handler)
+    if not user:
+        return
+
+    payload = handler.read_json()
+    first_name = re.sub(r"\s+", " ", str(payload.get("first_name", "") or "").strip())
+    last_name = re.sub(r"\s+", " ", str(payload.get("last_name", "") or "").strip())
+    name = re.sub(r"\s+", " ", str(payload.get("name", "") or "").strip())
+    if not name:
+        name = (first_name + " " + last_name).strip()
+    if not name:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "name_required", "message": "Укажите имя"})
+        return
+    if len(name) > 160:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "name_too_long", "message": "Имя слишком длинное"})
+        return
+
+    avatar_url = avatar_url_from_upload or str(payload.get("avatar_url", payload.get("avatarUrl", "")) or "").strip()
+    if avatar_url and not (re.match(r"^https?://", avatar_url, re.IGNORECASE) or avatar_url.startswith("/api/auth/avatar/")):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_url", "message": "Аватарка должна быть ссылкой http/https"})
+        return
+    if len(avatar_url) > 2048:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "avatar_url_too_long", "message": "Ссылка на аватарку слишком длинная"})
+        return
+
+    with db() as con:
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(users)").fetchall()}
+        updates = ["name = ?", "updated_at = ?"]
+        values = [name, now_ts()]
+        if "avatar_url" in columns:
+            updates.append("avatar_url = ?")
+            values.append(avatar_url or None)
+        values.append(user["id"])
+        con.execute(
+            "UPDATE users SET " + ", ".join(updates) + " WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+            values,
+        )
+        con.commit()
+        row = con.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+
+    if not row:
+        handler.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found"})
+        return
+    handler.send_json(HTTPStatus.OK, {"user": user_payload(row)})
+
+
+def api_avatar_file(handler, path: str) -> None:
+    filename = path.rsplit("/", 1)[-1]
+    if not re.match(r"^user_\d+_\d+_[a-f0-9]{12}\.(png|jpg|webp|gif)$", filename):
+        handler.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        return
+    file_path = AVATARS_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        handler.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        return
+    mime_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(file_path.suffix.lower(), "application/octet-stream")
+    handler.send_file(file_path, mime_type, filename, inline=True)

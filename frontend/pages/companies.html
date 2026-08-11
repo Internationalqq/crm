@@ -6,13 +6,13 @@
     </div>
 </section>
 
-<section class="companies-page-shell">
+<section class="card users-shell companies-page-shell" data-companies-page-root>
     <div class="companies-toolbar">
         <label class="companies-search">
             <i data-lucide="search" aria-hidden="true"></i>
             <input class="search" data-company-search placeholder="Поиск по названию, телефону, ИНН или адресу">
         </label>
-        <button class="primary companies-add-button" type="button" data-counterparty-drawer-open>
+        <button class="primary companies-add-button" type="button" data-company-create-open>
             <i data-lucide="plus-circle" aria-hidden="true"></i>
             <span>Добавить контрагента</span>
         </button>
@@ -21,60 +21,4 @@
     <section class="companies-list-section">
         <div data-companies-list></div>
     </section>
-
-    <button class="drawer-overlay" type="button" data-counterparty-drawer-close aria-label="Закрыть форму"></button>
-
-    <aside class="counterparty-drawer" aria-hidden="true" data-counterparty-drawer>
-        <button class="counterparty-drawer-close" type="button" data-counterparty-drawer-close aria-label="Закрыть">×</button>
-        <div class="counterparty-drawer-head">
-            <span class="section-label">Новый контрагент</span>
-            <h3>Добавить контрагента</h3>
-        </div>
-        <form class="form-card counterparty-create-form" data-company-create-form>
-            <label>
-                <span>Тип</span>
-                <select name="type" required>
-                    <option value="own_legal_entity">Наше юридическое лицо</option>
-                    <option value="client">Заказчик</option>
-                    <option value="supplier">Поставщик</option>
-                    <option value="contractor">Подрядчик</option>
-                    <option value="other">Другое</option>
-                </select>
-            </label>
-            <label>
-                <span>Название</span>
-                <input name="name" required>
-            </label>
-            <label>
-                <span>ИНН</span>
-                <input name="inn">
-            </label>
-            <label>
-                <span>КПП</span>
-                <input name="kpp">
-            </label>
-            <label>
-                <span>ОГРН</span>
-                <input name="ogrn">
-            </label>
-            <label>
-                <span>Телефон</span>
-                <input name="phone">
-            </label>
-            <label>
-                <span>Email</span>
-                <input name="email" type="email">
-            </label>
-            <label>
-                <span>Адрес</span>
-                <input name="address">
-            </label>
-            <label>
-                <span>Заметки</span>
-                <textarea name="notes" rows="3"></textarea>
-            </label>
-            <div class="form-error" data-company-create-error></div>
-            <button class="primary" type="submit">Создать</button>
-        </form>
-    </aside>
 </section>

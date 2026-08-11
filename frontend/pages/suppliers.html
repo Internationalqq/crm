@@ -1,8 +1,8 @@
-<section class="page-head">
+<section class="page-head suppliers-hero-head">
     <div>
         <p class="eyebrow">Закупщик и подрядчики</p>
         <h2>Контрагенты и предложения</h2>
-        <p>Кандидаты, обзвон, просчёт, сравнение со сметой и выбор лучшего варианта по объекту.</p>
+        <p>Кандидаты, обзвон, просчет, сравнение со сметой и выбор лучшего варианта по объекту.</p>
     </div>
 </section>
 
@@ -10,29 +10,37 @@
 
 <section class="card suppliers-context" data-suppliers-context hidden></section>
 
-<section class="grid-2">
-    <section class="card">
-        <div class="card-head">
-            <div>
-                <span class="section-label">Воронка закупки</span>
-                <h3>Все предложения по объекту</h3>
-            </div>
-            <select class="search" data-suppliers-project></select>
+<section class="card suppliers-page-shell">
+    <div class="card-head suppliers-page-head">
+        <div class="suppliers-page-title">
+            <h3>Все предложения по объекту</h3>
+            <label class="supplier-project-picker">
+                <i data-lucide="building-2" aria-hidden="true"></i>
+                <select class="search" data-suppliers-project></select>
+            </label>
         </div>
-        <div class="suppliers-list" data-suppliers-list>
-            <p class="muted">Загрузка предложений...</p>
-        </div>
-    </section>
+        <button class="primary suppliers-create-button suppliers-create-button-panel" type="button" data-supplier-create-open>
+            <i data-lucide="plus-circle" aria-hidden="true"></i>
+            <span>Создать контрагента</span>
+        </button>
+    </div>
+    <div class="suppliers-list" data-suppliers-list></div>
+</section>
 
-    <section class="card">
-        <div class="card-head">
-            <div>
-                <span class="section-label">Новый кандидат</span>
-                <h3>Добавить поставщика или подрядчика</h3>
-            </div>
-            <span class="muted">Можно указывать ручной контакт или ссылку на Avito</span>
-        </div>
-        <form class="supplier-form" data-supplier-create-form>
+<div class="supplier-detail-modal hidden" data-supplier-detail-modal>
+    <button class="supplier-detail-backdrop" type="button" data-supplier-detail-close aria-label="Закрыть"></button>
+    <section class="supplier-detail-dialog" role="dialog" aria-modal="true" aria-label="Карточка контрагента">
+        <div data-supplier-detail-body></div>
+    </section>
+</div>
+
+<div class="supplier-create-modal hidden" data-supplier-create-modal>
+    <button class="supplier-create-backdrop" type="button" data-supplier-create-close aria-label="Закрыть"></button>
+    <section class="supplier-create-dialog" role="dialog" aria-modal="true" aria-label="Создание контрагента">
+        <form class="card form-card supplier-form supplier-create-form" data-supplier-create-form>
+            <button class="ghost compact user-create-close" type="button" data-supplier-create-close>Закрыть</button>
+            <h3>Создать контрагента</h3>
+
             <label>
                 <span>Объект</span>
                 <select name="project_id" required data-supplier-projects></select>
@@ -46,7 +54,7 @@
             </label>
             <label class="wide">
                 <span>Название кандидата</span>
-                <input name="candidate_name" required placeholder="Например: ООО Стройснаб или Бригада Иванова">
+                <input name="candidate_name" required placeholder="Например: ООО СтройСнаб или Бригада Иванова">
             </label>
             <label>
                 <span>Компания из справочника</span>
@@ -96,18 +104,18 @@
                 <span>Статус</span>
                 <select name="status">
                     <option value="new">Новый</option>
-                    <option value="called">Обзвонён</option>
+                    <option value="called">Обзвонен</option>
                     <option value="quoted">Просчитан</option>
                     <option value="selected">Выбран</option>
-                    <option value="rejected">Отклонён</option>
+                    <option value="rejected">Отклонен</option>
                 </select>
             </label>
             <label class="wide">
                 <span>Комментарий</span>
-                <textarea name="notes" rows="4" placeholder="Что ответил, какие условия, сроки поставки, что смутило"></textarea>
+                <textarea name="notes" rows="4" placeholder="Что ответили, условия, сроки поставки, что смутило"></textarea>
             </label>
             <div class="form-error" data-supplier-create-error></div>
             <button class="primary" type="submit">Сохранить контрагента</button>
         </form>
     </section>
-</section>
+</div>

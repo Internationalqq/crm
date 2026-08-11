@@ -4,7 +4,6 @@
         <h2>Внутренний склад</h2>
         <p>Материалы и инструменты компании с быстрым поиском, фильтрами и выдачей на объекты.</p>
     </div>
-    <button class="primary" type="button" data-warehouse-receipt-open>+ Добавить / Вернуть на склад</button>
 </section>
 
 <section class="card warehouse-card">
@@ -13,7 +12,10 @@
             <span class="section-label">Остатки</span>
             <h3>Материалы и инструменты</h3>
         </div>
-        <input class="search" placeholder="Поиск по названию, артикулу или категории" data-warehouse-search>
+        <div class="warehouse-head-actions">
+            <input class="search" placeholder="Поиск по названию, артикулу или категории" data-warehouse-search>
+            <button class="primary warehouse-add-button" type="button" data-warehouse-receipt-open>+ Добавить / Вернуть на склад</button>
+        </div>
     </div>
 
     <div class="analysis-strip" data-warehouse-analysis></div>

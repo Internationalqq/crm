@@ -25,10 +25,12 @@ from auth import (
     ROLE_CODES,
     ROLE_DESCRIPTIONS,
     ROLE_LABELS,
+    api_avatar_file as auth_api_avatar_file,
     auth_config as auth_core_config,
     api_login as auth_api_login,
     api_logout as auth_api_logout,
     api_me as auth_api_me,
+    api_update_profile as auth_api_update_profile,
     clerk_api_request,
     clerk_enabled,
     clerk_sign_in_script as auth_clerk_sign_in_script,
@@ -41,6 +43,7 @@ from auth import (
     split_person_name,
     user_can_open,
     user_has_any_role,
+    user_payload,
 )
 from projects import (
     api_create_project as projects_api_create_project,
@@ -51,6 +54,7 @@ from projects import (
     api_projects as projects_api_projects,
     api_update_project as projects_api_update_project,
     can_access_project as projects_can_access_project,
+    normalize_project_description,
     project_schedule_payload,
     require_project_access as projects_require_project_access,
     serialize_project,
@@ -70,7 +74,6 @@ from warehouse import (
     api_warehouse_list as warehouse_api_warehouse_list,
     api_warehouse_receipt as warehouse_api_warehouse_receipt,
     api_warehouse_transfer as warehouse_api_warehouse_transfer,
-    seed_warehouse_items,
 )
 
 from finance import (
@@ -404,21 +407,60 @@ def create_audit(
 def user_unique_conflict(con: sqlite3.Connection, email: str | None, phone: str | None, exclude_user_id: int | None = None) -> dict | None:
     exclude_sql = " AND id <> ?" if exclude_user_id else ""
     exclude_args = (exclude_user_id,) if exclude_user_id else ()
+    active_sql = " AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_active, 1) = 1"
     if email:
         row = con.execute(
-            "SELECT id FROM users WHERE lower(email) = ?" + exclude_sql,
+            "SELECT id FROM users WHERE lower(email) = ?" + active_sql + exclude_sql,
             (email.lower(),) + exclude_args,
         ).fetchone()
         if row:
             return {"error": "email_already_used", "message": "Этот Email уже зарегистрирован в системе"}
     if phone:
         row = con.execute(
-            "SELECT id FROM users WHERE phone = ?" + exclude_sql,
+            "SELECT id FROM users WHERE phone = ?" + active_sql + exclude_sql,
             (phone,) + exclude_args,
         ).fetchone()
         if row:
             return {"error": "phone_already_used", "message": "Этот номер телефона уже используется"}
     return None
+
+
+def user_login_conflict(con: sqlite3.Connection, login: str, exclude_user_id: int | None = None) -> bool:
+    if not login:
+        return False
+    exclude_sql = " AND id <> ?" if exclude_user_id else ""
+    exclude_args = (exclude_user_id,) if exclude_user_id else ()
+    row = con.execute(
+        "SELECT id FROM users WHERE lower(login) = ? AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_active, 1) = 1" + exclude_sql,
+        (login.lower(),) + exclude_args,
+    ).fetchone()
+    return bool(row)
+
+
+def release_deleted_user_identity(con: sqlite3.Connection, login: str | None, email: str | None, phone: str | None) -> None:
+    clauses = []
+    args: list[str] = []
+    if login:
+        clauses.append("lower(login) = ?")
+        args.append(login.lower())
+    if email:
+        clauses.append("lower(email) = ?")
+        args.append(email.lower())
+    if phone:
+        clauses.append("phone = ?")
+        args.append(phone)
+    if not clauses:
+        return
+    rows = con.execute(
+        "SELECT id FROM users WHERE (COALESCE(is_deleted, 0) = 1 OR COALESCE(is_active, 1) = 0 OR status = 'deleted') AND (" + " OR ".join(clauses) + ")",
+        args,
+    ).fetchall()
+    for row in rows:
+        deleted_login = f"deleted_user_{row['id']}_{now_ts()}"
+        con.execute(
+            "UPDATE users SET login = ?, email = NULL, phone = NULL, is_deleted = 1, is_active = 0, status = 'deleted', updated_at = ? WHERE id = ?",
+            (deleted_login, now_ts(), row["id"]),
+        )
 
 
 def valid_user_email(email: str | None) -> bool:
@@ -995,7 +1037,9 @@ def init_db() -> None:
                 "email": "TEXT",
                 "phone": "TEXT",
                 "clerk_user_id": "TEXT",
+                "avatar_url": "TEXT",
                 "status": "TEXT NOT NULL DEFAULT 'active'",
+                "is_deleted": "INTEGER NOT NULL DEFAULT 0",
                 "updated_at": "INTEGER",
             },
         )
@@ -1203,8 +1247,6 @@ def init_db() -> None:
                 WHERE foreman_id IS NOT NULL
                 """
             )
-
-        seed_warehouse_items(con)
 
         user_count = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0:
@@ -1717,6 +1759,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_logout()
             elif method == "GET" and path == "/api/auth/me":
                 self.api_me()
+            elif method == "POST" and path == "/api/auth/update-profile":
+                auth_api_update_profile(self)
+            elif method == "GET" and path.startswith("/api/auth/avatar/"):
+                auth_api_avatar_file(self, path)
             elif method == "GET" and path == "/api/roles":
                 self.api_roles()
             elif method == "POST" and path == "/api/users/manage":
@@ -1905,8 +1951,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
         clerk_user_id = None
         with db() as con:
-            existing_login = con.execute("SELECT id FROM users WHERE login = ?", (login,)).fetchone()
-            if existing_login:
+            release_deleted_user_identity(con, login, email, phone)
+            if user_login_conflict(con, login):
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
                 return
             unique_conflict = user_unique_conflict(con, email, phone)
@@ -1914,7 +1960,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.CONFLICT, unique_conflict)
                 return
             if clerk_enabled() and email:
-                existing_email = con.execute("SELECT id FROM users WHERE lower(email) = ?", (email.lower(),)).fetchone()
+                existing_email = con.execute(
+                    "SELECT id FROM users WHERE lower(email) = ? AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_active, 1) = 1",
+                    (email.lower(),),
+                ).fetchone()
                 if existing_email:
                     self.send_json(HTTPStatus.CONFLICT, {"error": "email_already_used", "message": "Этот Email уже зарегистрирован в системе"})
                     return
@@ -1988,7 +2037,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 """
                 SELECT id, login, email, phone, clerk_user_id, role, name, status, is_active, created_at
                 FROM users
-                WHERE is_active = 1
+                WHERE is_active = 1 AND COALESCE(is_deleted, 0) = 0
                 ORDER BY id
                 """
             ).fetchall()
@@ -2036,7 +2085,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
 
     def api_users_manage(self) -> None:
-        director = self.require_role({"director"})
+        director = self.require_role({"admin", "director"})
         if not director:
             return
         payload = self.read_json()
@@ -2076,6 +2125,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
         name = str(payload.get("name", "")).strip() or login
         email = str(payload.get("email", "")).strip().lower() or None
         phone = str(payload.get("phone", "")).strip() or None
+        raw_user_id = payload.get("user_id", payload.get("userId", payload.get("id")))
+        user_id = None
+        if raw_user_id not in (None, ""):
+            try:
+                user_id = int(raw_user_id)
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
+                return
         project_ids = payload.get("project_ids", payload.get("projectIds", []))
         if project_ids is None:
             project_ids = []
@@ -2087,7 +2144,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_ids"})
             return
-        if not login or len(password) < 10 or (clerk_enabled() and not email):
+        if not login or ((not user_id) and len(password) < 10) or (clerk_enabled() and not email):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_user_data"})
             return
         if not valid_user_email(email):
@@ -2097,10 +2154,87 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_phone", "message": "Введите корректный номер телефона"})
             return
 
+        if user_id:
+            with db() as con:
+                release_deleted_user_identity(con, login, email, phone)
+                existing = con.execute(
+                    "SELECT * FROM users WHERE id = ? AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_active, 1) = 1",
+                    (user_id,),
+                ).fetchone()
+                if not existing:
+                    self.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found", "message": "Сотрудник не найден"})
+                    return
+                if user_login_conflict(con, login, user_id):
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists", "message": "Этот логин уже используется"})
+                    return
+                unique_conflict = user_unique_conflict(con, email, phone, user_id)
+                if unique_conflict:
+                    self.send_json(HTTPStatus.CONFLICT, unique_conflict)
+                    return
+                if project_ids:
+                    placeholders = ",".join("?" for _ in project_ids)
+                    existing_project_count = con.execute(
+                        f"SELECT COUNT(*) FROM projects WHERE id IN ({placeholders})",
+                        project_ids,
+                    ).fetchone()[0]
+                    if int(existing_project_count or 0) != len(project_ids):
+                        self.send_json(HTTPStatus.BAD_REQUEST, {"error": "project_not_found"})
+                        return
+                con.execute(
+                    """
+                    UPDATE users
+                    SET login = ?, email = ?, phone = ?, name = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (login, email, phone, name, now_ts(), user_id),
+                )
+                con.execute("DELETE FROM object_assignments WHERE user_id = ? AND role_code = 'foreman'", (user_id,))
+                con.execute("DELETE FROM user_project_access WHERE user_id = ?", (user_id,))
+                for project_id in project_ids:
+                    con.execute(
+                        """
+                        INSERT OR IGNORE INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+                        VALUES (?, ?, 'foreman', 'Прораб объекта', 0, ?, ?)
+                        """,
+                        (project_id, user_id, director["id"], now_ts()),
+                    )
+                    con.execute(
+                        "INSERT OR IGNORE INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                        (user_id, project_id),
+                    )
+                    con.execute(
+                        "UPDATE projects SET foreman_id = COALESCE(foreman_id, ?), updated_at = ? WHERE id = ?",
+                        (user_id, now_ts(), project_id),
+                    )
+                create_audit(
+                    con,
+                    director["id"],
+                    "update_user",
+                    "user",
+                    user_id,
+                    {"login": login, "project_ids": project_ids},
+                )
+                con.commit()
+                refreshed = con.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            response = {
+                "ok": True,
+                "id": user_id,
+                "login": login,
+                "email": email,
+                "phone": phone,
+                "role": normalize_role(refreshed["role"]) if refreshed else "foreman",
+                "name": name,
+                "projectIds": project_ids,
+            }
+            if int(director.get("id") or 0) == int(user_id) and refreshed:
+                response["currentUser"] = user_payload(refreshed)
+            self.send_json(HTTPStatus.OK, response)
+            return
+
         clerk_user_id = None
         with db() as con:
-            existing_login = con.execute("SELECT id FROM users WHERE login = ?", (login,)).fetchone()
-            if existing_login:
+            release_deleted_user_identity(con, login, email, phone)
+            if user_login_conflict(con, login):
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
                 return
             unique_conflict = user_unique_conflict(con, email, phone)
@@ -2108,7 +2242,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.CONFLICT, unique_conflict)
                 return
             if clerk_enabled() and email:
-                existing_email = con.execute("SELECT id FROM users WHERE lower(email) = ?", (email.lower(),)).fetchone()
+                existing_email = con.execute(
+                    "SELECT id FROM users WHERE lower(email) = ? AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_active, 1) = 1",
+                    (email.lower(),),
+                ).fetchone()
                 if existing_email:
                     self.send_json(HTTPStatus.CONFLICT, {"error": "email_already_used", "message": "Этот Email уже зарегистрирован в системе"})
                     return
@@ -2220,7 +2357,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "cannot_delete_self", "message": "\u041d\u0435\u043b\u044c\u0437\u044f \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u0435\u043a\u0443\u0449\u0438\u0439 \u0430\u043a\u043a\u0430\u0443\u043d\u0442"})
             return
         with db() as con:
-            user_row = con.execute("SELECT id, login, name FROM users WHERE id = ? AND is_active = 1", (user_id,)).fetchone()
+            user_row = con.execute(
+                "SELECT id, login, email, phone, name FROM users WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+                (user_id,),
+            ).fetchone()
             if not user_row:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found", "message": "\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d"})
                 return
@@ -2233,8 +2373,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 (now_ts(), user_id),
             )
             con.execute(
-                "UPDATE users SET is_active = 0, status = 'deleted', updated_at = ? WHERE id = ?",
-                (now_ts(), user_id),
+                "UPDATE users SET login = ?, email = NULL, phone = NULL, is_active = 0, is_deleted = 1, status = 'deleted', updated_at = ? WHERE id = ?",
+                (f"deleted_user_{user_id}_{now_ts()}", now_ts(), user_id),
             )
             create_audit(
                 con,
@@ -2773,7 +2913,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     float(project_payload.get("budget", project["budget"] or 0) or 0),
                     str(project_payload.get("started_at", project_payload.get("startedAt", project["started_at"] or ""))).strip() or None,
                     str(project_payload.get("deadline_at", project_payload.get("deadlineAt", project["deadline_at"] or ""))).strip() or None,
-                    str(project_payload.get("description", project["description"] or "")).strip() or None,
+                    normalize_project_description(project_payload.get("description", project["description"] or "")),
                     now_ts(),
                     project_id,
                 )

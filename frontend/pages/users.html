@@ -1,63 +1,16 @@
 <section class="page-head">
     <div>
         <p class="eyebrow">Администрирование</p>
-        <h2>Пользователи и роли</h2>
-        <p>Директор создает сотрудников, закупщиков и заказчиков с ограниченным доступом.</p>
+        <h2>Сотрудники</h2>
+        <p>Команда, роли и доступы к объектам.</p>
     </div>
 </section>
 
-<section class="grid-2">
-    <form class="card form-card" data-user-create-form>
-        <h3>Создать пользователя</h3>
-        <label>
-            <span>Имя</span>
-            <input name="name" required>
-        </label>
-        <label>
-            <span>Внутренний логин</span>
-            <input name="login" required>
-        </label>
-        <label>
-            <span>Email для входа и восстановления</span>
-            <input name="email" type="email" required>
-        </label>
-        <label>
-            <span>Телефон</span>
-            <input name="phone">
-        </label>
-        <label>
-            <span>Стартовый пароль Clerk</span>
-            <input name="password" type="password" minlength="10" required>
-        </label>
-        <label>
-            <span>Основная роль</span>
-            <select name="role" required>
-                <option value="foreman">Прораб</option>
-            </select>
-        </label>
-        <fieldset class="role-checks hidden">
-            <legend>Дополнительные роли</legend>
-            <label><input type="checkbox" name="roles" value="director"> Директор</label>
-            <label><input type="checkbox" name="roles" value="foreman"> Прораб</label>
-            <label><input type="checkbox" name="roles" value="purchaser"> Закупщик/снабженец</label>
-            <label><input type="checkbox" name="roles" value="financier"> Ответственный за финплан</label>
-            <label><input type="checkbox" name="roles" value="accountant"> Бухгалтер</label>
-            <label><input type="checkbox" name="roles" value="customer"> Заказчик</label>
-        </fieldset>
-        <fieldset class="role-checks">
-            <legend>Доступ прораба к объектам</legend>
-            <div data-user-project-access>
-                <p class="muted">Объекты загружаются...</p>
-            </div>
-        </fieldset>
-        <div class="form-error" data-user-create-error></div>
-        <button class="primary" type="submit">Создать</button>
-    </form>
-    <section class="card">
-        <div class="card-head">
-            <h3>Список пользователей</h3>
-            <button class="ghost" type="button" data-users-refresh>Обновить</button>
-        </div>
-        <div data-users-list></div>
-    </section>
+<section class="card users-shell" data-users-page-root>
+    <div class="card-head">
+        <h3>Список пользователей</h3>
+        <button class="primary" type="button" data-user-create-open>+ Добавить сотрудника</button>
+    </div>
+    <div data-users-list>
+    </div>
 </section>

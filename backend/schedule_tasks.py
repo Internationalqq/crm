@@ -1120,83 +1120,251 @@ def build_auto_schedule_plan(project: sqlite3.Row, stages: list[sqlite3.Row], ma
     for children in children_map.values():
         children.sort(key=stage_sort_key)
 
+    root_stage_by_id: dict[int, int] = {}
+
+    def resolve_root_stage_id(stage_id: int | None) -> int | None:
+        if not stage_id or stage_id not in stage_by_id:
+            return None
+        cached = root_stage_by_id.get(stage_id)
+        if cached:
+            return cached
+        current = stage_by_id[stage_id]
+        root_id = stage_id
+        guard = 0
+        while current and current["parent_id"] and guard < 50:
+            parent_id = int(current["parent_id"])
+            if parent_id not in stage_by_id:
+                break
+            root_id = parent_id
+            current = stage_by_id[parent_id]
+            guard += 1
+        root_stage_by_id[stage_id] = root_id
+        return root_id
+
     leaf_ids = {stage_id for stage_id in stage_by_id if stage_id not in children_map}
     candidate_stage_ids = [stage_id for stage_id in sorted(leaf_ids, key=lambda item: stage_sort_key(stage_by_id[item]))]
+    work_items_by_stage: dict[int, list[dict]] = {}
     materials_by_stage: dict[int, list[dict]] = {}
+    work_items_by_section: dict[str, list[dict]] = {}
+    materials_by_section: dict[str, list[dict]] = {}
     auto_linked_materials: list[dict] = []
+
+    section_stage_ids = [
+        int(stage["id"])
+        for stage in sorted(stages, key=stage_sort_key)
+        if str(stage["stage_kind"] or "section").strip() == "section"
+    ]
+
+    def stage_scope(stage_id: int | None) -> str:
+        if not stage_id or stage_id not in stage_by_id:
+            return "general"
+        stage = stage_by_id[stage_id]
+        notes = str(stage["notes"] or "") if "notes" in stage.keys() else ""
+        return classify_scope(" ".join([str(stage["title"] or ""), notes]))
+
+    def choose_stage_for_item(item: dict) -> int | None:
+        section_title = str(item.get("section_title") or item.get("sectionTitle") or "").strip()
+        normalized_section = normalize_progress_section_id(section_title) if section_title else ""
+        item_scope = classify_scope(" ".join([str(item.get("title", "")), str(item.get("notes", ""))]))
+        scoped_candidates = candidate_stage_ids
+        if normalized_section:
+            section_candidates = [
+                candidate_id
+                for candidate_id in candidate_stage_ids
+                if normalize_progress_section_id(str(stage_by_id[resolve_root_stage_id(candidate_id)]["title"])) == normalized_section
+            ]
+            if section_candidates:
+                scoped_candidates = section_candidates
+        if item_scope != "general":
+            for candidate_id in scoped_candidates:
+                if stage_scope(candidate_id) == item_scope:
+                    return candidate_id
+        if scoped_candidates:
+            return scoped_candidates[0]
+        if section_stage_ids and normalized_section:
+            for section_id in section_stage_ids:
+                if normalize_progress_section_id(str(stage_by_id[section_id]["title"])) == normalized_section:
+                    return section_id
+        if section_stage_ids:
+            return section_stage_ids[0]
+        return candidate_stage_ids[0] if candidate_stage_ids else None
+
     for raw in materials:
         item = dict(raw)
-        stage_id = int(item["stage_id"]) if item["stage_id"] and int(item["stage_id"]) in stage_by_id else None
-        if not stage_id and candidate_stage_ids:
-            material_category = classify_scope(" ".join([str(item.get("title", "")), str(item.get("notes", ""))]))
-            for candidate_id in candidate_stage_ids:
-                stage_category = classify_scope(str(stage_by_id[candidate_id]["title"]))
-                if material_category != "general" and material_category == stage_category:
-                    stage_id = candidate_id
-                    break
-            if not stage_id:
-                stage_id = candidate_stage_ids[0]
-            auto_linked_materials.append({"id": int(item["id"]), "stage_id": stage_id})
-        if stage_id:
+        item_kind = normalize_estimate_item_kind(item.get("item_kind", item.get("itemKind", "material")))
+        stage_id = int(item["stage_id"]) if item.get("stage_id") and int(item["stage_id"]) in stage_by_id else None
+        if not stage_id:
+            stage_id = choose_stage_for_item(item)
+            if stage_id and item_kind != "work":
+                auto_linked_materials.append({"id": int(item["id"]), "stage_id": stage_id})
+        if not stage_id:
+            continue
+        item["stage_id"] = stage_id
+        root_stage_id = resolve_root_stage_id(stage_id)
+        if item_kind == "work":
+            work_items_by_stage.setdefault(stage_id, []).append(item)
+            if root_stage_id:
+                work_items_by_section.setdefault(normalize_progress_section_id(stage_by_id[root_stage_id]["title"]), []).append(item)
+        else:
             materials_by_stage.setdefault(stage_id, []).append(item)
+            if root_stage_id:
+                materials_by_section.setdefault(normalize_progress_section_id(stage_by_id[root_stage_id]["title"]), []).append(item)
+
+    descendant_stage_ids_cache: dict[int, list[int]] = {}
+
+    def descendant_stage_ids(stage_id: int) -> list[int]:
+        cached = descendant_stage_ids_cache.get(stage_id)
+        if cached is not None:
+            return cached
+        result = [stage_id]
+        for child in children_map.get(stage_id, []):
+            result.extend(descendant_stage_ids(int(child["id"])))
+        descendant_stage_ids_cache[stage_id] = result
+        return result
+
+    def collect_stage_work_items(stage_id: int) -> list[dict]:
+        items: list[dict] = []
+        seen_ids: set[int] = set()
+        for candidate_id in descendant_stage_ids(stage_id):
+            for item in work_items_by_stage.get(candidate_id, []):
+                item_id = int(item["id"])
+                if item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+                items.append(item)
+        if items:
+            return items
+        stage = stage_by_id[stage_id]
+        if str(stage["stage_kind"] or "section").strip() != "section":
+            return []
+        root_stage_id = resolve_root_stage_id(stage_id)
+        if root_stage_id:
+            return list(work_items_by_section.get(normalize_progress_section_id(stage_by_id[root_stage_id]["title"]), []))
+        return []
+
+    def collect_stage_materials(stage_id: int) -> list[dict]:
+        items: list[dict] = []
+        seen_ids: set[int] = set()
+        for candidate_id in descendant_stage_ids(stage_id):
+            for item in materials_by_stage.get(candidate_id, []):
+                item_id = int(item["id"])
+                if item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+                items.append(item)
+        if items:
+            return items
+        stage = stage_by_id[stage_id]
+        if str(stage["stage_kind"] or "section").strip() != "section":
+            return []
+        root_stage_id = resolve_root_stage_id(stage_id)
+        if root_stage_id:
+            return list(materials_by_section.get(normalize_progress_section_id(stage_by_id[root_stage_id]["title"]), []))
+        return []
+
+    def estimate_stage_duration_from_work(stage: sqlite3.Row, work_items: list[dict], linked_materials: list[dict]) -> int:
+        if work_items:
+            total_hours = 0.0
+            crew_size = 0
+            unmatched_count = 0
+            for work_item in work_items:
+                estimate = estimate_schedule_work_item(work_item)
+                total_hours += float(estimate["hours"])
+                crew_size = max(crew_size, int(estimate["crew_size"]))
+                unmatched_count += 1 if estimate["assumption"] else 0
+            work_count = len(work_items)
+            buffer_factor = 1.0 + min(0.18, unmatched_count * 0.03 + max(0, work_count - 3) * 0.01)
+            buffered_hours = total_hours * buffer_factor
+            crew_size = max(1, crew_size or SECTION_SCHEDULE_FALLBACKS["general"]["crew_size"])
+            return max(1, int((buffered_hours / max(1, crew_size * 8)) + 0.9999))
+        return estimate_stage_duration(stage, linked_materials)
 
     stage_updates: list[dict] = []
     material_updates: list[dict] = []
+    material_update_by_id: dict[int, dict] = {}
 
-    def walk(parent_id: int | None, cursor: date) -> tuple[date | None, date | None, date]:
-        first_start = None
-        last_end = None
-        for stage in children_map.get(parent_id, []):
-            stage_id = int(stage["id"])
-            linked_materials = materials_by_stage.get(stage_id, [])
-            child_nodes = children_map.get(stage_id, [])
-            if child_nodes:
-                child_start, child_end, next_cursor = walk(stage_id, cursor)
-                start = child_start or cursor
-                end = child_end or cursor
-                cursor = next_cursor
-            else:
-                duration = estimate_stage_duration(stage, linked_materials)
-                start = cursor
-                end = start + timedelta(days=duration - 1)
-                cursor = end + timedelta(days=1)
-            duration_days = max((end - start).days + 1, 1)
-            customer_shift = 0 if stage["stage_kind"] != "work" else min(2, max(0, duration_days // 10))
-            customer_tail = min(2, max(0, duration_days // 12))
-            depends_on_materials = bool(stage["depends_on_materials"]) or bool(linked_materials)
-            stage_updates.append(
-                {
-                    "id": stage_id,
-                    "planned_start": start.isoformat(),
-                    "planned_end": end.isoformat(),
-                    "customer_start": (start + timedelta(days=customer_shift)).isoformat(),
-                    "customer_end": (end + timedelta(days=customer_tail)).isoformat(),
-                    "depends_on_materials": 1 if depends_on_materials else 0,
-                    "duration_days": duration_days,
-                    "title": stage["title"],
-                }
-            )
-            if linked_materials:
-                for material in linked_materials:
-                    lead_days = estimate_material_lead_days(material)
-                    material_updates.append(
-                        {
-                            "id": int(material["id"]),
-                            "stage_id": stage_id,
-                            "need_by_date": start.isoformat(),
-                            "lead_days": lead_days,
-                            "title": material["title"],
-                        }
-                    )
-            if first_start is None or start < first_start:
-                first_start = start
-            if last_end is None or end > last_end:
-                last_end = end
-        return first_start, last_end, cursor
+    def register_material_update(material: dict, stage_id: int, stage_start: date) -> None:
+        lead_days_raw = material.get("delivery_days", material.get("deliveryDays"))
+        try:
+            lead_days = int(lead_days_raw) if lead_days_raw not in (None, "") else int(estimate_material_lead_days(material))
+        except (TypeError, ValueError):
+            lead_days = int(estimate_material_lead_days(material))
+        lead_days = max(0, min(lead_days, 90))
+        purchase_start = stage_start - timedelta(days=lead_days)
+        update = {
+            "id": int(material["id"]),
+            "stage_id": stage_id,
+            "need_by_date": stage_start.isoformat(),
+            "purchase_by_date": purchase_start.isoformat(),
+            "lead_days": lead_days,
+            "title": material["title"],
+        }
+        material_update_by_id[int(material["id"])] = update
 
-    plan_start, plan_end, _ = walk(None, start_at)
+    def walk(stage_id: int, cursor: date) -> tuple[date, date, date]:
+        stage = stage_by_id[stage_id]
+        child_nodes = children_map.get(stage_id, [])
+        linked_work_items = collect_stage_work_items(stage_id)
+        linked_materials = collect_stage_materials(stage_id)
+        if child_nodes:
+            stage_start = cursor
+            first_start = None
+            last_end = None
+            child_cursor = cursor
+            for child in child_nodes:
+                child_start, child_end, child_cursor = walk(int(child["id"]), child_cursor)
+                if first_start is None or child_start < first_start:
+                    first_start = child_start
+                if last_end is None or child_end > last_end:
+                    last_end = child_end
+            if first_start is None or last_end is None:
+                duration = estimate_stage_duration_from_work(stage, linked_work_items, linked_materials)
+                first_start = stage_start
+                last_end = stage_start + timedelta(days=duration - 1)
+                child_cursor = last_end + timedelta(days=1)
+            start = first_start
+            end = last_end
+            next_cursor = child_cursor
+        else:
+            duration = estimate_stage_duration_from_work(stage, linked_work_items, linked_materials)
+            start = cursor
+            end = start + timedelta(days=duration - 1)
+            next_cursor = end + timedelta(days=1)
+
+        for material in materials_by_stage.get(stage_id, []):
+            register_material_update(material, stage_id, start)
+
+        duration_days = max((end - start).days + 1, 1)
+        customer_shift = 0 if stage["stage_kind"] != "work" else min(2, max(0, duration_days // 10))
+        customer_tail = min(2, max(0, duration_days // 12))
+        depends_on_materials = bool(stage["depends_on_materials"]) or bool(linked_materials)
+        stage_updates.append(
+            {
+                "id": stage_id,
+                "planned_start": start.isoformat(),
+                "planned_end": end.isoformat(),
+                "customer_start": (start + timedelta(days=customer_shift)).isoformat(),
+                "customer_end": (end + timedelta(days=customer_tail)).isoformat(),
+                "depends_on_materials": 1 if depends_on_materials else 0,
+                "duration_days": duration_days,
+                "title": stage["title"],
+            }
+        )
+        return start, end, next_cursor
+
+    plan_start = None
+    plan_end = None
+    cursor = start_at
+    root_stages = children_map.get(None, [])
+    for root_stage in root_stages:
+        section_start, section_end, cursor = walk(int(root_stage["id"]), cursor)
+        if plan_start is None or section_start < plan_start:
+            plan_start = section_start
+        if plan_end is None or section_end > plan_end:
+            plan_end = section_end
+
+    sorted_material_updates = sorted(material_update_by_id.values(), key=lambda item: (item["need_by_date"], item["title"]))
     sorted_stage_updates = sorted(stage_updates, key=lambda item: (item["planned_start"], item["id"]))
-    sorted_material_updates = sorted(material_updates, key=lambda item: (item["need_by_date"], item["title"]))
     deadline_at = parse_iso_date(project["deadline_at"])
     deadline_overrun_days = 0
     if deadline_at and plan_end and plan_end > deadline_at:
@@ -1343,7 +1511,7 @@ def api_project_auto_schedule(handler, path: str) -> None:
         ).fetchall()
         materials = con.execute(
             """
-            SELECT id, title, unit, planned_qty, planned_price, stage_id, need_by_date, notes
+            SELECT id, title, unit, planned_qty, planned_price, stage_id, item_kind, section_title, delivery_days, need_by_date, notes
             FROM estimate_items
             WHERE project_id = ?
             ORDER BY id

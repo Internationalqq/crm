@@ -51,8 +51,19 @@ def parse_path_int(path: str, index: int) -> int | None:
         return None
 
 
+def normalize_project_description(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    compact = text.lower()
+    if compact.startswith("импортировано из auto_bot по отдельной смете."):
+        return None
+    return text
+
+
 def serialize_project(row: sqlite3.Row, user: dict) -> dict:
     data = dict(row)
+    data["description"] = normalize_project_description(data.get("description"))
     role = user["role"]
     if role == "customer":
         for key in ["budget", "paid", "spent", "director_id", "foreman_id", "buyer_id", "client_user_id"]:

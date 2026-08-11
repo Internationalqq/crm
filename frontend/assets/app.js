@@ -109,6 +109,115 @@
         return notice;
     }
 
+    var loaderHideTimeout = null;
+    var loaderCleanupTimeout = null;
+    var loaderStartTime = 0;
+    var loaderActiveCount = 0;
+    var loaderDisplayText = 'Синхронизация...';
+    var MIN_LOADER_TIME = 450;
+
+    function ensureGlobalLoader() {
+        var loaderEl = document.querySelector('.global-app-loader');
+        if (loaderEl) return loaderEl;
+        loaderEl = document.createElement('div');
+        loaderEl.className = 'global-app-loader';
+        loaderEl.setAttribute('role', 'status');
+        loaderEl.setAttribute('aria-live', 'polite');
+        loaderEl.innerHTML = '<div class="loader-spinner-ring" aria-hidden="true"></div><div class="loader-spinner-text">Синхронизация...</div>';
+        document.body.appendChild(loaderEl);
+        return loaderEl;
+    }
+
+    window.showLoader = function (text) {
+        var loaderEl = ensureGlobalLoader();
+        var nextText = String(text || loaderDisplayText || 'Синхронизация...');
+        var textEl = loaderEl.querySelector('.loader-spinner-text');
+        loaderDisplayText = nextText;
+        loaderActiveCount += 1;
+        if (loaderHideTimeout) {
+            clearTimeout(loaderHideTimeout);
+            loaderHideTimeout = null;
+        }
+        if (loaderCleanupTimeout) {
+            clearTimeout(loaderCleanupTimeout);
+            loaderCleanupTimeout = null;
+        }
+        if (textEl) textEl.textContent = nextText;
+        if (!loaderEl.classList.contains('is-active')) {
+            loaderStartTime = Date.now();
+        }
+        loaderEl.classList.remove('is-hiding');
+        requestAnimationFrame(function () {
+            loaderEl.classList.add('is-active');
+        });
+    };
+
+    window.hideLoader = function () {
+        var loaderEl = document.querySelector('.global-app-loader');
+        if (!loaderEl) return;
+        if (loaderActiveCount > 0) loaderActiveCount -= 1;
+        if (loaderActiveCount > 0) return;
+        var elapsed = Date.now() - loaderStartTime;
+        var delay = elapsed < MIN_LOADER_TIME ? (MIN_LOADER_TIME - elapsed) : 0;
+        if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
+        if (loaderCleanupTimeout) clearTimeout(loaderCleanupTimeout);
+        loaderHideTimeout = setTimeout(function () {
+            if (loaderActiveCount > 0) return;
+            loaderEl.classList.add('is-hiding');
+            loaderCleanupTimeout = setTimeout(function () {
+                if (loaderActiveCount > 0) return;
+                loaderEl.classList.remove('is-active', 'is-hiding');
+            }, 300);
+        }, delay);
+    };
+
+    function ensureTopProgressBar() {
+        var barEl = document.querySelector('.global-top-progress-bar');
+        if (barEl) return barEl;
+        barEl = document.createElement('div');
+        barEl.className = 'global-top-progress-bar';
+        barEl.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(barEl);
+        return barEl;
+    }
+
+    window.showLoader = function () {
+        var barEl = ensureTopProgressBar();
+        loaderActiveCount += 1;
+        barEl.style.transition = 'width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.2s ease';
+        barEl.classList.remove('is-finishing', 'is-loading');
+        void barEl.offsetWidth;
+        requestAnimationFrame(function () {
+            barEl.classList.add('is-loading');
+        });
+    };
+
+    window.hideLoader = function () {
+        var barEl = document.querySelector('.global-top-progress-bar');
+        if (!barEl) return;
+        if (loaderActiveCount > 0) loaderActiveCount -= 1;
+        if (loaderActiveCount > 0) return;
+        barEl.classList.remove('is-loading');
+        barEl.classList.add('is-finishing');
+        setTimeout(function () {
+            if (loaderActiveCount > 0) return;
+            barEl.style.transition = 'none';
+            barEl.classList.remove('is-finishing');
+            void barEl.offsetWidth;
+            barEl.style.transition = 'width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.2s ease';
+        }, 200);
+    };
+
+    function getAutoBotLoaderHTML() {
+        return '<div class="autobot-spinner-container" role="status" aria-live="polite">' +
+            '<div class="autobot-spinner" aria-hidden="true"></div>' +
+            '<strong>AutoBot собирает данные</strong>' +
+            '<span>Подождите немного, страница обновится автоматически.</span>' +
+        '</div>';
+    }
+
+    window.getAutoBotLoaderHTML = getAutoBotLoaderHTML;
+
     function appErrorMessage(error, fallback) {
         return error && error.payload && (error.payload.message || error.payload.error) ? (error.payload.message || error.payload.error) : fallback;
     }
@@ -171,6 +280,35 @@
         return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
         });
+    }
+
+    function displayUserName(user) {
+        user = user || {};
+        return user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.login || 'Пользователь';
+    }
+
+    function safeAvatarUrl(value) {
+        var raw = String(value == null ? '' : value).trim();
+        if (!raw) return '';
+        if (raw.charAt(0) === '/') return raw;
+        return /^https?:\/\//i.test(raw) ? raw : '';
+    }
+
+    function profileUserInitials(user) {
+        var name = displayUserName(user);
+        return String(name).trim().split(/\s+/).filter(Boolean).slice(0, 2).map(function (part) {
+            return part.charAt(0).toUpperCase();
+        }).join('') || 'U';
+    }
+
+    function userAvatarMarkup(user, className) {
+        user = user || {};
+        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url);
+        className = className || 'topbar-avatar';
+        if (avatarUrl) {
+            return '<span class="' + escapeHtml(className) + '" aria-hidden="true"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>';
+        }
+        return '<span class="' + escapeHtml(className) + '" aria-hidden="true">' + escapeHtml(profileUserInitials(user)) + '</span>';
     }
 
     function safeExternalUrl(value) {
@@ -305,12 +443,17 @@
     }
 
     function api(path, options) {
-        options = options || {};
-        options.credentials = 'same-origin';
+        var requestOptions = Object.assign({}, options || {});
+        var useLoader = requestOptions.silentLoader !== true;
+        var loaderText = requestOptions.loaderText || 'Синхронизация...';
+        delete requestOptions.silentLoader;
+        delete requestOptions.loaderText;
+        requestOptions.credentials = 'same-origin';
+        if (useLoader && typeof window.showLoader === 'function') window.showLoader(loaderText);
         return authHeaders().then(function (headers) {
-            options.headers = Object.assign({ Accept: 'application/json' }, headers, options.headers || {});
-            if (options.body && !options.headers['Content-Type']) options.headers['Content-Type'] = 'application/json';
-            return fetch(path, options).then(function (response) {
+            requestOptions.headers = Object.assign({ Accept: 'application/json' }, headers, requestOptions.headers || {});
+            if (requestOptions.body && !requestOptions.headers['Content-Type']) requestOptions.headers['Content-Type'] = 'application/json';
+            return fetch(path, requestOptions).then(function (response) {
                 return response.json().catch(function () { return {}; }).then(function (payload) {
                     if (!response.ok) {
                         var error = new Error(payload.error || 'request_failed');
@@ -321,17 +464,24 @@
                     return payload;
                 });
             });
+        }).finally(function () {
+            if (useLoader && typeof window.hideLoader === 'function') window.hideLoader();
         });
     }
 
     function apiFormData(path, formData, options) {
-        options = options || {};
+        var requestOptions = Object.assign({}, options || {});
+        var useLoader = requestOptions.silentLoader !== true;
+        var loaderText = requestOptions.loaderText || 'Синхронизация...';
+        delete requestOptions.silentLoader;
+        delete requestOptions.loaderText;
+        if (useLoader && typeof window.showLoader === 'function') window.showLoader(loaderText);
         return authHeaders().then(function (headers) {
             return fetch(path, {
-                method: options.method || 'POST',
+                method: requestOptions.method || 'POST',
                 body: formData,
                 credentials: 'same-origin',
-                headers: Object.assign({ Accept: 'application/json' }, headers, options.headers || {})
+                headers: Object.assign({ Accept: 'application/json' }, headers, requestOptions.headers || {})
             }).then(function (response) {
                 return response.json().catch(function () { return {}; }).then(function (payload) {
                     if (!response.ok) {
@@ -343,6 +493,8 @@
                     return payload;
                 });
             });
+        }).finally(function () {
+            if (useLoader && typeof window.hideLoader === 'function') window.hideLoader();
         });
     }
 
@@ -386,12 +538,14 @@
         });
     }
 
-    function updateUIProgress(sectionId, sectionPercent, totalProjectPercent) {
+    function updateUIProgress(sectionId, sectionPercent, totalProjectPercent, kind) {
         var normalizedId = progressSectionId(sectionId);
         var safeSection = percent(sectionPercent);
         var safeTotal = percent(totalProjectPercent);
         var sectionSelector = progressSelectorValue(normalizedId);
         qsa('[data-section-progress="' + sectionSelector + '"], [data-progress-section-id="' + sectionSelector + '"]').forEach(function (node) {
+            var nodeKind = node.getAttribute('data-section-progress-kind') || '';
+            if (kind && nodeKind && nodeKind !== kind) return;
             updateProgressNode(node, safeSection, safeSection + '%');
             node.setAttribute('aria-valuenow', String(safeSection));
         });
@@ -422,7 +576,7 @@
         var sectionId = section.sectionId || sectionFallback || '';
         var projectPercent = progress.totalProjectPercent != null ? progress.totalProjectPercent : (progress.projectProgress != null ? progress.projectProgress : data.project_progress);
         updateProjectProgressState(projectId, projectPercent, data.project);
-        updateUIProgress(sectionId, section.percent || 0, projectPercent);
+        updateUIProgress(sectionId, section.percent || 0, projectPercent, progress.kind || data.kind || '');
     }
 
     function isoDateAdd(isoDate, days) {
@@ -892,6 +1046,9 @@
         }).catch(function (error) {
             console.error('Projects load failed', error);
             state.projects = [];
+            if (page === 'autobot') {
+                showAppNotice(appErrorMessage(error, 'Не удалось загрузить данные AutoBot'), 'error');
+            }
             if (listRoot) {
                 safeReplaceChildren(listRoot, '<div class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442\u044b. \u041e\u0431\u043d\u043e\u0432\u0438 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438\u043b\u0438 \u0432\u043e\u0439\u0434\u0438 \u0437\u0430\u043d\u043e\u0432\u043e.</div>');
             }
@@ -2274,7 +2431,7 @@
     function renderExecutionPanel(stages, projectId) {
         var rows = buildStageRows(stages);
         var summary = renderExecutionSummary(stages);
-        var insights = '<div class="execution-insights" data-execution-insights><p class="muted">Собираем сводку по задачам и отчетам...</p></div>';
+        var insights = '<div class="execution-insights" data-execution-insights></div>';
         var list = rows.length
             ? '<div class="execution-list">' + rows.map(function (item) {
                 return renderExecutionRow(item.stage, item.depth);
@@ -2419,8 +2576,8 @@
 
     function renderAutoScheduleDrawer(project) {
         if (!project || !canManageSchedule()) return '';
-        return '<div class="drawer-overlay" data-auto-schedule-overlay aria-hidden="true"></div>' +
-            '<div class="drawer-panel" data-auto-schedule-drawer aria-hidden="true">' +
+        return '<div class="drawer-overlay auto-schedule-overlay" data-auto-schedule-overlay aria-hidden="true"></div>' +
+            '<div class="drawer-panel auto-schedule-drawer" data-auto-schedule-drawer aria-hidden="true">' +
                 '<button class="drawer-close" type="button" data-auto-schedule-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c">\u00d7</button>' +
                 '<div class="drawer-head"><h3>\u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</h3><p>\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u0434\u0430\u0442\u044b \u044d\u0442\u0430\u043f\u043e\u0432 \u0438\u0437 \u0441\u043c\u0435\u0442\u044b \u0438 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b \u043e\u0431\u044a\u0435\u043a\u0442\u0430.</p></div>' +
                 '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
@@ -2432,13 +2589,7 @@
     }
 
     function renderSchedulePlanner(project, stages) {
-        if (!project || !canManageSchedule()) return '';
-        return '<section class="card schedule-planner">' +
-            '<div class="card-head">' +
-                '<div><h3>\u0413\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u041f\u043b\u0430\u043d \u044d\u0442\u0430\u043f\u043e\u0432 \u0438 \u0437\u0430\u043a\u0443\u043f\u043e\u043a \u043f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443.</span></div>' +
-                '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + project.id + '">\u2699\uFE0F \u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</button>' +
-            '</div>' +
-        '</section>';
+        return '';
     }
 
 
@@ -2482,7 +2633,18 @@
             });
             console.log('Физически будет отрисовано позиций:', visibleItems.length, section.title || '');
         }
-        var progress = workProgressForRows(project.id, section.title, visibleItems);
+        var workProgress = workProgressForRows(project.id, section.title, visibleItems);
+        var materialProgressValue = materialProgress(project.id, (state.materialsByProject && state.materialsByProject[project.id] || []).filter(function (item) {
+            var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
+            return kind !== 'work' && progressSectionId(item && (item.sectionTitle || item.stageTitle)) === progressSectionId(section.title);
+        }));
+        var totalProgressItems = workProgress.total + materialProgressValue.total;
+        var doneProgressItems = workProgress.done + materialProgressValue.done;
+        var progress = {
+            total: totalProgressItems,
+            done: doneProgressItems,
+            percent: totalProgressItems ? Math.round((doneProgressItems / totalProgressItems) * 100) : 0
+        };
         var isOpen = isScheduleSectionOpen(project.id, section, false);
         var digest = finalSectionWorkDigest(section);
         var deadlineState = scheduleDeadlineState(section.startDate, section.endDate, progress.percent, section.estimatedDays);
@@ -2499,12 +2661,12 @@
                 '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + escapeHtml(project.id) + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
                     '<div class="section-schedule-summary-head">' +
                         '<div class="section-schedule-summary-copy">' +
-                            '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, section.title || '', 'schedule', progress) + '<div class="section-schedule-title"><h4>' + escapeHtml(section.title || '') + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div></div>' +
-                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(totalItems) + ' \u0440\u0430\u0431\u043e\u0442') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' \u0447\u0435\u043b.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (totalItems ? '<span class="badge">' + escapeHtml(String(progress.done) + '/' + String(totalItems) + ' \u0433\u043e\u0442\u043e\u0432\u043e') + '</span>' : '') + '</div>' +
+                            '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, section.title || '', 'schedule', workProgress) + '<div class="section-schedule-title"><h4>' + escapeHtml(section.title || '') + '</h4><small>' + escapeHtml(finalGraphDate(section.startDate) + ' - ' + finalGraphDate(section.endDate)) + '</small></div></div>' +
+                            '<div class="project-badges"><span class="badge">' + escapeHtml(String(totalItems) + ' \u0440\u0430\u0431\u043e\u0442') + '</span><span class="badge">' + escapeHtml(String(materialProgressValue.total) + ' \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u043e\u0432') + '</span><span class="badge">' + escapeHtml(String(section.crewSize || 0) + ' \u0447\u0435\u043b.') + '</span>' + scheduleDeadlineBadge(deadlineState) + (totalItems ? '<span class="badge">' + escapeHtml(String(workProgress.done) + '/' + String(totalItems) + ' \u0440\u0430\u0431\u043e\u0442 \u0433\u043e\u0442\u043e\u0432\u043e') + '</span>' : '') + '</div>' +
                         '</div>' +
                         '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
                     '</div>' +
-                    '<div class="section-schedule-progress" data-progress-section-id="' + escapeHtml(progressSectionId(section.title)) + '" data-section-progress="' + escapeHtml(progressSectionId(section.title)) + '"><div class="section-schedule-progress-bar"><span style="width:' + progress.percent + '%"></span><b class="section-schedule-progress-value" data-progress-text>' + escapeHtml(String(progress.percent)) + '%</b></div><div class="section-schedule-progress-meta"><strong data-progress-text>' + escapeHtml(String(progress.percent)) + '%</strong><span>' + escapeHtml(progress.total ? (String(progress.done) + ' \u0438\u0437 ' + String(progress.total) + ' \u0440\u0430\u0431\u043e\u0442 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e') : '\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u043f\u043e\u0441\u043b\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0441\u043c\u0435\u0442\u044b') + '</span></div></div>' +
+                    sectionProgressStrip(workProgress, materialProgressValue, section.title) +
                     '<div class="section-schedule-meta"><strong>' + escapeHtml(scheduleSectionDurationLabel(section)) + '</strong><span>' + escapeHtml(digest.volume || deadlineState.label) + '</span></div>' +
                     (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
                 '</div>' +
@@ -2517,26 +2679,23 @@
         var summary = project ? state.sectionScheduleByProject[project.id] : null;
         if (!project) return '';
         if (!summary) {
-            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u0421\u0447\u0438\u0442\u0430\u0435\u043c \u0434\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c \u043f\u043e \u0440\u0430\u0431\u043e\u0447\u0438\u043c \u043f\u043e\u0437\u0438\u0446\u0438\u044f\u043c.</span></div></div><div class="section-schedule-empty">\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u043c \u0440\u0430\u0441\u0447\u0435\u0442 \u043f\u043e \u0441\u043c\u0435\u0442\u0435...</div></section>';
+            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u041e\u0431\u0449\u0438\u0439 \u0433\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u0421\u0447\u0438\u0442\u0430\u0435\u043c \u0441\u0432\u043e\u0434\u043a\u0443 \u043f\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u043c \u0438 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u0430\u043c.</span></div></div><div class="section-schedule-empty">\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u043c \u0440\u0430\u0441\u0447\u0435\u0442 \u043f\u043e \u0441\u043c\u0435\u0442\u0435...</div></section>';
         }
         if (summary.error) {
-            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u0421\u0447\u0438\u0442\u0430\u0435\u043c \u0434\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c \u043f\u043e \u0440\u0430\u0431\u043e\u0447\u0438\u043c \u043f\u043e\u0437\u0438\u0446\u0438\u044f\u043c.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u041e\u0431\u0449\u0438\u0439 \u0433\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u0421\u0447\u0438\u0442\u0430\u0435\u043c \u0441\u0432\u043e\u0434\u043a\u0443 \u043f\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u043c \u0438 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u0430\u043c.</span></div></div><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
         }
         var sections = Array.isArray(summary.sections) ? summary.sections : [];
         if (!sections.length) {
-            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u0412 \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0440\u0430\u0431\u043e\u0447\u0438\u0445 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0434\u043b\u044f \u0440\u0430\u0441\u0447\u0435\u0442\u0430.</span></div></div></section>';
+            return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u041e\u0431\u0449\u0438\u0439 \u0433\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u0412 \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0434\u043b\u044f \u0441\u0432\u043e\u0434\u043d\u043e\u0433\u043e \u043e\u0442\u0447\u0435\u0442\u0430.</span></div></div></section>';
         }
         var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
         var scheduleEndDate = deadline || summary.finishDate;
         var daysLeft = scheduleEndDate ? daysBetween(APP_TODAY, scheduleEndDate) : null;
         var overallProgress = projectScheduleProgress(project, summary);
         var projectDeadlineState = scheduleDeadlineState(summary.startDate, scheduleEndDate, overallProgress.percent, summary.totalDays);
-        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</h3><span class="muted">\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441, \u043a\u043e\u043d\u0442\u0440\u043e\u043b\u044c\u043d\u044b\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u044b \u0438 \u0444\u0430\u043a\u0442 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044f \u0440\u0430\u0431\u043e\u0442.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + escapeHtml(project.id) + '">\u041f\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u0442\u044c</button></div>' +
+        return '<section class="card section-schedule-board"><div class="card-head"><div><h3>\u041e\u0431\u0449\u0438\u0439 \u0433\u0440\u0430\u0444\u0438\u043a</h3><span class="muted">\u0421\u0432\u043e\u0434\u043d\u044b\u0439 \u043e\u0442\u0447\u0435\u0442: \u0432 \u043a\u0430\u0436\u0434\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u0438 \u0440\u0430\u0431\u043e\u0442\u044b \u0441\u0447\u0438\u0442\u0430\u044e\u0442\u0441\u044f \u0440\u0430\u0437\u0434\u0435\u043b\u044c\u043d\u043e.</span></div><button class="ghost" type="button" data-section-schedule-refresh data-project-id="' + escapeHtml(project.id) + '">\u041f\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u0442\u044c</button></div>' +
             '<div class="execution-summary">' + stat('\u0421\u0442\u0430\u0440\u0442', finalGraphDate(summary.startDate)) + stat('\u0414\u0435\u0434\u043b\u0430\u0439\u043d', finalGraphDate(scheduleEndDate)) + stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c \u0434\u043d\u0435\u0439', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(sections.length)) + '</div>' +
             renderPinnedScheduleBrief(project, summary, sections) +
-            '<div class="section-schedule-overview"><div class="section-schedule-overview-head"><strong>\u041e\u0431\u0449\u0438\u0439 \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441</strong><span>' + escapeHtml(overallProgress.total ? (String(overallProgress.done) + ' \u0438\u0437 ' + String(overallProgress.total) + ' \u0440\u0430\u0431\u043e\u0442 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043e') : '\u041e\u0442\u043c\u0435\u0447\u0430\u0439\u0442\u0435 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043d\u044b\u0435 \u0440\u0430\u0431\u043e\u0442\u044b \u0432\u043d\u0443\u0442\u0440\u0438 \u0440\u0430\u0437\u0434\u0435\u043b\u043e\u0432') + '</span></div>' +
-                '<div class="section-schedule-progress section-schedule-progress-mapped" data-project-total-progress aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + overallProgress.percent + '"><div class="section-schedule-progress-bar"><span style="width:' + overallProgress.percent + '%"></span><b class="section-schedule-progress-value" data-progress-text>' + escapeHtml(String(overallProgress.percent)) + '%</b>' + renderScheduleSectionMilestones(project, sections, summary.startDate, scheduleEndDate) + '</div><div class="section-schedule-progress-meta"><strong data-progress-text>' + escapeHtml(String(overallProgress.percent)) + '%</strong><span>' + escapeHtml(projectDeadlineState.label) + '</span></div></div>' +
-                '<div class="schedule-progress-legend"><span><i class="is-done"></i> \u0440\u0430\u0437\u0434\u0435\u043b \u0437\u0430\u043a\u0440\u044b\u0442</span><span><i class="is-open"></i> \u0440\u0430\u0437\u0434\u0435\u043b \u0432 \u0440\u0430\u0431\u043e\u0442\u0435</span></div></div>' +
             '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
     }
 
@@ -2571,10 +2730,13 @@
     function renderSchedulePanel(stages, project) {
         stages = Array.isArray(stages) ? stages : [];
         var drawer = renderAutoScheduleDrawer(project);
-        var planner = renderSchedulePlanner(project, stages);
+        var topBar = project ? '<section class="schedule-project-topbar">' +
+            '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
+            (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '">⚙️ Автоплан графика</button>' : '') +
+        '</section>' : '';
         var forecast = renderSectionScheduleForecast(project);
         var materialCalendar = project && !hasRole('customer') ? renderMaterialScheduleContainer(project.id) : '';
-        return drawer + materialCalendar + planner + forecast;
+        return drawer + topBar + materialCalendar + forecast;
     }
 
     function buildScheduleStageSummary(stage, today) {
@@ -3271,7 +3433,7 @@
             root.innerHTML = '<p class="muted">Нет объектов для анализа склада.</p>';
             return;
         }
-        root.innerHTML = '<p class="muted">Загрузка общей ведомости склада...</p>';
+        root.innerHTML = '';
         fillProjectSelects();
         loadAllWarehouseMaterials(function (items) {
             state.warehouseItems = items;
@@ -3600,7 +3762,7 @@
             root.innerHTML = '<p class="muted">Нет объектов для анализа склада.</p>';
             return;
         }
-        root.innerHTML = '<p class="muted">Загрузка общей ведомости склада...</p>';
+        root.innerHTML = '';
         fillProjectSelects();
         loadAllWarehouseMaterials(function (items) {
             state.warehouseItems = items;
@@ -3782,7 +3944,7 @@
             root.innerHTML = '<p class="muted">Нет объектов для анализа склада.</p>';
             return;
         }
-        root.innerHTML = '<p class="muted">Загрузка общей ведомости склада...</p>';
+        root.innerHTML = '';
         fillProjectSelects();
         loadAllWarehouseMaterials(function (items) {
             state.warehouseItems = items;
@@ -3895,7 +4057,7 @@
             root.innerHTML = '<p class="muted">Нет объектов для графика.</p>';
             return;
         }
-        root.innerHTML = '<p class="muted">Загрузка графика...</p>';
+        root.innerHTML = '';
         state.scheduleQuickActions = {};
         Promise.all(state.projects.map(function (project) {
             return Promise.all([
@@ -4457,7 +4619,7 @@
         });
     }
 
-    function initCompaniesPage() {
+    function initCompaniesPageLegacyUnused() {
         loadCompanies(renderCompaniesList);
         var filter = qs('[data-company-type-filter]');
         if (filter) {
@@ -4520,37 +4682,8 @@
         }));
     }
 
-    function openCounterpartyDrawer() {
-        var drawer = qs('[data-counterparty-drawer]');
-        document.body.classList.add('counterparty-drawer-open');
-        if (drawer) drawer.setAttribute('aria-hidden', 'false');
-        window.setTimeout(function () {
-            var first = drawer && qs('input[name="name"]', drawer);
-            if (first) first.focus();
-        }, 120);
-    }
-
-    function closeCounterpartyDrawer() {
-        var drawer = qs('[data-counterparty-drawer]');
-        document.body.classList.remove('counterparty-drawer-open');
-        if (drawer) drawer.setAttribute('aria-hidden', 'true');
-    }
-
-    function bindCounterpartyDrawer() {
-        qsa('[data-counterparty-drawer-open]').forEach(function (button) {
-            if (button.dataset.counterpartyDrawerBound === '1') return;
-            button.dataset.counterpartyDrawerBound = '1';
-            button.addEventListener('click', openCounterpartyDrawer);
-        });
-        qsa('[data-counterparty-drawer-close]').forEach(function (button) {
-            if (button.dataset.counterpartyDrawerBound === '1') return;
-            button.dataset.counterpartyDrawerBound = '1';
-            button.addEventListener('click', closeCounterpartyDrawer);
-        });
-    }
-
     function initCompaniesPage() {
-        bindCounterpartyDrawer();
+        setupCompanyCreateModal();
         refreshLucideIcons(document);
         loadCompanies(renderFilteredCompaniesList);
         var search = qs('[data-company-search]');
@@ -4563,8 +4696,24 @@
         if (!form) return;
         form.addEventListener('submit', function (event) {
             event.preventDefault();
-            var error = qs('[data-company-create-error]');
+            var error = qs('[data-company-create-error]', form);
             if (error) error.classList.remove('active');
+            if (!String(form.name.value || '').trim()) {
+                showAppNotice('\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u0430', 'error');
+                if (form.name) form.name.focus();
+                return;
+            }
+            if (String(form.email.value || '').trim() && !isValidUserEmail(form.email.value)) {
+                showAppNotice('\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 Email', 'error');
+                if (form.email) form.email.focus();
+                return;
+            }
+            form.phone.value = formatUserPhone(form.phone.value);
+            if (String(form.phone.value || '').trim() && !isCompleteUserPhone(form.phone.value)) {
+                showAppNotice('\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 \u043d\u043e\u043c\u0435\u0440 \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0430', 'error');
+                if (form.phone) form.phone.focus();
+                return;
+            }
             withSubmitLock(form, function () {
                 return api('/api/companies', {
                     method: 'POST',
@@ -4580,8 +4729,8 @@
                         notes: form.notes.value.trim()
                     })
                 }).then(function () {
-                    form.reset();
-                    closeCounterpartyDrawer();
+                    resetCompanyCreateForm(form);
+                    closeCompanyCreateModal();
                     return loadCompanies(renderFilteredCompaniesList);
                 }).catch(function (err) {
                     if (error) {
@@ -4715,6 +4864,7 @@
                 return api(endpoint, {
                     method: 'POST',
                     body: JSON.stringify({
+                        user_id: form.user_id ? form.user_id.value : '',
                         name: form.name.value.trim(),
                         login: form.login.value.trim(),
                         email: form.email.value.trim(),
@@ -4724,11 +4874,18 @@
                         roles: roles,
                         project_ids: projectIds
                     })
-                }).then(function () {
+                }).then(function (data) {
+                    var wasEdit = !!(form.user_id && form.user_id.value);
+                    if (data && data.currentUser) {
+                        state.user = data.currentUser;
+                        state.currentUser = data.currentUser;
+                        renderUser();
+                        applyRoleVisibility(document);
+                    }
                     form.reset();
                     renderUserProjectAccessChecks();
                     closeUserCreateModal();
-                    showAppNotice('\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a \u0441\u043e\u0437\u0434\u0430\u043d.', 'success');
+                    showAppNotice(wasEdit ? '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d.' : '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a \u0441\u043e\u0437\u0434\u0430\u043d.', 'success');
                     return loadUsers();
                 }).catch(function (err) {
                     var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f');
@@ -4793,8 +4950,151 @@
         });
     }
 
+    function createCompanyCreateForm() {
+        var existing = qs('[data-company-create-form]');
+        if (existing) return existing;
+        var form = document.createElement('form');
+        form.className = 'card form-card company-create-form';
+        form.setAttribute('data-company-create-form', '');
+        safeReplaceChildren(form,
+            '<button class="ghost compact user-create-close" type="button" data-company-create-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
+            '<h3>\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u0430</h3>' +
+            '<label><span>\u0422\u0438\u043f</span><select name="type" required>' +
+                '<option value="own_legal_entity">\u041d\u0430\u0448\u0435 \u044e\u0440\u0438\u0434\u0438\u0447\u0435\u0441\u043a\u043e\u0435 \u043b\u0438\u0446\u043e</option>' +
+                '<option value="client">\u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a</option>' +
+                '<option value="supplier">\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a</option>' +
+                '<option value="contractor">\u041f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a</option>' +
+                '<option value="other">\u0414\u0440\u0443\u0433\u043e\u0435</option>' +
+            '</select></label>' +
+            '<label><span>\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435</span><input name="name" required></label>' +
+            '<div class="company-create-grid">' +
+                '<label><span>\u0418\u041d\u041d</span><input name="inn" inputmode="numeric"></label>' +
+                '<label><span>\u041a\u041f\u041f</span><input name="kpp" inputmode="numeric"></label>' +
+                '<label><span>\u041e\u0413\u0420\u041d</span><input name="ogrn" inputmode="numeric"></label>' +
+                '<label><span>\u0422\u0435\u043b\u0435\u0444\u043e\u043d</span><input name="phone"></label>' +
+                '<label><span>Email</span><input name="email" type="email" inputmode="email"></label>' +
+                '<label class="company-create-grid-wide"><span>\u0410\u0434\u0440\u0435\u0441</span><input name="address"></label>' +
+            '</div>' +
+            '<label><span>\u0417\u0430\u043c\u0435\u0442\u043a\u0438</span><textarea name="notes" rows="4"></textarea></label>' +
+            '<div class="form-error" data-company-create-error></div>' +
+            '<button class="primary" type="submit">\u0421\u043e\u0437\u0434\u0430\u0442\u044c</button>'
+        );
+        bindUserPhoneMask(form);
+        return form;
+    }
+
+    function setupCompanyCreateModal() {
+        var form = createCompanyCreateForm();
+        if (!form || form.dataset.modalReady === '1') return;
+        form.dataset.modalReady = '1';
+        var modal = document.createElement('div');
+        modal.className = 'company-create-modal hidden';
+        modal.setAttribute('data-company-create-modal', '');
+        var backdrop = document.createElement('button');
+        backdrop.className = 'company-create-backdrop';
+        backdrop.type = 'button';
+        backdrop.setAttribute('data-company-create-close', '');
+        backdrop.setAttribute('aria-label', '\u0417\u0430\u043a\u0440\u044b\u0442\u044c');
+        var dialog = document.createElement('section');
+        dialog.className = 'company-create-dialog';
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.setAttribute('aria-label', '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442');
+        dialog.appendChild(form);
+        modal.appendChild(backdrop);
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+        qsa('[data-company-create-open]').forEach(function (button) {
+            if (button.dataset.companyCreateOpenBound === '1') return;
+            button.dataset.companyCreateOpenBound = '1';
+            button.addEventListener('click', openCompanyCreateModal);
+        });
+        qsa('[data-company-create-close]', modal).forEach(function (button) {
+            button.addEventListener('click', closeCompanyCreateModal);
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeCompanyCreateModal();
+        });
+    }
+
+    function resetCompanyCreateForm(form) {
+        if (!form) return;
+        form.reset();
+        if (form.phone) form.phone.value = '';
+        if (form.email) form.email.value = '';
+        if (form.name) form.name.value = '';
+        var error = qs('[data-company-create-error]', form);
+        if (error) {
+            error.textContent = '';
+            error.classList.remove('active');
+        }
+        var title = qs('h3', form);
+        if (title) title.textContent = '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u0430';
+        var submit = qs('button[type="submit"]', form);
+        if (submit) submit.textContent = '\u0421\u043e\u0437\u0434\u0430\u0442\u044c';
+    }
+
+    function openCompanyCreateModal() {
+        var modal = qs('[data-company-create-modal]');
+        if (!modal) return;
+        var form = qs('[data-company-create-form]', modal);
+        resetCompanyCreateForm(form);
+        modal.classList.remove('hidden');
+        document.body.classList.add('counterparty-create-open');
+        requestAnimationFrame(function () {
+            modal.setAttribute('data-open', '1');
+            var first = qs('input, select, textarea, button', modal);
+            if (first) first.focus();
+        });
+    }
+
+    function closeCompanyCreateModal() {
+        var modal = qs('[data-company-create-modal]');
+        if (!modal || modal.classList.contains('hidden')) return;
+        modal.removeAttribute('data-open');
+        document.body.classList.remove('counterparty-create-open');
+        setTimeout(function () {
+            if (!modal.hasAttribute('data-open')) modal.classList.add('hidden');
+        }, 220);
+    }
+
+    function createUserCreateForm() {
+        var existing = qs('[data-user-create-form]');
+        if (existing) return existing;
+        var form = document.createElement('form');
+        form.className = 'card form-card';
+        form.setAttribute('data-user-create-form', '');
+        safeReplaceChildren(form,
+            '<button class="ghost compact user-create-close" type="button" data-user-create-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
+            '<h3>\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430</h3>' +
+            '<input type="hidden" name="user_id" value="">' +
+            '<label><span>\u0418\u043c\u044f</span><input name="name" required></label>' +
+            '<label><span>\u0412\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u0438\u0439 \u043b\u043e\u0433\u0438\u043d</span><input name="login" required></label>' +
+            '<label><span>Email \u0434\u043b\u044f \u0432\u0445\u043e\u0434\u0430</span><input name="email" type="email" required></label>' +
+            '<label><span>\u0422\u0435\u043b\u0435\u0444\u043e\u043d</span><input name="phone" required></label>' +
+            '<label><span>\u0421\u0442\u0430\u0440\u0442\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c Clerk</span><input name="password" type="password" minlength="10" required></label>' +
+            '<label><span>\u041e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u0440\u043e\u043b\u044c</span><select name="role" required><option value="foreman">\u041f\u0440\u043e\u0440\u0430\u0431</option></select></label>' +
+            '<fieldset class="role-checks hidden">' +
+                '<legend>\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435 \u0440\u043e\u043b\u0438</legend>' +
+                '<label><input type="checkbox" name="roles" value="director"> \u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440</label>' +
+                '<label><input type="checkbox" name="roles" value="foreman"> \u041f\u0440\u043e\u0440\u0430\u0431</label>' +
+                '<label><input type="checkbox" name="roles" value="purchaser"> \u0417\u0430\u043a\u0443\u043f\u0449\u0438\u043a</label>' +
+                '<label><input type="checkbox" name="roles" value="financier"> \u0424\u0438\u043d\u043f\u043b\u0430\u043d</label>' +
+                '<label><input type="checkbox" name="roles" value="accountant"> \u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440</label>' +
+                '<label><input type="checkbox" name="roles" value="customer"> \u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a</label>' +
+            '</fieldset>' +
+            '<fieldset class="role-checks">' +
+                '<legend>\u0414\u043e\u0441\u0442\u0443\u043f \u043f\u0440\u043e\u0440\u0430\u0431\u0430 \u043a \u043e\u0431\u044a\u0435\u043a\u0442\u0430\u043c</legend>' +
+                '<div data-user-project-access><p class="muted">\u041e\u0431\u044a\u0435\u043a\u0442\u044b \u0437\u0430\u0433\u0440\u0443\u0436\u0430\u044e\u0442\u0441\u044f...</p></div>' +
+            '</fieldset>' +
+            '<div class="form-error" data-user-create-error></div>' +
+            '<button class="primary" type="submit">\u0421\u043e\u0437\u0434\u0430\u0442\u044c</button>'
+        );
+        return form;
+    }
+
     function setupUserCreateModal() {
-        var form = qs('[data-user-create-form]');
+        var form = createUserCreateForm();
         if (!form || form.dataset.modalReady === '1') return;
         form.dataset.modalReady = '1';
         var refreshButton = qs('[data-users-refresh]');
@@ -4818,14 +5118,6 @@
         dialog.setAttribute('aria-modal', 'true');
         dialog.setAttribute('aria-label', '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a');
         dialog.appendChild(form);
-        if (!qs('[data-user-create-close]', form)) {
-            var closeButton = document.createElement('button');
-            closeButton.className = 'ghost compact user-create-close';
-            closeButton.type = 'button';
-            closeButton.setAttribute('data-user-create-close', '');
-            closeButton.textContent = '\u0417\u0430\u043a\u0440\u044b\u0442\u044c';
-            form.insertBefore(closeButton, form.firstChild);
-        }
         modal.appendChild(backdrop);
         modal.appendChild(dialog);
         document.body.appendChild(modal);
@@ -4842,9 +5134,30 @@
         });
     }
 
-    function openUserCreateModal() {
+    function resetUserCreateForm(form) {
+        if (!form) return;
+        form.reset();
+        if (form.user_id) form.user_id.value = '';
+        if (form.login) form.login.value = '';
+        if (form.password) {
+            form.password.value = '';
+            form.password.required = true;
+        }
+        if (form.phone) form.phone.value = '';
+        if (form.email) form.email.value = '';
+        if (form.name) form.name.value = '';
+        var title = qs('h3', form);
+        if (title) title.textContent = '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
+        var submit = qs('button[type="submit"]', form);
+        if (submit) submit.textContent = '\u0421\u043e\u0437\u0434\u0430\u0442\u044c';
+        renderUserProjectAccessChecks();
+    }
+
+    function openUserCreateModal(options) {
         var modal = qs('[data-user-create-modal]');
         if (!modal) return;
+        var form = qs('[data-user-create-form]', modal);
+        if (!options || options.keepValues !== true) resetUserCreateForm(form);
         modal.classList.remove('hidden');
         document.body.classList.add('user-create-open');
         requestAnimationFrame(function () {
@@ -4899,6 +5212,7 @@
 
     function userRoleLabel(role) {
         var code = normalizeRole(role && (role.code || role) || '');
+        if (code === 'admin') return '\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440';
         if (code === 'director') return '\u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440';
         if (code === 'foreman') return '\u041f\u0440\u043e\u0440\u0430\u0431';
         return role && (role.name || role.roleLabel) || code || '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a';
@@ -4906,9 +5220,21 @@
 
     function userRoleClass(role) {
         var code = normalizeRole(role && (role.code || role) || '');
+        if (code === 'admin') return ' is-admin';
         if (code === 'director') return ' is-director';
         if (code === 'foreman') return ' is-foreman';
         return '';
+    }
+
+    function isBootstrapAdminUser(user) {
+        return normalizeRole(user && user.role) === 'admin' || String(user && user.login || '').trim().toLowerCase() === 'admin';
+    }
+
+    function effectiveUserRoles(user) {
+        if (isBootstrapAdminUser(user)) return [{ code: 'admin', name: '\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440' }];
+        return Array.isArray(user && user.roles) && user.roles.length
+            ? user.roles
+            : [{ code: user && user.role, name: user && (user.roleLabel || user.role) }];
     }
 
     function userInitials(user) {
@@ -4942,9 +5268,7 @@
 
     function renderUserCard(user) {
         user = user || {};
-        var roles = Array.isArray(user.roles) && user.roles.length
-            ? user.roles
-            : [{ code: user.role, name: user.roleLabel || user.role }];
+        var roles = effectiveUserRoles(user);
         var roleBadges = roles.map(function (role) {
             return '<span class="employee-role-badge' + userRoleClass(role) + '">' + escapeHtml(userRoleLabel(role)) + '</span>';
         }).join('');
@@ -4999,9 +5323,7 @@
     }
 
     function employeePrimaryRole(user) {
-        var roles = Array.isArray(user && user.roles) && user.roles.length
-            ? user.roles
-            : [{ code: user && user.role, name: user && (user.roleLabel || user.role) }];
+        var roles = effectiveUserRoles(user);
         return roles[0] || {};
     }
 
@@ -5059,14 +5381,29 @@
 
     function openEmployeeEditForm(user) {
         closeEmployeeProfileModal();
-        openUserCreateModal();
+        openUserCreateModal({ keepValues: true });
         var form = qs('[data-user-create-form]');
         if (!form) return;
+        resetUserCreateForm(form);
+        if (form.user_id) form.user_id.value = user.id || '';
         if (form.name) form.name.value = user.name || '';
         if (form.login) form.login.value = user.login || '';
         if (form.email) form.email.value = user.email || '';
         if (form.phone) form.phone.value = formatUserPhone(user.phone || '');
-        showAppNotice('\u0424\u043e\u0440\u043c\u0430 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u0430. \u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439 \u043f\u043e\u0442\u0440\u0435\u0431\u0443\u0435\u0442 endpoint \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f.', 'warn');
+        if (form.password) {
+            form.password.value = '';
+            form.password.required = false;
+        }
+        var title = qs('h3', form);
+        if (title) title.textContent = '\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
+        var submit = qs('button[type="submit"]', form);
+        if (submit) submit.textContent = '\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c';
+        var assigned = userAssignedProjects(user).map(function (project) {
+            return Number(project && (project.id || project.project_id || project.projectId) || 0);
+        });
+        qsa('input[name="project_ids"]', form).forEach(function (input) {
+            input.checked = assigned.indexOf(Number(input.value || 0)) !== -1;
+        });
     }
 
     function deleteEmployeeFromProfile(button) {
@@ -5101,6 +5438,7 @@
     loadUsers = function () {
         var root = qs('[data-users-list]');
         if (!root) return Promise.resolve();
+        safeReplaceChildren(root, '');
         return api('/api/admin/users').then(function (data) {
             var users = Array.isArray(data.users) ? data.users : [];
             state.users = users;
@@ -5155,11 +5493,11 @@
         if (!overview) return;
         var root = qs('[data-project-hub]', overview);
         if (!root) {
-            overview.insertAdjacentHTML('beforeend', '<section class="subsection"><div class="card-head"><h3>Как объект живет сейчас</h3></div><div data-project-hub><p class="muted">Собираем единую картину по объекту...</p></div></section>');
+            overview.insertAdjacentHTML('beforeend', '<section class="subsection"><div class="card-head"><h3>Как объект живет сейчас</h3></div><div data-project-hub></div></section>');
             root = qs('[data-project-hub]', overview);
         }
         if (!root) return;
-        safeReplaceChildren(root, '<p class="muted">Собираем единую картину по объекту...</p>');
+        safeReplaceChildren(root, '');
         Promise.all([
             api('/api/projects/' + projectId + '/notifications').catch(function () { return {}; }),
             api('/api/projects/' + projectId + '/tasks').catch(function () { return { tasks: [] }; }),
@@ -5183,6 +5521,7 @@
                 materials: materials,
                 stages: stages
             }));
+            refreshLucideIcons(root);
         }).catch(function () {
             if (!isCurrentProject(projectId, loadingToken)) return;
             safeReplaceChildren(root, '<p class="muted">Не удалось собрать общую картину по объекту.</p>');
@@ -5245,6 +5584,8 @@
         var projectSelect = qs('[data-suppliers-project]');
         var formProjectSelect = qs('[data-supplier-projects]');
         if (!projectSelect || !formProjectSelect) return;
+        setupSupplierCreateModal();
+        setupSupplierDetailModal();
         var initialParams = new URLSearchParams(location.search);
         var initialProjectId = Number(initialParams.get('projectId') || 0);
         var initialMaterialId = Number(initialParams.get('materialId') || 0);
@@ -5252,7 +5593,7 @@
         var initialSupplierName = String(initialParams.get('supplierName') || '').trim();
         var focusApplied = false;
         var options = state.projects.map(function (project) {
-            return '<option value="' + project.id + '">' + escapeHtml(project.title) + '</option>';
+            return '<option value="' + project.id + '">' + escapeHtml(supplierProjectOptionLabel(project)) + '</option>';
         }).join('');
         projectSelect.innerHTML = options;
         formProjectSelect.innerHTML = options;
@@ -5292,6 +5633,160 @@
         }
         bindSupplierCreateForm();
         loadCurrent();
+    }
+
+    function supplierProjectOptionLabel(project) {
+        var title = String(project && project.title || '').trim();
+        if (!title) return '\u041e\u0431\u044a\u0435\u043a\u0442';
+        return title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function setupSupplierCreateModal() {
+        var modal = qs('[data-supplier-create-modal]');
+        if (!modal || modal.dataset.bound === '1') return;
+        modal.dataset.bound = '1';
+        qsa('[data-supplier-create-open]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', openSupplierCreateModal);
+        });
+        qsa('[data-supplier-create-close]', modal).forEach(function (button) {
+            button.addEventListener('click', closeSupplierCreateModal);
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeSupplierCreateModal();
+        });
+    }
+
+    function openSupplierCreateModal() {
+        var modal = qs('[data-supplier-create-modal]');
+        if (!modal) return;
+        var error = qs('[data-supplier-create-error]', modal);
+        if (error) {
+            error.textContent = '';
+            error.classList.remove('active');
+        }
+        modal.classList.remove('hidden');
+        document.body.classList.add('supplier-create-open');
+        requestAnimationFrame(function () {
+            modal.setAttribute('data-open', '1');
+            var first = qs('input, select, textarea, button', modal);
+            if (first) first.focus();
+        });
+    }
+
+    function closeSupplierCreateModal() {
+        var modal = qs('[data-supplier-create-modal]');
+        if (!modal || modal.classList.contains('hidden')) return;
+        modal.removeAttribute('data-open');
+        document.body.classList.remove('supplier-create-open');
+        setTimeout(function () {
+            if (!modal.hasAttribute('data-open')) modal.classList.add('hidden');
+        }, 220);
+    }
+
+    function setupSupplierDetailModal() {
+        var modal = qs('[data-supplier-detail-modal]');
+        if (!modal || modal.dataset.bound === '1') return;
+        modal.dataset.bound = '1';
+        modal.addEventListener('click', function (event) {
+            if (event.target.closest('[data-supplier-detail-close]')) closeSupplierDetailModal();
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeSupplierDetailModal();
+        });
+    }
+
+    function supplierOfferById(offerId) {
+        offerId = Number(offerId || 0);
+        return (state.supplierOffers || []).find(function (offer) {
+            return Number(offer && offer.id || 0) === offerId;
+        });
+    }
+
+    function supplierOfferStatusLabel(status) {
+        var labels = {
+            new: '\u041d\u043e\u0432\u044b\u0439',
+            called: '\u041e\u0431\u0437\u0432\u043e\u043d\u0435\u043d',
+            quoted: '\u041f\u0440\u043e\u0441\u0447\u0438\u0442\u0430\u043d',
+            selected: '\u0412\u044b\u0431\u0440\u0430\u043d',
+            rejected: '\u041e\u0442\u043a\u043b\u043e\u043d\u0435\u043d'
+        };
+        return labels[status] || status || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
+    }
+
+    function supplierOfferSourceLabel(source) {
+        var labels = {
+            manual: '\u0420\u0443\u0447\u043d\u043e\u0439 \u0432\u0432\u043e\u0434',
+            avito: 'Avito',
+            other: '\u0414\u0440\u0443\u0433\u043e\u0439 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a'
+        };
+        return labels[source] || source || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
+    }
+
+    function supplierDetailItem(label, value) {
+        return '<div class="supplier-detail-item"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u043e') + '</strong></div>';
+    }
+
+    function supplierOfferCompareText(offer) {
+        var compare = offer && offer.compareToEstimate || {};
+        var delta = typeof compare.deltaTotal === 'number' ? compare.deltaTotal : null;
+        if (delta == null) return '\u0421\u043c\u0435\u0442\u0430 \u043d\u0435 \u043f\u0440\u0438\u0432\u044f\u0437\u0430\u043d\u0430';
+        if (delta < 0) return '\u042d\u043a\u043e\u043d\u043e\u043c\u0438\u044f ' + money(Math.abs(delta));
+        if (delta > 0) return '\u041f\u0435\u0440\u0435\u043f\u043b\u0430\u0442\u0430 ' + money(delta);
+        return '\u0420\u043e\u0432\u043d\u043e \u043f\u043e \u0441\u043c\u0435\u0442\u0435';
+    }
+
+    function renderSupplierDetail(offer) {
+        offer = offer || {};
+        var name = offer.company_name || offer.candidate_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442';
+        var type = offer.candidate_type || 'supplier';
+        var price = Number(offer.price || 0) ? money(Number(offer.price || 0)) : '';
+        var qty = [offer.qty || '', offer.unit || ''].filter(Boolean).join(' ');
+        return '<article class="supplier-detail-card">' +
+            '<button class="ghost compact supplier-detail-close" type="button" data-supplier-detail-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
+            '<div class="supplier-detail-head">' +
+                '<div class="counterparty-avatar" aria-hidden="true"' + counterpartyAvatarStyle(name) + '>' + escapeHtml(counterpartyInitials(name)) + '</div>' +
+                '<div><h3>' + escapeHtml(name) + '</h3><span class="counterparty-type-badge' + counterpartyTypeClass(type) + '">' + escapeHtml(counterpartyTypeLabel(type)) + '</span></div>' +
+            '</div>' +
+            '<div class="supplier-detail-grid">' +
+                supplierDetailItem('\u0422\u0435\u043b\u0435\u0444\u043e\u043d', offer.phone || '') +
+                supplierDetailItem('\u041a\u043e\u043d\u0442\u0430\u043a\u0442', offer.contact_name || '') +
+                supplierDetailItem('\u041a\u043e\u043c\u043f\u0430\u043d\u0438\u044f', offer.company_name || '') +
+                supplierDetailItem('\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b / \u043f\u0440\u0435\u0434\u043c\u0435\u0442', offer.material_title || '') +
+                supplierDetailItem('\u0421\u0442\u0430\u0442\u0443\u0441', supplierOfferStatusLabel(offer.status)) +
+                supplierDetailItem('\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a', supplierOfferSourceLabel(offer.source_type)) +
+                supplierDetailItem('\u0426\u0435\u043d\u0430', price) +
+                supplierDetailItem('\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e', qty) +
+                supplierDetailItem('\u0421\u0440\u0430\u0432\u043d\u0435\u043d\u0438\u0435', supplierOfferCompareText(offer)) +
+                supplierDetailItem('\u0410\u0432\u0442\u043e\u0440', offer.author_name || '') +
+            '</div>' +
+            (offer.source_url ? '<a class="supplier-detail-link" href="' + escapeHtml(offer.source_url) + '" target="_blank" rel="noreferrer"><i data-lucide="external-link"></i><span>\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a</span></a>' : '') +
+            '<section class="supplier-detail-notes"><h4>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</h4><p>' + escapeHtml(offer.notes || '\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d.') + '</p></section>' +
+        '</article>';
+    }
+
+    function openSupplierDetailModal(offerId) {
+        var modal = qs('[data-supplier-detail-modal]');
+        var offer = supplierOfferById(offerId);
+        if (!modal || !offer) return;
+        safeReplaceChildren(qs('[data-supplier-detail-body]', modal), renderSupplierDetail(offer));
+        refreshLucideIcons(modal);
+        modal.classList.remove('hidden');
+        document.body.classList.add('supplier-detail-open');
+        requestAnimationFrame(function () {
+            modal.setAttribute('data-open', '1');
+        });
+    }
+
+    function closeSupplierDetailModal() {
+        var modal = qs('[data-supplier-detail-modal]');
+        if (!modal || modal.classList.contains('hidden')) return;
+        modal.removeAttribute('data-open');
+        document.body.classList.remove('supplier-detail-open');
+        setTimeout(function () {
+            if (!modal.hasAttribute('data-open')) modal.classList.add('hidden');
+        }, 200);
     }
 
     function fillSupplierCompanyOptions(companies) {
@@ -5362,8 +5857,10 @@
     function loadSupplierOffers(projectId, materialId, supplierFocus) {
         api('/api/projects/' + projectId + '/supplier-offers').then(function (data) {
             var offers = Array.isArray(data.offers) ? data.offers : [];
+            state.supplierOffers = offers;
             renderSupplierStats(offers);
             renderSupplierList(projectId, offers, materialId, supplierFocus);
+            bindSupplierCards();
             bindSupplierEditors(projectId);
             applySupplierFormCompanyFocus(supplierFocus && supplierFocus.supplierId);
             focusSupplierOfferRow(supplierFocus);
@@ -5376,6 +5873,9 @@
     function renderSuppliersContext(projectId, items, materialId) {
         var root = qs('[data-suppliers-context]');
         if (!root) return;
+        root.hidden = true;
+        root.innerHTML = '';
+        return;
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         if (!project) {
             root.hidden = true;
@@ -5478,6 +5978,55 @@
         refreshLucideIcons(root);
     }
 
+    function renderSupplierCompactCard(offer, isFocused) {
+        offer = offer || {};
+        var name = offer.company_name || offer.candidate_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442';
+        var type = offer.candidate_type || 'supplier';
+        var phone = offer.phone || '\u0422\u0435\u043b\u0435\u0444\u043e\u043d \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
+        return '<button class="supplier-compact-card' + (isFocused ? ' supplier-offer-row-focused' : '') + '" type="button" data-supplier-card data-offer-id="' + escapeHtml(offer.id || '') + '" data-supplier-company-id="' + escapeHtml(offer.company_id || offer.companyId || '') + '" data-supplier-company-name="' + escapeHtml(name) + '">' +
+            '<span class="supplier-compact-avatar" aria-hidden="true"' + counterpartyAvatarStyle(name) + '>' + escapeHtml(counterpartyInitials(name)) + '</span>' +
+            '<span class="supplier-compact-main">' +
+                '<strong>' + escapeHtml(name) + '</strong>' +
+                '<span><i data-lucide="phone"></i>' + escapeHtml(phone) + '</span>' +
+            '</span>' +
+            '<span class="counterparty-type-badge' + counterpartyTypeClass(type) + '">' + escapeHtml(counterpartyTypeLabel(type)) + '</span>' +
+        '</button>';
+    }
+
+    function renderSupplierList(projectId, offers, materialId, supplierFocus) {
+        var root = qs('[data-suppliers-list]');
+        if (!root) return;
+        materialId = Number(materialId || 0);
+        offers = Array.isArray(offers) ? offers : [];
+        if (materialId) {
+            offers = offers.slice().sort(function (left, right) {
+                var leftMatch = Number(left.estimate_item_id || 0) === materialId ? 1 : 0;
+                var rightMatch = Number(right.estimate_item_id || 0) === materialId ? 1 : 0;
+                return rightMatch - leftMatch;
+            });
+        }
+        if (!offers.length) {
+            safeReplaceChildren(root, '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u043a\u0430\u043d\u0434\u0438\u0434\u0430\u0442\u043e\u0432. \u041d\u0430\u0436\u043c\u0438\u0442\u0435 «\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442\u0430», \u0447\u0442\u043e\u0431\u044b \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0435\u0440\u0432\u043e\u0433\u043e.</p>');
+            return;
+        }
+        safeReplaceChildren(root, '<div class="suppliers-list counterparties-grid suppliers-compact-grid">' + offers.map(function (offer) {
+            var isFocused = materialId && Number(offer.estimate_item_id || 0) === materialId;
+            if (supplierOfferMatchesFocus(offer, supplierFocus)) isFocused = true;
+            return renderSupplierCompactCard(offer, isFocused);
+        }).join('') + '</div>');
+        refreshLucideIcons(root);
+    }
+
+    function bindSupplierCards() {
+        qsa('[data-supplier-card]').forEach(function (card) {
+            if (card.dataset.bound === '1') return;
+            card.dataset.bound = '1';
+            card.addEventListener('click', function () {
+                openSupplierDetailModal(card.getAttribute('data-offer-id'));
+            });
+        });
+    }
+
     function bindSupplierCreateForm() {
         var form = qs('[data-supplier-create-form]');
         if (!form || form.dataset.bound === '1') return;
@@ -5510,6 +6059,7 @@
                 form.project_id.value = keepProject;
                 loadSupplierMaterials(Number(keepProject));
                 loadSupplierOffers(Number(keepProject));
+                closeSupplierCreateModal();
             }).catch(function (err) {
                 if (error) {
                     error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось сохранить кандидата';
@@ -6545,6 +7095,13 @@ function renderLogsDayView(project, logs) {
             closeLabel: 'Закрыть форму отчета',
             panelClass: 'project-report-drawer-panel'
         });
+        if (drawer) {
+            drawer.classList.add('reports-drawer-frame');
+            var backdrop = qs('.side-drawer-backdrop', drawer);
+            var panel = qs('.side-drawer-panel', drawer);
+            if (backdrop) backdrop.classList.add('drawer-overlay');
+            if (panel) panel.classList.add('reports-drawer-panel');
+        }
         var openButtons = qsa('[data-open-project-report-create]');
         openButtons.forEach(function (button) {
             if (!drawer || button.dataset.bound === '1') return;
@@ -6627,7 +7184,7 @@ function renderLogsDayView(project, logs) {
             '</section>' +
             '<section class="subsection">' +
                 '<div class="card-head"><div><h3>Архив отчетов</h3><span class="muted">Полный дневник по объекту. Нажми на день в календаре, чтобы увидеть отчет именно за эту дату.</span></div></div>' +
-                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Загружаем архив</b><span>Собираем сохраненные отчеты.</span></div></div>' +
+                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Архив отчетов</b><span>Сохраненные отчеты появятся здесь.</span></div></div>' +
             '</section>' +
         '</div>';
     }
@@ -6859,6 +7416,53 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    function getAutoBotContentRoot() {
+        return qs('[data-autobot-content-root]');
+    }
+
+    function setAutoBotPageLoading() {
+        var root = getAutoBotContentRoot();
+        if (!root) return null;
+        return safeReplaceChildren(root, '');
+    }
+
+    function renderAutobotShellHTML(autobotUrl) {
+        var url = String(autobotUrl || '').replace(/\/+$/, '');
+        var href = escapeHtml(url ? (url + '/') : '/');
+        return '<div class="autobot-embed-wrap">' +
+            '<div class="autobot-offline" data-autobot-offline hidden>' +
+                '<strong>AutoBot не отвечает</strong>' +
+                '<span>Проверь, что сервис AutoBot запущен, или открой его отдельно.</span>' +
+                '<a href="' + href + '" target="_blank" rel="noopener noreferrer">Открыть AutoBot</a>' +
+            '</div>' +
+            '<iframe class="autobot-embed" data-autobot-frame src="' + href + '" title="AutoBot" loading="eager" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; microphone"></iframe>' +
+        '</div>';
+    }
+
+    function clearAutobotFrameLoader() {
+        if (typeof window.hideLoader === 'function') window.hideLoader();
+    }
+
+    function bindAutobotFrameLoader() {
+        var frame = qs('[data-autobot-frame]');
+        if (!frame || frame.dataset.loaderBound === '1') return;
+        frame.dataset.loaderBound = '1';
+        if (typeof window.showLoader === 'function') window.showLoader('Синхронизация...');
+        frame.addEventListener('load', clearAutobotFrameLoader);
+    }
+
+    function bindAutobotOfflineCheck() {
+        var stage = qs('[data-autobot-url]');
+        var offline = qs('[data-autobot-offline]');
+        if (!stage || !offline || !window.fetch) return;
+        var url = (stage.getAttribute('data-autobot-url') || '').replace(/\/+$/, '') + '/';
+        window.fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(function () {
+            clearAutobotFrameLoader();
+            offline.hidden = false;
+            showAppNotice('AutoBot не отвечает. Проверь, что сервис запущен.', 'error');
+        });
+    }
+
     function fillAutobotProjectSelects() {
         qsa('[data-autobot-projects], [data-autobot-estimate-projects]').forEach(function (select) {
             select.innerHTML = state.projects.map(function (project) {
@@ -6931,6 +7535,10 @@ function renderLogsDayView(project, logs) {
                     }
                     return;
                 }
+                if (result) {
+                    result.hidden = false;
+                    safeReplaceChildren(result, '');
+                }
                 api('/api/projects/' + existingId + '/bootstrap', {
                     method: 'POST',
                     body: JSON.stringify(payload)
@@ -6940,6 +7548,11 @@ function renderLogsDayView(project, logs) {
                     fillAutobotProjectSelects();
                     renderAutobotResult(result, data.project, 'Тендерный пакет загружен в существующий объект.', '/app/projects?openProject=' + data.project.id, 'Открыть объект');
                 }).catch(function (err) {
+                    if (result) {
+                        result.hidden = true;
+                        safeReplaceChildren(result, '');
+                    }
+                    showAppNotice(appErrorMessage(err, 'Не удалось загрузить тендер в CRM'), 'error');
                     if (!error) return;
                     error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось загрузить тендер в CRM';
                     error.classList.add('active');
@@ -6962,6 +7575,10 @@ function renderLogsDayView(project, logs) {
                 }
                 return;
             }
+            if (result) {
+                result.hidden = false;
+                safeReplaceChildren(result, '');
+            }
             api('/api/projects', {
                 method: 'POST',
                 body: JSON.stringify(projectBody)
@@ -6981,6 +7598,11 @@ function renderLogsDayView(project, logs) {
                 bindAutobotTenderMode();
                 renderAutobotResult(result, data.project, 'Новый объект создан и заполнен тендерным пакетом.', '/app/projects?openProject=' + data.project.id, 'Открыть объект');
             }).catch(function (err) {
+                if (result) {
+                    result.hidden = true;
+                    safeReplaceChildren(result, '');
+                }
+                showAppNotice(appErrorMessage(err, 'Не удалось создать объект из тендера'), 'error');
                 if (!error) return;
                 error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось создать объект из тендера';
                 error.classList.add('active');
@@ -7009,6 +7631,10 @@ function renderLogsDayView(project, logs) {
                 return;
             }
             var projectId = Number(form.project_id.value);
+            if (result) {
+                result.hidden = false;
+                safeReplaceChildren(result, '');
+            }
             api('/api/projects/' + projectId + '/estimate-import', {
                 method: 'POST',
                 body: JSON.stringify(payload)
@@ -7017,6 +7643,11 @@ function renderLogsDayView(project, logs) {
                 state.materialsByProject[projectId] = data.items || [];
                 renderAutobotResult(result, project, 'Смета добавлена в материалы объекта.', '/app/warehouse', 'Открыть склад');
             }).catch(function (err) {
+                if (result) {
+                    result.hidden = true;
+                    safeReplaceChildren(result, '');
+                }
+                showAppNotice(appErrorMessage(err, 'Не удалось загрузить смету'), 'error');
                 if (!error) return;
                 error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось загрузить смету';
                 error.classList.add('active');
@@ -7025,6 +7656,14 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderAutobotPage() {
+        var stage = qs('[data-autobot-url]');
+        var root = getAutoBotContentRoot();
+        if (stage && root && !qs('[data-autobot-tender-form]', root) && !qs('[data-autobot-estimate-form]', root)) {
+            safeReplaceChildren(root, renderAutobotShellHTML(stage.getAttribute('data-autobot-url') || ''));
+            bindAutobotFrameLoader();
+            bindAutobotOfflineCheck();
+            return;
+        }
         fillAutobotProjectSelects();
         bindAutobotTenderMode();
         bindAutobotTenderForm();
@@ -7066,7 +7705,10 @@ function renderLogsDayView(project, logs) {
         if (page === 'projects') loadProjects(function () {
             loadDashboard(renderProjectsPage);
         });
-        if (page === 'autobot') loadProjects(renderAutobotPage);
+        if (page === 'autobot') {
+            setAutoBotPageLoading();
+            loadProjects(renderAutobotPage);
+        }
         if (page === 'warehouse') loadProjects(renderWarehousePage);
         if (page === 'suppliers') loadProjects(initSuppliersPage);
         if (page === 'schedule') loadProjects(renderSchedulePage);
@@ -7117,6 +7759,7 @@ function renderLogsDayView(project, logs) {
             collapsed = window.localStorage.getItem('pmbi_sidebar_collapsed') === '1';
         } catch (error) {}
         document.body.classList.toggle('sidebar-collapsed', collapsed && window.innerWidth > 720);
+        syncSidebarCollapsedState();
         syncSidebarToggleTitle();
         if (!window.__pmbiSidebarResizeBound) {
             window.__pmbiSidebarResizeBound = true;
@@ -7134,6 +7777,7 @@ function renderLogsDayView(project, logs) {
             } catch (error) {}
             document.body.classList.toggle('sidebar-collapsed', collapsed);
         }
+        syncSidebarCollapsedState();
         syncSidebarToggleTitle();
     }
 
@@ -7143,7 +7787,22 @@ function renderLogsDayView(project, logs) {
         try {
             window.localStorage.setItem('pmbi_sidebar_collapsed', collapsed ? '1' : '0');
         } catch (error) {}
+        syncSidebarCollapsedState();
         syncSidebarToggleTitle();
+    }
+
+    function syncSidebarCollapsedState() {
+        var collapsed = document.body.classList.contains('sidebar-collapsed');
+        var sidebar = qs('.sidebar');
+        if (sidebar) sidebar.setAttribute('data-collapsed', collapsed ? '1' : '0');
+        qsa('.nav a').forEach(function (link) {
+            link.setAttribute('data-collapsed', collapsed ? '1' : '0');
+        });
+        try {
+            if (!collapsed || window.innerWidth > 720) {
+                document.documentElement.classList.remove('sidebar-pref-collapsed');
+            }
+        } catch (error) {}
     }
 
     function syncSidebarToggleTitle() {
@@ -7491,6 +8150,179 @@ function renderLogsDayView(project, logs) {
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') closeMenu();
         });
+
+        var profileButton = qs('[data-profile-open]', popover);
+        if (profileButton && profileButton.dataset.bound !== '1') {
+            profileButton.dataset.bound = '1';
+            profileButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                closeMenu();
+                openProfileModal();
+            });
+        }
+    }
+
+    function profileNameParts(user) {
+        var parts = String(user && user.name || '').trim().split(/\s+/).filter(Boolean);
+        return {
+            firstName: parts.length ? parts[0] : '',
+            lastName: parts.length > 1 ? parts.slice(1).join(' ') : ''
+        };
+    }
+
+    function profileAvatarInner(user) {
+        user = user || {};
+        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url);
+        if (avatarUrl) {
+            return '<img src="' + escapeHtml(avatarUrl) + '" alt="">';
+        }
+        return escapeHtml(profileUserInitials(user));
+    }
+
+    function renderProfileModalContent() {
+        var user = state.currentUser || state.user || {};
+        var parts = profileNameParts(user);
+        var roleCode = normalizeRole(user.role);
+        var roleLabel = currentRoleLabel(user);
+        return '' +
+            '<div class="calendar-modal-head profile-modal-head">' +
+                '<p>Аккаунт</p>' +
+                '<h3 id="profile-modal-title">Личный кабинет</h3>' +
+            '</div>' +
+            '<form class="profile-modal-form" data-profile-form>' +
+                '<div class="profile-avatar-block">' +
+                    '<button class="profile-avatar-preview" type="button" data-profile-avatar-pick aria-label="Сменить аватарку">' +
+                        '<span data-profile-avatar-preview>' + profileAvatarInner(user) + '</span>' +
+                        '<span class="profile-avatar-edit"><i data-lucide="pencil" aria-hidden="true"></i></span>' +
+                    '</button>' +
+                    '<input class="visually-hidden" type="file" name="avatar" accept="image/png,image/jpeg,image/webp,image/gif" data-profile-avatar-file>' +
+                '</div>' +
+                '<div class="profile-modal-grid">' +
+                    '<label><span>Имя</span><input name="first_name" value="' + escapeHtml(parts.firstName) + '" autocomplete="given-name"></label>' +
+                    '<label><span>Фамилия</span><input name="last_name" value="' + escapeHtml(parts.lastName) + '" autocomplete="family-name"></label>' +
+                '</div>' +
+                '<div class="profile-readonly-list text-muted">' +
+                    '<div><span>Email</span><strong>' + escapeHtml(user.email || 'Не указан') + '</strong></div>' +
+                    '<div><span>Телефон</span><strong>' + escapeHtml(user.phone || 'Не указан') + '</strong></div>' +
+                    '<div><span>Роль</span><strong>' + escapeHtml(roleLabel) + '</strong>' + (roleCode === 'admin' ? '<b class="profile-admin-badge">АДМИН</b>' : '') + '</div>' +
+                '</div>' +
+                '<button class="primary profile-save-button" type="submit">Сохранить изменения</button>' +
+            '</form>';
+    }
+
+    function closeProfileModal() {
+        var modal = qs('[data-profile-modal]');
+        document.body.classList.remove('cal-modal-open');
+        if (!modal) return;
+        window.setTimeout(function () {
+            if (!document.body.classList.contains('cal-modal-open')) modal.hidden = true;
+        }, 180);
+    }
+
+    function ensureProfileModal() {
+        var modal = qs('[data-profile-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'calendar-modal-overlay profile-modal-overlay';
+        modal.hidden = true;
+        modal.setAttribute('data-profile-modal', '1');
+        modal.innerHTML =
+            '<section class="calendar-modal-card profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">' +
+                '<button class="calendar-modal-close" type="button" data-profile-modal-close aria-label="Закрыть">×</button>' +
+                '<div data-profile-modal-content></div>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal || (event.target.closest && event.target.closest('[data-profile-modal-close]'))) {
+                event.preventDefault();
+                closeProfileModal();
+            }
+        });
+        document.body.appendChild(modal);
+        if (!document.body.dataset.profileModalEscBound) {
+            document.body.dataset.profileModalEscBound = '1';
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && !qs('[data-profile-modal][hidden]')) closeProfileModal();
+            });
+        }
+        return modal;
+    }
+
+    function bindProfileModal(modal) {
+        var form = qs('[data-profile-form]', modal);
+        var avatarFile = form ? qs('[data-profile-avatar-file]', form) : null;
+        var avatarPreview = qs('[data-profile-avatar-preview]', modal);
+        var avatarPick = qs('[data-profile-avatar-pick]', modal);
+        if (avatarPick && avatarPick.dataset.bound !== '1') {
+            avatarPick.dataset.bound = '1';
+            avatarPick.addEventListener('click', function () {
+                if (avatarFile) avatarFile.click();
+            });
+        }
+        if (avatarFile && avatarFile.dataset.bound !== '1') {
+            avatarFile.dataset.bound = '1';
+            avatarFile.addEventListener('change', function () {
+                var file = avatarFile.files && avatarFile.files[0];
+                if (!file || !avatarPreview) return;
+                if (!/^image\/(png|jpeg|webp|gif)$/i.test(file.type || '')) {
+                    avatarFile.value = '';
+                    showAppNotice('Выбери изображение PNG, JPG, WEBP или GIF', 'error');
+                    return;
+                }
+                var previewUrl = URL.createObjectURL(file);
+                safeReplaceChildren(avatarPreview, '<img src="' + escapeHtml(previewUrl) + '" alt="">');
+            });
+        }
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            withSubmitLock(form, function () {
+                var formData = new FormData();
+                formData.append('first_name', form.elements.first_name.value || '');
+                formData.append('last_name', form.elements.last_name.value || '');
+                if (avatarFile && avatarFile.files && avatarFile.files[0]) {
+                    formData.append('avatar', avatarFile.files[0]);
+                }
+                return apiFormData('/api/auth/update-profile', formData).then(function (data) {
+                    state.currentUser = data.user;
+                    state.user = data.user;
+                    syncCurrentUserHeader(data.user);
+                    showAppNotice('Профиль обновлен', 'success');
+                    closeProfileModal();
+                });
+            }).catch(function (error) {
+                showAppNotice(appErrorMessage(error, 'Не удалось обновить профиль'), 'error');
+            });
+        });
+    }
+
+    function openProfileModal() {
+        var modal = ensureProfileModal();
+        var content = qs('[data-profile-modal-content]', modal);
+        safeReplaceChildren(content, renderProfileModalContent());
+        bindProfileModal(modal);
+        modal.hidden = false;
+        window.requestAnimationFrame(function () {
+            document.body.classList.add('cal-modal-open');
+        });
+        refreshLucideIcons(modal);
+    }
+
+    function syncCurrentUserHeader(user) {
+        user = user || state.currentUser || state.user || {};
+        var name = displayUserName(user);
+        var roleLabel = currentRoleLabel(user);
+        var roleCode = normalizeRole(user.role);
+        qsa('[data-current-user]').forEach(function (node) { node.textContent = name; });
+        qsa('[data-current-role]').forEach(function (node) {
+            node.textContent = roleLabel;
+            node.classList.toggle('role-admin', roleCode === 'admin');
+            node.classList.toggle('role-director', roleCode === 'director');
+            node.classList.toggle('role-foreman', roleCode === 'foreman');
+        });
+        qsa('.topbar-avatar').forEach(function (node) {
+            safeReplaceChildren(node, profileAvatarInner(user));
+        });
     }
 
     function initAiAssistant() {
@@ -7568,19 +8400,10 @@ function renderLogsDayView(project, logs) {
 
     function renderUser() {
         if (!state.user) return;
-        var currentUsers = qsa('[data-current-user]');
-        var currentRoles = qsa('[data-current-role]');
+        state.currentUser = state.user;
         var userBadge = qs('[data-user-badge]');
-        var name = state.user.name || state.user.login || 'Пользователь';
-        var roleLabel = currentRoleLabel(state.user);
-        var roleCode = normalizeRole(state.user.role);
-        currentUsers.forEach(function (node) { node.textContent = name; });
-        currentRoles.forEach(function (node) {
-            node.textContent = roleLabel;
-            node.classList.toggle('role-admin', roleCode === 'admin');
-            node.classList.toggle('role-director', roleCode === 'director');
-            node.classList.toggle('role-foreman', roleCode === 'foreman');
-        });
+        var name = displayUserName(state.user);
+        syncCurrentUserHeader(state.user);
         if (userBadge) {
             var parts = String(name).trim().split(/\s+/).filter(Boolean);
             var initials = parts.slice(0, 2).map(function (part) { return part.charAt(0).toUpperCase(); }).join('') || 'U';
@@ -7912,6 +8735,7 @@ function renderLogsDayView(project, logs) {
     function syncDrawerBodyState() {
         var hasOpenDrawer = qsa('.side-drawer[data-open="1"], .project-edit-modal[data-open="1"]').length > 0;
         document.body.classList.toggle('side-drawer-open', hasOpenDrawer);
+        document.body.classList.toggle('reports-drawer-open', !!qs('[data-drawer-id="project-report-create"][data-open="1"]'));
     }
 
     function openSideDrawer(drawer) {
@@ -8759,6 +9583,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderPinnedScheduleBrief(project, summary, sections) {
+        return '';
         if (!project || !isScheduleBriefPinned(project.id)) return '';
         if (!summary || summary.error) {
             return '<div class="schedule-brief-table-wrap"><div class="schedule-brief-title"><strong>Краткий график</strong><span>Появится после расчета разделов.</span></div></div>';
@@ -8865,20 +9690,21 @@ function renderLogsDayView(project, logs) {
     function scheduleSectionProgress(projectId, section) {
         var sectionTitle = section && section.title || '';
         var sectionKey = progressSectionId(sectionTitle);
-        var estimateItems = (state.materialsByProject && state.materialsByProject[projectId] || []).filter(function (item) {
-            return progressSectionId(item && (item.sectionTitle || item.stageTitle)) === sectionKey;
+        var materialItems = (state.materialsByProject && state.materialsByProject[projectId] || []).filter(function (item) {
+            var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
+            return kind !== 'work' && progressSectionId(item && (item.sectionTitle || item.stageTitle)) === sectionKey;
         });
-        var items = estimateItems.length ? estimateItems : (Array.isArray(section && section.items) ? section.items : []);
-        var total = items.length;
-        var done = items.filter(function (item) {
-            var kind = String(item && (item.itemKind || item.item_kind) || 'work').toLowerCase();
-            if (kind === 'work') return isProjectWorkDone(projectId, sectionTitle, item);
-            return isMaterialDone(projectId, item);
-        }).length;
+        var workItems = liveScheduleSectionItems(section);
+        var materialValue = materialProgress(projectId, materialItems);
+        var workValue = workProgressForRows(projectId, sectionTitle, workItems);
+        var total = materialValue.total + workValue.total;
+        var done = materialValue.done + workValue.done;
         return {
             total: total,
             done: done,
-            percent: total ? Math.round((done / total) * 100) : 0
+            percent: total ? Math.round((done / total) * 100) : 0,
+            materials: materialValue,
+            works: workValue
         };
     }
 
@@ -9520,8 +10346,46 @@ function renderLogsDayView(project, logs) {
         if (!root) return;
         try {
             projects = Array.isArray(projects) ? projects : [];
+            function projectStatusMeta(project, completed) {
+                var status = String(project && project.status || '').toLocaleLowerCase('ru');
+                if (completed || status.indexOf('заверш') !== -1) return { label: 'Завершен', tone: 'success' };
+                if (status.indexOf('план') !== -1 || status.indexOf('подготов') !== -1) return { label: project.status || 'В планах', tone: 'info' };
+                if (status.indexOf('пауз') !== -1) return { label: project.status || 'На паузе', tone: 'neutral' };
+                return { label: project.status || 'Активен', tone: 'success-soft' };
+            }
+            function projectUserById(userId) {
+                return (state.users || []).find(function (item) {
+                    return Number(item && item.id) === Number(userId);
+                }) || null;
+            }
+            function projectInitials(name) {
+                var clean = String(name || '').trim();
+                if (!clean) return 'PR';
+                var parts = clean.split(/\s+/).filter(Boolean).slice(0, 2);
+                return parts.map(function (part) { return part.charAt(0).toUpperCase(); }).join('') || clean.slice(0, 2).toUpperCase();
+            }
+            function projectForemenMeta(project) {
+                var assigned = Array.isArray(project && project.assigned_foremen) ? project.assigned_foremen : [];
+                var people = assigned.map(function (userId) {
+                    var user = projectUserById(userId);
+                    return {
+                        id: userId,
+                        name: user && (user.name || user.login) ? (user.name || user.login) : ('Прораб #' + userId),
+                        initials: projectInitials(user && (user.name || user.login))
+                    };
+                });
+                var preview = people.slice(0, 4).map(function (person, index) {
+                    return '<span class="project-avatar-chip" style="z-index:' + (10 - index) + '" title="' + escapeHtml(person.name) + '" aria-label="' + escapeHtml(person.name) + '">' + escapeHtml(person.initials) + '</span>';
+                }).join('');
+                return {
+                    count: people.length,
+                    label: people.length ? (people.length + ' прораб' + (people.length > 1 ? 'а' : '')) : 'Прорабы не назначены',
+                    avatars: preview || '<span class="project-avatar-chip is-empty" aria-hidden="true">+</span>'
+                };
+            }
             if (!projects.length) {
-                safeReplaceChildren(root, '<div class="muted">\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043e\u0431\u044a\u0435\u043a\u0442\u043e\u0432 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442.</div>');
+                safeReplaceChildren(root, '<div class="projects-empty-state muted">\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043e\u0431\u044a\u0435\u043a\u0442\u043e\u0432 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442.</div>');
+                if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
                 return;
             }
             var sortedProjects = projects.slice().sort(function (left, right) {
@@ -9535,34 +10399,67 @@ function renderLogsDayView(project, logs) {
             criticalItems.forEach(function (item) {
                 criticalByProject[item.projectId] = (criticalByProject[item.projectId] || 0) + 1;
             });
-            safeReplaceChildren(root, sortedProjects.map(function (project) {
+            safeReplaceChildren(root, '<div class="projects-card-grid">' + sortedProjects.map(function (project) {
                 project = project || {};
                 var progress = percent(project.progress);
                 var criticalCount = criticalByProject[project.id] || 0;
                 var completed = isCompletedProject(project);
-                var riskBadge = (!completed && criticalCount) ? '<span class="badge danger">\u041d\u0435\u0445\u0432\u0430\u0442\u043a\u0438: ' + criticalCount + '</span>' : '';
-                var statusBadge = completed ? '<span class="badge success">\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043d</span>' : '<span class="badge">' + escapeHtml(project.status || '\u0412 \u0440\u0430\u0431\u043e\u0442\u0435') + '</span>';
+                var statusMeta = projectStatusMeta(project, completed);
+                var foremenMeta = projectForemenMeta(project);
+                var statusBadge = '<span class="project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>';
                 var editButton = isAdminRole()
-                    ? '<button class="project-card-menu" type="button" aria-label="\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442" data-project-edit="' + escapeHtml(project.id || '') + '">&#8942;</button>'
+                    ? '<button class="project-card-menu" type="button" aria-label="\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442" data-project-edit="' + escapeHtml(project.id || '') + '"><i data-lucide="ellipsis"></i></button>'
+                    : '';
+                var riskBadge = (!completed && criticalCount)
+                    ? '<span class="project-inline-note is-danger"><i data-lucide="triangle-alert"></i><span>Нехватки: ' + escapeHtml(String(criticalCount)) + '</span></span>'
+                    : '';
+                var deadlineText = project.started_at || project.deadline_at
+                    ? escapeHtml((project.started_at ? formatDisplayDate(project.started_at) : 'Без старта') + ' - ' + (project.deadline_at ? formatDisplayDate(project.deadline_at) : 'Без дедлайна'))
+                    : 'Сроки не указаны';
+                var financeQuickAction = canSeeFinances()
+                    ? '<button class="project-quick-action" type="button" data-project-quick-tab="finance" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Финансы"><i data-lucide="wallet"></i></button>'
                     : '';
                 return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + escapeHtml(project.id || '') + '">' +
-                    '<div class="project-top">' +
-                        '<div><h3>' + escapeHtml(project.title || '\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f') + '</h3><p>' + escapeHtml(project.address || '\u0410\u0434\u0440\u0435\u0441 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</p></div>' +
-                        '<div class="project-card-tools"><div class="project-badges">' + statusBadge + riskBadge + '</div>' + editButton + '</div>' +
+                    '<div class="project-card-shell">' +
+                        '<div class="project-card-headline">' +
+                            '<div class="project-card-icon" aria-hidden="true"><i data-lucide="' + (completed ? 'folder-git-2' : 'building-2') + '"></i></div>' +
+                            '<div class="project-card-heading">' +
+                                '<h3>' + escapeHtml(project.title || '\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f') + '</h3>' +
+                                '<p>' + escapeHtml(project.client_name || 'Заказчик не указан') + '</p>' +
+                            '</div>' +
+                            '<div class="project-card-tools"><div class="project-badges">' + statusBadge + '</div>' + editButton + '</div>' +
+                        '</div>' +
+                        '<div class="project-card-meta">' +
+                            '<div class="project-meta-row">' +
+                                '<span class="project-meta-icon" aria-hidden="true"><i data-lucide="map-pin"></i></span>' +
+                                '<span class="project-meta-text" title="' + escapeHtml(project.address || 'Адрес не указан') + '">' + escapeHtml(project.address || 'Адрес не указан') + '</span>' +
+                            '</div>' +
+                            '<div class="project-meta-row">' +
+                                '<span class="project-meta-icon" aria-hidden="true"><i data-lucide="users"></i></span>' +
+                                '<div class="project-foremen-line"><div class="project-avatar-stack">' + foremenMeta.avatars + '</div><span class="project-meta-text">' + escapeHtml(foremenMeta.label) + '</span></div>' +
+                            '</div>' +
+                            '<div class="project-meta-row">' +
+                                '<span class="project-meta-icon" aria-hidden="true"><i data-lucide="calendar"></i></span>' +
+                                '<span class="project-meta-text">' + deadlineText + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="project-card-progress">' +
+                            '<div class="project-progress-label"><strong>' + escapeHtml(String(progress)) + '% выполнено</strong>' + riskBadge + '</div>' +
+                            '<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:' + progress + '%"></span></div>' +
+                        '</div>' +
+                        '<div class="project-card-actions">' +
+                            '<button class="project-quick-action" type="button" data-project-quick-tab="materials" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Материалы"><i data-lucide="boxes"></i></button>' +
+                            '<button class="project-quick-action" type="button" data-project-quick-tab="tasks" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Задачи"><i data-lucide="kanban-square"></i></button>' +
+                            financeQuickAction +
+                        '</div>' +
                     '</div>' +
-                    '<div class="meta-grid">' +
-                        '<div><span>\u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a</span><strong>' + escapeHtml(project.client_name || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</strong></div>' +
-                        '<div><span>\u0411\u044e\u0434\u0436\u0435\u0442</span><strong>' + escapeHtml(project.budget == null ? '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d' : money(project.budget)) + '</strong></div>' +
-                        '<div><span>\u0414\u0435\u0434\u043b\u0430\u0439\u043d</span><strong>' + escapeHtml(project.deadline_at || '\u2014') + '</strong></div>' +
-                    '</div>' +
-                    renderStrongProgress(progress, '\u041f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u043e\u0431\u044a\u0435\u043a\u0442\u0430', false) +
                 '</article>';
-            }).join(''));
+            }).join('') + '</div>');
             qsa('[data-project-id]', root).forEach(function (card) {
                 if (card.dataset.projectCardBound === '1') return;
                 card.dataset.projectCardBound = '1';
                 card.addEventListener('click', function (event) {
-                    if (event.target && event.target.closest('[data-project-edit]')) return;
+                    if (event.target && event.target.closest('[data-project-edit], [data-project-quick-tab]')) return;
                     openProject(Number(card.dataset.projectId));
                 });
             });
@@ -9575,6 +10472,21 @@ function renderLogsDayView(project, logs) {
                     openProjectEdit(Number(button.dataset.projectEdit));
                 });
             });
+            qsa('[data-project-quick-tab]', root).forEach(function (button) {
+                if (button.dataset.projectQuickBound === '1') return;
+                button.dataset.projectQuickBound = '1';
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var projectId = Number(button.dataset.projectId || 0);
+                    var tab = button.dataset.projectQuickTab || 'overview';
+                    if (!projectId) return;
+                    openProject(projectId);
+                    if (tab === 'finance' && !canSeeFinances()) return;
+                    activateProjectTab(tab);
+                });
+            });
+            if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
         } catch (error) {
             console.error('renderProjectList failed', error);
             safeReplaceChildren(root, '<div class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u0440\u0438\u0441\u043e\u0432\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442\u044b.</div>');
@@ -9788,10 +10700,6 @@ function renderLogsDayView(project, logs) {
         (visibleEstimateWorks.length || visibleWorkStages.length ? '<div class="estimate-section-list">' + order.map(function (title, index) {
             var group = groups[title];
             var workProgress = workProgressForRows(projectId, title, group.estimateRows);
-            var sectionMaterialProgress = materialProgress(projectId, items.filter(function (item) {
-                return String(item.itemKind || item.item_kind || 'material').toLowerCase() !== 'work'
-                    && progressSectionId(item.sectionTitle || item.stageTitle) === progressSectionId(title);
-            }));
             var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
             var open = isEstimateSectionOpen(projectId, 'works', title, index);
             var head = renderEstimateAccordionHead(
@@ -9802,7 +10710,7 @@ function renderLogsDayView(project, logs) {
                 renderBulkSectionCheckbox(projectId, title, 'works', workProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : ''),
                 scheduleMeta.html + renderInlineMarketButton(projectId, 'works', 'inline-market-section') + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length) + ' \u043f\u043e\u0437.') + '</span>',
                 '',
-                sectionProgressStrip(workProgress, sectionMaterialProgress, title)
+                sectionProgressStrip(workProgress, { total: 0, done: 0, percent: 0 }, title)
             );
             return '<section class="estimate-section estimate-section-card estimate-section-collapsible work-section-card' + scheduleMeta.className + (open ? ' is-open' : '') + '">' +
                 head +
@@ -9864,7 +10772,10 @@ function renderLogsDayView(project, logs) {
             }, 80);
         }
         if (titleNode) titleNode.textContent = project.title || '\u041e\u0442\u043a\u0440\u044b\u0442\u044b\u0439 \u043e\u0431\u044a\u0435\u043a\u0442';
-        if (overviewPanel) safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
+        if (overviewPanel) {
+            safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
+            refreshLucideIcons(overviewPanel);
+        }
         if (materialsPanel) safeReplaceChildren(materialsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b...</p>');
         if (worksPanel) safeReplaceChildren(worksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0440\u0430\u0431\u043e\u0442\u044b...</p>');
         renderScheduleNow(state.stagesByProject[project.id] || []);
@@ -9924,7 +10835,7 @@ function renderLogsDayView(project, logs) {
         var actions = [
             '<button class="ghost" type="button" data-project-tab-target="materials">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</button>',
             '<button class="ghost" type="button" data-project-tab-target="works">\u0420\u0430\u0431\u043e\u0442\u044b</button>',
-            '<button class="ghost" type="button" data-project-tab-target="schedule">\u0413\u0440\u0430\u0444\u0438\u043a \u0440\u0430\u0431\u043e\u0442</button>',
+            '<button class="ghost" type="button" data-project-tab-target="schedule">\u0413\u0440\u0430\u0444\u0438\u043a</button>',
             '<button class="ghost" type="button" data-project-tab-target="reports">\u041e\u0442\u0447\u0435\u0442\u044b</button>',
             '<button class="ghost" type="button" data-project-tab-target="tasks">\u0417\u0430\u0434\u0430\u0447\u0438</button>',
             '<button class="ghost" type="button" data-project-tab-target="documents">\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b</button>',
@@ -10101,7 +11012,7 @@ function renderLogsDayView(project, logs) {
             '</section>' +
             '<section class="subsection">' +
                 '<div class="card-head"><div><h3>Архив отчетов</h3><span class="muted">Все сохраненные отчеты по объекту в одном месте.</span></div></div>' +
-                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Загружаем архив</b><span>Собираем сохраненные отчеты.</span></div></div>' +
+                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Архив отчетов</b><span>Сохраненные отчеты появятся здесь.</span></div></div>' +
             '</section>' +
         '</div>';
     };
@@ -10420,13 +11331,25 @@ function renderLogsDayView(project, logs) {
         '</span>';
     }
 
+    function sectionProgressLine(kind, label, progress, sectionId) {
+        progress = progress || { total: 0, done: 0, percent: 0 };
+        var total = Number(progress.total || 0);
+        var done = Number(progress.done || 0);
+        var percentValue = total ? percent(progress.percent != null ? progress.percent : Math.round((done / total) * 100)) : 0;
+        return '<div class="estimate-section-progress-line estimate-section-progress-line-' + escapeHtml(kind) + '" data-progress-section-id="' + escapeHtml(progressSectionId(sectionId)) + '" data-section-progress="' + escapeHtml(progressSectionId(sectionId)) + '" data-section-progress-kind="' + escapeHtml(kind) + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percentValue + '">' +
+            '<div class="estimate-section-progress-line-head"><strong>' + escapeHtml(label) + '</strong><span data-progress-count>' + escapeHtml(total ? (String(done) + ' \u0438\u0437 ' + String(total)) : '\u041f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442') + '</span></div>' +
+            '<div class="section-schedule-progress-bar"><span style="width:' + percentValue + '%"></span><b class="section-schedule-progress-value" data-progress-text>' + escapeHtml(String(percentValue)) + '%</b></div>' +
+        '</div>';
+    }
+
     function sectionProgressStrip(workProgress, materialProgressValue, sectionId) {
-        var total = workProgress.total + materialProgressValue.total;
-        var done = workProgress.done + materialProgressValue.done;
-        var percentValue = total ? Math.round((done / total) * 100) : 0;
-        return '<div class="estimate-section-progress-strip" data-progress-section-id="' + escapeHtml(progressSectionId(sectionId)) + '" data-section-progress="' + escapeHtml(progressSectionId(sectionId)) + '">' +
-            '<div class="section-schedule-progress-bar"><span style="width:' + percentValue + '%"></span></div>' +
-            '<span data-progress-text>' + escapeHtml(total ? (String(done) + ' \u0438\u0437 ' + String(total) + ' \u0437\u0430\u043a\u0440\u044b\u0442\u043e') : '\u041f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442') + '</span>' +
+        workProgress = workProgress || { total: 0, done: 0, percent: 0 };
+        materialProgressValue = materialProgressValue || { total: 0, done: 0, percent: 0 };
+        var lines = [];
+        if (materialProgressValue.total || !workProgress.total) lines.push(sectionProgressLine('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue, sectionId));
+        if (workProgress.total || !materialProgressValue.total) lines.push(sectionProgressLine('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress, sectionId));
+        return '<div class="estimate-section-progress-strip estimate-section-progress-split" data-progress-split-section="' + escapeHtml(progressSectionId(sectionId)) + '">' +
+            lines.join('') +
         '</div>';
     }
 
@@ -10560,6 +11483,21 @@ function renderLogsDayView(project, logs) {
         bindProjectChainActions();
         bindSectionScheduleRefresh(projectId);
         syncBulkSectionChecks();
+    }
+
+    function refreshSelectedProjectProgressViews(projectId) {
+        if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+        rerenderProjectMaterialAndWorkViews(projectId);
+        var schedulePanel = qs('[data-panel="schedule"]');
+        if (schedulePanel) {
+            safeReplaceChildren(schedulePanel, renderSchedulePanel(state.stagesByProject[projectId] || [], state.selectedProject));
+            bindAutoScheduleForm(projectId);
+            bindScheduleStatusActions(projectId);
+            bindSectionScheduleRefresh(projectId);
+            bindSectionScheduleInteractions(projectId);
+            bindActualQuantityInputs(projectId);
+            loadSelectedProjectMaterialSchedule(false);
+        }
     }
 
     function bindMaterialManualChecks(projectId) {
@@ -10840,7 +11778,7 @@ function renderLogsDayView(project, logs) {
                 '</div>' +
                 '<section class="subsection report-archive-panel report-daily-timeline">' +
                     '<div class="card-head report-timeline-head"><div><h3>Предыдущие отчеты</h3><span class="muted">Лента суточных рапортов прорабов по объекту.</span></div></div>' +
-                    '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Загружаем архив</b><span>Собираем сохраненные отчеты.</span></div></div>' +
+                    '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Архив отчетов</b><span>Сохраненные отчеты появятся здесь.</span></div></div>' +
                 '</section>' +
                 (canCreateProjectReport() ? '<div class="report-day-view-hidden" data-logs-day-view></div>' : '') +
             '</section>' +
@@ -11912,7 +12850,7 @@ function renderLogsDayView(project, logs) {
         count.textContent = String(Math.min(99, items.length));
         if (subtitle) subtitle.textContent = loading ? 'Проверяем объекты...' : (items.length ? String(items.length) + ' активных напоминаний' : 'Сейчас ничего не горит');
         if (loading) {
-            list.innerHTML = '<div class="reminder-empty">Загружаем напоминания...</div>';
+            list.innerHTML = '<div class="reminder-empty"></div>';
             return;
         }
         if (!items.length) {
@@ -12426,12 +13364,13 @@ function renderLogsDayView(project, logs) {
     function updateBulkSectionCheckState(scope) {
         if (!scope) return;
         var bulk = qs('[data-bulk-section-check]', scope);
-        if (!bulk) return;
         var children = qsa('[data-section-material-check], [data-section-work-check]', scope).filter(function (input) {
             return !input.hasAttribute('data-bulk-section-check');
         });
-        bulk.checked = !!(children.length && children.every(function (input) { return input.checked; }));
-        bulk.indeterminate = !!(children.length && !bulk.checked && children.some(function (input) { return input.checked; }));
+        if (bulk) {
+            bulk.checked = !!(children.length && children.every(function (input) { return input.checked; }));
+            bulk.indeterminate = !!(children.length && !bulk.checked && children.some(function (input) { return input.checked; }));
+        }
         updateRenderedSectionProgressFromDom(scope, children);
     }
 
@@ -12440,10 +13379,22 @@ function renderLogsDayView(project, logs) {
         children = children || qsa('[data-section-material-check], [data-section-work-check]', scope).filter(function (input) {
             return !input.hasAttribute('data-bulk-section-check');
         });
+        qsa('[data-section-progress-kind]', scope).forEach(function (node) {
+            var kind = node.getAttribute('data-section-progress-kind') || '';
+            var group = children.filter(function (input) {
+                return kind === 'material' ? input.hasAttribute('data-section-material-check') : input.hasAttribute('data-section-work-check');
+            });
+            var kindDone = group.filter(function (input) { return input.checked; }).length;
+            var kindPercent = group.length ? Math.round((kindDone / group.length) * 100) : 0;
+            updateProgressNode(node, kindPercent, kindPercent + '%');
+            node.setAttribute('aria-valuenow', String(kindPercent));
+            var count = qs('[data-progress-count]', node);
+            if (count) count.textContent = group.length ? (String(kindDone) + ' РёР· ' + String(group.length)) : 'РџРѕР·РёС†РёР№ РЅРµС‚';
+        });
         var total = children.length;
         var done = children.filter(function (input) { return input.checked; }).length;
         var nextPercent = total ? Math.round((done / total) * 100) : 0;
-        qsa('[data-section-progress], [data-progress-section-id]', scope).forEach(function (node) {
+        qsa('[data-section-progress]:not([data-section-progress-kind]), [data-progress-section-id]:not([data-section-progress-kind])', scope).forEach(function (node) {
             updateProgressNode(node, nextPercent, nextPercent + '%');
             node.setAttribute('aria-valuenow', String(nextPercent));
         });
@@ -12507,14 +13458,7 @@ function renderLogsDayView(project, logs) {
         return withSubmitLock(input, function () {
             return bulkCompleteSectionProgress(projectId, sectionTitle, checked, itemIds).then(function () {
                 if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                    rerenderProjectMaterialAndWorkViews(projectId);
-                    rerenderProjectWorkProgress(projectId);
-                    var schedulePanel = qs('[data-panel="schedule"]');
-                    if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(state.stagesByProject[projectId] || [], state.selectedProject));
-                    bindAutoScheduleForm(projectId);
-                    bindScheduleStatusActions(projectId);
-                    bindSectionScheduleRefresh(projectId);
-                    loadSelectedProjectMaterialSchedule(true);
+                    refreshSelectedProjectProgressViews(projectId);
                 }
             });
         }).catch(function (error) {
@@ -12547,7 +13491,9 @@ function renderLogsDayView(project, logs) {
                 unit: item.unit,
                 actualQty: value,
                 completed: Number(value || 0) >= quantityPlanInfo(item).totalQty
-            }, input.getAttribute('data-section-title') || '');
+            }, input.getAttribute('data-section-title') || '').then(function () {
+                refreshSelectedProjectProgressViews(projectId);
+            });
         }
         updateBulkSectionCheckState(sectionBulkScope(input));
         if (input.getAttribute('data-actual-kind') === 'material') {
@@ -12606,6 +13552,7 @@ function renderLogsDayView(project, logs) {
                 updateManualCheckboxDom(input, checked);
                 updateBulkSectionCheckState(sectionBulkScope(input));
                 if (materialId) updateMaterialScheduleItemDom(materialId, checked);
+                refreshSelectedProjectProgressViews(projectId);
             });
         }).catch(function () {
             input.checked = !checked;
@@ -12887,6 +13834,10 @@ function renderLogsDayView(project, logs) {
         var notifications = details.notifications || null;
         var materials = Array.isArray(details.materials) ? details.materials : [];
         var tasks = Array.isArray(details.tasks) ? details.tasks : [];
+        var topBar = '<section class="schedule-project-topbar">' +
+            '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
+            (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '">⚙️ Автоплан графика</button>' : '') +
+        '</section>';
         var objectInfo = '<section class="schedule-object-info">' +
             dataItem('Заказчик', project.client_name || 'Не указан') +
             dataItem('Адрес', project.address || 'Не указан') +
@@ -12895,7 +13846,8 @@ function renderLogsDayView(project, logs) {
             dataItem('Старт', project.started_at || '-') +
             dataItem('Дедлайн', project.deadline_at || '-') +
         '</section>';
-        return objectInfo +
+        return topBar +
+            objectInfo +
             renderSectionScheduleForecast(project) +
             renderScheduleActionCenter(project, stages, notifications, materials, tasks) +
             renderScheduleCalendar(project, stages) +
@@ -12919,7 +13871,7 @@ function renderLogsDayView(project, logs) {
             '</button>' +
             renderScheduleProjectObjectSummary(project, details) +
             '<div class="schedule-project-body' + (open ? ' is-open' : '') + '" data-schedule-project-body="' + escapeHtml(project.id) + '" aria-hidden="' + (open ? 'false' : 'true') + '">' +
-                (details ? renderScheduleProjectDetails(project, details) : (open ? '<div class="section-schedule-empty">Загружаем данные объекта...</div>' : '')) +
+                (details ? renderScheduleProjectDetails(project, details) : (open ? '<div class="section-schedule-empty"></div>' : '')) +
             '</div>' +
         '</section>';
     }
@@ -12935,7 +13887,7 @@ function renderLogsDayView(project, logs) {
         if (state.scheduleProjectLoadingByProject[String(projectId)]) return;
         state.scheduleProjectLoadingByProject[String(projectId)] = true;
         var body = scheduleProjectBody(projectId);
-        if (body) body.innerHTML = '<div class="section-schedule-empty">Загружаем данные объекта...</div>';
+        if (body) body.innerHTML = '<div class="section-schedule-empty"></div>';
         Promise.all([
             api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; }),
             api('/api/projects/' + projectId + '/notifications').catch(function () { return null; }),
@@ -13078,7 +14030,7 @@ function renderLogsDayView(project, logs) {
                     body.classList.toggle('is-open', nextOpen);
                     body.setAttribute('aria-hidden', nextOpen ? 'false' : 'true');
                     if (nextOpen && !scheduleProjectDetails(projectId)) {
-                        body.innerHTML = '<div class="section-schedule-empty">Загружаем данные объекта...</div>';
+                        body.innerHTML = '<div class="section-schedule-empty"></div>';
                     }
                 }
                 if (chevron) chevron.textContent = nextOpen ? '-' : '+';
@@ -13961,7 +14913,7 @@ function renderLogsDayView(project, logs) {
         if (!projectId || hasRole('customer')) return '';
         var schedule = materialScheduleForProject(projectId);
         if (!schedule) {
-            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Загружаем закупочные дедлайны...</span></div></div><div class="section-schedule-empty">Собираем даты материалов.</div></section>';
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty"></div></section>';
         }
         if (schedule.error) {
             return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
@@ -14024,6 +14976,15 @@ function renderLogsDayView(project, logs) {
         return String(iso || APP_TODAY).slice(0, 7) + '-01';
     }
 
+    function isoMonthAdd(iso, months) {
+        var start = isoMonthStart(iso);
+        var year = Number(start.slice(0, 4));
+        var month = Number(start.slice(5, 7));
+        if (!Number.isFinite(year) || !Number.isFinite(month)) return isoMonthStart(APP_TODAY);
+        var date = new Date(Date.UTC(year, month - 1 + Number(months || 0), 1));
+        return date.toISOString().slice(0, 10);
+    }
+
     function isoWeekStart(iso) {
         var base = Date.parse(String(iso || APP_TODAY) + 'T00:00:00Z');
         if (Number.isNaN(base)) return APP_TODAY;
@@ -14067,8 +15028,10 @@ function renderLogsDayView(project, logs) {
 
     function materialCalendarMove(projectId, direction) {
         var view = materialScheduleView(projectId);
-        var step = view.mode === 'week' ? 7 : 32;
-        var next = materialScheduleSafeIsoAdd(view.cursor || APP_TODAY, direction * step) || APP_TODAY;
+        var normalizedDirection = direction < 0 ? -1 : 1;
+        var next = view.mode === 'week'
+            ? (materialScheduleSafeIsoAdd(isoWeekStart(view.cursor || APP_TODAY), normalizedDirection * 7) || APP_TODAY)
+            : isoMonthAdd(view.cursor || APP_TODAY, normalizedDirection);
         setMaterialScheduleView(projectId, { cursor: view.mode === 'week' ? isoWeekStart(next) : isoMonthStart(next) });
     }
 
@@ -14089,14 +15052,13 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderMaterialCalendarCard(item, compact) {
-        return '<button class="material-calendar-card ' + materialScheduleStatusClass(item) + (compact ? ' is-start' : '') + '" type="button" data-material-schedule-item data-project-id="' + escapeHtml(item.projectId || '') + '" data-material-id="' + escapeHtml(item.id || '') + '">' +
-            '<b>' + escapeHtml(materialScheduleQtyTitle(item)) + '</b>' +
-            '<span>' + escapeHtml(materialScheduleDayText(item)) + '</span>' +
-        '</button>';
+        return '<div class="material-calendar-card ' + materialScheduleStatusClass(item) + (compact ? ' is-start' : '') + '">' +
+            '<b>' + escapeHtml(item && item.title || '') + '</b>' +
+        '</div>';
     }
 
     function renderMaterialCalendarOverflow(count) {
-        return count > 0 ? '<span class="material-calendar-more">+' + escapeHtml(String(count)) + '</span>' : '';
+        return count > 0 ? '<div class="calendar-more-badge">+' + escapeHtml(String(count)) + ' еще</div>' : '';
     }
 
     function materialScheduleIsoDate(value) {
@@ -14133,6 +15095,13 @@ function renderLogsDayView(project, logs) {
         if (!Number.isFinite(warningDays)) warningDays = 5;
         warningDays = Math.max(0, Math.min(30, Math.round(warningDays)));
         return dateValue <= (materialScheduleSafeIsoAdd(APP_TODAY, warningDays) || APP_TODAY);
+    }
+
+    function materialScheduleNeedsCriticalPing(item, day) {
+        if (!materialScheduleIsUnbought(item)) return false;
+        var status = String(item && item.status || '').trim().toLowerCase();
+        var color = String(item && item.color || '').trim().toLowerCase();
+        return status === 'overdue' || status === 'warning' || color === 'red' || color === 'yellow';
     }
 
     function materialScheduleAlertIsoDate(value) {
@@ -14246,14 +15215,19 @@ function renderLogsDayView(project, logs) {
         var deadlineItems = model.deadlinesByDay[day] || [];
         var startItems = model.startsByDay[day] || [];
         var allItems = startItems.concat(deadlineItems);
+        var previewItems = allItems.slice(0, 2);
         var isOtherMonth = viewMode === 'month' && day.slice(0, 7) !== model.monthPrefix;
         var weekday = new Date(day + 'T00:00:00Z').getUTCDay();
         var isWeekend = weekday === 0 || weekday === 6;
-        var cls = 'material-calendar-day' + (day === APP_TODAY ? ' is-today' : '') + (isWeekend ? ' is-weekend' : '') + (isOtherMonth ? ' is-outside' : '') + (model.hasWindowByDay[day] ? ' has-window' : '') + (allItems.length ? ' has-materials' : '');
-        var countHtml = allItems.length ? '<span class="material-calendar-count">' + escapeHtml(String(allItems.length)) + '</span>' : '';
+        var hasCriticalPing = allItems.some(function (item) { return materialScheduleNeedsCriticalPing(item, day); });
+        var cls = 'material-calendar-day' + (day === APP_TODAY ? ' is-today' : '') + (isWeekend ? ' is-weekend' : '') + (isOtherMonth ? ' is-outside' : '') + (model.hasWindowByDay[day] ? ' has-window' : '') + (allItems.length ? ' has-materials' : '') + (hasCriticalPing ? ' has-critical-materials' : '');
+        var previewHtml = previewItems.length ? '<div class="material-calendar-preview">' +
+            previewItems.map(function (item) { return renderMaterialCalendarCard(item, true); }).join('') +
+            renderMaterialCalendarOverflow(allItems.length - previewItems.length) +
+        '</div>' : '';
         return '<div class="' + cls + '" data-material-calendar-day="' + escapeHtml(day) + '" data-project-id="' + escapeHtml(projectId) + '">' +
-            '<div class="material-calendar-date"><b class="' + (day === APP_TODAY ? 'is-today' : '') + '">' + escapeHtml(String(Number(day.slice(8, 10)))) + '</b><span>' + escapeHtml(formatDisplayDate(day)) + '</span></div>' +
-            countHtml +
+            '<div class="material-calendar-date"><b class="calendar-day-number ' + (day === APP_TODAY ? 'is-today' : '') + '">' + escapeHtml(String(Number(day.slice(8, 10)))) + '</b><span>' + escapeHtml(formatDisplayDate(day)) + '</span></div>' +
+            previewHtml +
         '</div>';
     }
 
@@ -14261,7 +15235,7 @@ function renderLogsDayView(project, logs) {
         if (!projectId || hasRole('customer')) return '';
         var schedule = materialScheduleForProject(projectId);
         if (!schedule) {
-            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Загружаем закупочные дедлайны...</span></div></div><div class="section-schedule-empty">Собираем даты материалов.</div></section>';
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty"></div></section>';
         }
         if (schedule.error) {
             return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
@@ -14281,7 +15255,7 @@ function renderLogsDayView(project, logs) {
         var toggleMode = view.mode === 'week' ? 'month' : 'week';
         var toggleText = view.mode === 'week' ? '↕ Развернуть в месяц' : '↕ Свернуть в неделю';
         return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
-            '<div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Материал стоит в день дедлайна на объекте. Метка оплаты считается как дедлайн минус срок доставки.</span></div></div>' +
+            '<div class="card-head"><div><h3>Календарь закупок</h3></div></div>' +
             '<div class="execution-summary material-schedule-summary">' +
                 stat('Всего', String(summary.total || items.length)) +
                 stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
@@ -14976,7 +15950,7 @@ function renderLogsDayView(project, logs) {
     renderWarehousePage = function () {
         var root = qs('[data-warehouse-summary]');
         if (!root) return;
-        root.innerHTML = '<p class="muted">Загружаем склад...</p>';
+        root.innerHTML = '';
         loadWarehouseCatalog(function (items) {
             populateWarehouseCategories(items);
             renderWarehouseStats(items);
@@ -15310,7 +16284,7 @@ function renderLogsDayView(project, logs) {
         var materialSelect = qs('[data-warehouse-return-materials]');
         if (!form || !materialSelect) return;
         materialSelect.disabled = true;
-        materialSelect.innerHTML = '<option value="">Загружаем позиции...</option>';
+        materialSelect.innerHTML = '<option value="">Выбери объект</option>';
         if (form.qty) {
             form.qty.value = '';
             form.qty.disabled = true;
@@ -15930,14 +16904,18 @@ function renderLogsDayView(project, logs) {
                 '</button>' +
                 '<div class="topbar-profile-wrap">' +
                     '<button class="topbar-profile" type="button" data-user-toggle aria-expanded="false" aria-label="Открыть личный кабинет" title="Личный кабинет">' +
-                        '<span class="topbar-avatar" aria-hidden="true"><i data-lucide="user-round"></i></span>' +
+                        userAvatarMarkup(state.currentUser || state.user || {}, 'topbar-avatar') +
                         '<i data-lucide="chevron-down" aria-hidden="true"></i>' +
                     '</button>' +
                     '<div class="user-popover" data-user-popover hidden>' +
                         '<div class="user-popover-head">' +
-                            '<strong data-current-user>Загрузка...</strong>' +
+                            '<strong data-current-user>Профиль</strong>' +
                             '<span data-current-role>Роль</span>' +
                         '</div>' +
+                        '<button class="topbar-profile-menu-item" type="button" data-profile-open>' +
+                            '<i data-lucide="user-cog" aria-hidden="true"></i>' +
+                            '<span>👤 Личный кабинет</span>' +
+                        '</button>' +
                         '<button class="topbar-logout" type="button" data-logout aria-label="Выйти" title="Выйти">' +
                             '<i data-lucide="log-out" aria-hidden="true"></i>' +
                             '<span>Выйти</span>' +
@@ -15964,6 +16942,443 @@ function renderLogsDayView(project, logs) {
     initShell = function () {
         renderAppTopbar();
         baseInitShellForTopbarPolish();
+    };
+
+    var baseEnsureProjectReportDrawerUx = ensureProjectReportDrawer;
+    ensureProjectReportDrawer = function () {
+        var drawer = baseEnsureProjectReportDrawerUx();
+        if (drawer) {
+            drawer.classList.add('reports-drawer-frame');
+            var backdrop = qs('.side-drawer-backdrop', drawer);
+            var panel = qs('.side-drawer-panel', drawer);
+            if (backdrop) backdrop.classList.add('drawer-overlay');
+            if (panel) panel.classList.add('reports-drawer-panel');
+        }
+        return drawer;
+    };
+
+    renderProjectReportsPanel = function (project) {
+        return '<div class="project-reports-shell">' +
+            '<section class="subsection report-calendar-top report-calendar-compact">' +
+                '<div class="card-head report-page-head"><div><h3>Отчеты</h3><span class="muted">Суточные рапорты прорабов по объекту.</span></div>' +
+                    (canCreateProjectReport() ? '<button class="primary compact report-create-button" type="button" data-open-project-report-create><i data-lucide="plus-circle"></i><span>Написать отчет</span></button>' : '') +
+                '</div>' +
+                '<section class="stats-grid" data-logs-stats></section>' +
+                '<div data-logs-alerts></div>' +
+                '<div data-logs-calendar></div>' +
+            '</section>' +
+            '<section class="project-reports-grid report-daily-layout report-daily-layout-full">' +
+                '<section class="subsection report-archive-panel report-daily-timeline">' +
+                    '<div class="card-head report-timeline-head"><div><h3>Прошедшие отчеты</h3><span class="muted">Аккуратная лента суточных рапортов по объекту.</span></div></div>' +
+                    '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Архив отчетов</b><span>Сохраненные отчеты появятся здесь.</span></div></div>' +
+                '</section>' +
+                (canCreateProjectReport() ? '<div class="report-day-view-hidden" data-logs-day-view></div>' : '') +
+            '</section>' +
+            (canCreateProjectReport() ? '<div class="reports-drawer-host" data-project-report-create-card hidden>' + renderProjectReportForm(project) + '</div>' : '') +
+        '</div>';
+    };
+
+    renderProjectReportForm = function (project) {
+        if (!canCreateProjectReport()) return '';
+        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || APP_TODAY;
+        return '<section class="subsection report-intake-card report-chat-intake report-daily-form-card reports-drawer">' +
+            '<div class="report-drawer-caption">Суточный рапорт</div>' +
+            '<div class="card-head report-form-head"><div><h3>Новый отчет</h3><span class="muted">Коротко зафиксируйте факт работ, закупки и важные замечания по объекту.</span></div></div>' +
+            '<form class="project-form report-intake-form report-chat-form report-chat-simple-form report-daily-form" data-log-form>' +
+                '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
+                '<input type="hidden" name="title" value="">' +
+                '<input type="hidden" name="workers_count" value="0">' +
+                '<input type="hidden" name="progress_percent" value="">' +
+                '<input type="hidden" name="is_client_visible" value="1">' +
+                '<input type="hidden" name="equipment" value="">' +
+                '<input type="hidden" name="blockers" value="">' +
+                '<input type="hidden" name="next_steps" value="">' +
+                '<div class="report-chat-header report-chat-header-compact">' +
+                    '<label><span>Дата</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
+                '</div>' +
+                '<label class="report-chat-inputbox report-daily-textarea-field">' +
+                    '<span>Что сделали сегодня</span>' +
+                    '<textarea name="raw_input" rows="5" required placeholder="Например: демонтировали стены полностью, поставили розетки наполовину, купили все розетки."></textarea>' +
+                '</label>' +
+                '<label class="report-generated-box report-daily-generated-field">' +
+                    '<span>Текст отчета</span>' +
+                    '<textarea name="work_done" rows="4" readonly required tabindex="-1" placeholder="Готовый текст появится автоматически после ввода."></textarea>' +
+                '</label>' +
+                '<div class="assistant-confirm-card report-confirm-card">' +
+                    '<b>Что применится после сохранения</b>' +
+                    '<div data-report-preview></div>' +
+                    '<label class="report-confirm"><span>Подтверждаю сохранение отчета и применение изменений</span><input type="checkbox" name="confirm_report" required></label>' +
+                '</div>' +
+                '<div class="form-error" data-log-error></div>' +
+                '<div class="report-intake-actions">' +
+                    '<button class="primary report-submit-button" type="submit">Отправить отчет</button>' +
+                '</div>' +
+            '</form>' +
+        '</section>';
+    };
+
+    renderLogsList = function (project, logs) {
+        var root = qs('[data-logs-list]');
+        if (!root) return;
+        logs = Array.isArray(logs) ? logs : [];
+        if (!logs.length) {
+            safeReplaceChildren(root, '<div class="report-archive-empty"><b>Отчетов пока нет</b><span>По объекту "' + escapeHtml(project && project.title ? project.title : 'Объект') + '" еще нет сохраненных суточных рапортов.</span></div>');
+            if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+            return;
+        }
+        safeReplaceChildren(root, '<div class="report-archive-list">' + logs.map(function (log) {
+            var authorName = log.author_name || 'Без автора';
+            var status = reportLogStatus(log);
+            var reportDateLabel = finalGraphDate(log.report_date || APP_TODAY);
+            return '<article class="report-archive-card report-timeline-card log-card is-' + escapeHtml(status.kind) + (status.kind === 'danger' ? ' is-danger' : '') + '">' +
+                '<div class="report-timeline-card-top">' +
+                    '<div class="report-date-badge"><i data-lucide="calendar"></i><strong>Отчет за ' + escapeHtml(reportDateLabel) + '</strong></div>' +
+                    '<div class="report-timeline-meta">' +
+                        '<time>' + escapeHtml(reportCreatedDateTime(log)) + '</time>' +
+                        '<span class="badge ' + (status.kind === 'danger' ? 'danger' : 'success') + '">' + escapeHtml(status.label) + '</span>' +
+                        renderProjectReportDeleteButton(project && project.id, log, true) +
+                    '</div>' +
+                '</div>' +
+                '<div class="report-timeline-card-body">' +
+                    '<div class="report-author-block report-author-column">' +
+                        '<span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span>' +
+                        '<div><small>Прораб</small><strong>' + escapeHtml(authorName) + '</strong></div>' +
+                    '</div>' +
+                    '<div class="report-timeline-content">' +
+                        '<p>' + escapeHtml(log.work_done || 'Текст отчета не указан') + '</p>' +
+                        '<div class="log-details">' +
+                            (log.equipment ? '<div><span>Техника</span><strong>' + escapeHtml(log.equipment) + '</strong></div>' : '') +
+                            (log.blockers ? '<div class="log-risk"><span>Блокер</span><strong>' + escapeHtml(log.blockers) + '</strong></div>' : '') +
+                            (log.next_steps ? '<div><span>Дальше</span><strong>' + escapeHtml(log.next_steps) + '</strong></div>' : '') +
+                        '</div>' +
+                        (log.raw_input ? '<small class="muted">Исходный ввод: ' + escapeHtml(log.raw_input) + '</small>' : '') +
+                    '</div>' +
+                '</div>' +
+            '</article>';
+        }).join('') + '</div>');
+        bindProjectReportDeleteActions();
+        if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+    };
+
+    function projectOverviewMetaItemV2(label, value) {
+        return '<div class="project-overview-meta-item"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value || '—') + '</strong></div>';
+    }
+
+    function projectOverviewCompactTextV2(value, maxLength) {
+        var text = String(value || '').trim().replace(/\s+/g, ' ');
+        var limit = Number(maxLength) || 96;
+        if (!text) return '';
+        if (text.length <= limit) return text;
+        return text.slice(0, Math.max(0, limit - 1)).trim() + '…';
+    }
+
+    function projectOverviewMetricV2(label, value, icon, note, contentHtml, className) {
+        return '<article class="project-overview-widget ui-card' + (className ? (' ' + className) : '') + '">' +
+            '<div class="project-overview-widget-head">' +
+                '<span class="project-overview-widget-label">' + escapeHtml(label) + '</span>' +
+                '<span class="project-overview-widget-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(icon || 'circle') + '"></i></span>' +
+            '</div>' +
+            '<div class="project-overview-widget-value">' + escapeHtml(value || '0') + '</div>' +
+            (note ? '<div class="project-overview-widget-note">' + escapeHtml(note) + '</div>' : '') +
+            (contentHtml ? '<div class="project-overview-widget-body">' + contentHtml + '</div>' : '') +
+        '</article>';
+    }
+
+    function projectOverviewIsoDateV2(value) {
+        var raw = String(value || '').trim();
+        var match = raw.match(/^(\d{4})[-.](\d{2})[-.](\d{2})/);
+        return match ? (match[1] + '-' + match[2] + '-' + match[3]) : '';
+    }
+
+    function projectOverviewRelativeDateV2(value) {
+        var iso = projectOverviewIsoDateV2(value);
+        if (!iso) return 'Без даты';
+        var diff = signedDaysBetween(APP_TODAY, iso);
+        if (diff === 0) return 'Сегодня';
+        if (diff === -1) return 'Вчера';
+        if (diff === 1) return 'Завтра';
+        return formatDisplayDate(iso);
+    }
+
+    function projectOverviewDeadlineToneV2(value) {
+        var iso = projectOverviewIsoDateV2(value);
+        var diff = iso ? signedDaysBetween(APP_TODAY, iso) : null;
+        if (diff == null) return '';
+        if (diff < 0) return 'danger';
+        if (diff <= 2) return 'warn';
+        return '';
+    }
+
+    function projectOverviewDeadlineHintV2(value) {
+        var iso = projectOverviewIsoDateV2(value);
+        var diff = iso ? signedDaysBetween(APP_TODAY, iso) : null;
+        if (diff == null) return 'Без срока';
+        if (diff < 0) return 'Просрочено на ' + Math.abs(diff) + ' дн.';
+        if (diff === 0) return 'Срок сегодня';
+        if (diff <= 5) return 'Осталось ' + diff + ' дн.';
+        return 'Запланировано';
+    }
+
+    function projectOverviewWidgetProgressV2(progress, doneStages, totalStages) {
+        var safeProgress = percent(progress);
+        var note = totalStages ? (String(doneStages) + ' из ' + String(totalStages) + ' этапов закрыто') : 'Этапы ещё формируются';
+        return projectOverviewMetricV2(
+            'Прогресс этапа',
+            safeProgress + '%',
+            'activity',
+            note,
+            '<div class="project-overview-inline-stats">' +
+                '<span><b>' + escapeHtml(String(doneStages)) + '</b><small>готово</small></span>' +
+                '<span><b>' + escapeHtml(String(Math.max(0, totalStages - doneStages))) + '</b><small>в работе</small></span>' +
+            '</div>' +
+            '<div class="project-overview-widget-progress"><span style="width:' + safeProgress + '%"></span></div>',
+            'is-accent'
+        );
+    }
+
+    function projectOverviewWidgetSupplyV2(materials) {
+        var list = Array.isArray(materials) ? materials : [];
+        var onSite = 0;
+        var onRoute = 0;
+        var required = 0;
+        list.forEach(function (item) {
+            var status = String(item && item.supplyStatus || '');
+            if (status === 'in_stock') onSite += 1;
+            if (status === 'planned' || status === 'soon') onRoute += 1;
+            if (status === 'required') required += 1;
+        });
+        return projectOverviewMetricV2(
+            'Закупки / Склад',
+            String(onSite),
+            'boxes',
+            required ? ('Критично закрыть: ' + required) : 'Склад и поставки под контролем',
+            '<div class="project-overview-kpi-pairs">' +
+                '<div><span>На объекте</span><strong>' + escapeHtml(String(onSite)) + '</strong></div>' +
+                '<div><span>Едет</span><strong>' + escapeHtml(String(onRoute)) + '</strong></div>' +
+            '</div>'
+        );
+    }
+
+    function projectOverviewWidgetFinanceV2(project) {
+        var budget = Number(project && project.budget || 0);
+        var spent = Number(project && (project.spent != null ? project.spent : project.paid) || 0);
+        var margin = budget > 0 ? Math.round(((budget - spent) / budget) * 100) : 0;
+        return projectOverviewMetricV2(
+            'Финансы',
+            money(spent),
+            'trending-up',
+            budget > 0 ? ('Маржинальность ' + margin + '%') : 'Бюджет не заполнен',
+            '<div class="project-overview-kpi-pairs project-overview-finance-pairs">' +
+                '<div><span>Бюджет</span><strong>' + escapeHtml(money(budget)) + '</strong></div>' +
+                '<div><span>Маржа</span><strong>' + escapeHtml(String(margin)) + '%</strong></div>' +
+            '</div>',
+            isAdminRole() ? '' : 'hidden'
+        );
+    }
+
+    function projectOverviewWidgetControlV2(project, tasks, logs) {
+        var activeTasks = (tasks || []).filter(function (task) { return task.status !== 'done'; }).length;
+        var latestLog = logs && logs.length ? logs[0] : null;
+        return projectOverviewMetricV2(
+            'Контур контроля',
+            String(activeTasks),
+            'shield-alert',
+            project && project.deadline_at ? projectOverviewDeadlineHintV2(project.deadline_at) : 'Дедлайн не задан',
+            '<div class="project-overview-kpi-pairs">' +
+                '<div><span>Открытых задач</span><strong>' + escapeHtml(String(activeTasks)) + '</strong></div>' +
+                '<div><span>Последний лог</span><strong>' + escapeHtml(latestLog && latestLog.report_date ? formatDisplayDate(latestLog.report_date) : '—') + '</strong></div>' +
+            '</div>'
+        );
+    }
+
+    function projectOverviewTimelineEventsV2(data) {
+        var events = [];
+        var tasks = data.tasks || [];
+        var logs = data.logs || [];
+        var materials = data.materials || [];
+        var stages = data.stages || [];
+        logs.slice(0, 4).forEach(function (log) {
+            events.push({
+                date: projectOverviewIsoDateV2(log.report_date || log.created_at),
+                icon: log.blockers ? 'triangle-alert' : 'messages-square',
+                title: log.title || 'Ежедневный отчет',
+                text: log.blockers ? ('Блокер: ' + projectOverviewCompactTextV2(log.blockers, 84)) : projectOverviewCompactTextV2(log.work_done || 'Обновлен ежедневный отчет.', 96),
+                tone: log.blockers ? 'danger' : '',
+                meta: (log.author_name || 'Прораб') + ' • ' + projectOverviewRelativeDateV2(log.report_date || log.created_at)
+            });
+        });
+        tasks.filter(function (task) {
+            return task.status !== 'done' && (task.priority === 'high' || (task.due_at && task.due_at <= isoDateAdd(APP_TODAY, 3)));
+        }).slice(0, 3).forEach(function (task) {
+            events.push({
+                date: projectOverviewIsoDateV2(task.due_at || task.created_at),
+                icon: task.status === 'review' ? 'clipboard-check' : 'check-check',
+                title: task.title || 'Задача',
+                text: 'Статус: ' + statusLabel(task.status) + (task.due_at ? ' • срок ' + formatDisplayDate(task.due_at) : ''),
+                tone: task.due_at && task.due_at < APP_TODAY ? 'danger' : (task.priority === 'high' ? 'warn' : ''),
+                meta: 'Задачи • ' + projectOverviewRelativeDateV2(task.due_at || task.created_at)
+            });
+        });
+        materials.filter(function (item) {
+            return Number(item.missingQty || 0) > 0 && ['required', 'soon'].indexOf(String(item.supplyStatus || '')) !== -1;
+        }).slice(0, 3).forEach(function (item) {
+            events.push({
+                date: projectOverviewIsoDateV2(item.needByDate || item.stageStartDate || item.stageEndDate),
+                icon: 'package-search',
+                title: item.title || 'Материал',
+                text: 'Нехватка ' + String(item.missingQty || 0) + ' ' + (item.unit || '') + (item.needByDate ? (' • к ' + formatDisplayDate(item.needByDate)) : ''),
+                tone: item.supplyStatus === 'required' ? 'danger' : 'warn',
+                meta: 'Снабжение • ' + projectOverviewRelativeDateV2(item.needByDate || item.stageStartDate || item.stageEndDate)
+            });
+        });
+        stages.filter(function (stage) {
+            return stage.status_code === 'blocked' || stage.status_code === 'overdue';
+        }).slice(0, 2).forEach(function (stage) {
+            events.push({
+                date: projectOverviewIsoDateV2(stage.planned_end || stage.updated_at),
+                icon: 'hard-hat',
+                title: stage.title || 'Этап',
+                text: 'Статус: ' + statusLabel(stage.status_code) + ' • прогресс ' + percent(stage.progress) + '%',
+                tone: 'danger',
+                meta: 'Этапы • ' + projectOverviewRelativeDateV2(stage.planned_end || stage.updated_at)
+            });
+        });
+        return events.sort(function (left, right) {
+            return String(right.date || '').localeCompare(String(left.date || ''));
+        }).slice(0, 8);
+    }
+
+    function projectOverviewDeadlineItemsV2(tasks, materials) {
+        var horizon = isoDateAdd(APP_TODAY, 5);
+        var items = [];
+        (tasks || []).forEach(function (task) {
+            if (task.status === 'done' || !task.due_at || task.due_at > horizon) return;
+            items.push({
+                date: task.due_at,
+                icon: 'list-todo',
+                title: task.title || 'Задача',
+                text: 'Статус: ' + statusLabel(task.status),
+                tone: projectOverviewDeadlineToneV2(task.due_at) || (task.priority === 'high' ? 'warn' : ''),
+                note: projectOverviewDeadlineHintV2(task.due_at)
+            });
+        });
+        (materials || []).forEach(function (item) {
+            if (['required', 'soon'].indexOf(String(item.supplyStatus || '')) === -1) return;
+            if (!item.needByDate || item.needByDate > horizon) return;
+            items.push({
+                date: item.needByDate,
+                icon: 'boxes',
+                title: item.title || 'Материал',
+                text: (item.supplyStatus === 'required' ? 'Критическая закупка' : 'Нужно подтянуть поставку') + (item.missingQty ? (' • нехватка ' + item.missingQty + ' ' + (item.unit || '')) : ''),
+                tone: projectOverviewDeadlineToneV2(item.needByDate) || planningStatusClass(item.supplyStatus),
+                note: projectOverviewDeadlineHintV2(item.needByDate)
+            });
+        });
+        return items.sort(function (left, right) {
+            return String(left.date || '').localeCompare(String(right.date || ''));
+        }).slice(0, 8);
+    }
+
+    renderProjectOverviewHero = function (project) {
+        var status = project.status || 'Подготовка';
+        return '<section class="project-overview-shell">' +
+            '<section class="project-overview-hero ui-card">' +
+                '<div class="project-overview-head">' +
+                    '<div class="project-overview-heading">' +
+                        '<span class="section-label">Обзор</span>' +
+                        '<h3>' + escapeHtml(project.title || 'Без названия') + '</h3>' +
+                        '<p>' + escapeHtml(project.address || 'Адрес не указан') + '</p>' +
+                    '</div>' +
+                    '<div class="project-overview-badges">' +
+                        renderProjectStatusControl(project) +
+                        '<span class="badge">' + escapeHtml(status) + '</span>' +
+                        '<span class="badge success">Готовность ' + percent(project.progress) + '%</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="project-overview-meta">' +
+                    projectOverviewMetaItemV2('Заказчик', project.client_name || 'Не указан') +
+                    projectOverviewMetaItemV2('Договор', project.contract_no || 'Не указан') +
+                    projectOverviewMetaItemV2('Старт', project.started_at ? formatDisplayDate(project.started_at) : '—') +
+                    projectOverviewMetaItemV2('Дедлайн', project.deadline_at ? formatDisplayDate(project.deadline_at) : '—') +
+                    projectOverviewMetaItemV2('Город', project.city || 'Не указан') +
+                    projectOverviewMetaItemV2('Регион', project.region || 'Не указан') +
+                '</div>' +
+                (project.description ? '<div class="object-description project-overview-description">' + escapeHtml(project.description) + '</div>' : '') +
+                renderProjectOverviewActions(project) +
+            '</section>' +
+            '<div data-project-hub>' +
+                '<div class="project-overview-kpi-grid">' +
+                    projectOverviewWidgetProgressV2(project.progress, 0, 0) +
+                    projectOverviewWidgetSupplyV2([]) +
+                    projectOverviewWidgetFinanceV2(project) +
+                    projectOverviewWidgetControlV2(project, [], []) +
+                '</div>' +
+                '<div class="project-overview-dashboard-grid">' +
+                    '<section class="project-overview-panel ui-card">' +
+                        '<div class="project-overview-panel-head"><h3>Лента последних событий</h3><span class="muted">История объекта и ключевые сигналы.</span></div>' +
+                        '<div class="project-overview-empty"></div>' +
+                    '</section>' +
+                    '<section class="project-overview-panel ui-card">' +
+                        '<div class="project-overview-panel-head"><h3>Ближайшие дедлайны</h3><span class="muted">Проверяем задачи и закупки на 5 дней вперед.</span></div>' +
+                        '<div class="project-overview-empty"></div>' +
+                    '</section>' +
+                '</div>' +
+            '</div>' +
+        '</section>';
+    };
+
+    renderProjectHub = function (project, data) {
+        var notifications = data.notifications || {};
+        var tasks = data.tasks || [];
+        var logs = data.logs || [];
+        var materials = data.materials || [];
+        var stages = data.stages || [];
+        var doneStages = stages.filter(function (stage) {
+            return ['completed', 'approved'].indexOf(stage.status_code) !== -1 || percent(stage.progress) >= 100;
+        }).length;
+        var timelineEvents = projectOverviewTimelineEventsV2(data);
+        var deadlineItems = projectOverviewDeadlineItemsV2(tasks, materials);
+        return '<div class="project-overview-kpi-grid">' +
+            projectOverviewWidgetProgressV2(project.progress, doneStages, stages.length) +
+            projectOverviewWidgetSupplyV2(materials) +
+            projectOverviewWidgetFinanceV2(project) +
+            projectOverviewWidgetControlV2(project, tasks, logs) +
+        '</div>' +
+        '<div class="project-overview-dashboard-grid">' +
+            '<section class="project-overview-panel ui-card">' +
+                '<div class="project-overview-panel-head"><h3>Лента последних событий</h3><span class="muted">Логи, задачи и снабжение в одном ритме.</span></div>' +
+                (timelineEvents.length
+                    ? '<div class="project-overview-timeline">' + timelineEvents.map(function (event) {
+                        return '<article class="project-overview-timeline-item' + (event.tone ? (' is-' + event.tone) : '') + '">' +
+                            '<div class="project-overview-timeline-marker"><i data-lucide="' + escapeHtml(event.icon) + '"></i></div>' +
+                            '<div class="project-overview-timeline-body">' +
+                                '<div class="project-overview-timeline-top"><strong>' + escapeHtml(event.title) + '</strong><span>' + escapeHtml(event.meta) + '</span></div>' +
+                                '<p>' + escapeHtml(event.text) + '</p>' +
+                            '</div>' +
+                        '</article>';
+                    }).join('') + '</div>'
+                    : '<div class="project-overview-empty">Пока нет свежих событий. История появится после первых логов, задач и движений по снабжению.</div>') +
+            '</section>' +
+            '<section class="project-overview-panel ui-card">' +
+                '<div class="project-overview-panel-head"><h3>Ближайшие дедлайны</h3><span class="muted">Горящие задачи и критические закупки на ближайшие 5 дней.</span></div>' +
+                (deadlineItems.length
+                    ? '<div class="project-overview-deadlines">' + deadlineItems.map(function (item) {
+                        return '<article class="project-overview-deadline-row' + (item.tone ? (' is-' + item.tone) : '') + '">' +
+                            '<div class="project-overview-deadline-main">' +
+                                '<span class="project-overview-deadline-icon"><i data-lucide="' + escapeHtml(item.icon) + '"></i></span>' +
+                                '<div><strong>' + escapeHtml(item.title) + '</strong><p>' + escapeHtml(item.text) + '</p></div>' +
+                            '</div>' +
+                            '<div class="project-overview-deadline-side">' +
+                                (item.tone === 'danger' ? '<span class="project-overview-pulse" aria-hidden="true"><span></span><span></span><span>!</span></span>' : '') +
+                                '<strong>' + escapeHtml(formatDisplayDate(item.date || '')) + '</strong>' +
+                                '<span>' + escapeHtml(item.note) + '</span>' +
+                            '</div>' +
+                        '</article>';
+                    }).join('') + '</div>'
+                    : '<div class="project-overview-empty">На ближайшие 5 дней просрочек и критических закупок не видно.</div>') +
+                (notifications.missingDailyReport ? '<div class="project-overview-inline-alert">Нет свежего ежедневного отчета по объекту.</div>' : '') +
+            '</section>' +
+        '</div>';
     };
 
     bindMaterialScheduleTimeline();
