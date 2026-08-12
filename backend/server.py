@@ -25,6 +25,8 @@ from auth import (
     ROLE_CODES,
     ROLE_DESCRIPTIONS,
     ROLE_LABELS,
+    default_permissions_for_role,
+    display_user_name,
     api_avatar_file as auth_api_avatar_file,
     auth_config as auth_core_config,
     api_login as auth_api_login,
@@ -38,11 +40,18 @@ from auth import (
     current_user_from_clerk as auth_current_user_from_clerk,
     hash_password,
     normalize_role,
+    normalize_permissions,
     require_role as auth_require_role,
     require_user as auth_require_user,
     split_person_name,
+    split_user_name,
     user_can_open,
+    user_can_manage_roles,
+    user_can_manage_users,
     user_has_any_role,
+    user_is_hidden_admin,
+    user_is_main_admin,
+    user_permissions,
     user_payload,
 )
 from projects import (
@@ -151,7 +160,7 @@ APP_PAGES = {
     "/app/schedule": ("schedule", "График работ"),
     "/app/logs": ("logs", "Журнал работ"),
     "/app/chats": ("chats", "Чаты"),
-    "/app/users": ("users", "Пользователи"),
+    "/app/users": ("users", "Наша Команда"),
     "/app/reports": ("reports", "Отчётность"),
 }
 
@@ -725,6 +734,8 @@ def init_db() -> None:
                 phone TEXT,
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL,
+                first_name TEXT,
+                last_name TEXT,
                 name TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
                 is_active INTEGER NOT NULL DEFAULT 1,
@@ -736,7 +747,8 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 code TEXT NOT NULL UNIQUE,
                 name TEXT NOT NULL,
-                description TEXT
+                description TEXT,
+                permissions TEXT
             );
 
             CREATE TABLE IF NOT EXISTS user_roles (
@@ -1058,6 +1070,8 @@ def init_db() -> None:
             {
                 "email": "TEXT",
                 "phone": "TEXT",
+                "first_name": "TEXT",
+                "last_name": "TEXT",
                 "clerk_user_id": "TEXT",
                 "avatar_url": "TEXT",
                 "status": "TEXT NOT NULL DEFAULT 'active'",
@@ -1065,6 +1079,22 @@ def init_db() -> None:
                 "updated_at": "INTEGER",
             },
         )
+
+        ensure_columns(
+            con,
+            "roles",
+            {
+                "permissions": "TEXT",
+            },
+        )
+
+        for row in con.execute("SELECT id, name, first_name, last_name FROM users").fetchall():
+            first_name, last_name = split_user_name(row["name"], row["first_name"], row["last_name"])
+            if first_name != (row["first_name"] or "") or last_name != (row["last_name"] or ""):
+                con.execute(
+                    "UPDATE users SET first_name = ?, last_name = ?, updated_at = COALESCE(updated_at, ?) WHERE id = ?",
+                    (first_name, last_name, now_ts(), row["id"]),
+                )
 
         ensure_columns(
             con,
@@ -1204,16 +1234,29 @@ def init_db() -> None:
         )
 
         for code in ROLE_CODES:
+            permissions = json.dumps(default_permissions_for_role(code), ensure_ascii=False)
             con.execute(
                 """
-                INSERT INTO roles (code, name, description)
-                VALUES (?, ?, ?)
+                INSERT INTO roles (code, name, description, permissions)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(code) DO UPDATE SET
                     name = excluded.name,
-                    description = excluded.description
+                    description = excluded.description,
+                    permissions = COALESCE(roles.permissions, excluded.permissions)
                 """,
-                (code, ROLE_LABELS[code], ROLE_DESCRIPTIONS.get(code, "")),
+                (code, ROLE_LABELS[code], ROLE_DESCRIPTIONS.get(code, ""), permissions),
             )
+
+        for row in con.execute("SELECT id, permissions FROM roles").fetchall():
+            permissions = normalize_permissions(row["permissions"], "")
+            modules = list(permissions.get("modules") or [])
+            if "users" not in modules:
+                modules.append("users")
+                permissions["modules"] = modules
+                con.execute(
+                    "UPDATE roles SET permissions = ? WHERE id = ?",
+                    (json.dumps(permissions, ensure_ascii=False), row["id"]),
+                )
 
         user_rows = con.execute("SELECT id, role FROM users").fetchall()
         for row in user_rows:
@@ -1276,8 +1319,8 @@ def init_db() -> None:
             bootstrap_password = os.environ.get("PMBI_ADMIN_PASSWORD") or secrets.token_urlsafe(18)
             admin_cur = con.execute(
                 """
-                INSERT INTO users (login, password_hash, role, name, status, created_at, updated_at)
-                VALUES (?, ?, 'admin', 'Главный администратор', 'active', ?, ?)
+                INSERT INTO users (login, password_hash, role, first_name, last_name, name, status, created_at, updated_at)
+                VALUES (?, ?, 'admin', 'Главный', 'Администратор', 'Главный администратор', 'active', ?, ?)
                 """,
                 ("admin", hash_password(bootstrap_password), now_ts(), now_ts()),
             )
@@ -1788,6 +1831,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 auth_api_avatar_file(self, path)
             elif method == "GET" and path == "/api/roles":
                 self.api_roles()
+            elif method == "POST" and path == "/api/roles":
+                self.api_create_role()
             elif method == "POST" and path == "/api/users/manage":
                 self.api_users_manage()
             elif method == "DELETE" and path.startswith("/api/users/manage/"):
@@ -1796,6 +1841,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_pay_invoice()
             elif method == "POST" and path == "/api/admin/users":
                 self.api_create_user()
+            elif method == "GET" and path == "/api/users":
+                self.api_users()
             elif method == "GET" and path == "/api/admin/users":
                 self.api_users()
             elif method == "GET" and path == "/api/companies":
@@ -1949,12 +1996,68 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with db() as con:
-            rows = con.execute("SELECT code, name, description FROM roles ORDER BY id").fetchall()
-        self.send_json(HTTPStatus.OK, {"roles": [dict(row) for row in rows]})
+            rows = con.execute("SELECT id, code, name, description, permissions FROM roles ORDER BY id").fetchall()
+        self.send_json(HTTPStatus.OK, {"roles": [
+            {
+                "id": row["id"],
+                "code": normalize_role(row["code"]),
+                "name": row["name"],
+                "description": row["description"],
+                "permissions": normalize_permissions(row["permissions"], row["code"]),
+            }
+            for row in rows
+            if normalize_role(row["code"]) != "admin" or user_is_hidden_admin(user)
+        ]})
+
+    def api_create_role(self) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        if not user_is_main_admin(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "Доступ разрешен только Главному Админу"})
+            return
+        payload = self.read_json()
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_role_name"})
+            return
+        code_base = str(payload.get("code") or name).strip().lower()
+        code_base = unicodedata.normalize("NFKD", code_base).encode("ascii", "ignore").decode("ascii")
+        code_base = re.sub(r"[^a-z0-9]+", "_", code_base).strip("_") or "custom_role"
+        if code_base in {"admin", "director"}:
+            code_base = "custom_" + code_base
+        permissions = normalize_permissions(payload.get("permissions") or {}, code_base)
+        permissions_json = json.dumps(permissions, ensure_ascii=False)
+        with db() as con:
+            code = code_base
+            suffix = 2
+            while con.execute("SELECT 1 FROM roles WHERE code = ?", (code,)).fetchone():
+                code = f"{code_base}_{suffix}"
+                suffix += 1
+            cur = con.execute(
+                """
+                INSERT INTO roles (code, name, description, permissions)
+                VALUES (?, ?, ?, ?)
+                """,
+                (code, name, str(payload.get("description", "")).strip(), permissions_json),
+            )
+            con.commit()
+        self.send_json(HTTPStatus.CREATED, {
+            "role": {
+                "id": cur.lastrowid,
+                "code": code,
+                "name": name,
+                "description": str(payload.get("description", "")).strip(),
+                "permissions": permissions,
+            }
+        })
 
     def api_create_user(self) -> None:
-        admin = self.require_role({"admin", "director"})
+        admin = self.require_user()
         if not admin:
+            return
+        if not user_is_main_admin(admin):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "Доступ разрешен только Главному Админу"})
             return
         payload = self.read_json()
         login = str(payload.get("login", "")).strip()
@@ -1966,14 +2069,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
             role_codes = [normalize_role(str(payload.get("role", "")).strip())]
         role_codes = list(dict.fromkeys(role_codes))
         role = role_codes[0] if role_codes else ""
-        name = str(payload.get("name", "")).strip() or login
+        raw_name = str(payload.get("name", "")).strip()
+        first_name, last_name = split_user_name(raw_name, payload.get("firstName", payload.get("first_name")), payload.get("lastName", payload.get("last_name")))
+        name = " ".join(part for part in [first_name, last_name] if part).strip() or raw_name or login
         email = str(payload.get("email", "")).strip().lower() or None
         phone = str(payload.get("phone", "")).strip() or None
         if (
             not login
             or len(password) < 10
             or not role_codes
-            or any(role_code not in ROLE_LABELS for role_code in role_codes)
             or (clerk_enabled() and not email)
         ):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_user_data"})
@@ -1986,6 +2090,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
         clerk_user_id = None
         with db() as con:
+            existing_roles = {
+                normalize_role(row["code"])
+                for row in con.execute("SELECT code FROM roles").fetchall()
+            }
+            if any(role_code not in existing_roles for role_code in role_codes):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_role"})
+                return
             release_deleted_user_identity(con, login, email, phone)
             if user_login_conflict(con, login):
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
@@ -2023,10 +2134,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
             try:
                 cur = con.execute(
                     """
-                    INSERT INTO users (login, email, phone, clerk_user_id, password_hash, role, name, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                    INSERT INTO users (login, email, phone, clerk_user_id, password_hash, role, first_name, last_name, name, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
                     """,
-                    (login, email, phone, clerk_user_id, hash_password(password), role, name, now_ts(), now_ts()),
+                    (login, email, phone, clerk_user_id, hash_password(password), role, first_name, last_name, name, now_ts(), now_ts()),
                 )
             except sqlite3.IntegrityError:
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
@@ -2054,9 +2165,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             {
                 "id": cur.lastrowid,
                 "login": login,
-                "email": email,
-                "phone": phone,
-                "clerkUserId": clerk_user_id,
+                "email": email if user_is_hidden_admin(admin) else None,
+                "phone": phone if user_is_hidden_admin(admin) else None,
+                "clerkUserId": clerk_user_id if user_is_hidden_admin(admin) else None,
                 "role": role,
                 "roles": role_codes,
                 "name": name,
@@ -2064,13 +2175,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
         )
 
     def api_users(self) -> None:
-        admin = self.require_role({"admin", "director"})
+        admin = self.require_user()
         if not admin:
             return
         with db() as con:
             rows = con.execute(
                 """
-                SELECT id, login, email, phone, clerk_user_id, role, name, status, is_active, created_at
+                SELECT id, login, email, phone, clerk_user_id, role, first_name, last_name, name, status, is_active, avatar_url, created_at
                 FROM users
                 WHERE is_active = 1 AND COALESCE(is_deleted, 0) = 0
                 ORDER BY id
@@ -2078,10 +2189,26 @@ class PMBIHandler(BaseHTTPRequestHandler):
             ).fetchall()
             role_rows = con.execute(
                 """
-                SELECT ur.user_id, r.code, r.name
+                SELECT ur.user_id, r.code, r.name, r.permissions
                 FROM user_roles ur
                 JOIN roles r ON r.id = ur.role_id
                 ORDER BY r.id
+                """
+            ).fetchall()
+            project_rows = con.execute(
+                """
+                SELECT oa.user_id, p.id, p.title
+                FROM object_assignments oa
+                JOIN projects p ON p.id = oa.object_id
+                ORDER BY oa.is_primary DESC, oa.assigned_at DESC, oa.id DESC
+                """
+            ).fetchall()
+            daily_rows = con.execute(
+                """
+                SELECT user_id, status
+                FROM daily_tasks
+                WHERE status IN ('planned', 'in_progress')
+                ORDER BY updated_at DESC, id DESC
                 """
             ).fetchall()
             roles_by_user: dict[int, list[dict]] = {}
@@ -2089,39 +2216,80 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 roles_by_user.setdefault(int(role_row["user_id"]), []).append({
                     "code": normalize_role(role_row["code"]),
                     "name": ROLE_LABELS.get(normalize_role(role_row["code"]), role_row["name"]),
+                    "permissions": normalize_permissions(role_row["permissions"], role_row["code"]),
                 })
+            projects_by_user: dict[int, list[dict]] = {}
+            for project_row in project_rows:
+                projects_by_user.setdefault(int(project_row["user_id"]), []).append({
+                    "id": project_row["id"],
+                    "title": project_row["title"],
+                })
+            daily_status_by_user: dict[int, str] = {}
+            for daily_row in daily_rows:
+                daily_status_by_user.setdefault(int(daily_row["user_id"]), daily_row["status"])
             def user_roles_for_row(row: sqlite3.Row) -> list[dict]:
                 role = normalize_role(row["role"])
                 if str(row["login"] or "").strip().lower() == "admin":
                     return [{"code": "admin", "name": ROLE_LABELS.get("admin", "admin")}]
                 return roles_by_user.get(int(row["id"]), [{"code": role, "name": ROLE_LABELS.get(role, role)}])
+            def user_permissions_for_row(row: sqlite3.Row) -> dict:
+                roles = user_roles_for_row(row)
+                if str(row["login"] or "").strip().lower() == "admin":
+                    return normalize_permissions({"fullAccess": True}, "admin")
+                return normalize_permissions(roles[0].get("permissions") if roles else None, roles[0].get("code") if roles else row["role"])
+            visible_rows = [
+                row for row in rows
+                if not user_is_hidden_admin(row) or user_is_hidden_admin(admin)
+            ]
+            can_view_private = user_is_hidden_admin(admin)
+            def user_work_status(row: sqlite3.Row) -> tuple[str, str]:
+                daily_status = daily_status_by_user.get(int(row["id"]))
+                if daily_status == "in_progress":
+                    return "В процессе задачи", "green"
+                if daily_status == "planned":
+                    return "Утренний план", "yellow"
+                if projects_by_user.get(int(row["id"])):
+                    return "На объекте", "green"
+                return "Офис", "muted"
         self.send_json(
             HTTPStatus.OK,
             {
                 "users": [
                     {
+                        "avatarUrl": row["avatar_url"] if "avatar_url" in row.keys() else None,
                         "id": row["id"],
                         "login": row["login"],
-                        "email": row["email"],
-                        "phone": row["phone"],
-                        "clerkUserId": row["clerk_user_id"],
+                        "email": row["email"] if can_view_private else None,
+                        "phone": row["phone"] if can_view_private else None,
+                        "clerkUserId": row["clerk_user_id"] if can_view_private else None,
                         "role": "admin" if str(row["login"] or "").strip().lower() == "admin" else normalize_role(row["role"]),
                         "roles": user_roles_for_row(row),
-                        "roleLabel": ROLE_LABELS.get("admin", "admin") if str(row["login"] or "").strip().lower() == "admin" else ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
-                        "name": row["name"],
+                        "roleLabel": user_roles_for_row(row)[0].get("name") if user_roles_for_row(row) else ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
+                        "permissions": user_permissions_for_row(row),
+                        "firstName": row["first_name"] or split_user_name(row["name"])[0],
+                        "lastName": row["last_name"] or split_user_name(row["name"])[1],
+                        "displayName": display_user_name(row["name"], row["first_name"], row["last_name"], row["login"]),
+                        "name": display_user_name(row["name"], row["first_name"], row["last_name"], row["login"]),
+                        "assignedProjects": projects_by_user.get(int(row["id"]), []),
+                        "currentObjectName": (projects_by_user.get(int(row["id"]), [{}])[0].get("title") if projects_by_user.get(int(row["id"])) else ""),
+                        "workStatus": user_work_status(row)[0],
+                        "workStatusTone": user_work_status(row)[1],
                         "status": row["status"],
                         "isActive": bool(row["is_active"]),
                         "createdAt": row["created_at"],
                     }
-                    for row in rows
+                    for row in visible_rows
                 ]
             },
         )
 
 
     def api_users_manage(self) -> None:
-        director = self.require_role({"admin", "director"})
+        director = self.require_user()
         if not director:
+            return
+        if not user_is_main_admin(director):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "Доступ разрешен только Главному Админу"})
             return
         payload = self.read_json()
         action = str(payload.get("action", "create_foreman")).strip() or "create_foreman"
@@ -2157,9 +2325,18 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
         login = str(payload.get("login", "")).strip()
         password = str(payload.get("password", ""))
-        name = str(payload.get("name", "")).strip() or login
+        raw_name = str(payload.get("name", "")).strip()
+        first_name, last_name = split_user_name(raw_name, payload.get("firstName", payload.get("first_name")), payload.get("lastName", payload.get("last_name")))
+        name = " ".join(part for part in [first_name, last_name] if part).strip() or raw_name or login
         email = str(payload.get("email", "")).strip().lower() or None
         phone = str(payload.get("phone", "")).strip() or None
+        requested_roles = payload.get("roles")
+        if isinstance(requested_roles, list):
+            role_codes = [normalize_role(str(item).strip()) for item in requested_roles if str(item).strip()]
+        else:
+            role_codes = [normalize_role(str(payload.get("role", "foreman")).strip() or "foreman")]
+        role_codes = list(dict.fromkeys(role_codes))
+        primary_role = role_codes[0] if role_codes else "foreman"
         raw_user_id = payload.get("user_id", payload.get("userId", payload.get("id")))
         user_id = None
         if raw_user_id not in (None, ""):
@@ -2191,6 +2368,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
         if user_id:
             with db() as con:
+                existing_roles = {
+                    normalize_role(row["code"])
+                    for row in con.execute("SELECT code FROM roles").fetchall()
+                }
+                if any(role_code not in existing_roles for role_code in role_codes):
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_role"})
+                    return
                 release_deleted_user_identity(con, login, email, phone)
                 existing = con.execute(
                     "SELECT * FROM users WHERE id = ? AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_active, 1) = 1",
@@ -2199,6 +2383,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 if not existing:
                     self.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found", "message": "Сотрудник не найден"})
                     return
+                if not user_is_hidden_admin(director):
+                    email = existing["email"]
+                    phone = existing["phone"]
                 if user_login_conflict(con, login, user_id):
                     self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists", "message": "Этот логин уже используется"})
                     return
@@ -2218,11 +2405,22 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 con.execute(
                     """
                     UPDATE users
-                    SET login = ?, email = ?, phone = ?, name = ?, updated_at = ?
+                    SET login = ?, email = ?, phone = ?, role = ?, first_name = ?, last_name = ?, name = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (login, email, phone, name, now_ts(), user_id),
+                    (login, email, phone, primary_role, first_name, last_name, name, now_ts(), user_id),
                 )
+                con.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
+                for role_code in role_codes:
+                    role_row = con.execute("SELECT id FROM roles WHERE code = ?", (role_code,)).fetchone()
+                    if role_row:
+                        con.execute(
+                            """
+                            INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at)
+                            VALUES (?, ?, ?)
+                            """,
+                            (user_id, role_row["id"], now_ts()),
+                        )
                 con.execute("DELETE FROM object_assignments WHERE user_id = ? AND role_code = 'foreman'", (user_id,))
                 con.execute("DELETE FROM user_project_access WHERE user_id = ?", (user_id,))
                 for project_id in project_ids:
@@ -2255,10 +2453,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "id": user_id,
                 "login": login,
-                "email": email,
-                "phone": phone,
-                "role": normalize_role(refreshed["role"]) if refreshed else "foreman",
-                "name": name,
+                "email": email if user_is_hidden_admin(director) else None,
+                "phone": phone if user_is_hidden_admin(director) else None,
+                "role": normalize_role(refreshed["role"]) if refreshed else primary_role,
+                "roles": role_codes,
+                "firstName": first_name,
+                "lastName": last_name,
+                "displayName": display_user_name(name, first_name, last_name, login),
+                "name": display_user_name(name, first_name, last_name, login),
                 "projectIds": project_ids,
             }
             if int(director.get("id") or 0) == int(user_id) and refreshed:
@@ -2268,6 +2470,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
         clerk_user_id = None
         with db() as con:
+            existing_roles = {
+                normalize_role(row["code"])
+                for row in con.execute("SELECT code FROM roles").fetchall()
+            }
+            if any(role_code not in existing_roles for role_code in role_codes):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_role"})
+                return
             release_deleted_user_identity(con, login, email, phone)
             if user_login_conflict(con, login):
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
@@ -2319,23 +2528,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
             try:
                 cur = con.execute(
                     """
-                    INSERT INTO users (login, email, phone, clerk_user_id, password_hash, role, name, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 'foreman', ?, 'active', ?, ?)
+                    INSERT INTO users (login, email, phone, clerk_user_id, password_hash, role, first_name, last_name, name, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
                     """,
-                    (login, email, phone, clerk_user_id, hash_password(password), name, now_ts(), now_ts()),
+                    (login, email, phone, clerk_user_id, hash_password(password), primary_role, first_name, last_name, name, now_ts(), now_ts()),
                 )
             except sqlite3.IntegrityError:
                 self.send_json(HTTPStatus.CONFLICT, {"error": "login_exists"})
                 return
-            role_row = con.execute("SELECT id FROM roles WHERE code = 'foreman'").fetchone()
-            if role_row:
-                con.execute(
-                    """
-                    INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at)
-                    VALUES (?, ?, ?)
-                    """,
-                    (cur.lastrowid, role_row["id"], now_ts()),
-                )
+            for role_code in role_codes:
+                role_row = con.execute("SELECT id FROM roles WHERE code = ?", (role_code,)).fetchone()
+                if role_row:
+                    con.execute(
+                        """
+                        INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at)
+                        VALUES (?, ?, ?)
+                        """,
+                        (cur.lastrowid, role_row["id"], now_ts()),
+                    )
             for project_id in project_ids:
                 con.execute(
                     """
@@ -2358,7 +2568,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "create_foreman",
                 "user",
                 cur.lastrowid,
-                {"login": login, "project_ids": project_ids},
+                {"login": login, "roles": role_codes, "project_ids": project_ids},
             )
             con.commit()
         self.send_json(
@@ -2366,12 +2576,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
             {
                 "id": cur.lastrowid,
                 "login": login,
-                "email": email,
-                "phone": phone,
-                "clerkUserId": clerk_user_id,
-                "role": "foreman",
-                "roles": ["foreman"],
-                "name": name,
+                "email": email if user_is_hidden_admin(director) else None,
+                "phone": phone if user_is_hidden_admin(director) else None,
+                "clerkUserId": clerk_user_id if user_is_hidden_admin(director) else None,
+                "role": primary_role,
+                "roles": role_codes,
+                "firstName": first_name,
+                "lastName": last_name,
+                "displayName": display_user_name(name, first_name, last_name, login),
+                "name": display_user_name(name, first_name, last_name, login),
                 "projectIds": project_ids,
             },
         )
@@ -2381,8 +2594,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
         actor = self.require_user()
         if not actor:
             return
-        if normalize_role(actor.get("role")) != "admin":
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "\u0423\u0434\u0430\u043b\u044f\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432 \u043c\u043e\u0436\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440"})
+        if not user_is_main_admin(actor):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "Доступ разрешен только Главному Админу"})
             return
         user_id = parse_path_int(path, 3)
         if not user_id:
@@ -2519,12 +2732,22 @@ class PMBIHandler(BaseHTTPRequestHandler):
             "fromBoss": creator_role == "director",
         }
         if "user_name" in row.keys():
-            payload["userName"] = row["user_name"]
+            payload["userName"] = display_user_name(
+                row["user_name"],
+                row["user_first_name"] if "user_first_name" in row.keys() else "",
+                row["user_last_name"] if "user_last_name" in row.keys() else "",
+                row["user_login"] if "user_login" in row.keys() else "",
+            )
         if "user_avatar_url" in row.keys():
             payload["userAvatarUrl"] = row["user_avatar_url"]
             payload["userAvatar"] = row["user_avatar_url"]
         if "creator_name" in row.keys():
-            payload["creatorName"] = row["creator_name"]
+            payload["creatorName"] = display_user_name(
+                row["creator_name"],
+                row["creator_first_name"] if "creator_first_name" in row.keys() else "",
+                row["creator_last_name"] if "creator_last_name" in row.keys() else "",
+                row["creator_login"] if "creator_login" in row.keys() else "",
+            )
         if "creator_avatar_url" in row.keys():
             payload["creatorAvatarUrl"] = row["creator_avatar_url"]
             payload["creatorAvatar"] = row["creator_avatar_url"]
@@ -2533,15 +2756,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
         return payload
 
     def daily_task_manager(self, user: dict) -> bool:
-        return user_has_any_role(user, {"admin", "director"})
+        perms = user.get("permissions") if isinstance(user.get("permissions"), dict) else {}
+        return user_has_any_role(user, {"admin", "director"}) or perms.get("dailyTasks") == "all" or perms.get("fullAccess")
 
     def daily_task_now(self) -> str:
         return datetime.now(APP_TIMEZONE).replace(microsecond=0, tzinfo=None).isoformat()
 
-    def daily_task_users(self, con: sqlite3.Connection) -> list[dict]:
+    def daily_task_users(self, con: sqlite3.Connection, viewer: dict | None = None) -> list[dict]:
         rows = con.execute(
             """
-            SELECT id, login, role, name, avatar_url
+            SELECT id, login, role, first_name, last_name, name, avatar_url
             FROM users
             WHERE is_active = 1
               AND COALESCE(is_deleted, 0) = 0
@@ -2554,11 +2778,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "id": row["id"],
                 "login": row["login"],
                 "role": normalize_role(row["role"]),
-                "name": row["name"],
+                "firstName": row["first_name"] or split_user_name(row["name"])[0],
+                "lastName": row["last_name"] or split_user_name(row["name"])[1],
+                "name": display_user_name(row["name"], row["first_name"], row["last_name"], row["login"]),
+                "displayName": display_user_name(row["name"], row["first_name"], row["last_name"], row["login"]),
                 "avatar": row["avatar_url"],
                 "avatarUrl": row["avatar_url"],
             }
             for row in rows
+            if not user_is_hidden_admin(row) or user_is_hidden_admin(viewer)
         ]
 
     def daily_task_rows(self, con: sqlite3.Connection, user: dict, archive: bool = False, user_id: int | None = None) -> list[sqlite3.Row]:
@@ -2571,13 +2799,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if user_id:
             where.append("t.user_id = ?")
             args.append(user_id)
+        if not user_is_hidden_admin(user):
+            where.append("NOT (lower(COALESCE(u.login, '')) = 'admin' OR u.role = 'admin')")
         return con.execute(
             """
             SELECT
                 t.*,
                 u.name AS user_name,
+                u.login AS user_login,
+                u.first_name AS user_first_name,
+                u.last_name AS user_last_name,
                 u.avatar_url AS user_avatar_url,
                 creator.name AS creator_name,
+                creator.login AS creator_login,
+                creator.first_name AS creator_first_name,
+                creator.last_name AS creator_last_name,
                 creator.avatar_url AS creator_avatar_url,
                 creator.role AS creator_role
             FROM daily_tasks t
@@ -2607,9 +2843,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
                     return
+        if not self.daily_task_manager(user):
+            requested_user_id = int(user["id"])
         with db() as con:
             rows = self.daily_task_rows(con, user, archive=archive, user_id=requested_user_id)
-            users = self.daily_task_users(con)
+            users = self.daily_task_users(con, user)
         self.send_json(
             HTTPStatus.OK,
             {
@@ -2720,8 +2958,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 SELECT
                     t.*,
                     u.name AS user_name,
+                    u.login AS user_login,
+                    u.first_name AS user_first_name,
+                    u.last_name AS user_last_name,
                     u.avatar_url AS user_avatar_url,
                     creator.name AS creator_name,
+                    creator.login AS creator_login,
+                    creator.first_name AS creator_first_name,
+                    creator.last_name AS creator_last_name,
                     creator.avatar_url AS creator_avatar_url,
                     creator.role AS creator_role
                 FROM daily_tasks t
@@ -2764,7 +3008,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             ).fetchone()
             rows = con.execute(
                 """
-                SELECT t.*, u.name AS user_name
+                SELECT t.*, u.name AS user_name, u.login AS user_login, u.first_name AS user_first_name, u.last_name AS user_last_name
                 FROM daily_tasks t
                 JOIN users u ON u.id = t.user_id
                 WHERE t.user_id = ? AND t.status IN ('planned','in_progress') AND t.task_date < ?
@@ -3881,7 +4125,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
         return "".join(cards)
 
     def strip_role_content(self, content: str, user: dict) -> str:
-        if not user_has_any_role(user, {"admin", "director"}):
+        perms = user_permissions(user)
+        if not (user_has_any_role(user, {"admin", "director"}) or perms.get("fullAccess") or perms.get("manageUsers") or perms.get("manageRoles")):
             content = DIRECTOR_ACTION_BLOCK_RE.sub("", content)
         return content
 

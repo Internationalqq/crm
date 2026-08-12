@@ -14554,35 +14554,183 @@ body[data-page="users"] .grid-2 {
     background: transparent;
 }
 
+.team-groups {
+    display: grid;
+    gap: 26px;
+}
+
+.team-group {
+    display: grid;
+    gap: 12px;
+}
+
+.team-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5edf6;
+}
+
+.team-group-head h3 {
+    margin: 0;
+    color: #172033;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.team-group-head span {
+    min-width: 28px;
+    min-height: 24px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 900;
+    background: #f1f5f9;
+}
+
+.team-role-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+}
+
+.team-name-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.team-role-row > label {
+    min-width: 0;
+}
+
+.role-create-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+}
+
+.role-create-modal.hidden {
+    display: none;
+}
+
+.role-create-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(15, 23, 42, .22);
+    backdrop-filter: blur(6px);
+}
+
+.role-create-dialog {
+    position: relative;
+    z-index: 1;
+    width: min(560px, calc(100vw - 28px));
+}
+
+.role-create-form {
+    display: grid;
+    gap: 14px;
+    padding: 22px;
+    border-radius: var(--base-radius);
+    background: #fff;
+    box-shadow: 0 26px 70px rgba(15, 23, 42, .2);
+}
+
+.role-create-form h3 {
+    margin: 0;
+    color: #172033;
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.role-permission-list {
+    display: grid;
+    gap: 8px;
+}
+
+.role-permission-list label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 34px;
+    padding: 7px 9px;
+    border: 1px solid #e5edf6;
+    border-radius: 8px;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 750;
+    background: #f8fafc;
+}
+
+@media (max-width: 640px) {
+    .team-role-row {
+        grid-template-columns: 1fr;
+    }
+
+    .team-name-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 .employee-card {
     min-width: 0;
     display: grid;
-    gap: 14px;
-    padding: 18px;
-    border: 1px solid rgba(203, 213, 225, .8);
+    gap: 18px;
+    padding: 20px;
+    border: 0;
     border-radius: 8px;
-    background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.96)), #fff;
-    box-shadow: 0 18px 44px rgba(15, 23, 42, .08);
+    background: rgba(255, 255, 255, .76);
+    box-shadow: 0 18px 48px rgba(15, 23, 42, .08);
+    backdrop-filter: blur(14px);
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.employee-card:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, .9);
+    box-shadow: 0 24px 62px rgba(15, 23, 42, .11);
 }
 
 .employee-card-top {
     display: grid;
-    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-columns: 78px minmax(0, 1fr);
     align-items: center;
-    gap: 14px;
+    gap: 16px;
 }
 
 .employee-avatar {
-    width: 64px;
-    height: 64px;
+    width: 78px;
+    height: 78px;
     display: grid;
     place-items: center;
     border-radius: 50%;
     color: #fff;
-    font-size: 19px;
-    font-weight: 800;
-    background: linear-gradient(135deg, #2563eb, #20b486);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.24), 0 12px 28px rgba(37,99,235,.22);
+    overflow: hidden;
+    font-size: 22px;
+    font-weight: 750;
+    background: linear-gradient(135deg, #172033, #20b486);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.28), 0 14px 30px rgba(15, 23, 42, .14);
+    transition: transform .2s ease;
+}
+
+.employee-card:hover .employee-avatar {
+    transform: scale(1.045);
+}
+
+.employee-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .employee-main {
@@ -14593,8 +14741,8 @@ body[data-page="users"] .grid-2 {
     margin: 0;
     overflow: hidden;
     color: var(--text-main);
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 21px;
+    font-weight: 500;
     line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -14606,6 +14754,68 @@ body[data-page="users"] .grid-2 {
     color: var(--text-muted);
     font-size: 12px;
     line-height: 1.4;
+}
+
+.employee-card-meta {
+    display: grid;
+    gap: 10px;
+}
+
+.employee-card-meta div:first-child span {
+    display: block;
+    margin-bottom: 3px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.employee-card-meta div:first-child strong {
+    display: block;
+    overflow: hidden;
+    color: #172033;
+    font-size: 14px;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.employee-status {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    max-width: 100%;
+    gap: 7px;
+    min-height: 28px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 850;
+    background: #f1f5f9;
+}
+
+.employee-status i {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.employee-status-green {
+    color: #047857;
+    background: #dcfce7;
+}
+
+.employee-status-yellow {
+    color: #a16207;
+    background: #fef3c7;
+}
+
+.employee-status-muted {
+    color: #64748b;
+    background: #f1f5f9;
 }
 
 .employee-role-list,
@@ -15130,6 +15340,13 @@ body[data-page="companies"].counterparty-create-open {
 .employee-profile-contacts {
     display: grid;
     gap: 8px;
+}
+
+.employee-profile-private {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 750;
+    text-align: center;
 }
 
 .employee-profile-contacts a {
@@ -17048,14 +17265,16 @@ button:hover svg.lucide {
     width: 28px;
     height: 28px;
     min-width: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-grid;
+    place-items: center;
+    overflow: hidden;
     border-radius: 999px;
-    border: 1px solid #dbe3ed;
-    background: linear-gradient(180deg, #ffffff, #f1f5f9);
-    color: #334155;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.85);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1;
+    background: linear-gradient(135deg, #172033, #20b486);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
 }
 
 .topbar-profile-name {
@@ -17083,12 +17302,42 @@ button:hover svg.lucide {
 }
 
 .topbar-avatar img,
-.profile-avatar-preview img {
+.profile-avatar-preview img,
+.topbar-circle-text img {
     width: 100%;
     height: 100%;
     display: block;
     border-radius: inherit;
     object-fit: cover;
+}
+
+.topbar-circle-text svg {
+    width: 17px;
+    height: 17px;
+    color: #475569;
+    stroke-width: 2;
+}
+
+.topbar-circle-text {
+    width: 32px;
+    height: 32px;
+    display: inline-grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.profile-circle {
+    padding: 2px !important;
+}
+
+.profile-circle .topbar-circle-text,
+.profile-circle .topbar-avatar {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
 }
 
 .user-popover,
@@ -17101,23 +17350,37 @@ button:hover svg.lucide {
 
 .user-popover {
     top: calc(100% + 10px) !important;
-    width: 236px !important;
-    padding: 10px !important;
+    width: 256px !important;
+    padding: 14px !important;
 }
 
 .user-popover-head {
-    padding: 4px 4px 10px;
+    display: grid;
+    gap: 8px;
+    padding: 4px 4px 12px;
 }
 
 .user-popover-head strong {
-    color: var(--text-main, #1e293b) !important;
-    font-size: 14px !important;
-    font-weight: 750 !important;
+    color: #111827 !important;
+    font-size: 21px !important;
+    font-weight: 650 !important;
+    line-height: 1.12 !important;
+    letter-spacing: 0 !important;
 }
 
 .user-popover-head span {
-    color: var(--text-muted, #64748b) !important;
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    max-width: 100%;
+    min-height: 26px;
+    border-radius: 999px;
+    padding: 5px 10px;
+    color: #1d4ed8 !important;
     font-size: 12px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    background: #dbeafe;
 }
 
 .topbar-profile-menu-item,

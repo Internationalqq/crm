@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import user_can_manage_documents, user_has_any_role
+from auth import display_user_name, user_can_manage_documents, user_has_any_role
 from projects import serialize_project
 from warehouse import (
     canonical_estimate_section_title,
@@ -2115,7 +2115,7 @@ def api_project_tasks(handler, path: str) -> None:
     with db() as con:
         rows = con.execute(
             """
-            SELECT t.*, u.name AS assignee_name
+            SELECT t.*, u.name AS assignee_name, u.first_name AS assignee_first_name, u.last_name AS assignee_last_name, u.login AS assignee_login
             FROM tasks t
             LEFT JOIN users u ON u.id = t.assignee_id
             WHERE t.project_id = ?
@@ -2123,7 +2123,13 @@ def api_project_tasks(handler, path: str) -> None:
             """,
             (project_id,),
         ).fetchall()
-    handler.send_json(HTTPStatus.OK, {"tasks": [dict(row) for row in rows]})
+    handler.send_json(HTTPStatus.OK, {"tasks": [
+        {
+            **dict(row),
+            "assignee_name": display_user_name(row["assignee_name"], row["assignee_first_name"], row["assignee_last_name"], row["assignee_login"]),
+        }
+        for row in rows
+    ]})
 
 
 def api_create_task(handler, path: str) -> None:
@@ -2248,7 +2254,7 @@ def api_update_task(handler, path: str) -> None:
         )
         row = con.execute(
             """
-            SELECT t.*, u.name AS assignee_name
+            SELECT t.*, u.name AS assignee_name, u.first_name AS assignee_first_name, u.last_name AS assignee_last_name, u.login AS assignee_login
             FROM tasks t
             LEFT JOIN users u ON u.id = t.assignee_id
             WHERE t.id = ?
@@ -2256,4 +2262,6 @@ def api_update_task(handler, path: str) -> None:
             (task_id,),
         ).fetchone()
         con.commit()
-    handler.send_json(HTTPStatus.OK, {"task": dict(row)})
+    payload = dict(row)
+    payload["assignee_name"] = display_user_name(row["assignee_name"], row["assignee_first_name"], row["assignee_last_name"], row["assignee_login"])
+    handler.send_json(HTTPStatus.OK, {"task": payload})

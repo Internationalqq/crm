@@ -61,6 +61,7 @@ CLERK_ADMIN_EMAILS = {
 CLERK_API_BASE = "https://api.clerk.com/v1"
 
 ROLE_ALLOWED_PREFIXES = {
+    "main_admin": ["*"],
     "admin": ["*"],
     "director": ["*"],
     "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
@@ -73,6 +74,7 @@ ROLE_ALLOWED_PREFIXES = {
 }
 
 ROLE_LABELS = {
+    "main_admin": "Главный Админ",
     "admin": "Администратор",
     "director": "Директор",
     "foreman": "Прораб",
@@ -94,6 +96,34 @@ ROLE_DESCRIPTIONS = {
     "accountant": "Бухгалтер: работает с финансовыми и подтверждающими документами.",
     "customer": "Заказчик: ограниченный доступ к своим объектам.",
     "client": "Заказчик: устаревший код роли для совместимости.",
+}
+
+ALL_MODULES = [
+    "dashboard",
+    "daily_tasks",
+    "projects",
+    "autobot",
+    "companies",
+    "schedule",
+    "logs",
+    "warehouse",
+    "suppliers",
+    "chats",
+    "users",
+    "reports",
+]
+
+DEFAULT_ROLE_PERMISSIONS = {
+    "main_admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
+    "admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
+    "director": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
+    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "schedule", "logs", "warehouse", "suppliers", "chats", "users"], "projects": "edit", "dailyTasks": "own"},
+    "purchaser": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "chats", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
+    "buyer": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "chats", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
+    "financier": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "reports", "users"], "projects": "view", "dailyTasks": "own"},
+    "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "reports", "users"], "projects": "view", "dailyTasks": "own"},
+    "customer": {"modules": ["dashboard", "projects", "schedule", "logs", "chats", "users"], "projects": "view"},
+    "client": {"modules": ["dashboard", "projects", "schedule", "logs", "chats", "users"], "projects": "view"},
 }
 
 LEGACY_ROLE_ALIASES = {
@@ -158,16 +188,138 @@ def normalize_role(role: str | None) -> str:
     return LEGACY_ROLE_ALIASES.get(role_code, role_code)
 
 
+def split_user_name(value: str | None, first_name: str | None = None, last_name: str | None = None) -> tuple[str, str]:
+    first = str(first_name or "").strip()
+    last = str(last_name or "").strip()
+    if first or last:
+        return first, last
+    parts = re.sub(r"\s+", " ", str(value or "").strip()).split(" ", 1)
+    if not parts or not parts[0]:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], parts[1]
+
+
+def display_user_name(value: str | None = None, first_name: str | None = None, last_name: str | None = None, fallback: str = "") -> str:
+    first, last = split_user_name(value, first_name, last_name)
+    display = " ".join(part for part in [last, first] if part).strip()
+    return display or str(value or fallback or "").strip()
+
+
+def row_display_name(row: sqlite3.Row) -> str:
+    return display_user_name(
+        row["name"] if "name" in row.keys() else "",
+        row["first_name"] if "first_name" in row.keys() else "",
+        row["last_name"] if "last_name" in row.keys() else "",
+        row["login"] if "login" in row.keys() else "",
+    )
+
+
+def default_permissions_for_role(role: str | None) -> dict:
+    role_code = normalize_role(role)
+    payload = DEFAULT_ROLE_PERMISSIONS.get(role_code, {"modules": ["dashboard"]})
+    return json.loads(json.dumps(payload, ensure_ascii=False))
+
+
+def normalize_permissions(value: object, role: str | None = None) -> dict:
+    base = default_permissions_for_role(role)
+    if isinstance(value, str) and value.strip():
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            value = {}
+    if not isinstance(value, dict):
+        value = {}
+    merged = {**base, **value}
+    modules = merged.get("modules")
+    if merged.get("fullAccess"):
+        merged["modules"] = list(ALL_MODULES)
+        merged["manageUsers"] = True
+        merged["manageRoles"] = True
+        merged["projects"] = "edit"
+        merged["dailyTasks"] = "all"
+    elif isinstance(modules, list):
+        merged["modules"] = [str(item) for item in modules if str(item)]
+    else:
+        merged["modules"] = list(base.get("modules", ["dashboard"]))
+    return merged
+
+
+def role_permissions_from_db(con: sqlite3.Connection, role_code: str) -> dict:
+    role_code = normalize_role(role_code)
+    try:
+        row = con.execute("SELECT permissions FROM roles WHERE code = ?", (role_code,)).fetchone()
+        if row and "permissions" in row.keys():
+            return normalize_permissions(row["permissions"], role_code)
+    except sqlite3.Error:
+        pass
+    return default_permissions_for_role(role_code)
+
+
+def merge_permissions(items: list[dict]) -> dict:
+    merged: dict = {"modules": []}
+    for item in items:
+        perms = normalize_permissions(item)
+        if perms.get("fullAccess"):
+            return normalize_permissions({"fullAccess": True}, "admin")
+        merged["modules"] = sorted(set(merged.get("modules", [])) | set(perms.get("modules", [])))
+        for key in ("manageUsers", "manageRoles"):
+            merged[key] = bool(merged.get(key) or perms.get(key))
+        for key in ("projects", "suppliers", "dailyTasks"):
+            current = merged.get(key)
+            incoming = perms.get(key)
+            if incoming == "edit" or incoming == "all":
+                merged[key] = incoming
+            elif not current and incoming:
+                merged[key] = incoming
+    return merged
+
+
+def user_permissions(user: dict) -> dict:
+    if not user:
+        return {"modules": []}
+    if isinstance(user.get("permissions"), dict):
+        return normalize_permissions(user["permissions"], user.get("role"))
+    roles = [normalize_role(user.get("role"))] + [
+        normalize_role(role.get("code") if isinstance(role, dict) else role)
+        for role in user.get("roles", [])
+    ]
+    roles = list(dict.fromkeys([role for role in roles if role]))
+    try:
+        with db() as con:
+            return merge_permissions([role_permissions_from_db(con, role) for role in roles])
+    except sqlite3.Error:
+        return merge_permissions([default_permissions_for_role(role) for role in roles])
+
+
+def user_can_manage_roles(user: dict) -> bool:
+    return bool(user_permissions(user).get("manageRoles")) or user_has_any_role(user, {"admin", "director"})
+
+
+def user_can_manage_users(user: dict) -> bool:
+    return bool(user_permissions(user).get("manageUsers")) or user_has_any_role(user, {"admin", "director"})
+
+
+def user_is_hidden_admin(user: dict | sqlite3.Row | None) -> bool:
+    if not user:
+        return False
+    login = str(user["login"] if isinstance(user, sqlite3.Row) else user.get("login", "")).strip().lower()
+    role = normalize_role(user["role"] if isinstance(user, sqlite3.Row) else user.get("role"))
+    return login == "admin" or role == "admin"
+
+
 def user_payload(row: sqlite3.Row) -> dict:
     role = normalize_role(row["role"])
     if str(row["login"] or "").strip().lower() == "admin":
         role = "admin"
     roles = [role]
+    permissions = merge_permissions([default_permissions_for_role(role)])
     try:
         with db() as con:
             role_rows = con.execute(
                 """
-                SELECT r.code
+                SELECT r.code, r.permissions
                 FROM user_roles ur
                 JOIN roles r ON r.id = ur.role_id
                 WHERE ur.user_id = ?
@@ -176,20 +328,34 @@ def user_payload(row: sqlite3.Row) -> dict:
                 (row["id"],),
             ).fetchall()
             roles = [normalize_role(role_row["code"]) for role_row in role_rows] or roles
+            permissions = merge_permissions([normalize_permissions(role_row["permissions"], role_row["code"]) for role_row in role_rows]) if role_rows else permissions
     except sqlite3.Error:
         roles = [role]
+        permissions = merge_permissions([default_permissions_for_role(role)])
     if role == "admin":
         roles = ["admin"]
+        permissions = normalize_permissions({"fullAccess": True}, "admin")
+    can_show_private = role == "admin"
+    first_name, last_name = split_user_name(
+        row["name"] if "name" in row.keys() else "",
+        row["first_name"] if "first_name" in row.keys() else "",
+        row["last_name"] if "last_name" in row.keys() else "",
+    )
+    display_name = display_user_name(row["name"], first_name, last_name, row["login"])
     return {
         "id": row["id"],
         "login": row["login"],
-        "email": row["email"] if "email" in row.keys() else None,
-        "phone": row["phone"] if "phone" in row.keys() else None,
-        "clerkUserId": row["clerk_user_id"] if "clerk_user_id" in row.keys() else None,
+        "email": row["email"] if can_show_private and "email" in row.keys() else None,
+        "phone": row["phone"] if can_show_private and "phone" in row.keys() else None,
+        "clerkUserId": row["clerk_user_id"] if can_show_private and "clerk_user_id" in row.keys() else None,
         "role": role,
         "roles": sorted(set(roles)),
         "roleLabel": ROLE_LABELS.get(role, role),
-        "name": row["name"],
+        "permissions": permissions,
+        "firstName": first_name,
+        "lastName": last_name,
+        "displayName": display_name,
+        "name": display_name,
         "avatarUrl": row["avatar_url"] if "avatar_url" in row.keys() else None,
     }
 
@@ -284,26 +450,54 @@ def role_can_open(role: str, path: str) -> bool:
 
 def user_has_any_role(user: dict, roles: set[str]) -> bool:
     user_roles = {normalize_role(user.get("role"))}
-    user_roles.update(normalize_role(role) for role in user.get("roles", []))
+    user_roles.update(normalize_role(role.get("code") if isinstance(role, dict) else role) for role in user.get("roles", []))
     return bool(user_roles & roles)
 
 
+def user_is_main_admin(user: dict) -> bool:
+    return user_has_any_role(user, {"main_admin"}) or user_is_hidden_admin(user)
+
+
 def user_can_open(user: dict, path: str) -> bool:
+    if path in PUBLIC_STATIC_PATHS:
+        return True
+    if path == "/app":
+        return True
+    if path == "/app/users":
+        return True
+    module_by_path = {
+        "/app/dashboard": "dashboard",
+        "/app/daily-tasks": "daily_tasks",
+        "/app/projects": "projects",
+        "/app/autobot": "autobot",
+        "/app/companies": "companies",
+        "/app/schedule": "schedule",
+        "/app/logs": "logs",
+        "/app/warehouse": "warehouse",
+        "/app/suppliers": "suppliers",
+        "/app/chats": "chats",
+        "/app/users": "users",
+        "/app/reports": "reports",
+    }
+    module = module_by_path.get(path)
+    if module:
+        return module in set(user_permissions(user).get("modules", []))
     user_roles = {normalize_role(user.get("role"))}
-    user_roles.update(normalize_role(role) for role in user.get("roles", []))
+    user_roles.update(normalize_role(role.get("code") if isinstance(role, dict) else role) for role in user.get("roles", []))
     return any(role_can_open(role, path) for role in user_roles)
 
 
 def user_can_manage_documents(user: dict) -> bool:
-    return user_has_any_role(user, {"admin", "director", "foreman", "purchaser", "financier", "accountant"})
+    return bool(user_permissions(user).get("fullAccess")) or user_has_any_role(user, {"admin", "director", "foreman", "purchaser", "financier", "accountant"})
 
 
 def user_can_manage_suppliers(user: dict) -> bool:
-    return user_has_any_role(user, {"admin", "director", "foreman", "purchaser"})
+    perms = user_permissions(user)
+    return perms.get("suppliers") == "edit" or bool(perms.get("fullAccess")) or user_has_any_role(user, {"admin", "director", "foreman", "purchaser"})
 
 
 def user_can_manage_finances(user: dict) -> bool:
-    return user_has_any_role(user, {"admin", "director", "financier", "accountant"})
+    return bool(user_permissions(user).get("fullAccess")) or user_has_any_role(user, {"admin", "director", "financier", "accountant"})
 
 
 def user_can_view_finances(user: dict) -> bool:
@@ -319,7 +513,7 @@ def user_can_pay_invoices(user: dict) -> bool:
 
 
 def user_can_manage_schedule(user: dict) -> bool:
-    return user_has_any_role(user, {"admin", "director", "foreman"})
+    return "schedule" in set(user_permissions(user).get("modules", [])) and (user_permissions(user).get("projects") == "edit" or user_has_any_role(user, {"admin", "director", "foreman"}))
 
 
 def session_token(handler) -> str | None:
@@ -399,10 +593,9 @@ def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
         return None, "clerk_lookup_failed"
     email = clerk_primary_email(clerk_user)
     phone = clerk_primary_phone(clerk_user)
-    full_name = str(clerk_user.get("first_name") or "").strip()
+    first_name = str(clerk_user.get("first_name") or "").strip()
     last_name = str(clerk_user.get("last_name") or "").strip()
-    if last_name:
-        full_name = (full_name + " " + last_name).strip()
+    full_name = " ".join(part for part in [first_name, last_name] if part).strip()
     with db() as con:
         row = None
         if email:
@@ -426,11 +619,13 @@ def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
             """
             UPDATE users
             SET clerk_user_id = ?, email = COALESCE(?, email), phone = COALESCE(?, phone),
+                first_name = CASE WHEN trim(COALESCE(first_name, '')) = '' AND ? != '' THEN ? ELSE first_name END,
+                last_name = CASE WHEN trim(COALESCE(last_name, '')) = '' AND ? != '' THEN ? ELSE last_name END,
                 name = CASE WHEN trim(COALESCE(name, '')) = '' AND ? != '' THEN ? ELSE name END,
                     updated_at = ?
             WHERE id = ?
             """,
-            (clerk_user_id, email, phone, full_name, full_name, now_ts(), row["id"]),
+            (clerk_user_id, email, phone, first_name, first_name, last_name, last_name, full_name, full_name, now_ts(), row["id"]),
         )
         con.commit()
         refreshed = con.execute("SELECT * FROM users WHERE id = ?", (row["id"],)).fetchone()
@@ -480,7 +675,7 @@ def require_role(handler, roles: set[str]) -> dict | None:
     user = require_user(handler)
     if not user:
         return None
-    if not user_has_any_role(user, roles):
+    if not user_has_any_role(user, roles) and not user_permissions(user).get("fullAccess"):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return None
     return user
@@ -702,6 +897,12 @@ def api_update_profile(handler) -> None:
         columns = {row["name"] for row in con.execute("PRAGMA table_info(users)").fetchall()}
         updates = ["name = ?", "updated_at = ?"]
         values = [name, now_ts()]
+        if "first_name" in columns:
+            updates.append("first_name = ?")
+            values.append(first_name)
+        if "last_name" in columns:
+            updates.append("last_name = ?")
+            values.append(last_name)
         if "avatar_url" in columns and has_avatar_url:
             updates.append("avatar_url = ?")
             values.append(avatar_url or None)

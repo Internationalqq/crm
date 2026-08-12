@@ -17,6 +17,7 @@
         dailyArchive: [],
         dailyTasksRequestToken: 0,
         dailyArchiveRequestToken: 0,
+        teamRefreshTimer: null,
         dailySelectedUserId: 'all',
         dailyMyOnly: false,
         dailyCompletionTimers: {},
@@ -47,6 +48,7 @@
         authConfig: window.__PMBI_AUTH__ || {}
     };
     var REMEMBER_SESSION_KEY = 'pmbi_remember_session';
+    var USER_INITIAL_CACHE_KEY = 'pmbi_current_user_initial';
 
     function rememberSessionEnabled() {
         try {
@@ -307,7 +309,7 @@
 
     function displayUserName(user) {
         user = user || {};
-        return user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.login || 'Пользователь';
+        return user.displayName || [user.lastName, user.firstName].filter(Boolean).join(' ') || user.name || user.login || 'Пользователь';
     }
 
     function safeAvatarUrl(value) {
@@ -317,21 +319,70 @@
         return /^https?:\/\//i.test(raw) ? raw : '';
     }
 
+    function cachedUserInitial() {
+        try {
+            return String(window.localStorage.getItem(USER_INITIAL_CACHE_KEY) || '').trim();
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function computeUserInitial(user) {
+        user = user || {};
+        var first = String(user.firstName || user.first_name || '').trim();
+        var last = String(user.lastName || user.last_name || '').trim();
+        if (first) return first.charAt(0).toLocaleUpperCase('ru');
+        if (last) return last.charAt(0).toLocaleUpperCase('ru');
+        var name = String(user.displayName || user.name || user.login || '').trim();
+        return String(name).trim().split(/\s+/).filter(Boolean).slice(0, 1).map(function (part) {
+            return part.charAt(0).toLocaleUpperCase('ru');
+        }).join('');
+    }
+
+    function rememberUserInitial(user) {
+        var initial = computeUserInitial(user);
+        if (!initial) return initial;
+        try {
+            window.localStorage.setItem(USER_INITIAL_CACHE_KEY, initial);
+        } catch (error) {}
+        return initial;
+    }
+
     function profileUserInitials(user) {
-        var name = displayUserName(user);
-        return String(name).trim().split(/\s+/).filter(Boolean).slice(0, 2).map(function (part) {
-            return part.charAt(0).toUpperCase();
-        }).join('') || 'U';
+        return computeUserInitial(user) || cachedUserInitial();
     }
 
     function userAvatarMarkup(user, className) {
         user = user || {};
-        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url);
+        var avatarUrl = user.avatarUrl || user.avatar_url || '';
         className = className || 'topbar-avatar';
         if (avatarUrl) {
             return '<span class="' + escapeHtml(className) + '" aria-hidden="true"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>';
         }
-        return '<span class="' + escapeHtml(className) + '" aria-hidden="true">' + escapeHtml(profileUserInitials(user)) + '</span>';
+        return '<span class="' + escapeHtml(className) + '" aria-hidden="true">' + escapeHtml(userInitials(user)) + '</span>';
+    }
+
+    function topbarAvatarInner(user) {
+        user = user || {};
+        var avatarUrl = user.avatarUrl || user.avatar_url || '';
+        if (avatarUrl) {
+            return '<img src="' + escapeHtml(avatarUrl) + '" alt="">';
+        }
+        return escapeHtml(userInitials(user));
+    }
+
+    function forceTopbarAvatar(user) {
+        user = user || state.currentUser || state.user || {};
+        var avatarUrl = user.avatarUrl || user.avatar_url || '';
+        var initial = userInitials(user);
+        qsa('.topbar-avatar, [data-user-badge]').forEach(function (node) {
+            if (!node) return;
+            if (avatarUrl) {
+                safeReplaceChildren(node, '<img src="' + escapeHtml(avatarUrl) + '" alt="">');
+                return;
+            }
+            safeReplaceChildren(node, escapeHtml(initial));
+        });
     }
 
     function safeExternalUrl(value) {
@@ -672,6 +723,7 @@
     function currentRoleLabel(user) {
         user = user || state.currentUser || state.user || {};
         var role = normalizeRole(user.role);
+        if (role === 'main_admin') return 'Главный Админ';
         if (role === 'admin') return '\u0410\u0414\u041c\u0418\u041d';
         if (role === 'director') return '\u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440';
         if (role === 'foreman') return '\u041f\u0440\u043e\u0440\u0430\u0431';
@@ -680,6 +732,10 @@
 
     function isSuperAdminRole() {
         return hasRole('admin');
+    }
+
+    function isMainAdminRole() {
+        return hasRole('main_admin') || isBootstrapAdminUser(state.currentUser || state.user || {});
     }
 
     function isDirectorRole() {
@@ -692,6 +748,45 @@
 
     function isAdminRole() {
         return hasRole('admin') || hasRole('director');
+    }
+
+    function currentPermissions() {
+        var user = state.currentUser || state.user || {};
+        return user.permissions && typeof user.permissions === 'object' ? user.permissions : {};
+    }
+
+    function personDisplayName(user) {
+        user = user || {};
+        var display = String(user.displayName || '').trim();
+        if (display) return display;
+        var full = [user.lastName || user.last_name || '', user.firstName || user.first_name || ''].map(function (part) {
+            return String(part || '').trim();
+        }).filter(Boolean).join(' ');
+        return full || user.name || user.login || '';
+    }
+
+    function allowedModules() {
+        var permissions = currentPermissions();
+        if (permissions.fullAccess) {
+            return ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'];
+        }
+        var modules = Array.isArray(permissions.modules) ? permissions.modules.slice() : [];
+        if (modules.indexOf('users') === -1) modules.push('users');
+        return modules;
+    }
+
+    function canManageTeam() {
+        return isMainAdminRole();
+    }
+
+    function canManageDailyTasks() {
+        var permissions = currentPermissions();
+        return !!(permissions.fullAccess || permissions.dailyTasks === 'all' || isDirectorRole());
+    }
+
+    function canViewPrivateContacts() {
+        var user = state.currentUser || state.user || {};
+        return isBootstrapAdminUser(user);
     }
 
     function canSeeFinances() {
@@ -971,7 +1066,7 @@
     function renderUser() {
         var node = qs('[data-current-user]');
         if (!node || !state.user) return;
-        node.textContent = state.user.name || state.user.login || '';
+        node.textContent = displayUserName(state.user);
     }
 
     function applyRole() {
@@ -984,16 +1079,7 @@
         qsa('[data-director-action]').forEach(function (node) {
             node.classList.toggle('hidden', !isDirectorRole());
         });
-        var allowedNav = {
-            admin: ['dashboard', 'daily_tasks', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
-            director: ['dashboard', 'daily_tasks', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
-            foreman: ['dashboard', 'daily_tasks', 'projects', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats'],
-            purchaser: ['dashboard', 'daily_tasks', 'projects', 'logs', 'warehouse', 'suppliers', 'chats'],
-            financier: ['dashboard', 'daily_tasks', 'projects', 'reports'],
-            accountant: ['dashboard', 'daily_tasks', 'projects', 'reports'],
-            customer: ['dashboard', 'projects', 'schedule', 'logs', 'chats']
-        };
-        var allowed = allowedNav[normalizeRole(state.user.role)] || [];
+        var allowed = allowedModules();
         qsa('[data-nav]').forEach(function (link) {
             if (allowed.indexOf(link.dataset.nav) === -1) {
                 link.classList.add('hidden');
@@ -1021,7 +1107,7 @@
         var roleNode = qs('[data-current-role]');
         var user = state.currentUser || state.user;
         if (!node || !user) return;
-        node.textContent = user.name || user.login || '';
+        node.textContent = personDisplayName(user) || user.login || '';
         if (roleNode) roleNode.textContent = currentRoleLabel(user);
     };
 
@@ -1031,16 +1117,7 @@
         state.currentUser = state.user;
         document.body.classList.add('role-' + state.user.role);
         applyRoleVisibility(document);
-        var allowedNav = {
-            admin: ['dashboard', 'daily_tasks', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
-            director: ['dashboard', 'daily_tasks', 'projects', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
-            foreman: ['dashboard', 'daily_tasks', 'projects', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats'],
-            purchaser: ['dashboard', 'daily_tasks', 'projects', 'logs', 'warehouse', 'suppliers', 'chats'],
-            financier: ['dashboard', 'daily_tasks', 'projects', 'reports'],
-            accountant: ['dashboard', 'daily_tasks', 'projects', 'reports'],
-            customer: ['dashboard', 'projects', 'schedule', 'logs', 'chats']
-        };
-        var allowed = allowedNav[normalizeRole(state.user.role)] || [];
+        var allowed = allowedModules();
         qsa('[data-nav]').forEach(function (link) {
             var visible = allowed.indexOf(link.dataset.nav) !== -1;
             link.classList.toggle('hidden', !visible);
@@ -1114,16 +1191,37 @@
 
     function loadRoles(callback) {
         if (state.roles.length) {
+            syncUserRoleOptions();
             if (callback) callback(state.roles);
             return;
         }
         api('/api/roles').then(function (data) {
             state.roles = Array.isArray(data.roles) ? data.roles : [];
+            syncUserRoleOptions();
             if (callback) callback(state.roles);
         }).catch(function () {
             state.roles = [];
+            syncUserRoleOptions();
             if (callback) callback(state.roles);
         });
+    }
+
+    function roleOptionLabel(role) {
+        return role && (role.name || role.roleLabel || role.code) || '';
+    }
+
+    function syncUserRoleOptions(selected) {
+        var select = qs('[data-user-role-select]');
+        if (!select) return;
+        selected = selected || select.value || 'foreman';
+        var roles = (state.roles || []).filter(function (role) {
+            return normalizeRole(role && role.code) !== 'admin';
+        });
+        if (!roles.length) roles = [{ code: 'foreman', name: 'Прораб' }];
+        safeReplaceChildren(select, roles.map(function (role) {
+            var code = normalizeRole(role.code);
+            return '<option value="' + escapeHtml(code) + '"' + (String(selected) === String(code) ? ' selected' : '') + '>' + escapeHtml(roleOptionLabel(role)) + '</option>';
+        }).join(''));
     }
 
     function loadCompanies(callback, type) {
@@ -1958,7 +2056,7 @@
             callback(state.users);
             return;
         }
-        api('/api/admin/users').then(function (data) {
+        api('/api/users').then(function (data) {
             state.users = Array.isArray(data.users) ? data.users : [];
             callback(state.users);
         }).catch(function () {
@@ -4889,7 +4987,9 @@
                 method: 'POST',
                 body: JSON.stringify({
                     type: form.type.value,
-                    name: form.name.value.trim(),
+                    firstName: form.first_name.value.trim(),
+                    lastName: form.last_name.value.trim(),
+                    name: [form.first_name.value.trim(), form.last_name.value.trim()].filter(Boolean).join(' '),
                     inn: form.inn.value.trim(),
                     kpp: form.kpp.value.trim(),
                     ogrn: form.ogrn.value.trim(),
@@ -4971,7 +5071,9 @@
                     method: 'POST',
                     body: JSON.stringify({
                         type: form.type.value,
-                        name: form.name.value.trim(),
+                        firstName: form.first_name.value.trim(),
+                        lastName: form.last_name.value.trim(),
+                        name: [form.first_name.value.trim(), form.last_name.value.trim()].filter(Boolean).join(' '),
                         inn: form.inn.value.trim(),
                         kpp: form.kpp.value.trim(),
                         ogrn: form.ogrn.value.trim(),
@@ -5021,16 +5123,21 @@
     }
 
     function initUsersPage() {
-        setupUserCreateModal();
+        qsa('[data-user-create-open]').forEach(function (button) {
+            button.hidden = !canManageTeam();
+        });
+        if (canManageTeam()) setupUserCreateModal();
         loadUsers();
         loadProjects(function () {
             renderUserProjectAccessChecks();
             loadUsers();
         });
+        startTeamAutoRefresh();
         var refresh = qs('[data-users-refresh]');
         if (refresh) refresh.addEventListener('click', loadUsers);
         var form = qs('[data-user-create-form]');
         if (!form) return;
+        if (!canManageTeam()) return;
         bindLockedUserCreateForm(form);
         return;
         form.addEventListener('submit', function (event) {
@@ -5051,7 +5158,7 @@
             var projectIds = qsa('input[name="project_ids"]:checked', form).map(function (input) {
                 return Number(input.value);
             });
-            var endpoint = form.role.value === 'foreman' ? '/api/users/manage' : '/api/admin/users';
+            var endpoint = '/api/users/manage';
             api(endpoint, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -5084,20 +5191,25 @@
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             event.stopImmediatePropagation();
+            if (!canManageTeam()) {
+                showAppNotice('Доступ разрешен только Главному Админу', 'error');
+                return;
+            }
             var error = qs('[data-user-create-error]', form);
             if (error) error.classList.remove('active');
-            if (!isValidUserEmail(form.email.value)) {
+            var privateEdit = !!(form.user_id && form.user_id.value) && !canViewPrivateContacts() && !String(form.email.value || '').trim() && !String(form.phone.value || '').trim();
+            if (!privateEdit && !isValidUserEmail(form.email.value)) {
                 showAppNotice('\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 Email', 'error');
                 if (form.email) form.email.focus();
                 return;
             }
             form.phone.value = formatUserPhone(form.phone.value);
-            if (!isCompleteUserPhone(form.phone.value)) {
+            if (!privateEdit && !isCompleteUserPhone(form.phone.value)) {
                 showAppNotice('\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 \u043d\u043e\u043c\u0435\u0440 \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0430', 'error');
                 if (form.phone) form.phone.focus();
                 return;
             }
-            if (isClerkEnabled() && !String(form.email.value || '').trim()) {
+            if (!privateEdit && isClerkEnabled() && !String(form.email.value || '').trim()) {
                 if (error) {
                     error.textContent = '\u0414\u043b\u044f \u0432\u0445\u043e\u0434\u0430 \u0447\u0435\u0440\u0435\u0437 Clerk \u043d\u0443\u0436\u0435\u043d email \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f.';
                     error.classList.add('active');
@@ -5111,13 +5223,20 @@
             var projectIds = qsa('input[name="project_ids"]:checked', form).map(function (input) {
                 return Number(input.value);
             });
-            var endpoint = form.role.value === 'foreman' ? '/api/users/manage' : '/api/admin/users';
+            var endpoint = '/api/users/manage';
+            var firstName = String(form.first_name && form.first_name.value || '').trim();
+            var lastName = String(form.last_name && form.last_name.value || '').trim();
+            var fullName = [firstName, lastName].filter(Boolean).join(' ');
             withSubmitLock(form, function () {
                 return api(endpoint, {
                     method: 'POST',
                     body: JSON.stringify({
                         user_id: form.user_id ? form.user_id.value : '',
-                        name: form.name.value.trim(),
+                        firstName: firstName,
+                        lastName: lastName,
+                        first_name: firstName,
+                        last_name: lastName,
+                        name: fullName,
                         login: form.login.value.trim(),
                         email: form.email.value.trim(),
                         phone: form.phone.value.trim(),
@@ -5273,8 +5392,17 @@
         if (!form) return;
         form.reset();
         if (form.phone) form.phone.value = '';
-        if (form.email) form.email.value = '';
-        if (form.name) form.name.value = '';
+        if (form.phone) {
+            form.phone.required = true;
+            form.phone.placeholder = '+7 (999) 123-45-67';
+        }
+        if (form.email) {
+            form.email.value = '';
+            form.email.required = true;
+            form.email.placeholder = '';
+        }
+        if (form.first_name) form.first_name.value = '';
+        if (form.last_name) form.last_name.value = '';
         var error = qs('[data-company-create-error]', form);
         if (error) {
             error.textContent = '';
@@ -5320,21 +5448,12 @@
             '<button class="ghost compact user-create-close" type="button" data-user-create-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
             '<h3>\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430</h3>' +
             '<input type="hidden" name="user_id" value="">' +
-            '<label><span>\u0418\u043c\u044f</span><input name="name" required></label>' +
+            '<div class="team-name-row"><label><span>Имя</span><input name="first_name" required></label><label><span>Фамилия</span><input name="last_name"></label></div>' +
             '<label><span>\u0412\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u0438\u0439 \u043b\u043e\u0433\u0438\u043d</span><input name="login" required></label>' +
             '<label><span>Email \u0434\u043b\u044f \u0432\u0445\u043e\u0434\u0430</span><input name="email" type="email" required></label>' +
             '<label><span>\u0422\u0435\u043b\u0435\u0444\u043e\u043d</span><input name="phone" required></label>' +
             '<label><span>\u0421\u0442\u0430\u0440\u0442\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c Clerk</span><input name="password" type="password" minlength="10" required></label>' +
-            '<label><span>\u041e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u0440\u043e\u043b\u044c</span><select name="role" required><option value="foreman">\u041f\u0440\u043e\u0440\u0430\u0431</option></select></label>' +
-            '<fieldset class="role-checks hidden">' +
-                '<legend>\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435 \u0440\u043e\u043b\u0438</legend>' +
-                '<label><input type="checkbox" name="roles" value="director"> \u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440</label>' +
-                '<label><input type="checkbox" name="roles" value="foreman"> \u041f\u0440\u043e\u0440\u0430\u0431</label>' +
-                '<label><input type="checkbox" name="roles" value="purchaser"> \u0417\u0430\u043a\u0443\u043f\u0449\u0438\u043a</label>' +
-                '<label><input type="checkbox" name="roles" value="financier"> \u0424\u0438\u043d\u043f\u043b\u0430\u043d</label>' +
-                '<label><input type="checkbox" name="roles" value="accountant"> \u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440</label>' +
-                '<label><input type="checkbox" name="roles" value="customer"> \u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a</label>' +
-            '</fieldset>' +
+            '<div class="team-role-row"><label><span>\u0420\u043e\u043b\u044c</span><select name="role" required data-user-role-select><option value="foreman">\u041f\u0440\u043e\u0440\u0430\u0431</option></select></label><button class="ghost compact" type="button" data-role-create-open>+ \u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0440\u043e\u043b\u044c</button></div>' +
             '<fieldset class="role-checks">' +
                 '<legend>\u0414\u043e\u0441\u0442\u0443\u043f \u043f\u0440\u043e\u0440\u0430\u0431\u0430 \u043a \u043e\u0431\u044a\u0435\u043a\u0442\u0430\u043c</legend>' +
                 '<div data-user-project-access><p class="muted">\u041e\u0431\u044a\u0435\u043a\u0442\u044b \u0437\u0430\u0433\u0440\u0443\u0436\u0430\u044e\u0442\u0441\u044f...</p></div>' +
@@ -5349,6 +5468,8 @@
         var form = createUserCreateForm();
         if (!form || form.dataset.modalReady === '1') return;
         form.dataset.modalReady = '1';
+        loadRoles();
+        ensureRoleCreateModal();
         var refreshButton = qs('[data-users-refresh]');
         if (refreshButton) {
             refreshButton.className = 'primary';
@@ -5402,6 +5523,7 @@
         if (title) title.textContent = '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
         var submit = qs('button[type="submit"]', form);
         if (submit) submit.textContent = '\u0421\u043e\u0437\u0434\u0430\u0442\u044c';
+        syncUserRoleOptions();
         renderUserProjectAccessChecks();
     }
 
@@ -5444,7 +5566,7 @@
     function loadUsers() {
         var root = qs('[data-users-list]');
         if (!root) return;
-        api('/api/admin/users').then(function (data) {
+        api('/api/users').then(function (data) {
             var users = Array.isArray(data.users) ? data.users : [];
             state.users = users;
             root.innerHTML = '<div class="users-list">' + users.map(function (user) {
@@ -5458,12 +5580,13 @@
                 return '<div class="user-row"><div><b>' + escapeHtml(user.name) + '</b><small>' + escapeHtml(contacts) + '</small></div><div class="badge-list">' + roleBadges + '</div></div>';
             }).join('') + '</div>';
         }).catch(function () {
-            root.innerHTML = '<p class="muted">Список пользователей доступен только директору.</p>';
+            root.innerHTML = '<p class="muted">Не удалось загрузить список команды. Обнови страницу или попробуй позже.</p>';
         });
     }
 
     function userRoleLabel(role) {
         var code = normalizeRole(role && (role.code || role) || '');
+        if (code === 'main_admin') return 'Главный Админ';
         if (code === 'admin') return '\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440';
         if (code === 'director') return '\u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440';
         if (code === 'foreman') return '\u041f\u0440\u043e\u0440\u0430\u0431';
@@ -5472,6 +5595,7 @@
 
     function userRoleClass(role) {
         var code = normalizeRole(role && (role.code || role) || '');
+        if (code === 'main_admin') return ' is-admin';
         if (code === 'admin') return ' is-admin';
         if (code === 'director') return ' is-director';
         if (code === 'foreman') return ' is-foreman';
@@ -5490,15 +5614,20 @@
     }
 
     function userInitials(user) {
-        var source = String((user && user.name) || (user && user.login) || '?').trim();
+        user = user || {};
+        var first = String(user.firstName || user.first_name || '').trim();
+        var last = String(user.lastName || user.last_name || '').trim();
+        if (first) return first.charAt(0).toLocaleUpperCase('ru');
+        if (last) return last.charAt(0).toLocaleUpperCase('ru');
+        var source = String(personDisplayName(user) || user.login || '?').trim();
         var parts = source.split(/\s+/).filter(Boolean);
-        return parts.slice(0, 2).map(function (part) {
+        return parts.slice(0, 1).map(function (part) {
             return part.charAt(0).toLocaleUpperCase('ru');
         }).join('') || '?';
     }
 
     function userAssignedProjects(user) {
-        var direct = Array.isArray(user && user.assigned_projects) ? user.assigned_projects : (Array.isArray(user && user.projects) ? user.projects : []);
+        var direct = Array.isArray(user && user.assignedProjects) ? user.assignedProjects : (Array.isArray(user && user.assigned_projects) ? user.assigned_projects : (Array.isArray(user && user.projects) ? user.projects : []));
         if (direct.length) return direct;
         return (state.projects || []).filter(function (project) {
             var assigned = Array.isArray(project && project.assigned_foremen) ? project.assigned_foremen : [];
@@ -5518,25 +5647,56 @@
         }).join('');
     }
 
+    function startTeamAutoRefresh() {
+        if (page !== 'users' || state.teamRefreshTimer) return;
+        state.teamRefreshTimer = setInterval(function () {
+            if (document.hidden) return;
+            loadProjects(function () {
+                loadUsers({ silent: true });
+            });
+        }, 8000);
+    }
+
+    function userCurrentObjectLabel(user) {
+        var explicit = String(user && user.currentObjectName || '').trim();
+        if (explicit) return explicit;
+        var assigned = userAssignedProjects(user);
+        if (!assigned.length) return 'Офис';
+        var first = assigned[0] || {};
+        return first.title || first.name || first.projectTitle || 'На объекте';
+    }
+
+    function userWorkStatus(user) {
+        var status = String(user && user.workStatus || '').trim();
+        if (status) return status;
+        return userAssignedProjects(user).length ? 'На объекте' : 'Вне объекта';
+    }
+
+    function userWorkStatusTone(user) {
+        return String(user && user.workStatusTone || '').trim() || (userAssignedProjects(user).length ? 'green' : 'muted');
+    }
+
     function renderUserCard(user) {
         user = user || {};
         var roles = effectiveUserRoles(user);
         var roleBadges = roles.map(function (role) {
             return '<span class="employee-role-badge' + userRoleClass(role) + '">' + escapeHtml(userRoleLabel(role)) + '</span>';
         }).join('');
-        var contacts = [user.login, user.email, user.phone].filter(Boolean).join(' \u2022 ');
+        var avatar = user.avatarUrl ? '<img src="' + escapeHtml(user.avatarUrl) + '" alt="">' : escapeHtml(userInitials(user));
         return '<article class="employee-card" data-employee-card data-user-id="' + escapeHtml(user.id || '') + '">' +
             '<div class="employee-card-top">' +
-                '<div class="employee-avatar" aria-hidden="true">' + escapeHtml(userInitials(user)) + '</div>' +
-                '<div class="employee-main"><h3>' + escapeHtml(user.name || user.login || '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a') + '</h3><p>' + escapeHtml(contacts || user.status || '') + '</p></div>' +
+                '<div class="employee-avatar" aria-hidden="true">' + avatar + '</div>' +
+                '<div class="employee-main"><h3>' + escapeHtml(personDisplayName(user) || 'Сотрудник') + '</h3><div class="employee-role-list">' + roleBadges + '</div></div>' +
             '</div>' +
-            '<div class="employee-role-list">' + roleBadges + '</div>' +
-            '<div class="employee-project-tags">' + userProjectTags(user) + '</div>' +
+            '<div class="employee-card-meta">' +
+                '<div><span>Закрепленный объект</span><strong>' + escapeHtml(userCurrentObjectLabel(user)) + '</strong></div>' +
+                '<div class="employee-status employee-status-' + escapeHtml(userWorkStatusTone(user)) + '"><i></i><span>' + escapeHtml(userWorkStatus(user)) + '</span></div>' +
+            '</div>' +
         '</article>';
     }
 
     function canDeleteEmployeeAccounts() {
-        return !!(state.currentUser && normalizeRole(state.currentUser.role) === 'admin');
+        return canManageTeam();
     }
 
     function ensureEmployeeProfileModal() {
@@ -5555,6 +5715,7 @@
             if (event.target.closest('[data-employee-profile-close]')) closeEmployeeProfileModal();
             var edit = event.target.closest('[data-employee-profile-edit]');
             if (edit) {
+                if (!canManageTeam()) return;
                 var user = findEmployeeById(edit.getAttribute('data-user-id'));
                 if (user) openEmployeeEditForm(user);
             }
@@ -5591,20 +5752,23 @@
         var deleteButton = canDeleteEmployeeAccounts()
             ? '<button class="employee-profile-delete" type="button" data-employee-delete data-user-id="' + escapeHtml(user.id || '') + '"><i data-lucide="trash-2"></i><span>\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430</span></button>'
             : '';
+        var editButton = canManageTeam()
+            ? '<button class="ghost" type="button" data-employee-profile-edit data-user-id="' + escapeHtml(user.id || '') + '"><i data-lucide="pencil"></i><span>\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c</span></button>'
+            : '';
         return '<div class="employee-profile-card">' +
             '<button class="ghost compact employee-profile-close" type="button" data-employee-profile-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
             '<div class="employee-profile-head">' +
                 '<div class="employee-profile-avatar" aria-hidden="true">' + escapeHtml(userInitials(user)) + '</div>' +
-                '<h3>' + escapeHtml(user.name || user.login || '\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a') + '</h3>' +
+                '<h3>' + escapeHtml(personDisplayName(user) || 'Сотрудник') + '</h3>' +
                 '<span class="employee-role-badge' + userRoleClass(role) + '">' + escapeHtml(userRoleLabel(role)) + '</span>' +
             '</div>' +
-            '<div class="employee-profile-contacts">' +
-                '<a href="' + escapeHtml(safeTelHref(user.phone || '')) + '"><i data-lucide="phone"></i><span>' + escapeHtml(user.phone || '\u0422\u0435\u043b\u0435\u0444\u043e\u043d \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</span></a>' +
-                '<a href="mailto:' + escapeHtml(user.email || '') + '"><i data-lucide="mail"></i><span>' + escapeHtml(user.email || 'Email \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</span></a>' +
-            '</div>' +
+            (user.phone || user.email ? '<div class="employee-profile-contacts">' +
+                (user.phone ? '<a href="' + escapeHtml(safeTelHref(user.phone || '')) + '"><i data-lucide="phone"></i><span>' + escapeHtml(user.phone) + '</span></a>' : '') +
+                (user.email ? '<a href="mailto:' + escapeHtml(user.email || '') + '"><i data-lucide="mail"></i><span>' + escapeHtml(user.email) + '</span></a>' : '') +
+            '</div>' : '<div class="employee-profile-private">Контакты скрыты</div>') +
             '<section class="employee-profile-section"><h4>\u0417\u0430\u043a\u0440\u0435\u043f\u043b\u0435\u043d\u043d\u044b\u0435 \u043e\u0431\u044a\u0435\u043a\u0442\u044b</h4><div class="employee-profile-projects">' + projectsHtml + '</div></section>' +
             '<div class="employee-profile-actions">' +
-                '<button class="ghost" type="button" data-employee-profile-edit data-user-id="' + escapeHtml(user.id || '') + '"><i data-lucide="pencil"></i><span>\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c</span></button>' +
+                editButton +
                 deleteButton +
             '</div>' +
         '</div>';
@@ -5632,20 +5796,34 @@
     }
 
     function openEmployeeEditForm(user) {
+        if (!canManageTeam()) return;
         closeEmployeeProfileModal();
         openUserCreateModal({ keepValues: true });
         var form = qs('[data-user-create-form]');
         if (!form) return;
         resetUserCreateForm(form);
         if (form.user_id) form.user_id.value = user.id || '';
-        if (form.name) form.name.value = user.name || '';
+        if (form.first_name) form.first_name.value = user.firstName || user.first_name || '';
+        if (form.last_name) form.last_name.value = user.lastName || user.last_name || '';
         if (form.login) form.login.value = user.login || '';
         if (form.email) form.email.value = user.email || '';
         if (form.phone) form.phone.value = formatUserPhone(user.phone || '');
+        if (!canViewPrivateContacts() && !user.email && !user.phone) {
+            if (form.email) {
+                form.email.required = false;
+                form.email.placeholder = 'Скрыто';
+            }
+            if (form.phone) {
+                form.phone.required = false;
+                form.phone.placeholder = 'Скрыто';
+            }
+        }
         if (form.password) {
             form.password.value = '';
             form.password.required = false;
         }
+        var role = employeePrimaryRole(user);
+        syncUserRoleOptions(normalizeRole(role && role.code || user.role || 'foreman'));
         var title = qs('h3', form);
         if (title) title.textContent = '\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
         var submit = qs('button[type="submit"]', form);
@@ -5662,7 +5840,7 @@
         if (!canDeleteEmployeeAccounts()) return;
         var user = findEmployeeById(button.getAttribute('data-user-id'));
         if (!user) return;
-        var name = user.name || user.login || '\u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
+        var name = personDisplayName(user) || user.login || '\u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
         if (!window.confirm('\u0412\u044b \u0443\u0432\u0435\u0440\u0435\u043d\u044b, \u0447\u0442\u043e \u0445\u043e\u0442\u0438\u0442\u0435 \u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430 ' + name + ' \u0438\u0437 \u0441\u0438\u0441\u0442\u0435\u043c\u044b? \u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043e\u0431\u0440\u0430\u0442\u0438\u043c\u043e')) return;
         withSubmitLock(button, function () {
             return api('/api/users/manage/' + encodeURIComponent(user.id), { method: 'DELETE' }).then(function () {
@@ -5687,20 +5865,53 @@
         });
     }
 
-    loadUsers = function () {
+    function employeeGroupKey(user) {
+        var roles = effectiveUserRoles(user);
+        var codes = roles.map(function (role) { return normalizeRole(role && role.code || role); });
+        var labels = roles.map(function (role) { return String(userRoleLabel(role)).toLowerCase(); });
+        if (codes.indexOf('director') !== -1) return 'director';
+        if (codes.indexOf('foreman') !== -1) return 'foreman';
+        if (codes.indexOf('programmer') !== -1 || codes.indexOf('developer') !== -1 || labels.some(function (label) {
+            return label.indexOf('програм') !== -1 || label.indexOf('разработ') !== -1;
+        })) return 'programmer';
+        return 'other';
+    }
+
+    function renderTeamGroups(users) {
+        var groups = [
+            { key: 'director', title: 'Директор' },
+            { key: 'foreman', title: 'Прорабы' },
+            { key: 'programmer', title: 'Программисты' },
+            { key: 'other', title: 'Остальные роли' }
+        ];
+        return '<div class="team-groups">' + groups.map(function (group) {
+            var items = users.filter(function (user) {
+                return employeeGroupKey(user) === group.key;
+            });
+            if (!items.length && group.key !== 'other') return '';
+            if (!items.length) return '';
+            return '<section class="team-group team-group-' + escapeHtml(group.key) + '">' +
+                '<div class="team-group-head"><h3>' + escapeHtml(group.title) + '</h3><span>' + items.length + '</span></div>' +
+                '<div class="users-list employees-grid">' + items.map(renderUserCard).join('') + '</div>' +
+            '</section>';
+        }).join('') + '</div>';
+    }
+
+    loadUsers = function (options) {
+        options = options || {};
         var root = qs('[data-users-list]');
         if (!root) return Promise.resolve();
-        safeReplaceChildren(root, '');
-        return api('/api/admin/users').then(function (data) {
+        if (!options.silent) safeReplaceChildren(root, '');
+        return api('/api/users').then(function (data) {
             var users = Array.isArray(data.users) ? data.users : [];
             state.users = users;
             safeReplaceChildren(root, users.length
-                ? '<div class="users-list employees-grid">' + users.map(renderUserCard).join('') + '</div>'
+                ? renderTeamGroups(users)
                 : '<p class="muted">\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0438 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u044b.</p>');
             bindEmployeeCards(root);
             refreshLucideIcons(root);
         }).catch(function () {
-            safeReplaceChildren(root, '<p class="muted">\u0421\u043f\u0438\u0441\u043e\u043a \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432 \u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0434\u0438\u0440\u0435\u043a\u0442\u043e\u0440\u0443.</p>');
+            safeReplaceChildren(root, '<p class="muted">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043f\u0438\u0441\u043e\u043a \u043a\u043e\u043c\u0430\u043d\u0434\u044b. \u041e\u0431\u043d\u043e\u0432\u0438 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438\u043b\u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u043f\u043e\u0437\u0436\u0435.</p>');
         });
     };
 
@@ -7923,16 +8134,7 @@ function renderLogsDayView(project, logs) {
         qsa('[data-director-action]').forEach(function (node) {
             node.classList.toggle('hidden', !isDirectorRole());
         });
-        var allowedNav = {
-            admin: ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
-            director: ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'],
-            foreman: ['dashboard', 'daily_tasks', 'projects', 'autobot', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats'],
-            purchaser: ['dashboard', 'daily_tasks', 'projects', 'autobot', 'logs', 'warehouse', 'suppliers', 'chats'],
-            financier: ['dashboard', 'daily_tasks', 'projects', 'autobot', 'reports'],
-            accountant: ['dashboard', 'daily_tasks', 'projects', 'autobot', 'reports'],
-            customer: ['dashboard', 'projects', 'schedule', 'logs', 'chats']
-        };
-        var allowed = allowedNav[normalizeRole(state.user.role)] || [];
+        var allowed = allowedModules();
         qsa('[data-nav]').forEach(function (link) {
             if (allowed.indexOf(link.dataset.nav) === -1) {
                 link.classList.add('hidden');
@@ -8297,6 +8499,12 @@ function renderLogsDayView(project, logs) {
         }
         api('/api/auth/me').then(function (data) {
             state.user = data.user;
+            state.currentUser = data.user;
+            if (typeof renderAppTopbar === 'function') renderAppTopbar();
+            syncCurrentUserHeader(data.user);
+            forceTopbarAvatar(data.user);
+            setTimeout(function () { forceTopbarAvatar(data.user); }, 80);
+            setTimeout(function () { forceTopbarAvatar(data.user); }, 350);
             renderUser();
             applyRole();
             refreshLucideIcons(document);
@@ -8556,6 +8764,7 @@ function renderLogsDayView(project, logs) {
 
     function syncCurrentUserHeader(user) {
         user = user || state.currentUser || state.user || {};
+        rememberUserInitial(user);
         var name = displayUserName(user);
         var roleLabel = currentRoleLabel(user);
         var roleCode = normalizeRole(user.role);
@@ -8567,8 +8776,10 @@ function renderLogsDayView(project, logs) {
             node.classList.toggle('role-foreman', roleCode === 'foreman');
         });
         qsa('.topbar-avatar').forEach(function (node) {
-            safeReplaceChildren(node, profileAvatarInner(user));
+            safeReplaceChildren(node, topbarAvatarInner(user));
         });
+        forceTopbarAvatar(user);
+        refreshLucideIcons(document);
     }
 
     function initAiAssistant() {
@@ -8647,13 +8858,18 @@ function renderLogsDayView(project, logs) {
     function renderUser() {
         if (!state.user) return;
         state.currentUser = state.user;
+        var topbar = qs('.topbar');
+        if (topbar && !topbar.dataset.renderingUser) {
+            topbar.dataset.renderingUser = '1';
+            renderAppTopbar();
+            delete topbar.dataset.renderingUser;
+        }
         var userBadge = qs('[data-user-badge]');
         var name = displayUserName(state.user);
         syncCurrentUserHeader(state.user);
         if (userBadge) {
-            var parts = String(name).trim().split(/\s+/).filter(Boolean);
-            var initials = parts.slice(0, 2).map(function (part) { return part.charAt(0).toUpperCase(); }).join('') || 'U';
-            userBadge.textContent = initials;
+            safeReplaceChildren(userBadge, topbarAvatarInner(state.user));
+            refreshLucideIcons(userBadge);
         }
     }
 
@@ -9942,6 +10158,11 @@ function renderLogsDayView(project, logs) {
             var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
             return kind !== 'work' && canonicalEstimateSectionId(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId)) === sectionKey;
         });
+        qsa('[data-role-create-open]').forEach(function (button) {
+            if (button.dataset.roleCreateOpenBound === '1') return;
+            button.dataset.roleCreateOpenBound = '1';
+            button.addEventListener('click', openRoleCreateModal);
+        });
         var workItems = liveScheduleSectionItems(section);
         var materialValue = materialProgress(projectId, materialItems);
         var workValue = workProgressForRows(projectId, sectionTitle, workItems);
@@ -10096,6 +10317,133 @@ function renderLogsDayView(project, logs) {
         qsa('[data-section-work-check]').forEach(function (input) {
             if (input.dataset.bound === '1') return;
             input.dataset.bound = '1';
+        });
+    }
+
+    function ensureRoleCreateModal() {
+        var modal = qs('[data-role-create-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'role-create-modal hidden';
+        modal.setAttribute('data-role-create-modal', '');
+        modal.innerHTML =
+            '<button class="role-create-backdrop" type="button" data-role-create-close aria-label="Закрыть"></button>' +
+            '<section class="role-create-dialog" role="dialog" aria-modal="true" aria-label="Создать роль">' +
+                '<form class="role-create-form" data-role-create-form>' +
+                    '<button class="ghost compact user-create-close" type="button" data-role-create-close>Закрыть</button>' +
+                    '<h3>Создать роль</h3>' +
+                    '<label><span>Название роли</span><input name="name" placeholder="Программист" required></label>' +
+                    '<div class="role-permission-list">' +
+                        '<label><input type="checkbox" name="projects_view"> <span>Доступ к Объектам: просмотр</span></label>' +
+                        '<label><input type="checkbox" name="projects_edit"> <span>Доступ к Объектам: редактирование</span></label>' +
+                        '<label><input type="checkbox" name="schedule"> <span>Доступ к Календарю</span></label>' +
+                        '<label><input type="checkbox" name="suppliers"> <span>Доступ к Контрагентам</span></label>' +
+                        '<label><input type="checkbox" name="daily_own" checked> <span>Задачи сотрудников: только свои</span></label>' +
+                        '<label><input type="checkbox" name="daily_all"> <span>Задачи сотрудников: всех сотрудников как Директор</span></label>' +
+                        '<label><input type="checkbox" name="full_access"> <span>Полный доступ ко всему сайту</span></label>' +
+                    '</div>' +
+                    '<div class="form-error" data-role-create-error></div>' +
+                    '<button class="primary" type="submit">Создать роль</button>' +
+                '</form>' +
+            '</section>';
+        document.body.appendChild(modal);
+        qsa('[data-role-create-close]', modal).forEach(function (button) {
+            button.addEventListener('click', closeRoleCreateModal);
+        });
+        qs('[data-role-create-form]', modal).addEventListener('submit', submitRoleCreateForm);
+        return modal;
+    }
+
+    function openRoleCreateModal() {
+        var modal = ensureRoleCreateModal();
+        var form = qs('[data-role-create-form]', modal);
+        if (form) form.reset();
+        modal.classList.remove('hidden');
+        requestAnimationFrame(function () {
+            modal.setAttribute('data-open', '1');
+            var input = qs('input[name="name"]', modal);
+            if (input) input.focus();
+        });
+    }
+
+    function closeRoleCreateModal() {
+        var modal = qs('[data-role-create-modal]');
+        if (!modal) return;
+        modal.removeAttribute('data-open');
+        setTimeout(function () {
+            if (!modal.hasAttribute('data-open')) modal.classList.add('hidden');
+        }, 180);
+    }
+
+    function rolePermissionsFromForm(form) {
+        var full = !!form.full_access.checked;
+        var modules = ['dashboard', 'daily_tasks'];
+        var permissions = {
+            modules: modules,
+            dailyTasks: form.daily_all.checked ? 'all' : 'own'
+        };
+        if (form.projects_view.checked || form.projects_edit.checked) {
+            modules.push('projects');
+            permissions.projects = form.projects_edit.checked ? 'edit' : 'view';
+        }
+        if (form.schedule.checked) modules.push('schedule');
+        if (form.suppliers.checked) {
+            modules.push('suppliers');
+            permissions.suppliers = 'edit';
+        }
+        if (form.daily_all.checked) {
+            permissions.manageUsers = true;
+            permissions.manageRoles = true;
+            if (modules.indexOf('users') === -1) modules.push('users');
+        }
+        if (full) {
+            permissions.fullAccess = true;
+            permissions.modules = ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'];
+            permissions.projects = 'edit';
+            permissions.dailyTasks = 'all';
+            permissions.manageUsers = true;
+            permissions.manageRoles = true;
+        }
+        if (!full) {
+            permissions.modules = modules.filter(function (module, index) {
+                return modules.indexOf(module) === index;
+            });
+        }
+        return permissions;
+    }
+
+    function submitRoleCreateForm(event) {
+        event.preventDefault();
+        if (!canManageTeam()) {
+            showAppNotice('Доступ разрешен только Главному Админу', 'error');
+            return;
+        }
+        var form = event.currentTarget;
+        var error = qs('[data-role-create-error]', form);
+        if (error) error.classList.remove('active');
+        withSubmitLock(form, function () {
+            return api('/api/roles', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: form.name.value.trim(),
+                    permissions: rolePermissionsFromForm(form)
+                })
+            }).then(function (data) {
+                var role = data && data.role;
+                if (role) {
+                    state.roles.push(role);
+                    syncUserRoleOptions(role.code);
+                }
+                closeRoleCreateModal();
+                showAppNotice('Роль создана.', 'success');
+            }).catch(function (err) {
+                var message = appErrorMessage(err, 'Не удалось создать роль');
+                if (error) {
+                    error.textContent = message;
+                    error.classList.add('active');
+                }
+                throw err;
+            });
         });
     }
 
@@ -17129,10 +17477,10 @@ function renderLogsDayView(project, logs) {
             } else {
                 safeReplaceChildren(list, foremen.map(function (user) {
                     var checked = assigned.indexOf(Number(user.id)) !== -1 ? ' checked' : '';
-                    var meta = [user.login, user.email, user.phone].filter(Boolean).join(' - ');
+                    var meta = [user.login].filter(Boolean).join(' - ');
                     return '<label class="project-access-row">' +
                         '<input type="checkbox" name="foreman_ids" value="' + escapeHtml(user.id) + '"' + checked + '> ' +
-                        '<span><b>' + escapeHtml(user.name || user.login) + '</b><small>' + escapeHtml(meta || 'foreman') + '</small></span>' +
+                        '<span><b>' + escapeHtml(personDisplayName(user) || user.login) + '</b><small>' + escapeHtml(meta || 'foreman') + '</small></span>' +
                     '</label>';
                 }).join(''));
             }
@@ -17143,7 +17491,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function openProjectAccessModal() {
-        if (!isDirectorRole()) return;
+        if (!canManageTeam()) return;
         var project = state.selectedProject;
         if (!project) {
             showAppNotice('Сначала открой объект.', 'warn');
@@ -17158,6 +17506,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function saveProjectAccess(form) {
+        if (!canManageTeam()) {
+            showAppNotice('Доступ разрешен только Главному Админу', 'error');
+            return;
+        }
         var projectId = Number(form.dataset.projectId || 0);
         var error = qs('[data-project-access-error]');
         if (error) error.classList.remove('active');
@@ -17294,6 +17646,8 @@ function renderLogsDayView(project, logs) {
         var topbar = qs('.topbar');
         if (!topbar) return;
         safeReplaceChildren(topbar, renderTopbarTemplate());
+        var profileOpenLabel = qs('[data-profile-open] span', topbar);
+        if (profileOpenLabel) profileOpenLabel.textContent = 'Личный кабинет';
         if (window.lucide && typeof window.lucide.createIcons === 'function') {
             window.lucide.createIcons({
                 attrs: {
@@ -17756,7 +18110,7 @@ function renderLogsDayView(project, logs) {
             '</div>' +
             '<p class="daily-task-text">' + escapeHtml(task.text) + '</p>' +
             '<div class="daily-task-meta">' +
-                (isDirectorRole() ? '<span><i data-lucide="user-round"></i>' + escapeHtml(userName || 'Сотрудник') + '</span>' : '') +
+                (canManageDailyTasks() ? '<span><i data-lucide="user-round"></i>' + escapeHtml(userName || 'Сотрудник') + '</span>' : '') +
                 '<span><i data-lucide="calendar"></i>' + escapeHtml(formatDisplayDate(task.date)) + '</span>' +
                 (completedTime ? '<span class="daily-task-done-time"><i data-lucide="clock"></i>Выполнено в ' + escapeHtml(completedTime) + '</span>' : '') +
             '</div>' +
@@ -17802,7 +18156,7 @@ function renderLogsDayView(project, logs) {
     function dailyTaskQuery(archive) {
         var params = new URLSearchParams();
         if (archive) params.set('archive', '1');
-        if (isDirectorRole() && state.dailySelectedUserId && state.dailySelectedUserId !== 'all') {
+        if (canManageDailyTasks() && state.dailySelectedUserId && state.dailySelectedUserId !== 'all') {
             params.set('userId', state.dailySelectedUserId);
         }
         var query = params.toString();
@@ -17916,10 +18270,10 @@ function renderLogsDayView(project, logs) {
         var tools = qs('[data-daily-director-tools]');
         var select = qs('[data-daily-user-filter]');
         if (!tools || !select) return;
-        tools.hidden = !isDirectorRole();
-        if (!isDirectorRole()) return;
+        tools.hidden = !canManageDailyTasks();
+        if (!canManageDailyTasks()) return;
         var options = '<option value="all">Все сотрудники</option>' + dailyTaskVisibleUsers().map(function (user) {
-            return '<option value="' + escapeHtml(user.id) + '"' + (String(state.dailySelectedUserId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(user.name || user.login) + '</option>';
+            return '<option value="' + escapeHtml(user.id) + '"' + (String(state.dailySelectedUserId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(personDisplayName(user) || user.login) + '</option>';
         }).join('');
         safeReplaceChildren(select, options);
         if (select.dataset.bound !== '1') {
@@ -17956,7 +18310,7 @@ function renderLogsDayView(project, logs) {
                     method: 'POST',
                     body: JSON.stringify({
                         text: form.text.value,
-                        userId: isDirectorRole() && state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : undefined
+                        userId: canManageDailyTasks() && state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : undefined
                     })
                 }).then(function () {
                     form.reset();
@@ -18196,7 +18550,7 @@ function renderLogsDayView(project, logs) {
                 showAppNotice(appErrorMessage(error, 'Не удалось отправить задачу в архив.'), 'error');
             });
         });
-        if (isDirectorRole()) {
+        if (canManageDailyTasks()) {
             loadUserDirectory(function () {
                 renderDailyUserFilter();
                 loadDailyTasks();
@@ -18215,10 +18569,13 @@ function renderLogsDayView(project, logs) {
 
     function normalizeDailyUser(user) {
         user = user || {};
-        var name = String(user.name || user.fullName || user.login || 'Сотрудник').trim();
+        var name = String(personDisplayName(user) || user.fullName || user.login || 'Сотрудник').trim();
         return {
             id: Number(user.id) || 0,
             name: name || 'Сотрудник',
+            displayName: name || 'Сотрудник',
+            firstName: user.firstName || user.first_name || '',
+            lastName: user.lastName || user.last_name || '',
             avatar: safeAvatarUrl(user.avatar || user.avatarUrl || user.avatar_url || user.userAvatarUrl) || '',
             role: normalizeRole(user.role || 'employee')
         };
@@ -18560,7 +18917,7 @@ function renderLogsDayView(project, logs) {
     function syncDailyCreateUsers(modal) {
         var select = qs('[data-daily-create-user]', modal);
         if (!select) return;
-        var canAssignUser = isDirectorRole();
+        var canAssignUser = canManageDailyTasks();
         var field = select.closest('.daily-create-field');
         var users = canAssignUser ? dailyTaskVisibleUsers() : (state.user ? [state.user] : []);
         var currentId = canAssignUser && !state.dailyMyOnly ? (state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : (state.user && state.user.id)) : (state.user && state.user.id);
@@ -18569,7 +18926,7 @@ function renderLogsDayView(project, logs) {
         if (!users.length && state.user) users = [state.user];
         if (!currentId && state.user) currentId = state.user.id;
         safeReplaceChildren(select, users.map(function (user) {
-            return '<option value="' + escapeHtml(user.id) + '"' + (String(currentId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(user.name || user.login) + '</option>';
+            return '<option value="' + escapeHtml(user.id) + '"' + (String(currentId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(personDisplayName(user) || user.login) + '</option>';
         }).join(''));
     }
 

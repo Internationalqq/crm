@@ -6,7 +6,7 @@ import time
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import ROLE_LABELS, normalize_role, user_has_any_role
+from auth import ROLE_LABELS, display_user_name, normalize_role, user_has_any_role, user_is_hidden_admin
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -519,9 +519,10 @@ def api_project_assignments(handler, path: str) -> None:
     with db() as con:
         rows = con.execute(
             """
-            SELECT oa.*, u.name AS user_name, u.login AS user_login
+            SELECT oa.*, u.name AS user_name, u.first_name AS user_first_name, u.last_name AS user_last_name, u.login AS user_login, u.role AS user_role, r.name AS assignment_role_name
             FROM object_assignments oa
             JOIN users u ON u.id = oa.user_id
+            LEFT JOIN roles r ON r.code = oa.role_code
             WHERE oa.object_id = ?
             ORDER BY oa.is_primary DESC, oa.assigned_at DESC, oa.id DESC
             """,
@@ -535,15 +536,16 @@ def api_project_assignments(handler, path: str) -> None:
                     "id": row["id"],
                     "objectId": row["object_id"],
                     "userId": row["user_id"],
-                    "userName": row["user_name"],
+                    "userName": display_user_name(row["user_name"], row["user_first_name"], row["user_last_name"], row["user_login"]),
                     "userLogin": row["user_login"],
                     "roleCode": normalize_role(row["role_code"]),
-                    "roleLabel": ROLE_LABELS.get(normalize_role(row["role_code"]), row["role_code"]),
+                    "roleLabel": ROLE_LABELS.get(normalize_role(row["role_code"]), row["assignment_role_name"] or row["role_code"]),
                     "responsibility": row["responsibility"],
                     "isPrimary": bool(row["is_primary"]),
                     "assignedAt": row["assigned_at"],
                 }
                 for row in rows
+                if not user_is_hidden_admin({"login": row["user_login"], "role": row["user_role"]}) or user_is_hidden_admin(user)
             ]
         },
     )
@@ -566,10 +568,11 @@ def api_create_project_assignment(handler, path: str) -> None:
     role_code = normalize_role(str(payload.get("role_code", payload.get("roleCode", ""))).strip())
     responsibility = str(payload.get("responsibility", "")).strip() or None
     is_primary = 1 if payload.get("is_primary", payload.get("isPrimary", False)) else 0
-    if role_code not in ROLE_LABELS:
-        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_role"})
-        return
     with db() as con:
+        role_row = con.execute("SELECT name FROM roles WHERE code = ?", (role_code,)).fetchone()
+        if not role_row:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_role"})
+            return
         project = con.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
         assignee = con.execute("SELECT id, role FROM users WHERE id = ? AND is_active = 1", (user_id,)).fetchone()
         if not project:

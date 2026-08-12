@@ -15,10 +15,10 @@
             } catch (error) {}
         })();
     </script>
-    <link rel="stylesheet" href="/assets/app.css?v=20260812-morning-standup">
+    <link rel="stylesheet" href="/assets/app.css?v=20260812-team-access-avatar-5">
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-    <script defer src="/assets/app.js?v=20260812-morning-standup"></script>
+    <script defer src="/assets/app.js?v=20260812-team-access-avatar-5"></script>
 </head>
 <body data-page="{{page}}">
     <div class="app-shell">
@@ -46,7 +46,7 @@
                 <a href="/app/warehouse" data-nav="warehouse"><i data-lucide="warehouse" aria-hidden="true"></i><span>Склад</span></a>
                 <a href="/app/suppliers" data-nav="suppliers"><i data-lucide="handshake" aria-hidden="true"></i><span>Контрагенты</span></a>
                 <a href="/app/chats" data-nav="chats"><i data-lucide="messages-square" aria-hidden="true"></i><span>Чаты</span></a>
-                <a href="/app/users" data-nav="users" data-director-only><i data-lucide="users" aria-hidden="true"></i><span>Сотрудники</span></a>
+                <a href="/app/users" data-nav="users"><i data-lucide="users" aria-hidden="true"></i><span>Наша Команда</span></a>
                 <a href="/app/reports" data-nav="reports" data-director-only><i data-lucide="bar-chart-3" aria-hidden="true"></i><span>Отчётность</span></a>
             </nav>
         </aside>
@@ -91,7 +91,7 @@
                     </button>
                     <div class="topbar-profile-wrap">
                         <button class="topbar-circle profile-circle" type="button" data-user-toggle aria-label="Открыть личный кабинет" title="Личный кабинет">
-                            <span class="topbar-circle-text" data-user-badge>U</span>
+                            <span class="topbar-avatar topbar-circle-text" data-user-badge><span class="topbar-avatar-fallback-inner"></span></span>
                         </button>
                         <div class="user-popover" data-user-popover hidden>
                             <div class="user-popover-head">

@@ -165,7 +165,7 @@ def api_project_notifications(handler, path: str) -> None:
         project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         open_tasks = con.execute(
             """
-            SELECT t.*, u.name AS assignee_name
+            SELECT t.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS assignee_name
             FROM tasks t
             LEFT JOIN users u ON u.id = t.assignee_id
             WHERE t.project_id = ? AND t.status != 'done'
@@ -312,7 +312,7 @@ def api_project_documents(handler, path: str) -> None:
         if user["role"] == "customer":
             rows = con.execute(
                 """
-                SELECT d.*, u.name AS uploaded_by_name, s.title AS stage_title
+                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
                 FROM documents d
                 LEFT JOIN users u ON u.id = d.uploaded_by
                 LEFT JOIN work_stages s ON s.id = d.stage_id
@@ -324,7 +324,7 @@ def api_project_documents(handler, path: str) -> None:
         else:
             rows = con.execute(
                 """
-                SELECT d.*, u.name AS uploaded_by_name, s.title AS stage_title
+                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
                 FROM documents d
                 LEFT JOIN users u ON u.id = d.uploaded_by
                 LEFT JOIN work_stages s ON s.id = d.stage_id
@@ -526,7 +526,7 @@ def api_create_project_executive_doc(handler, path: str) -> None:
         )
         row = con.execute(
             """
-            SELECT d.*, u.name AS uploaded_by_name, s.title AS stage_title
+            SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
             FROM documents d
             LEFT JOIN users u ON u.id = d.uploaded_by
             LEFT JOIN work_stages s ON s.id = d.stage_id
@@ -621,7 +621,7 @@ def api_upload_project_document(handler, path: str) -> None:
         )
         row = con.execute(
             """
-            SELECT d.*, u.name AS uploaded_by_name, s.title AS stage_title
+            SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
             FROM documents d
             LEFT JOIN users u ON u.id = d.uploaded_by
             LEFT JOIN work_stages s ON s.id = d.stage_id
@@ -691,7 +691,7 @@ def api_project_daily_logs(handler, path: str) -> None:
         if user["role"] == "customer":
             rows = con.execute(
                 """
-                SELECT l.*, u.name AS author_name
+                SELECT l.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS author_name
                 FROM daily_logs l
                 LEFT JOIN users u ON u.id = l.created_by
                 WHERE l.project_id = ? AND l.is_client_visible = 1
@@ -702,7 +702,7 @@ def api_project_daily_logs(handler, path: str) -> None:
         else:
             rows = con.execute(
                 """
-                SELECT l.*, u.name AS author_name
+                SELECT l.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS author_name
                 FROM daily_logs l
                 LEFT JOIN users u ON u.id = l.created_by
                 WHERE l.project_id = ?
@@ -787,7 +787,7 @@ def api_create_daily_log(handler, path: str) -> None:
         )
         log_row = con.execute(
             """
-            SELECT l.*, u.name AS author_name
+            SELECT l.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS author_name
             FROM daily_logs l
             LEFT JOIN users u ON u.id = l.created_by
             WHERE l.id = ?
@@ -935,7 +935,7 @@ def api_chat_messages(handler, path: str) -> None:
     with db() as con:
         rows = con.execute(
             """
-            SELECT m.*, COALESCE(u.name, 'Система') AS author_name, COALESCE(u.role, 'system') AS author_role
+            SELECT m.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name, 'Система') AS author_name, COALESCE(u.role, 'system') AS author_role
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.chat_id = ?
