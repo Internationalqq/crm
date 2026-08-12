@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 import urllib.parse
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
@@ -25,6 +25,10 @@ TODAY_ISO = date.today().isoformat()
 
 def now_ts() -> int:
     return int(time.time())
+
+
+def now_iso() -> str:
+    return datetime.now().replace(microsecond=0).isoformat()
 
 
 def db() -> sqlite3.Connection:
@@ -2026,21 +2030,23 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
             )
 
         task_cols = table_columns(con, "tasks")
+        task_completed_sql = ", completed_at = ?" if "completed_at" in task_cols else ""
+        task_completed_args = ((now_iso() if completed else None),) if "completed_at" in task_cols else ()
         if "section_id" in task_cols and path_section_int:
             con.execute(
-                "UPDATE tasks SET status = ?, updated_at = ? WHERE project_id = ? AND section_id = ?",
-                ("done" if completed else "open", now_ts(), project_id, path_section_int),
+                "UPDATE tasks SET status = ?, updated_at = ?" + task_completed_sql + " WHERE project_id = ? AND section_id = ?",
+                ("done" if completed else "open", now_ts(), *task_completed_args, project_id, path_section_int),
             )
         elif "section_title" in task_cols and (section_title_raw or section_id):
             con.execute(
-                "UPDATE tasks SET status = ?, updated_at = ? WHERE project_id = ? AND lower(trim(section_title)) = lower(trim(?))",
-                ("done" if completed else "open", now_ts(), project_id, section_title_raw or section_raw),
+                "UPDATE tasks SET status = ?, updated_at = ?" + task_completed_sql + " WHERE project_id = ? AND lower(trim(section_title)) = lower(trim(?))",
+                ("done" if completed else "open", now_ts(), *task_completed_args, project_id, section_title_raw or section_raw),
             )
         elif "stage_id" in task_cols and matched_stage_ids:
             placeholders = ",".join("?" for _ in matched_stage_ids)
             con.execute(
-                f"UPDATE tasks SET status = ?, updated_at = ? WHERE project_id = ? AND stage_id IN ({placeholders})",
-                ("done" if completed else "open", now_ts(), project_id, *sorted(matched_stage_ids)),
+                f"UPDATE tasks SET status = ?, updated_at = ?{task_completed_sql} WHERE project_id = ? AND stage_id IN ({placeholders})",
+                ("done" if completed else "open", now_ts(), *task_completed_args, project_id, *sorted(matched_stage_ids)),
             )
 
         section_title = section_title_raw or section_raw
@@ -2148,22 +2154,25 @@ def api_create_task(handler, path: str) -> None:
             if not assignee:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "assignee_not_found"})
                 return
+        status = str(payload.get("status", "open")).strip() or "open"
+        completed_at = now_iso() if status == "done" else None
         cur = con.execute(
             """
-            INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, due_at, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, due_at, created_by, created_at, updated_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
                 title,
                 str(payload.get("description", "")).strip(),
-                str(payload.get("status", "open")).strip() or "open",
+                status,
                 str(payload.get("priority", "normal")).strip() or "normal",
                 assignee_id,
                 str(payload.get("due_at", "")).strip() or None,
                 user["id"],
                 now_ts(),
                 now_ts(),
+                completed_at,
             ),
         )
         con.commit()
@@ -2206,10 +2215,15 @@ def api_update_task(handler, path: str) -> None:
             if not assignee:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "assignee_not_found"})
                 return
+        completed_at = task["completed_at"] if "completed_at" in task.keys() else None
+        if status == "done" and task["status"] != "done":
+            completed_at = now_iso()
+        elif status != "done":
+            completed_at = None
         con.execute(
             """
             UPDATE tasks
-            SET title = ?, description = ?, status = ?, priority = ?, assignee_id = ?, due_at = ?, updated_at = ?
+            SET title = ?, description = ?, status = ?, priority = ?, assignee_id = ?, due_at = ?, updated_at = ?, completed_at = ?
             WHERE id = ?
             """,
             (
@@ -2220,6 +2234,7 @@ def api_update_task(handler, path: str) -> None:
                 assignee_id,
                 str(payload.get("due_at", payload.get("dueAt", task["due_at"] or ""))).strip() or None,
                 now_ts(),
+                completed_at,
                 task_id,
             ),
         )

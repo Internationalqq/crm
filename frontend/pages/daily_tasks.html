@@ -1,0 +1,26 @@
+<section class="daily-task-page">
+    <div class="daily-task-topline">
+        <button class="primary daily-new-task-btn" type="button" data-daily-quick-add>
+            <i data-lucide="plus" aria-hidden="true"></i>
+            <span>Новая задача</span>
+        </button>
+
+        <div class="daily-people-dropdown" data-daily-people-dropdown>
+            <button class="daily-people-toggle" type="button" data-daily-people-toggle aria-expanded="false">
+                <span class="daily-people-current-avatar" data-daily-people-current-avatar hidden></span>
+                <span data-daily-people-current>Все пользователи</span>
+                <i data-lucide="chevron-down" aria-hidden="true"></i>
+            </button>
+            <div class="daily-people-list" data-daily-people-list hidden></div>
+        </div>
+
+        <button class="ghost daily-archive-open" type="button" data-daily-archive-toggle>
+            <i data-lucide="archive" aria-hidden="true"></i>
+            <span>Архив задач</span>
+        </button>
+    </div>
+
+    <section class="daily-task-feed-wrap">
+        <div class="daily-task-feed" data-daily-task-feed></div>
+    </section>
+</section>

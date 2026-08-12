@@ -33,6 +33,7 @@ LOGIN_PATH = "/login"
 DEFAULT_AUTH_PATH = "/app/dashboard"
 SESSION_COOKIE = "pmbi_session"
 SESSION_TTL_SECONDS = 60 * 60 * 12
+REMEMBER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 PASSWORD_ITERATIONS = 220_000
 
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
@@ -62,11 +63,11 @@ CLERK_API_BASE = "https://api.clerk.com/v1"
 ROLE_ALLOWED_PREFIXES = {
     "admin": ["*"],
     "director": ["*"],
-    "foreman": ["/app", "/app/dashboard", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
-    "buyer": ["/app", "/app/dashboard", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
-    "purchaser": ["/app", "/app/dashboard", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
-    "financier": ["/app", "/app/dashboard", "/app/projects", "/app/autobot", "/app/reports"],
-    "accountant": ["/app", "/app/dashboard", "/app/projects", "/app/autobot", "/app/reports"],
+    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
+    "buyer": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
+    "purchaser": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
+    "financier": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/reports"],
+    "accountant": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/reports"],
     "client": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs", "/app/chats"],
     "customer": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs", "/app/chats"],
 }
@@ -485,10 +486,10 @@ def require_role(handler, roles: set[str]) -> dict | None:
     return user
 
 
-def set_session_cookie(handler, token: str) -> None:
+def set_session_cookie(handler, token: str, max_age: int = SESSION_TTL_SECONDS) -> None:
     handler.send_header(
         "Set-Cookie",
-        f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_TTL_SECONDS}; HttpOnly; SameSite=Lax",
+        f"{SESSION_COOKIE}={token}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax",
     )
 
 
@@ -545,6 +546,8 @@ def api_login(handler) -> None:
         payload = handler.read_json()
     login = str(payload.get("login", "")).strip()
     password = str(payload.get("password", ""))
+    remember_me = bool(payload.get("rememberMe") or payload.get("remember_me"))
+    session_ttl = REMEMBER_SESSION_TTL_SECONDS if remember_me else SESSION_TTL_SECONDS
     with db() as con:
         row = con.execute(
             "SELECT * FROM users WHERE login = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
@@ -564,7 +567,7 @@ def api_login(handler) -> None:
                 row["id"],
                 token_hash(token),
                 timestamp,
-                timestamp + SESSION_TTL_SECONDS,
+                timestamp + session_ttl,
                 handler.headers.get("User-Agent", ""),
                 handler.client_address[0],
             ),
@@ -579,7 +582,7 @@ def api_login(handler) -> None:
     handler.send_response(HTTPStatus.OK)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Cache-Control", "no-store")
-    set_session_cookie(handler, token)
+    set_session_cookie(handler, token, session_ttl)
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
@@ -623,7 +626,51 @@ def api_update_profile(handler) -> None:
     if not user:
         return
 
-    payload = handler.read_json()
+    content_type = handler.headers.get("Content-Type", "")
+    avatar_url_from_upload = None
+    if "multipart/form-data" in content_type:
+        form = handler.read_multipart()
+
+        def form_value(name: str) -> str:
+            item = form[name] if name in form else None
+            if item is None:
+                return ""
+            if isinstance(item, list):
+                item = item[0] if item else None
+            if item is None:
+                return ""
+            return str(getattr(item, "value", "") or "")
+
+        payload = {
+            "first_name": form_value("first_name"),
+            "last_name": form_value("last_name"),
+            "name": form_value("name"),
+        }
+        if "avatar_url" in form:
+            payload["avatar_url"] = form_value("avatar_url")
+        if "avatarUrl" in form:
+            payload["avatarUrl"] = form_value("avatarUrl")
+
+        avatar_item = form["avatar"] if "avatar" in form else None
+        if isinstance(avatar_item, list):
+            avatar_item = avatar_item[0] if avatar_item else None
+        if avatar_item is not None and getattr(avatar_item, "filename", ""):
+            mime_type = str(getattr(avatar_item, "type", "") or "").split(";", 1)[0].strip().lower()
+            ext = AVATAR_EXTENSIONS.get(mime_type)
+            if not ext:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_type", "message": "Загрузите PNG, JPG, WEBP или GIF"})
+                return
+            content = avatar_item.file.read(AVATAR_MAX_BYTES + 1)
+            if len(content) > AVATAR_MAX_BYTES:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "avatar_too_large", "message": "Аватарка должна быть меньше 5 МБ"})
+                return
+            AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+            storage_name = f"user_{user['id']}_{now_ts()}_{secrets.token_hex(6)}{ext}"
+            (AVATARS_DIR / storage_name).write_bytes(content)
+            avatar_url_from_upload = f"/api/auth/avatar/{storage_name}"
+    else:
+        payload = handler.read_json()
+
     first_name = re.sub(r"\s+", " ", str(payload.get("first_name", "") or "").strip())
     last_name = re.sub(r"\s+", " ", str(payload.get("last_name", "") or "").strip())
     name = re.sub(r"\s+", " ", str(payload.get("name", "") or "").strip())
@@ -636,6 +683,7 @@ def api_update_profile(handler) -> None:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "name_too_long", "message": "Имя слишком длинное"})
         return
 
+    has_avatar_url = avatar_url_from_upload is not None or "avatar_url" in payload or "avatarUrl" in payload
     avatar_url = avatar_url_from_upload or str(payload.get("avatar_url", payload.get("avatarUrl", "")) or "").strip()
     if avatar_url and not (re.match(r"^https?://", avatar_url, re.IGNORECASE) or avatar_url.startswith("/api/auth/avatar/")):
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_url", "message": "Аватарка должна быть ссылкой http/https"})
@@ -648,7 +696,7 @@ def api_update_profile(handler) -> None:
         columns = {row["name"] for row in con.execute("PRAGMA table_info(users)").fetchall()}
         updates = ["name = ?", "updated_at = ?"]
         values = [name, now_ts()]
-        if "avatar_url" in columns:
+        if "avatar_url" in columns and has_avatar_url:
             updates.append("avatar_url = ?")
             values.append(avatar_url or None)
         values.append(user["id"])

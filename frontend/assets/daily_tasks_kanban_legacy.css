@@ -1,0 +1,9 @@
+/*
+Legacy daily tasks Kanban styles.
+This file is intentionally not loaded by the app.
+*/
+.daily-task-board {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}

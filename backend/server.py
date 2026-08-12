@@ -13,7 +13,7 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -144,6 +144,7 @@ PMBI_AUTOBOT_BASE_URL = (os.environ.get("PMBI_AUTOBOT_BASE_URL", "http://127.0.0
 APP_PAGES = {
     "/app": ("dashboard", "Панель"),
     "/app/dashboard": ("dashboard", "Панель"),
+    "/app/daily-tasks": ("daily_tasks", "Задачи сотрудников"),
     "/app/projects": ("projects", "Объекты"),
     "/app/companies": ("companies", "Компании"),
     "/app/warehouse": ("warehouse", "Склад"),
@@ -184,7 +185,8 @@ def now_ts() -> int:
     return int(time.time())
 
 
-TODAY_ISO = date.today().isoformat()
+APP_TIMEZONE = timezone(timedelta(hours=int(os.environ.get("PMBI_TZ_OFFSET_HOURS", "5"))))
+TODAY_ISO = datetime.now(APP_TIMEZONE).date().isoformat()
 
 
 def normalize_estimate_item_kind(value: object) -> str:
@@ -942,6 +944,26 @@ def init_db() -> None:
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS daily_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','in_progress','done','archived')),
+                task_date TEXT NOT NULL,
+                completed_at TEXT,
+                archived_at TEXT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_standups (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                report_date TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, report_date)
+            );
+
             CREATE TABLE IF NOT EXISTS chats (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1167,6 +1189,7 @@ def init_db() -> None:
             "tasks",
             {
                 "updated_at": "INTEGER",
+                "completed_at": "TEXT",
             },
         )
 
@@ -1789,6 +1812,18 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_delete_project(path)
             elif method == "GET" and path == "/api/dashboard":
                 self.api_dashboard()
+            elif method == "GET" and path == "/api/daily-tasks":
+                self.api_daily_tasks()
+            elif method == "POST" and path == "/api/daily-tasks":
+                self.api_create_daily_task()
+            elif method == "GET" and path == "/api/daily-tasks/standup":
+                self.api_daily_standup()
+            elif method == "POST" and path == "/api/daily-tasks/standup":
+                self.api_save_daily_standup()
+            elif method == "POST" and path.startswith("/api/daily-tasks/") and path.endswith("/update"):
+                self.api_update_daily_task(path)
+            elif method == "POST" and path.startswith("/api/daily-tasks/") and path.endswith("/delete"):
+                self.api_delete_daily_task(path)
             elif method == "GET" and path in {"/api/warehouse-items", "/api/warehouse"}:
                 self.api_warehouse_items()
             elif method == "POST" and path == "/api/warehouse-items/receipt":
@@ -2469,6 +2504,351 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def api_create_project_assignment(self, path: str) -> None:
         projects_api_create_project_assignment(self, path)
+
+    def daily_task_payload(self, row: sqlite3.Row) -> dict:
+        creator_role = normalize_role(row["creator_role"]) if "creator_role" in row.keys() and row["creator_role"] else ""
+        payload = {
+            "id": row["id"],
+            "userId": row["user_id"],
+            "createdBy": row["created_by"] if "created_by" in row.keys() else None,
+            "text": row["text"],
+            "status": row["status"],
+            "date": row["task_date"],
+            "completedAt": row["completed_at"],
+            "archivedAt": row["archived_at"] if "archived_at" in row.keys() else None,
+            "fromBoss": creator_role == "director",
+        }
+        if "user_name" in row.keys():
+            payload["userName"] = row["user_name"]
+        if "user_avatar_url" in row.keys():
+            payload["userAvatarUrl"] = row["user_avatar_url"]
+            payload["userAvatar"] = row["user_avatar_url"]
+        if "creator_name" in row.keys():
+            payload["creatorName"] = row["creator_name"]
+        if "creator_avatar_url" in row.keys():
+            payload["creatorAvatarUrl"] = row["creator_avatar_url"]
+            payload["creatorAvatar"] = row["creator_avatar_url"]
+        if creator_role:
+            payload["creatorRole"] = creator_role
+        return payload
+
+    def daily_task_manager(self, user: dict) -> bool:
+        return user_has_any_role(user, {"admin", "director"})
+
+    def daily_task_now(self) -> str:
+        return datetime.now(APP_TIMEZONE).replace(microsecond=0, tzinfo=None).isoformat()
+
+    def daily_task_users(self, con: sqlite3.Connection) -> list[dict]:
+        rows = con.execute(
+            """
+            SELECT id, login, role, name, avatar_url
+            FROM users
+            WHERE is_active = 1
+              AND COALESCE(is_deleted, 0) = 0
+              AND role NOT IN ('customer', 'client')
+            ORDER BY name COLLATE NOCASE, id
+            """
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "login": row["login"],
+                "role": normalize_role(row["role"]),
+                "name": row["name"],
+                "avatar": row["avatar_url"],
+                "avatarUrl": row["avatar_url"],
+            }
+            for row in rows
+        ]
+
+    def daily_task_rows(self, con: sqlite3.Connection, user: dict, archive: bool = False, user_id: int | None = None) -> list[sqlite3.Row]:
+        where: list[str] = []
+        args: list[object] = []
+        if archive:
+            where.append("t.status IN ('archived','done')")
+        else:
+            where.append("t.status IN ('planned','in_progress')")
+        if user_id:
+            where.append("t.user_id = ?")
+            args.append(user_id)
+        return con.execute(
+            """
+            SELECT
+                t.*,
+                u.name AS user_name,
+                u.avatar_url AS user_avatar_url,
+                creator.name AS creator_name,
+                creator.avatar_url AS creator_avatar_url,
+                creator.role AS creator_role
+            FROM daily_tasks t
+            JOIN users u ON u.id = t.user_id
+            LEFT JOIN users creator ON creator.id = t.created_by
+            WHERE """ + " AND ".join(where) + """
+            ORDER BY COALESCE(t.completed_at, t.archived_at, t.updated_at) DESC, t.id DESC
+            """,
+            args,
+        ).fetchall()
+
+    def api_daily_tasks(self) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        archive = str((query.get("archive") or ["0"])[0]).lower() in {"1", "true", "yes"}
+        requested_user_id = None
+        raw_user_id = str((query.get("userId") or query.get("user_id") or [""])[0]).strip()
+        raw_user_id_key = raw_user_id.lower()
+        if raw_user_id and raw_user_id_key != "all":
+            if raw_user_id_key == "me":
+                requested_user_id = int(user["id"])
+            else:
+                try:
+                    requested_user_id = int(raw_user_id)
+                except ValueError:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
+                    return
+        with db() as con:
+            rows = self.daily_task_rows(con, user, archive=archive, user_id=requested_user_id)
+            users = self.daily_task_users(con)
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "tasks": [self.daily_task_payload(row) for row in rows],
+                "users": users,
+                "canSeeAll": True,
+                "today": TODAY_ISO,
+            },
+        )
+
+    def api_create_daily_task(self) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        payload = self.read_json()
+        raw_items = payload.get("tasks")
+        if isinstance(raw_items, list):
+            texts = [str(item or "").strip() for item in raw_items]
+        else:
+            texts = [line.strip() for line in str(payload.get("text", "")).splitlines()]
+        texts = [text for text in texts if text]
+        if not texts:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_task"})
+            return
+        target_user_id = int(user["id"])
+        raw_target_user_id = payload.get("userId", payload.get("user_id", user["id"]))
+        raw_target_user_id = str(raw_target_user_id if raw_target_user_id is not None else "").strip()
+        if raw_target_user_id.lower() in {"", "all", "me", "undefined", "null"}:
+            target_user_id = int(user["id"])
+        else:
+            try:
+                target_user_id = int(raw_target_user_id)
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
+                return
+        task_date = str(payload.get("date") or TODAY_ISO).strip() or TODAY_ISO
+        status = str(payload.get("status") or "planned").strip()
+        if status not in {"planned", "in_progress", "done", "archived"}:
+            status = "planned"
+        completed_at = self.daily_task_now() if status == "done" else None
+        archived_at = self.daily_task_now() if status == "archived" else None
+        with db() as con:
+            user_row = con.execute(
+                "SELECT id FROM users WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+                (target_user_id,),
+            ).fetchone()
+            if not user_row:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found"})
+                return
+            for text in texts:
+                con.execute(
+                    """
+                    INSERT INTO daily_tasks (user_id, text, status, task_date, completed_at, archived_at, created_by, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (target_user_id, text, status, task_date, completed_at, archived_at, user["id"], now_ts(), now_ts()),
+                )
+            con.commit()
+            rows = self.daily_task_rows(con, user, archive=False)
+        self.send_json(HTTPStatus.CREATED, {"tasks": [self.daily_task_payload(row) for row in rows]})
+
+    def api_update_daily_task(self, path: str) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        task_id = parse_path_int(path, 2)
+        if not task_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_task_id"})
+            return
+        payload = self.read_json()
+        with db() as con:
+            row = con.execute("SELECT * FROM daily_tasks WHERE id = ?", (task_id,)).fetchone()
+            if not row:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "task_not_found"})
+                return
+            status = str(payload.get("status", row["status"]) or row["status"]).strip()
+            if status not in {"planned", "in_progress", "done", "archived"}:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+                return
+            text = str(payload.get("text", row["text"]) or "").strip()
+            if not text:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_task"})
+                return
+            task_date = str(payload.get("date", row["task_date"]) or TODAY_ISO).strip() or TODAY_ISO
+            completed_at = row["completed_at"]
+            archived_at = row["archived_at"]
+            timestamp = self.daily_task_now()
+            if status == "done" and row["status"] != "done":
+                completed_at = timestamp
+            elif status != "done":
+                completed_at = None
+            if status == "archived" and row["status"] != "archived":
+                archived_at = timestamp
+            elif status != "archived":
+                archived_at = None
+            con.execute(
+                """
+                UPDATE daily_tasks
+                SET text = ?, status = ?, task_date = ?, completed_at = ?, archived_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (text, status, task_date, completed_at, archived_at, now_ts(), task_id),
+            )
+            con.commit()
+            updated = con.execute(
+                """
+                SELECT
+                    t.*,
+                    u.name AS user_name,
+                    u.avatar_url AS user_avatar_url,
+                    creator.name AS creator_name,
+                    creator.avatar_url AS creator_avatar_url,
+                    creator.role AS creator_role
+                FROM daily_tasks t
+                JOIN users u ON u.id = t.user_id
+                LEFT JOIN users creator ON creator.id = t.created_by
+                WHERE t.id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        self.send_json(HTTPStatus.OK, {"task": self.daily_task_payload(updated)})
+
+    def api_delete_daily_task(self, path: str) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        task_id = parse_path_int(path, 2)
+        if not task_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_task_id"})
+            return
+        with db() as con:
+            row = con.execute("SELECT id FROM daily_tasks WHERE id = ?", (task_id,)).fetchone()
+            if not row:
+                self.send_json(HTTPStatus.OK, {"ok": True, "id": task_id, "alreadyDeleted": True})
+                return
+            con.execute("DELETE FROM daily_tasks WHERE id = ?", (task_id,))
+            con.commit()
+        self.send_json(HTTPStatus.OK, {"ok": True, "id": task_id})
+
+    def api_daily_standup(self) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        if user_has_any_role(user, {"admin", "customer", "client"}):
+            self.send_json(HTTPStatus.OK, {"shouldShow": False, "carryover": [], "today": TODAY_ISO})
+            return
+        with db() as con:
+            existing = con.execute(
+                "SELECT 1 FROM daily_standups WHERE user_id = ? AND report_date = ?",
+                (user["id"], TODAY_ISO),
+            ).fetchone()
+            rows = con.execute(
+                """
+                SELECT t.*, u.name AS user_name
+                FROM daily_tasks t
+                JOIN users u ON u.id = t.user_id
+                WHERE t.user_id = ? AND t.status IN ('planned','in_progress') AND t.task_date < ?
+                ORDER BY t.task_date ASC, t.id ASC
+                """,
+                (user["id"], TODAY_ISO),
+            ).fetchall()
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "shouldShow": not bool(existing),
+                "carryover": [self.daily_task_payload(row) for row in rows],
+                "today": TODAY_ISO,
+            },
+        )
+
+    def api_save_daily_standup(self) -> None:
+        user = self.require_user()
+        if not user:
+            return
+        if user_has_any_role(user, {"admin", "customer", "client"}):
+            self.send_json(HTTPStatus.OK, {"ok": True, "tasks": []})
+            return
+        payload = self.read_json()
+        raw_tasks = payload.get("tasks")
+        if isinstance(raw_tasks, list):
+            texts = [str(item or "").strip() for item in raw_tasks]
+        else:
+            texts = [line.strip() for line in str(payload.get("text", "")).splitlines()]
+        texts = [text for text in texts if text]
+        carryover = payload.get("carryover", [])
+        if not isinstance(carryover, list):
+            carryover = []
+        timestamp = self.daily_task_now()
+        with db() as con:
+            for item in carryover:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    task_id = int(item.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                action = str(item.get("action") or "").strip()
+                row = con.execute(
+                    "SELECT id FROM daily_tasks WHERE id = ? AND user_id = ? AND status IN ('planned','in_progress')",
+                    (task_id, user["id"]),
+                ).fetchone()
+                if not row:
+                    continue
+                if action == "transfer":
+                    con.execute(
+                        """
+                        UPDATE daily_tasks
+                        SET status = 'planned', task_date = ?, completed_at = NULL, archived_at = NULL, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (TODAY_ISO, now_ts(), task_id),
+                    )
+                elif action == "archive":
+                    con.execute(
+                        """
+                        UPDATE daily_tasks
+                        SET status = 'archived', archived_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (timestamp, now_ts(), task_id),
+                    )
+            for text in texts:
+                con.execute(
+                    """
+                    INSERT INTO daily_tasks (user_id, text, status, task_date, created_by, created_at, updated_at)
+                    VALUES (?, ?, 'planned', ?, ?, ?, ?)
+                    """,
+                    (user["id"], text, TODAY_ISO, user["id"], now_ts(), now_ts()),
+                )
+            con.execute(
+                """
+                INSERT OR IGNORE INTO daily_standups (user_id, report_date, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (user["id"], TODAY_ISO, now_ts()),
+            )
+            con.commit()
+            rows = self.daily_task_rows(con, user, archive=False)
+        self.send_json(HTTPStatus.OK, {"ok": True, "today": TODAY_ISO, "tasks": [self.daily_task_payload(row) for row in rows]})
 
     def api_dashboard(self) -> None:
         user = self.require_user()
