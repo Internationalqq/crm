@@ -15,6 +15,8 @@
         users: [],
         dailyTasks: [],
         dailyArchive: [],
+        dailyTasksRequestToken: 0,
+        dailyArchiveRequestToken: 0,
         dailySelectedUserId: 'all',
         dailyMyOnly: false,
         dailyCompletionTimers: {},
@@ -10090,14 +10092,10 @@ function renderLogsDayView(project, logs) {
             });
         });
 
+        installActualQuantityDelegates();
         qsa('[data-section-work-check]').forEach(function (input) {
             if (input.dataset.bound === '1') return;
             input.dataset.bound = '1';
-            input.addEventListener('change', function () {
-                var project = state.selectedProject;
-                if (!project || Number(project.id) !== Number(projectId)) return;
-                saveManualQuantityCheckbox(input);
-            });
         });
     }
 
@@ -11729,14 +11727,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function bindMaterialManualChecks(projectId) {
+        installActualQuantityDelegates();
         qsa('[data-section-material-check]').forEach(function (input) {
             if (input.dataset.materialBound === '1') return;
             input.dataset.materialBound = '1';
-            input.addEventListener('change', function () {
-                var project = state.selectedProject;
-                if (!project || Number(project.id) !== Number(projectId)) return;
-                saveManualQuantityCheckbox(input);
-            });
         });
     }
 
@@ -13867,6 +13861,15 @@ function renderLogsDayView(project, logs) {
             };
         }
         if (!payload) return;
+        var syncKey = [
+            payload.kind,
+            projectId,
+            payload.itemId || '',
+            sectionTitle,
+            checked ? '1' : '0'
+        ].join('|');
+        if (input.dataset.progressSyncPending === syncKey) return Promise.resolve(null);
+        input.dataset.progressSyncPending = syncKey;
         updateManualCheckboxDom(input, checked);
         updateBulkSectionCheckState(sectionBulkScope(input));
         return withSubmitLock(input, function () {
@@ -13890,6 +13893,8 @@ function renderLogsDayView(project, logs) {
             }
             updateManualCheckboxDom(input, !checked);
             updateBulkSectionCheckState(sectionBulkScope(input));
+        }).finally(function () {
+            if (input.dataset.progressSyncPending === syncKey) delete input.dataset.progressSyncPending;
         });
     }
 
@@ -17983,14 +17988,16 @@ function renderLogsDayView(project, logs) {
     }
 
     function dailyStandupStorageKey() {
-        return 'last_standup_date';
+        var userId = state.user && state.user.id ? String(state.user.id) : 'anonymous';
+        return 'last_standup_date_' + userId;
     }
 
     function dailyStandupCanCheckNow() {
         var now = new Date();
         if (now.getHours() < 8) return false;
         try {
-            return window.localStorage.getItem(dailyStandupStorageKey()) !== dailyStandupDateKey(now);
+            var today = dailyStandupDateKey(now);
+            return window.localStorage.getItem(dailyStandupStorageKey()) !== today;
         } catch (error) {
             return true;
         }
@@ -17998,7 +18005,11 @@ function renderLogsDayView(project, logs) {
 
     function markDailyStandupDone(date) {
         try {
-            window.localStorage.setItem(dailyStandupStorageKey(), date || dailyStandupDateKey());
+            var value = date || dailyStandupDateKey();
+            window.localStorage.setItem(dailyStandupStorageKey(), value);
+            if (window.localStorage.getItem('last_standup_date') === value) {
+                window.localStorage.removeItem('last_standup_date');
+            }
         } catch (error) {}
     }
 
@@ -18372,7 +18383,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function loadDailyTasks() {
+        var requestToken = (state.dailyTasksRequestToken || 0) + 1;
+        state.dailyTasksRequestToken = requestToken;
         return api(dailyTaskQuery(false)).then(function (data) {
+            if (requestToken !== state.dailyTasksRequestToken) return;
             clearDailyCompletionTimers();
             state.dailyTasks = Array.isArray(data.tasks) ? data.tasks : [];
             if (Array.isArray(data.users)) state.users = data.users.map(normalizeDailyUser);
@@ -18392,7 +18406,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function loadDailyArchive() {
+        var requestToken = (state.dailyArchiveRequestToken || 0) + 1;
+        state.dailyArchiveRequestToken = requestToken;
         return api('/api/daily-tasks?archive=1').then(function (data) {
+            if (requestToken !== state.dailyArchiveRequestToken) return;
             state.dailyArchive = Array.isArray(data.tasks) ? data.tasks : [];
             if (Array.isArray(data.users)) state.users = data.users.map(normalizeDailyUser);
             renderDailyTaskArchive(state.dailyArchive);
@@ -18507,7 +18524,7 @@ function renderLogsDayView(project, logs) {
         modal.innerHTML =
             '<button class="daily-standup-backdrop" type="button" data-daily-quick-close aria-label="Закрыть"></button>' +
             '<section class="daily-standup-dialog daily-task-create-dialog" role="dialog" aria-modal="true" aria-label="Новая задача">' +
-                '<div class="daily-standup-head"><div><span class="section-label">Новая задача</span><h3>Добавить задачу</h3></div><button class="ghost compact" type="button" data-daily-quick-close>Закрыть</button></div>' +
+                '<div class="daily-standup-head"><div><h3>Добавить задачу</h3></div><button class="ghost compact" type="button" data-daily-quick-close>Закрыть</button></div>' +
                 '<form data-daily-quick-form>' +
                     '<label class="daily-create-field"><span>Исполнитель</span><select name="userId" data-daily-create-user></select></label>' +
                     '<textarea name="text" rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
@@ -18543,8 +18560,12 @@ function renderLogsDayView(project, logs) {
     function syncDailyCreateUsers(modal) {
         var select = qs('[data-daily-create-user]', modal);
         if (!select) return;
-        var users = dailyTaskVisibleUsers();
-        var currentId = state.dailyMyOnly ? (state.user && state.user.id) : (state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : (state.user && state.user.id));
+        var canAssignUser = isDirectorRole();
+        var field = select.closest('.daily-create-field');
+        var users = canAssignUser ? dailyTaskVisibleUsers() : (state.user ? [state.user] : []);
+        var currentId = canAssignUser && !state.dailyMyOnly ? (state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : (state.user && state.user.id)) : (state.user && state.user.id);
+        if (field) field.hidden = !canAssignUser;
+        select.disabled = !canAssignUser;
         if (!users.length && state.user) users = [state.user];
         if (!currentId && state.user) currentId = state.user.id;
         safeReplaceChildren(select, users.map(function (user) {

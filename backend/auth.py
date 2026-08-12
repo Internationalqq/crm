@@ -486,17 +486,23 @@ def require_role(handler, roles: set[str]) -> dict | None:
     return user
 
 
+def session_cookie_secure_attr(handler) -> str:
+    forwarded_proto = str(handler.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
+    is_https = forwarded_proto == "https" or PMBI_PUBLIC_BASE_URL.lower().startswith("https://")
+    return "; Secure" if is_https else ""
+
+
 def set_session_cookie(handler, token: str, max_age: int = SESSION_TTL_SECONDS) -> None:
     handler.send_header(
         "Set-Cookie",
-        f"{SESSION_COOKIE}={token}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax",
+        f"{SESSION_COOKIE}={token}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax{session_cookie_secure_attr(handler)}",
     )
 
 
 def clear_session_cookie(handler) -> None:
     handler.send_header(
         "Set-Cookie",
-        f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
+        f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax{session_cookie_secure_attr(handler)}",
     )
 
 

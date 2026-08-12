@@ -19727,7 +19727,44 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 }
 
 .daily-task-create-dialog {
-    width: min(620px, calc(100vw - 28px));
+    width: min(860px, calc(100vw - 28px));
+}
+
+.daily-task-create-dialog .daily-standup-head h3 {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    max-width: 100%;
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    background: var(--blue-soft);
+    color: var(--blue);
+    font-size: 24px;
+    font-weight: 900;
+}
+
+.daily-task-create-dialog form {
+    display: grid;
+    gap: 14px;
+}
+
+.daily-task-create-dialog textarea {
+    width: 100%;
+    min-height: 260px;
+    border: 1px solid var(--line);
+    border-radius: var(--base-radius);
+    padding: 14px 16px;
+    resize: vertical;
+    outline: none;
+    color: #172033;
+    background: #fff;
+    font: inherit;
+    line-height: 1.45;
+}
+
+.daily-task-create-dialog textarea:focus {
+    border-color: #93c5fd;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
 }
 
 .daily-create-field {

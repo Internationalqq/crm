@@ -2635,16 +2635,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_task"})
             return
         target_user_id = int(user["id"])
-        raw_target_user_id = payload.get("userId", payload.get("user_id", user["id"]))
-        raw_target_user_id = str(raw_target_user_id if raw_target_user_id is not None else "").strip()
-        if raw_target_user_id.lower() in {"", "all", "me", "undefined", "null"}:
-            target_user_id = int(user["id"])
-        else:
-            try:
-                target_user_id = int(raw_target_user_id)
-            except (TypeError, ValueError):
-                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
-                return
+        if self.daily_task_manager(user):
+            raw_target_user_id = payload.get("userId", payload.get("user_id", user["id"]))
+            raw_target_user_id = str(raw_target_user_id if raw_target_user_id is not None else "").strip()
+            if raw_target_user_id.lower() in {"", "all", "me", "undefined", "null"}:
+                target_user_id = int(user["id"])
+            else:
+                try:
+                    target_user_id = int(raw_target_user_id)
+                except (TypeError, ValueError):
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
+                    return
         task_date = str(payload.get("date") or TODAY_ISO).strip() or TODAY_ISO
         status = str(payload.get("status") or "planned").strip()
         if status not in {"planned", "in_progress", "done", "archived"}:
@@ -2799,6 +2800,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
             carryover = []
         timestamp = self.daily_task_now()
         with db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            existing = con.execute(
+                "SELECT 1 FROM daily_standups WHERE user_id = ? AND report_date = ?",
+                (user["id"], TODAY_ISO),
+            ).fetchone()
+            if existing:
+                rows = self.daily_task_rows(con, user, archive=False)
+                self.send_json(HTTPStatus.OK, {"ok": True, "today": TODAY_ISO, "alreadySaved": True, "tasks": [self.daily_task_payload(row) for row in rows]})
+                return
             for item in carryover:
                 if not isinstance(item, dict):
                     continue
