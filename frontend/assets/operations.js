@@ -83,6 +83,7 @@
     function setSelectedProject() { return appCall('setSelectedProject', arguments); }
     function updateProjectInState() { return appCall('updateProjectInState', arguments); }
     function updateProjectCache() { return appCall('updateProjectCache', arguments); }
+    function setProjectFocusMode() { return appCall('setProjectFocusMode', arguments); }
     function openProject() { return appCall('openProject', arguments); }
     function activateProjectTab() { return appCall('activateProjectTab', arguments); }
     function stat() { return appCall('stat', arguments); }
@@ -2282,9 +2283,67 @@
         });
     }
 
+    function bindProjectDeleteAction(form) {
+        var deleteButton = qs('[data-project-delete]');
+        if (!form || !deleteButton || deleteButton.dataset.bound === '1') return;
+        deleteButton.dataset.bound = '1';
+        deleteButton.addEventListener('click', function (event) {
+            event.preventDefault();
+            var projectId = Number(form.project_id.value);
+            if (!projectId) return;
+            var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+            var projectTitle = project && project.title ? project.title : 'этот объект';
+            if (!window.confirm('Удалить объект "' + projectTitle + '"? Это действие удалит связанные данные.')) return;
+            var error = qs('[data-project-edit-error]');
+            if (error) error.classList.remove('active');
+            deleteButton.disabled = true;
+            api('/api/projects/' + projectId + '/delete', {
+                method: 'POST'
+            }).then(function () {
+                state.projects = state.projects.filter(function (item) {
+                    return Number(item.id) !== projectId;
+                });
+                if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
+                    state.selectedProject = null;
+                    var detail = qs('[data-project-detail]');
+                    if (detail) detail.hidden = true;
+                    setProjectFocusMode(false);
+                }
+                renderProjectStats();
+                renderProjectCritical();
+                renderProjectList(state.projects);
+                closeProjectEditCard();
+                showAppNotice('Объект удален.', 'success');
+            }).catch(function (err) {
+                var message = appErrorMessage(err, 'Не удалось удалить объект');
+                if (error) {
+                    error.textContent = message;
+                    error.classList.add('active');
+                }
+                showAppNotice(message, 'error');
+            }).finally(function () {
+                deleteButton.disabled = false;
+            });
+        });
+    }
+
+    function bindProjectDeleteDelegation() {
+        if (document.body.dataset.projectDeleteDelegatedBound === '1') return;
+        document.body.dataset.projectDeleteDelegatedBound = '1';
+        document.addEventListener('click', function (event) {
+            var button = event.target && event.target.closest ? event.target.closest('[data-project-delete]') : null;
+            if (!button || button.disabled || button.dataset.bound === '1') return;
+            var form = button.closest('[data-project-edit-card]') ? qs('[data-project-edit-form]', button.closest('[data-project-edit-card]')) : qs('[data-project-edit-form]');
+            if (!form) return;
+            bindProjectDeleteAction(form);
+            button.click();
+        });
+    }
+
     function bindProjectEditForm() {
         ensureProjectEditCard();
         bindProjectEditOverlayClose(qs('[data-project-edit-card]'));
+        bindProjectDeleteDelegation();
         qsa('[data-close-project-edit]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -2295,6 +2354,7 @@
         });
 
         var form = qs('[data-project-edit-form]');
+        bindProjectDeleteAction(form);
         if (!form || form.dataset.bound === '1') return;
         form.dataset.bound = '1';
         form.addEventListener('submit', function (event) {
@@ -3204,6 +3264,7 @@
         if (typeof bindProjectOverviewActions === 'function') PMBI.operations.bindProjectOverviewActions = bindProjectOverviewActions;
         if (typeof ensureProjectEditCard === 'function') PMBI.operations.ensureProjectEditCard = ensureProjectEditCard;
         if (typeof openProjectEdit === 'function') PMBI.operations.openProjectEdit = openProjectEdit;
+        if (typeof bindProjectEditForm === 'function') PMBI.operations.bindProjectEditForm = bindProjectEditForm;
         if (typeof getProjectTabMode === 'function') PMBI.operations.getProjectTabMode = getProjectTabMode;
         if (typeof setProjectTabMode === 'function') PMBI.operations.setProjectTabMode = setProjectTabMode;
         if (typeof ensureProjectReportDrawer === 'function') PMBI.operations.ensureProjectReportDrawer = ensureProjectReportDrawer;

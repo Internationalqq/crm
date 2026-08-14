@@ -207,6 +207,7 @@
     function bindProjectOverviewActions() { return operationsCall('bindProjectOverviewActions', arguments); }
     function ensureProjectEditCard() { return operationsCall('ensureProjectEditCard', arguments); }
     function openProjectEdit() { return operationsCall('openProjectEdit', arguments); }
+    function bindProjectEditForm() { return operationsCall('bindProjectEditForm', arguments); }
     function ensureProjectReportDrawer() { return operationsCall('ensureProjectReportDrawer', arguments); }
     function renderProjectReportForm() { return operationsCall('renderProjectReportForm', arguments); }
     function renderProjectReportsPanel() { return operationsCall('renderProjectReportsPanel', arguments); }
@@ -8061,6 +8062,7 @@ function renderLogsDayView(project, logs) {
     if (typeof renderAppTopbar === 'function') PMBI.app.renderAppTopbar = renderAppTopbar;
     if (typeof populateProjectCompanySelects === 'function') PMBI.app.populateProjectCompanySelects = populateProjectCompanySelects;
     if (typeof updateProjectInState === 'function') PMBI.app.updateProjectInState = updateProjectInState;
+    if (typeof setProjectFocusMode === 'function') PMBI.app.setProjectFocusMode = setProjectFocusMode;
     if (typeof openProject === 'function') PMBI.app.openProject = openProject;
     if (typeof refreshProjectOverview === 'function') PMBI.app.refreshProjectOverview = refreshProjectOverview;
     if (typeof activateProjectTab === 'function') PMBI.app.activateProjectTab = activateProjectTab;

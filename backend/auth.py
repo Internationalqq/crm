@@ -37,6 +37,7 @@ REMEMBER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 PASSWORD_ITERATIONS = 220_000
 
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+PMBI_FORCE_SECURE_COOKIES = (os.environ.get("PMBI_FORCE_SECURE_COOKIES", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 CLERK_PUBLISHABLE_KEY = (os.environ.get("CLERK_PUBLISHABLE_KEY", "") or "").strip()
 CLERK_SECRET_KEY = (os.environ.get("CLERK_SECRET_KEY", "") or "").strip()
 CLERK_JWT_KEY = (os.environ.get("CLERK_JWT_KEY", "") or "").replace("\\n", "\n").strip()
@@ -683,7 +684,7 @@ def require_role(handler, roles: set[str]) -> dict | None:
 
 def session_cookie_secure_attr(handler) -> str:
     forwarded_proto = str(handler.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
-    is_https = forwarded_proto == "https" or PMBI_PUBLIC_BASE_URL.lower().startswith("https://")
+    is_https = forwarded_proto == "https" or PMBI_FORCE_SECURE_COOKIES
     return "; Secure" if is_https else ""
 
 

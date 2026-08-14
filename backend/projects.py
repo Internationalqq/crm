@@ -26,6 +26,20 @@ def db() -> sqlite3.Connection:
     return connection
 
 
+def table_exists(con: sqlite3.Connection, table: str) -> bool:
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def delete_project_rows(con: sqlite3.Connection, table: str, column: str, project_id: int) -> None:
+    if not table_exists(con, table):
+        return
+    con.execute(f"DELETE FROM {table} WHERE {column} = ?", (project_id,))
+
+
 def create_audit(
     con: sqlite3.Connection,
     user_id: int | None,
@@ -447,6 +461,27 @@ def api_delete_project(handler, path: str) -> None:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
             return
         title = current["title"] or ""
+        if table_exists(con, "chat_messages") and table_exists(con, "chats"):
+            con.execute(
+                "DELETE FROM chat_messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id = ?)",
+                (project_id,),
+            )
+        for table in [
+            "finance_entries",
+            "documents",
+            "daily_logs",
+            "tasks",
+            "material_schedule_snapshots",
+            "supplier_offers",
+            "warehouse_transfers",
+            "stock_moves",
+            "estimate_items",
+            "work_stages",
+            "chats",
+            "user_project_access",
+        ]:
+            delete_project_rows(con, table, "project_id", project_id)
+        delete_project_rows(con, "object_assignments", "object_id", project_id)
         con.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         create_audit(con, user["id"], "delete_project", "project", project_id, {"title": title})
         con.commit()
