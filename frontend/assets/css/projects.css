@@ -1206,6 +1206,20 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     z-index: 90;
 }
 
+.project-edit-modal {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .18s ease, visibility 0s linear .18s;
+}
+
+.project-edit-modal[data-open="1"] {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+}
+
 .side-drawer-backdrop,
 .project-edit-backdrop {
     position: absolute;

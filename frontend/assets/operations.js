@@ -2185,6 +2185,22 @@
         }
     }
 
+    function bindProjectEditOverlayClose(card) {
+        if (!card || card.dataset.overlayBound === '1') return;
+        card.dataset.overlayBound = '1';
+        card.addEventListener('click', function (event) {
+            var target = event.target;
+            if (
+                target === card ||
+                (target && target.closest && target.closest('.project-edit-backdrop')) ||
+                (target && target.classList && target.classList.contains('project-edit-dialog'))
+            ) {
+                event.preventDefault();
+                closeProjectEditCard();
+            }
+        });
+    }
+
     function ensureProjectEditCard() {
         if (qs('[data-project-edit-card]')) return;
         document.body.insertAdjacentHTML('beforeend',
@@ -2220,6 +2236,7 @@
                 '</section>' +
             '</div>'
         );
+        bindProjectEditOverlayClose(qs('[data-project-edit-card]'));
     }
 
     function closeProjectEditCard() {
@@ -2267,6 +2284,7 @@
 
     function bindProjectEditForm() {
         ensureProjectEditCard();
+        bindProjectEditOverlayClose(qs('[data-project-edit-card]'));
         qsa('[data-close-project-edit]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -3185,6 +3203,7 @@
         if (typeof bindProjectReportAssistantActions === 'function') PMBI.operations.bindProjectReportAssistantActions = bindProjectReportAssistantActions;
         if (typeof bindProjectOverviewActions === 'function') PMBI.operations.bindProjectOverviewActions = bindProjectOverviewActions;
         if (typeof ensureProjectEditCard === 'function') PMBI.operations.ensureProjectEditCard = ensureProjectEditCard;
+        if (typeof openProjectEdit === 'function') PMBI.operations.openProjectEdit = openProjectEdit;
         if (typeof getProjectTabMode === 'function') PMBI.operations.getProjectTabMode = getProjectTabMode;
         if (typeof setProjectTabMode === 'function') PMBI.operations.setProjectTabMode = setProjectTabMode;
         if (typeof ensureProjectReportDrawer === 'function') PMBI.operations.ensureProjectReportDrawer = ensureProjectReportDrawer;

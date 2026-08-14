@@ -206,6 +206,7 @@
     function canCreateProjectReport() { return operationsCall('canCreateProjectReport', arguments); }
     function bindProjectOverviewActions() { return operationsCall('bindProjectOverviewActions', arguments); }
     function ensureProjectEditCard() { return operationsCall('ensureProjectEditCard', arguments); }
+    function openProjectEdit() { return operationsCall('openProjectEdit', arguments); }
     function ensureProjectReportDrawer() { return operationsCall('ensureProjectReportDrawer', arguments); }
     function renderProjectReportForm() { return operationsCall('renderProjectReportForm', arguments); }
     function renderProjectReportsPanel() { return operationsCall('renderProjectReportsPanel', arguments); }
