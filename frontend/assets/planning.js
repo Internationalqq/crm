@@ -1,0 +1,3282 @@
+(function () {
+    'use strict';
+
+    var PMBI = window.PMBI || {};
+    var page = PMBI.page;
+    var APP_TODAY = PMBI.APP_TODAY;
+    var state = PMBI.state;
+    var qs = PMBI.qs;
+    var qsa = PMBI.qsa;
+    var safeReplaceChildren = PMBI.safeReplaceChildren;
+    var refreshLucideIcons = PMBI.refreshLucideIcons;
+    var showAppNotice = PMBI.showAppNotice;
+    var appErrorMessage = PMBI.appErrorMessage;
+    var withSubmitLock = PMBI.withSubmitLock;
+    var escapeHtml = PMBI.escapeHtml;
+    var formatDisplayDate = PMBI.formatDisplayDate;
+    var api = PMBI.api;
+    var money = PMBI.money;
+    var percent = PMBI.percent;
+    var canonicalEstimateSectionTitle = PMBI.canonicalEstimateSectionTitle;
+    var canonicalEstimateSectionId = PMBI.canonicalEstimateSectionId;
+    var progressSelectorValue = PMBI.progressSelectorValue;
+    var updateProjectProgressState = PMBI.updateProjectProgressState;
+    var updateProgressNode = PMBI.updateProgressNode;
+    var updateUIProgress = PMBI.updateUIProgress;
+    var isoDateAdd = PMBI.isoDateAdd;
+    var hasRole = PMBI.hasRole;
+    var canManageSchedule = PMBI.canManageSchedule;
+    var canManageSuppliers = PMBI.canManageSuppliers;
+
+    function appCall(name, args) {
+        var fn = PMBI.app && PMBI.app[name];
+        if (typeof fn !== 'function') {
+            throw new Error('PMBI.app.' + name + ' is not available');
+        }
+        return fn.apply(null, args);
+    }
+    function updateProjectInState() { return appCall('updateProjectInState', arguments); }
+    function openProject() { return appCall('openProject', arguments); }
+    function activateProjectTab() { return appCall('activateProjectTab', arguments); }
+    function isCompletedProject() { return appCall('isCompletedProject', arguments); }
+    function statusLabel() { return appCall('statusLabel', arguments); }
+    function stageStatusClass() { return appCall('stageStatusClass', arguments); }
+    function isStageOverdue() { return appCall('isStageOverdue', arguments); }
+    function isStageBehindPlan() { return appCall('isStageBehindPlan', arguments); }
+    function daysBetween() { return appCall('daysBetween', arguments); }
+    function signedDaysBetween() { return appCall('signedDaysBetween', arguments); }
+    function stat() { return appCall('stat', arguments); }
+    function renderStages() { return appCall('renderStages', arguments); }
+    function renderTaskCreateModal() { return appCall('renderTaskCreateModal', arguments); }
+    function normalizeTaskTitle() { return appCall('normalizeTaskTitle', arguments); }
+    function loadProjectNotifications() { return appCall('loadProjectNotifications', arguments); }
+    function loadMaterials() { return appCall('loadMaterials', arguments); }
+    function loadMaterialInsights() { return appCall('loadMaterialInsights', arguments); }
+    function loadTasks() { return appCall('loadTasks', arguments); }
+    function loadStages() { return appCall('loadStages', arguments); }
+    function renderMaterialsPanel() { return appCall('renderMaterialsPanel', arguments); }
+    function renderWorksPanel() { return appCall('renderWorksPanel', arguments); }
+    function renderProjectMaterialsTab() { return appCall('renderProjectMaterialsTab', arguments); }
+    function renderProjectWorksTab() { return appCall('renderProjectWorksTab', arguments); }
+    function rerenderProjectMarketTab() { return appCall('rerenderProjectMarketTab', arguments); }
+    function refreshCounterpartyProjectViews() { return appCall('refreshCounterpartyProjectViews', arguments); }
+    function bindProjectMarketToggles() { return appCall('bindProjectMarketToggles', arguments); }
+    function bindCounterpartyFilters() { return appCall('bindCounterpartyFilters', arguments); }
+    function bindActualQuantityInputs() { return appCall('bindActualQuantityInputs', arguments); }
+    function installActualQuantityDelegates() { return appCall('installActualQuantityDelegates', arguments); }
+    function renderMaterialManualCheck() { return appCall('renderMaterialManualCheck', arguments); }
+    function renderWorkManualCheck() { return appCall('renderWorkManualCheck', arguments); }
+    function renderBulkSectionCheckbox() { return appCall('renderBulkSectionCheckbox', arguments); }
+    function sectionProgressStrip() { return appCall('sectionProgressStrip', arguments); }
+    function finalSectionWorkDigest() { return appCall('finalSectionWorkDigest', arguments); }
+    function finalGraphDate() { return appCall('finalGraphDate', arguments); }
+    function finalSectionSummaryNumber(value) {
+        var number = Number(value || 0);
+        if (!isFinite(number)) return '0';
+        var rounded = Math.round(number * 10) / 10;
+        return Math.abs(rounded - Math.round(rounded)) < 0.001 ? String(Math.round(rounded)) : String(rounded);
+    }
+
+    function finalSectionSummaryTitle(title) {
+        var clean = String(title || '').trim();
+        if (!clean) return '';
+        return clean.length > 72 ? (clean.slice(0, 69) + '...') : clean;
+    }
+    function quantityPlanInfo() { return appCall('quantityPlanInfo', arguments); }
+    function quantityText() { return appCall('quantityText', arguments); }
+    function isMaterialDone() { return appCall('isMaterialDone', arguments); }
+    function setMaterialManualActualQty() { return appCall('setMaterialManualActualQty', arguments); }
+    function setWorkActualQty() { return appCall('setWorkActualQty', arguments); }
+    function effectiveMaterialFromReports() { return appCall('effectiveMaterialFromReports', arguments); }
+    function reportWorkDoneQty() { return appCall('reportWorkDoneQty', arguments); }
+    function materialEffectiveForProgress() { return appCall('materialEffectiveForProgress', arguments); }
+    function materialActualProgress() { return appCall('materialActualProgress', arguments); }
+    function workActualProgress() { return appCall('workActualProgress', arguments); }
+    function actualQuantityInputItem() { return appCall('actualQuantityInputItem', arguments); }
+    function saveActualQuantityInput() { return appCall('saveActualQuantityInput', arguments); }
+    function saveManualQuantityCheckbox() { return appCall('saveManualQuantityCheckbox', arguments); }
+    function rerenderProjectMaterialAndWorkViews() { return appCall('rerenderProjectMaterialAndWorkViews', arguments); }
+    function refreshSelectedProjectProgressViews() { return appCall('refreshSelectedProjectProgressViews', arguments); }
+    function bindProjectChainActions() { return appCall('bindProjectChainActions', arguments); }
+    function renderProjectCritical() { return appCall('renderProjectCritical', arguments); }
+    function planningStatusClass() { return appCall('planningStatusClass', arguments); }
+    function marketStatusLabel() { return appCall('marketStatusLabel', arguments); }
+    function missingQty() { return appCall('missingQty', arguments); }
+    function missingWorkQty() { return appCall('missingWorkQty', arguments); }
+    function scheduleDate() { return appCall('scheduleDate', arguments); }
+    function renderProjectMeta() { return appCall('renderProjectMeta', arguments); }
+    function renderProjectDocuments() { return appCall('renderProjectDocuments', arguments); }
+    function renderParticipants() { return appCall('renderParticipants', arguments); }
+    function renderCounterparties() { return appCall('renderCounterparties', arguments); }
+    function renderEquipmentPanel() { return appCall('renderEquipmentPanel', arguments); }
+    function renderDocumentsPanel() { return appCall('renderDocumentsPanel', arguments); }
+    function renderFinancePanel() { return appCall('renderFinancePanel', arguments); }
+    function renderTasks() { return appCall('renderTasks', arguments); }
+    function renderTaskFilters() { return appCall('renderTaskFilters', arguments); }
+    function bindTaskEvents() { return appCall('bindTaskEvents', arguments); }
+    function bindProjectSearch() { return appCall('bindProjectSearch', arguments); }
+    function renderDashboard() { return appCall('renderDashboard', arguments); }
+    function renderProjectShell() { return appCall('renderProjectShell', arguments); }
+    function renderProjectHeader() { return appCall('renderProjectHeader', arguments); }
+    function renderProjectTabs() { return appCall('renderProjectTabs', arguments); }
+    function selectedProject() { return appCall('selectedProject', arguments); }
+    function setSelectedProject() { return appCall('setSelectedProject', arguments); }
+    function updateProjectCache() { return appCall('updateProjectCache', arguments); }
+    function renderProjectHub() { return appCall('renderProjectHub', arguments); }
+    function renderProjectOverviewHero() { return appCall('renderProjectOverviewHero', arguments); }
+    function renderEstimateWorkRow() { return appCall('renderEstimateWorkRow', arguments); }
+    function renderProjectReportForm() { return appCall('renderProjectReportForm', arguments); }
+    function renderLogsDayView() { return appCall('renderLogsDayView', arguments); }
+    // schedule state helpers
+    function scheduleTypeLabel(type) {
+        return type === 'customer' ? 'График для заказчика' : 'Внутренний график';
+    }
+
+    function getScheduleState(project, type) {
+        var control = project && project.scheduleControl ? project.scheduleControl : {};
+        var stateByType = control[type] || {};
+        var prefix = type === 'customer' ? 'customer' : 'internal';
+        return {
+            type: type,
+            status: stateByType.status || project[prefix + '_schedule_status'] || 'draft',
+            version: Number(stateByType.version || project[prefix + '_schedule_version'] || 1),
+            approvedAt: stateByType.approvedAt || project[prefix + '_schedule_approved_at'] || '',
+            generatedAt: control.generatedAt || project.schedule_generated_at || ''
+        };
+    }
+
+    function scheduleStateKind(state) {
+        return state.status === 'approved' ? 'success' : 'warn';
+    }
+
+    function scheduleStateTitle(state) {
+        return state.status === 'approved' ? 'Утвержден' : 'Черновик';
+    }
+
+    function scheduleStateMeta(state) {
+        if (state.approvedAt) {
+            return 'Версия ' + state.version + ' • утвержден ' + state.approvedAt;
+        }
+        if (state.generatedAt) {
+            return 'Версия ' + state.version + ' • обновлен ' + state.generatedAt + ', ждет подтверждения';
+        }
+        return 'Версия ' + state.version + ' • ждет первого подтверждения';
+    }
+
+    function renderScheduleStateBoard(project) {
+        if (!project) return '';
+        var types = hasRole('customer') ? ['customer'] : ['internal', 'customer'];
+        return '<section class="card schedule-state-board">' +
+            '<div class="card-head"><h3>Статусы графика</h3><span class="muted">Черновик, утверждение и версия по каждой линии графика.</span></div>' +
+            '<div class="schedule-state-list">' + types.map(function (type) {
+                var stateMeta = getScheduleState(project, type);
+                var actions = '';
+                if (canManageSchedule()) {
+                    actions = '<div class="schedule-state-actions">' +
+                        (stateMeta.status !== 'approved'
+                            ? '<button class="primary" type="button" data-schedule-action="approve" data-schedule-type="' + type + '">Утвердить</button>'
+                            : '<button class="ghost" type="button" data-schedule-action="reset_to_draft" data-schedule-type="' + type + '">Вернуть в черновик</button>') +
+                    '</div>';
+                }
+                return '<div class="schedule-state-row">' +
+                    '<div class="schedule-state-main"><b>' + scheduleTypeLabel(type) + '</b><small>' + scheduleStateMeta(stateMeta) + '</small></div>' +
+                    '<div class="schedule-state-side"><span class="badge ' + scheduleStateKind(stateMeta) + '">' + scheduleStateTitle(stateMeta) + '</span>' + actions + '</div>' +
+                '</div>';
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function bindScheduleStatusActions(projectId) {
+        qsa('[data-schedule-action]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var action = button.dataset.scheduleAction;
+                var scheduleType = button.dataset.scheduleType || 'internal';
+                button.disabled = true;
+                api('/api/projects/' + projectId + '/schedule-status', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: action,
+                        schedule_type: scheduleType
+                    })
+                }).then(function (data) {
+                    updateProjectInState(data.project);
+                    openProject(projectId);
+                    activateProjectTab('schedule');
+                }).finally(function () {
+                    button.disabled = false;
+                });
+            });
+        });
+    }
+
+    // schedule panel and autoplan drawer
+    function renderAutoScheduleDrawer(project) {
+        if (!project || !canManageSchedule()) return '';
+        return '<div class="drawer-overlay auto-schedule-overlay" data-auto-schedule-overlay aria-hidden="true"></div>' +
+            '<div class="drawer-panel auto-schedule-drawer" data-auto-schedule-drawer aria-hidden="true">' +
+                '<button class="drawer-close" type="button" data-auto-schedule-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c">\u00d7</button>' +
+                '<div class="drawer-head"><h3>\u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</h3><p>\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u0434\u0430\u0442\u044b \u044d\u0442\u0430\u043f\u043e\u0432 \u0438\u0437 \u0441\u043c\u0435\u0442\u044b \u0438 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b \u043e\u0431\u044a\u0435\u043a\u0442\u0430.</p></div>' +
+                '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
+                    '<label><span>\u0421\u0442\u0430\u0440\u0442 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f</span><input name="start_date" type="date" value="2026-08-09"></label>' +
+                    '<button class="primary" type="submit">\u041f\u043e\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0433\u0440\u0430\u0444\u0438\u043a</button>' +
+                    '<div class="form-error" data-auto-schedule-error></div>' +
+                '</form>' +
+            '</div>';
+    }
+
+    function renderSchedulePlanner(project, stages) {
+        return '';
+    }
+
+
+    function renderScheduleRows(stages, customerMode) {
+        var today = APP_TODAY;
+        stages = Array.isArray(stages) ? stages : [];
+        if (!stages.length) return '<p class="muted">\u041f\u043e\u043a\u0430 \u043d\u0435\u0442 \u044d\u0442\u0430\u043f\u043e\u0432 \u0434\u043b\u044f \u0433\u0440\u0430\u0444\u0438\u043a\u0430.</p>';
+        return '<div class="timeline">' + stages.map(function (stage) {
+            var start = customerMode ? (stage.customer_start || stage.planned_start || '\u2014') : (stage.planned_start || '\u2014');
+            var end = customerMode ? (stage.customer_end || stage.planned_end || '\u2014') : (stage.planned_end || '\u2014');
+            var summary = customerMode
+                ? (start + ' \u2014 ' + end + ' \u2022 ' + statusLabel(stage.status_code))
+                : buildScheduleStageSummary(stage, today);
+            var kicker = [timelineStageKindLabel(stage), !customerMode ? (stage.responsible || '') : ''].filter(Boolean).join(' \u2022 ');
+            return '<div class="timeline-row ' + scheduleTimelineClass(stage, today) + timelineStageKindClass(stage) + '">' +
+                '<div class="timeline-main">' +
+                    (kicker ? '<small class="timeline-kicker">' + escapeHtml(kicker) + '</small>' : '') +
+                    '<b>' + escapeHtml(stage.title) + '</b><span>' + escapeHtml(summary) + '</span>' +
+                '</div>' +
+                renderTimelineProgressCell(stage) +
+                '<div class="timeline-badges">' + renderScheduleStageBadges(stage, today, customerMode) + '</div>' +
+            '</div>';
+        }).join('') + '</div>';
+    }
+
+    function liveScheduleSectionItems(section) {
+        return (Array.isArray(section && section.items) ? section.items : []).filter(function (item) {
+            return item && !item.is_deleted && !item.isDeleted && String(item.title || '').trim();
+        });
+    }
+
+    function renderSectionScheduleRow(project, section) {
+        section = section || {};
+        var sectionTitle = canonicalEstimateSectionTitle(section.title || '');
+        var items = Array.isArray(section.items) ? section.items : [];
+        var visibleItems = liveScheduleSectionItems(section);
+        if (items.length !== visibleItems.length && window.console) {
+            console.log('Бэкенд прислал для раздела всего позиций:', items.length, section.title || '');
+            items.forEach(function (item) {
+                if (!item || !String(item.title || '').trim()) console.warn('Элемент пропущен: нет названия', item);
+                if (item && (item.is_deleted || item.isDeleted)) console.warn('Элемент пропущен: удален', item);
+            });
+            console.log('Физически будет отрисовано позиций:', visibleItems.length, section.title || '');
+        }
+        var sectionMaterials = (state.materialsByProject && state.materialsByProject[project.id] || []).filter(function (item) {
+            var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
+            return kind !== 'work' && canonicalEstimateSectionId(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId)) === canonicalEstimateSectionId(section.sectionId || sectionTitle);
+        });
+        var workProgress = workProgressForRows(project.id, sectionTitle, visibleItems);
+        var materialProgressValue = materialProgress(project.id, sectionMaterials);
+        var totalProgressItems = workProgress.total + materialProgressValue.total;
+        var doneProgressItems = workProgress.done + materialProgressValue.done;
+        var progress = {
+            total: totalProgressItems,
+            done: doneProgressItems,
+            percent: totalProgressItems ? Math.round((doneProgressItems / totalProgressItems) * 100) : 0
+        };
+        var isOpen = isScheduleSectionOpen(project.id, section, false);
+        var digest = finalSectionWorkDigest(section);
+        var workDetails = visibleItems.map(function (item) {
+            var workDone = isScheduleWorkDone(project.id, sectionTitle, item);
+            return '<label class="section-work-check' + (workDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
+                '<input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(sectionTitle) + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
+                '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</b><small>' + escapeHtml(formatWorkLine(item) || '\u041e\u0431\u044a\u0435\u043c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</small></span>' +
+            '</label>';
+        }).join('') || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0440\u0430\u0431\u043e\u0442.</div>';
+        var materialDetails = sectionMaterials.map(function (item) {
+            return renderMaterialManualCheck(item, sectionTitle || item.sectionTitle || item.stageTitle || '', project.id);
+        }).join('') || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u043e\u0432.</div>';
+        var details = '<div class="section-schedule-detail-grid">' +
+            '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u0420\u0430\u0431\u043e\u0442\u044b</strong><span>' + escapeHtml(String(workProgress.done) + ' из ' + String(workProgress.total)) + '</span></div><div class="section-schedule-detail-list">' + workDetails + '</div></section>' +
+            '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</strong><span>' + escapeHtml(String(materialProgressValue.done) + ' из ' + String(materialProgressValue.total)) + '</span></div><div class="section-schedule-detail-list">' + materialDetails + '</div></section>' +
+        '</div>';
+        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + (isOpen ? ' is-open' : '') + '">' +
+            '<div class="section-schedule-main">' +
+                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + escapeHtml(project.id) + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+                    '<div class="section-schedule-summary-head">' +
+                        '<div class="section-schedule-summary-copy">' +
+                            '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, sectionTitle, 'schedule', workProgress) + '<div class="section-schedule-title"><h4>' + escapeHtml(sectionTitle) + '</h4></div></div>' +
+                        '</div>' +
+                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
+                    '</div>' +
+                    sectionProgressStrip(workProgress, materialProgressValue, sectionTitle) +
+                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
+                '</div>' +
+                renderScheduleSectionDetailsShell(isOpen, details) +
+            '</div>' +
+        '</article>';
+    }
+
+    function renderSectionScheduleForecast(project) {
+        var summary = project ? state.sectionScheduleByProject[project.id] : null;
+        if (!project) return '';
+        if (!summary) {
+            return '<section class="card section-schedule-board"><div class="section-schedule-empty">\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u043c \u0440\u0430\u0441\u0447\u0435\u0442 \u043f\u043e \u0441\u043c\u0435\u0442\u0435...</div></section>';
+        }
+        if (summary.error) {
+            return '<section class="card section-schedule-board"><div class="section-schedule-empty">' + escapeHtml(summary.error) + '</div></section>';
+        }
+        var sections = Array.isArray(summary.sections) ? summary.sections : [];
+        if (!sections.length) {
+            return '<section class="card section-schedule-board"></section>';
+        }
+        var deadline = String(project.deadline_at || project.deadline || summary.finishDate || '').trim();
+        var scheduleEndDate = deadline || summary.finishDate;
+        var daysLeft = scheduleEndDate ? daysBetween(APP_TODAY, scheduleEndDate) : null;
+        var overallProgress = projectScheduleProgress(project, summary);
+        var projectDeadlineState = scheduleDeadlineState(summary.startDate, scheduleEndDate, overallProgress.percent, summary.totalDays);
+        return '<section class="card section-schedule-board">' +
+            '<div class="execution-summary">' + stat('\u0421\u0442\u0430\u0440\u0442', finalGraphDate(summary.startDate)) + stat('\u0414\u0435\u0434\u043b\u0430\u0439\u043d', finalGraphDate(scheduleEndDate)) + stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c \u0434\u043d\u0435\u0439', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(sections.length)) + '</div>' +
+            renderPinnedScheduleBrief(project, summary, sections) +
+            '<div class="section-schedule-list">' + sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div></section>';
+    }
+
+    function bindSectionScheduleRefresh(projectId) {
+        qsa('[data-section-schedule-refresh]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.selectedProject;
+                var startInput = qs('[data-auto-schedule-form] input[name="start_date"]');
+                var requestedStart = startInput && startInput.value ? startInput.value : ((project && project.started_at) || APP_TODAY);
+                button.disabled = true;
+                loadSectionScheduleForecast(projectId, requestedStart, function () {
+                    button.disabled = false;
+                    if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+                    var stages = state.stagesByProject[projectId] || [];
+                    var panel = qs('[data-panel="schedule"]');
+                    if (panel) safeReplaceChildren(panel, renderSchedulePanel(stages, state.selectedProject));
+                    bindAutoScheduleForm(projectId);
+                    bindScheduleStatusActions(projectId);
+                    bindSectionScheduleRefresh(projectId);
+                    bindSectionScheduleInteractions(projectId);
+                    bindActualQuantityInputs(projectId);
+                    loadSelectedProjectMaterialSchedule(true);
+                }, true);
+            });
+        });
+        bindSectionScheduleInteractions(projectId);
+        bindActualQuantityInputs(projectId);
+    }
+
+    function renderSchedulePanel(stages, project) {
+        stages = Array.isArray(stages) ? stages : [];
+        var drawer = renderAutoScheduleDrawer(project);
+        var topBar = project ? '<section class="schedule-project-topbar">' +
+            '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
+            (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '">⚙️ Автоплан графика</button>' : '') +
+        '</section>' : '';
+        var forecast = renderSectionScheduleForecast(project);
+        var materialCalendar = project && !hasRole('customer') ? renderMaterialScheduleContainer(project.id) : '';
+        return drawer + topBar + materialCalendar + forecast;
+    }
+
+    function buildScheduleStageSummary(stage, today) {
+        var parts = [
+            (stage.planned_start || '\u2014') + ' \u2014 ' + (stage.planned_end || '\u2014'),
+            statusLabel(stage.status_code)
+        ];
+        if (stage.fact_start || stage.fact_end) {
+            parts.push('\u0444\u0430\u043a\u0442: ' + (stage.fact_start || '\u2014') + ' \u2014 ' + (stage.fact_end || '\u2014'));
+        }
+        if (stage.responsible) {
+            parts.push(stage.responsible);
+        }
+        if (isStageBehindPlan(stage, today)) {
+            parts.push('\u043e\u0442\u0441\u0442\u0430\u0432\u0430\u043d\u0438\u0435 \u043e\u0442 \u0442\u0435\u043c\u043f\u0430');
+        } else if (isStageOverdue(stage, today)) {
+            parts.push('\u0441\u0440\u043e\u043a \u043f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d');
+        }
+        return parts.join(' \u2022 ');
+    }
+
+
+    function scheduleTimelineClass(stage, today) {
+        if (stage.status_code === 'blocked') return 'timeline-risk';
+        if (isStageOverdue(stage, today)) return 'timeline-overdue';
+        if (isStageBehindPlan(stage, today)) return 'timeline-warn';
+        if (percent(stage.progress) >= 100 || stage.status_code === 'approved' || stage.status_code === 'completed') return 'timeline-done';
+        return '';
+    }
+
+    function renderScheduleStageBadges(stage, today, customerMode) {
+        var badges = [];
+        if (stage.status_code === 'blocked') {
+            badges.push('<span class="badge danger">\u0411\u043b\u043e\u043a\u0435\u0440</span>');
+        } else if (isStageOverdue(stage, today)) {
+            badges.push('<span class="badge danger">\u041f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d</span>');
+        } else if (isStageBehindPlan(stage, today)) {
+            badges.push('<span class="badge warn">\u041e\u0442\u0441\u0442\u0430\u0435\u0442</span>');
+        } else if (percent(stage.progress) >= 100 || stage.status_code === 'approved' || stage.status_code === 'completed') {
+            badges.push('<span class="badge success">\u0417\u0430\u043a\u0440\u044b\u0442</span>');
+        } else {
+            badges.push('<span class="badge">' + escapeHtml(statusLabel(stage.status_code)) + '</span>');
+        }
+        if (!customerMode && stage.depends_on_materials) {
+            badges.push('<span class="badge warn">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</span>');
+        }
+        return badges.join('');
+    }
+
+
+    function closeAutoScheduleDrawer() {
+        document.body.classList.remove('drawer-open');
+        qsa('[data-auto-schedule-drawer], [data-auto-schedule-overlay]').forEach(function (node) {
+            node.setAttribute('aria-hidden', 'true');
+        });
+    }
+
+    function openAutoScheduleDrawer(projectId) {
+        var drawer = qs('[data-auto-schedule-drawer]');
+        if (!drawer) return;
+        var form = qs('[data-auto-schedule-form]', drawer);
+        if (form) form.dataset.projectId = projectId || form.dataset.projectId || '';
+        document.body.classList.add('drawer-open');
+        drawer.setAttribute('aria-hidden', 'false');
+        var overlay = qs('[data-auto-schedule-overlay]');
+        if (overlay) overlay.setAttribute('aria-hidden', 'false');
+        var input = qs('input[name="start_date"]', drawer);
+        if (input && !input.value) input.value = '2026-08-09';
+        if (input && typeof input.focus === 'function') setTimeout(function () { input.focus(); }, 80);
+    }
+
+    function bindAutoScheduleForm(projectId) {
+        if (document.body.dataset.autoScheduleDrawerDelegated !== '1') {
+            document.body.dataset.autoScheduleDrawerDelegated = '1';
+            document.addEventListener('click', function (event) {
+                var open = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-open]') : null;
+                if (open) {
+                    event.preventDefault();
+                    openAutoScheduleDrawer(open.getAttribute('data-project-id') || projectId);
+                    return;
+                }
+                var close = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-close]') : null;
+                if (close) {
+                    event.preventDefault();
+                    closeAutoScheduleDrawer();
+                    return;
+                }
+                var overlay = event.target && event.target.closest ? event.target.closest('[data-auto-schedule-overlay]') : null;
+                if (overlay) {
+                    event.preventDefault();
+                    closeAutoScheduleDrawer();
+                }
+            });
+        }
+        var form = qs('[data-auto-schedule-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-auto-schedule-error]');
+            if (error) error.classList.remove('active');
+            var activeProjectId = form.getAttribute('data-project-id') || form.dataset.projectId || projectId;
+            var startInput = form.elements && form.elements.start_date ? form.elements.start_date : form.querySelector('input[name="start_date"]');
+            var requestedStart = startInput && startInput.value ? startInput.value : APP_TODAY;
+            var autoScheduleStep = 'запрос автоплана';
+            withSubmitLock(form, function () {
+                return api('/api/projects/' + encodeURIComponent(activeProjectId) + '/auto-schedule', {
+                method: 'POST',
+                body: JSON.stringify({
+                    start_date: requestedStart
+                })
+            }).then(function (data) {
+                autoScheduleStep = 'обновление состояния проекта';
+                var updatedProject = Object.assign({ id: activeProjectId }, data.project || {});
+                if (data.summary) {
+                    if (!data.summary.startDate && data.summary.projectStart) data.summary.startDate = data.summary.projectStart;
+                    if (!data.summary.finishDate && data.summary.projectEnd) data.summary.finishDate = data.summary.projectEnd;
+                }
+                if (data.summary && data.summary.startDate) updatedProject.started_at = data.summary.startDate;
+                if (data.summary && data.summary.finishDate) updatedProject.deadline_at = data.summary.finishDate;
+                updateProjectInState(updatedProject);
+                state.schedulePlanByProject[activeProjectId] = data.summary || null;
+                state.sectionScheduleByProject = state.sectionScheduleByProject || {};
+                state.sectionScheduleByProject[activeProjectId] = data.summary || null;
+                setScheduleBriefPinned(activeProjectId, true);
+                state.stagesByProject[activeProjectId] = null;
+                state.materialsByProject[activeProjectId] = null;
+                if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(activeProjectId)];
+                autoScheduleStep = 'загрузка календаря материалов';
+                return api('/api/projects/' + encodeURIComponent(activeProjectId) + '/material-schedule?fresh=1').then(function (schedule) {
+                    autoScheduleStep = 'обновление календаря на странице';
+                    closeAutoScheduleDrawer();
+                    setMaterialScheduleForProject(activeProjectId, schedule || { items: [] });
+                    try {
+                        openProject(activeProjectId);
+                        activateProjectTab('schedule');
+                        loadMaterialSchedule(activeProjectId, function (freshSchedule) {
+                            var details = scheduleProjectDetails(activeProjectId);
+                            if (details) {
+                                details.materialSchedule = freshSchedule;
+                                setScheduleProjectDetails(activeProjectId, details);
+                            }
+                            refreshScheduleProjectStats(activeProjectId);
+                            replaceSelectedProjectMaterialCalendar(activeProjectId);
+                            if (window.PMBI && window.PMBI.app && typeof window.PMBI.app.refreshProjectOverview === 'function') {
+                                window.PMBI.app.refreshProjectOverview(activeProjectId);
+                            }
+                        }, true);
+                    } catch (renderError) {
+                        if (window.console && console.error) console.error('Auto schedule saved, but refresh failed:', renderError);
+                        showAppNotice('График пересчитан. Обновите страницу, если календарь не обновился автоматически.', 'warn');
+                    }
+                });
+            }).catch(function (err) {
+                var rawMessage = err && err.payload && (err.payload.message || err.payload.error)
+                    ? (err.payload.message || err.payload.error)
+                    : (err && err.message ? err.message : 'Неизвестная ошибка');
+                var statusText = err && err.status ? ('HTTP ' + err.status + ': ') : '';
+                var message = 'Автоплан: ' + autoScheduleStep + '. ' + statusText + rawMessage;
+                if (window.console && console.error) console.error('Auto schedule failed:', {
+                    step: autoScheduleStep,
+                    status: err && err.status,
+                    payload: err && err.payload,
+                    error: err
+                });
+                if (typeof window.alert === 'function') window.alert(message);
+                if (error) {
+                    error.textContent = message;
+                    error.classList.add('active');
+                }
+            });
+            });
+        });
+    }
+
+    // legacy schedule page helpers
+    function renderSchedulePage() {
+        var root = qs('[data-schedule-list]');
+        if (!root) return;
+        if (!state.projects.length) {
+            root.innerHTML = '<p class="muted">Нет объектов для графика.</p>';
+            return;
+        }
+        root.innerHTML = '';
+        state.scheduleQuickActions = {};
+        Promise.all(state.projects.map(function (project) {
+            return Promise.all([
+                api('/api/projects/' + project.id + '/stages').catch(function () { return { stages: [] }; }),
+                api('/api/projects/' + project.id + '/notifications').catch(function () { return null; }),
+                api('/api/projects/' + project.id + '/materials/summary').catch(function () { return { items: [] }; }),
+                api('/api/projects/' + project.id + '/tasks').catch(function () { return { tasks: [] }; })
+            ]).then(function (results) {
+                return {
+                    project: project,
+                    stages: Array.isArray(results[0].stages) ? results[0].stages : [],
+                    notifications: results[1] || null,
+                    materials: Array.isArray(results[2].items) ? results[2].items : [],
+                    tasks: Array.isArray(results[3].tasks) ? results[3].tasks : []
+                };
+            });
+        })).then(function (groups) {
+            root.innerHTML = groups.map(function (group) {
+                return renderScheduleProject(group.project, group.stages, group.notifications, group.materials, group.tasks);
+            }).join('');
+            bindScheduleActionButtons();
+        });
+    }
+
+    function renderScheduleProject(project, stages, notifications, materials, tasks) {
+        var types = hasRole('customer') ? ['customer'] : ['internal', 'customer'];
+        var badges = types.map(function (type) {
+            var stateMeta = getScheduleState(project, type);
+            var shortLabel = type === 'customer' ? 'Заказчик' : 'Внутренний';
+            return '<span class="badge ' + scheduleStateKind(stateMeta) + '">' + escapeHtml(shortLabel + ' v' + stateMeta.version + ' • ' + scheduleStateTitle(stateMeta)) + '</span>';
+        }).join('');
+        var summary = renderScheduleProjectSummary(project, stages, notifications);
+        return '<section class="schedule-project">' +
+            '<div class="card-head schedule-project-head"><div><h4>' + escapeHtml(project.title) + '</h4><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div><div class="project-badges">' + badges + '</div></div>' +
+            summary +
+            renderScheduleActionCenter(project, stages, notifications, materials || [], tasks || []) +
+            renderScheduleCalendar(project, stages) +
+            renderStages(stages) +
+        '</section>';
+    }
+
+    function renderScheduleProjectSummary(project, stages, notifications) {
+        var today = APP_TODAY;
+        var overdue = stages.filter(function (stage) { return isStageOverdue(stage, today); }).length;
+        var behind = stages.filter(function (stage) { return isStageBehindPlan(stage, today); }).length;
+        var done = stages.filter(function (stage) {
+            return percent(stage.progress) >= 100 || stage.status_code === 'approved' || stage.status_code === 'completed';
+        }).length;
+        var nextDate = collectNextStageDate(stages);
+        var reportText = notifications && notifications.missingDailyReport
+            ? 'Нет отчета за 26.07.2026'
+            : (notifications && notifications.latestDailyLog && notifications.latestDailyLog.report_date
+                ? 'Последний отчет: ' + notifications.latestDailyLog.report_date
+                : 'Отчетов пока нет');
+        var reportKind = notifications && notifications.missingDailyReport ? 'danger' : '';
+        return '<div class="schedule-project-summary">' +
+            stat('Этапов', String(stages.length || 0)) +
+            stat('Закрыто', String(done || 0)) +
+            stat('Просрочено', String(overdue || 0), overdue ? 'danger' : '') +
+            stat('Отстает', String(behind || 0), behind ? 'warn' : '') +
+            stat('Ближайшая дата', nextDate || '—') +
+            stat('Отчет', reportText, reportKind) +
+        '</div>';
+    }
+
+    function collectNextStageDate(stages) {
+        var dates = stages.map(function (stage) {
+            if (percent(stage.progress) >= 100 || stage.status_code === 'approved' || stage.status_code === 'completed') return '';
+            return stage.planned_end || stage.planned_start || '';
+        }).filter(Boolean).sort();
+        return dates.length ? dates[0] : '';
+    }
+
+    function renderScheduleActionCenter(project, stages, notifications, materials, tasks) {
+        if (hasRole('customer')) return '';
+        var actions = buildScheduleActions(project, stages, notifications, materials, tasks).slice(0, 6);
+        if (!actions.length) return '';
+        return '<section class="schedule-action-strip">' +
+            '<div class="card-head"><div><h5>Что сделать сейчас</h5><span class="muted">Собрано из графика, отчетов и материалов.</span></div></div>' +
+            '<div class="schedule-action-list">' + actions.map(renderScheduleActionCard).join('') + '</div>' +
+        '</section>';
+    }
+
+    function buildScheduleActions(project, stages, notifications, materials, tasks) {
+        var actions = [];
+        var existing = {};
+        (tasks || []).forEach(function (task) {
+            if (task.status === 'done') return;
+            existing[normalizeTaskTitle(task.title)] = true;
+        });
+
+        function register(action) {
+            if (!action || !action.key) return;
+            if (actions.some(function (item) { return item.key === action.key; })) return;
+            if (action.taskPayload) {
+                action.hasOpenTask = Boolean(existing[normalizeTaskTitle(action.taskPayload.title)]);
+                action.actionKey = 'schedule:' + project.id + ':' + action.key;
+                state.scheduleQuickActions[action.actionKey] = action.taskPayload;
+            }
+            actions.push(action);
+        }
+
+        if (notifications && notifications.missingDailyReport) {
+            register({
+                key: 'missing-report',
+                kind: 'warn',
+                title: 'Нет дневного отчета за 26.07.2026',
+                meta: 'Нужен факт по объекту, иначе график будет жить без свежего отчета.',
+                projectId: project.id,
+                taskPayload: {
+                    projectId: project.id,
+                    title: 'Запросить дневной отчет по объекту',
+                    description: 'По объекту "' + project.title + '" нет дневного отчета за 26.07.2026. Нужно запросить факт работ у ответственного.',
+                    priority: 'high',
+                    due_at: APP_TODAY
+                }
+            });
+        }
+
+        (notifications && notifications.problemStages ? notifications.problemStages : []).forEach(function (stage) {
+            var fullStage = stages.find(function (item) { return Number(item.id) === Number(stage.id); }) || stage;
+            var isBlocked = fullStage.status_code === 'blocked';
+            register({
+                key: 'problem-stage:' + fullStage.id,
+                kind: 'danger',
+                title: isBlocked ? ('Этап заблокирован: ' + fullStage.title) : ('Этап просрочен: ' + fullStage.title),
+                meta: (fullStage.responsible ? ('Ответственный: ' + fullStage.responsible + '. ') : '') + (fullStage.planned_end ? ('План до ' + fullStage.planned_end + '.') : 'Нужно уточнить срок.'),
+                taskPayload: {
+                    projectId: project.id,
+                    title: isBlocked ? ('Разблокировать этап: ' + fullStage.title) : ('Разобрать просрочку по этапу: ' + fullStage.title),
+                    description: 'По объекту "' + project.title + '" этап "' + fullStage.title + '" требует реакции. Статус: ' + statusLabel(fullStage.status_code) + '.',
+                    priority: 'high',
+                    due_at: fullStage.planned_end && fullStage.planned_end > APP_TODAY ? fullStage.planned_end : APP_TODAY
+                }
+            });
+        });
+
+        stages.filter(function (stage) {
+            return isStageBehindPlan(stage, APP_TODAY) && (stage.status_code !== 'blocked');
+        }).slice(0, 2).forEach(function (stage) {
+            register({
+                key: 'behind-stage:' + stage.id,
+                kind: 'warn',
+                title: 'Этап отстает по темпу: ' + stage.title,
+                meta: (stage.planned_start || '—') + ' - ' + (stage.planned_end || '—') + (stage.responsible ? (' • ' + stage.responsible) : ''),
+                taskPayload: {
+                    projectId: project.id,
+                    title: 'Подтянуть этап по графику: ' + stage.title,
+                    description: 'Этап "' + stage.title + '" отстает от планового темпа на объекте "' + project.title + '". Нужно обновить факт, людей или срок.',
+                    priority: 'normal',
+                    due_at: stage.planned_end || APP_TODAY
+                }
+            });
+        });
+
+        (materials || []).filter(function (item) {
+            return Number(item.missingQty || 0) > 0 && ['required', 'soon'].indexOf(item.supplyStatus) !== -1;
+        }).slice(0, 3).forEach(function (item) {
+            register({
+                key: 'material:' + item.id,
+                kind: item.supplyStatus === 'required' ? 'danger' : 'warn',
+                title: 'Нехватка материала: ' + item.title,
+                meta: 'Не хватает ' + item.missingQty + ' ' + item.unit + (item.needByDate ? (' • нужно до ' + item.needByDate) : '') + (item.stageTitle ? (' • этап: ' + item.stageTitle) : ''),
+                taskPayload: {
+                    projectId: project.id,
+                    title: 'Закупить материал: ' + item.title,
+                    description: 'По объекту "' + project.title + '" не хватает ' + item.missingQty + ' ' + item.unit + ' материала "' + item.title + '".' + (item.needByDate ? (' Нужен до ' + item.needByDate + '.') : ''),
+                    priority: item.supplyStatus === 'required' ? 'high' : 'normal',
+                    due_at: item.needByDate || APP_TODAY
+                }
+            });
+        });
+
+        return actions;
+    }
+
+    function renderScheduleActionCard(action) {
+        var controls = '';
+        var links = [];
+        if (action.projectId && action.materialId) {
+            links.push('<a class="ghost material-link" href="/app/warehouse?projectId=' + action.projectId + '&materialId=' + action.materialId + '&status=' + (action.kind === 'danger' ? 'required' : 'soon') + '">Склад</a>');
+            if (canManageSuppliers()) links.push('<a class="ghost material-link" href="/app/suppliers?projectId=' + action.projectId + '&materialId=' + action.materialId + '">Поставщики</a>');
+        }
+        if (action.taskPayload && (hasRole('admin') || hasRole('director'))) {
+            controls = action.hasOpenTask
+                ? '<span class="badge">Задача уже есть</span>'
+                : '<button class="ghost" type="button" data-schedule-action-create data-action-key="' + escapeHtml(action.actionKey) + '">Создать задачу</button>';
+        }
+        controls = links.join('') + controls;
+        return '<article class="schedule-action-card schedule-action-' + action.kind + '">' +
+            '<div class="schedule-action-main"><b>' + escapeHtml(action.title) + '</b><small>' + escapeHtml(action.meta) + '</small></div>' +
+            '<div class="schedule-action-side">' + controls + '</div>' +
+        '</article>';
+    }
+
+    function normalizeTaskTitle(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function bindScheduleActionButtons() {
+        qsa('[data-schedule-action-create]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var payload = state.scheduleQuickActions[button.dataset.actionKey];
+                if (!payload) return;
+                button.disabled = true;
+                button.textContent = 'Создаем...';
+                api('/api/projects/' + payload.projectId + '/tasks', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: payload.title,
+                        description: payload.description,
+                        priority: payload.priority || 'normal',
+                        due_at: payload.due_at || '',
+                        assignee_id: payload.assignee_id || ''
+                    })
+                }).then(function () {
+                    button.textContent = 'Создано';
+                    renderSchedulePage();
+                }).catch(function () {
+                    button.disabled = false;
+                    button.textContent = 'Повторить';
+                });
+            });
+        });
+    }
+
+    function renderScheduleCalendar(project, stages) {
+        var customerMode = hasRole('customer');
+        var range = buildScheduleCalendarRange(stages, customerMode);
+        if (!range) return '';
+        var title = customerMode ? 'График для заказчика' : 'Внутренний график и факт';
+        var subtitle = customerMode
+            ? 'Показываем согласованные даты по этапам.'
+            : 'Синий бар показывает план, светлый бар показывает факт, вертикальная линия - сегодня.';
+        return '<section class="schedule-gantt">' +
+            '<div class="schedule-gantt-head">' +
+                '<div><h5>' + title + '</h5><span class="muted">' + subtitle + '</span></div>' +
+                '<div class="schedule-gantt-range"><strong>' + escapeHtml(formatShortDate(range.start)) + ' - ' + escapeHtml(formatShortDate(range.end)) + '</strong><span>' + escapeHtml(String(range.totalDays) + ' дн.') + '</span></div>' +
+            '</div>' +
+            renderScheduleScale(range) +
+            '<div class="schedule-gantt-list">' + stages.map(function (stage) {
+                return renderScheduleCalendarRow(stage, range, customerMode);
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function buildScheduleCalendarRange(stages, customerMode) {
+        var dates = [];
+        stages.forEach(function (stage) {
+            var planStart = customerMode ? (stage.customer_start || stage.planned_start || '') : (stage.planned_start || '');
+            var planEnd = customerMode ? (stage.customer_end || stage.planned_end || '') : (stage.planned_end || '');
+            if (planStart) dates.push(planStart);
+            if (planEnd) dates.push(planEnd);
+            if (!customerMode) {
+                if (stage.fact_start) dates.push(stage.fact_start);
+                if (stage.fact_end) dates.push(stage.fact_end);
+            }
+        });
+        dates = dates.filter(Boolean).sort();
+        if (!dates.length) return null;
+        return {
+            start: dates[0],
+            end: dates[dates.length - 1],
+            totalDays: Math.max(1, scheduleDayDiff(dates[0], dates[dates.length - 1]) + 1)
+        };
+    }
+
+    function renderScheduleScale(range) {
+        var marks = [];
+        var steps = range.totalDays <= 4 ? range.totalDays : 5;
+        for (var index = 0; index < steps; index += 1) {
+            var offset = steps === 1 ? 0 : Math.round(((range.totalDays - 1) * index) / (steps - 1));
+            var iso = addDaysToIso(range.start, offset);
+            var left = range.totalDays === 1 ? 0 : (offset / (range.totalDays - 1)) * 100;
+            var sideClass = index === 0 ? ' is-start' : (index === steps - 1 ? ' is-end' : '');
+            var label = formatShortDate(iso);
+            if (index === 0) label = 'Старт ' + label;
+            if (index === steps - 1) label = 'Финиш ' + label;
+            marks.push(
+                '<span class="schedule-gantt-mark' + sideClass + '" style="left:' + left + '%">' +
+                    '<i></i><b>' + escapeHtml(label) + '</b>' +
+                '</span>'
+            );
+        }
+        return '<div class="schedule-gantt-scale">' +
+            '<div class="schedule-gantt-scale-line"></div>' +
+            marks.join('') +
+            '</div>' +
+            '<div class="schedule-gantt-legend">' +
+                '<span><i class="legend-dot"></i> контрольные даты</span>' +
+                '<span><i class="legend-bar"></i> окно раздела</span>' +
+                '<span><i class="legend-today"></i> сегодня</span>' +
+            '</div>';
+    }
+
+    function renderScheduleCalendarRow(stage, range, customerMode) {
+        var progress = percent(stage.progress);
+        var planStart = customerMode ? (stage.customer_start || stage.planned_start || '') : (stage.planned_start || '');
+        var planEnd = customerMode ? (stage.customer_end || stage.planned_end || '') : (stage.planned_end || '');
+        var factStart = customerMode ? '' : (stage.fact_start || '');
+        var factEnd = customerMode ? '' : (stage.fact_end || '');
+        var planStyle = scheduleBarStyle(planStart, planEnd, range);
+        var factStyle = scheduleBarStyle(factStart, factEnd, range);
+        var todayLeft = scheduleTodayPercent(range);
+        var meta = customerMode
+            ? (planStart || '—') + ' - ' + (planEnd || '—')
+            : ((planStart || '—') + ' - ' + (planEnd || '—') + (factStart || factEnd ? ' • факт: ' + (factStart || '—') + ' - ' + (factEnd || '—') : ''));
+        var planClass = scheduleTimelineClass(stage, APP_TODAY);
+        return '<div class="schedule-gantt-row">' +
+            '<div class="schedule-gantt-meta"><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta) + '</small></div>' +
+            '<div class="schedule-gantt-track">' +
+                '<span class="schedule-gantt-today" style="left:' + todayLeft + '%"></span>' +
+                (planStyle ? '<span class="schedule-gantt-bar schedule-gantt-plan ' + planClass + '" style="' + planStyle + '"></span>' : '') +
+                (!customerMode && factStyle ? '<span class="schedule-gantt-bar schedule-gantt-fact" style="' + factStyle + '"></span>' : '') +
+            '</div>' +
+            '<div class="schedule-gantt-side"><strong>' + progress + '%</strong><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + '</span></div>' +
+        '</div>';
+    }
+
+    function scheduleBarStyle(start, end, range) {
+        var safeStart = start || end || '';
+        var safeEnd = end || start || '';
+        if (!safeStart || !safeEnd) return '';
+        var startOffset = Math.max(0, scheduleDayDiff(range.start, safeStart));
+        var endOffset = Math.max(startOffset, scheduleDayDiff(range.start, safeEnd));
+        var left = (startOffset / range.totalDays) * 100;
+        var width = (Math.max(1, endOffset - startOffset + 1) / range.totalDays) * 100;
+        return 'left:' + left + '%;width:' + width + '%';
+    }
+
+    function scheduleTodayPercent(range) {
+        var offset = Math.max(0, Math.min(range.totalDays - 1, scheduleDayDiff(range.start, APP_TODAY)));
+        return range.totalDays === 1 ? 0 : (offset / (range.totalDays - 1)) * 100;
+    }
+
+    function scheduleDayDiff(start, end) {
+        var startTime = Date.parse(start + 'T00:00:00Z');
+        var endTime = Date.parse(end + 'T00:00:00Z');
+        if (Number.isNaN(startTime) || Number.isNaN(endTime)) return 0;
+        return Math.round((endTime - startTime) / 86400000);
+    }
+
+    function addDaysToIso(iso, days) {
+        var base = Date.parse(iso + 'T00:00:00Z');
+        if (Number.isNaN(base)) return iso;
+        return new Date(base + days * 86400000).toISOString().slice(0, 10);
+    }
+
+    function formatShortDate(iso) {
+        return formatDisplayDate(iso);
+    }
+
+    function renderStages(stages) {
+        if (!stages.length) return '<p class="muted">Нет этапов для отображения.</p>';
+        return renderScheduleRows(stages, false);
+    }
+
+    function renderLogsPage() {
+        var list = qs('[data-logs-list]');
+        if (!list) return;
+        if (!state.projects.length) {
+            list.innerHTML = '<p class="muted">Нет объектов для журнала работ.</p>';
+            return;
+        }
+        var projectSelect = qs('[data-logs-project]');
+        var formProjectSelect = qs('[data-log-projects]');
+        var options = state.projects.map(function (project) {
+            return '<option value="' + project.id + '">' + escapeHtml(project.title) + '</option>';
+        }).join('');
+        if (projectSelect) projectSelect.innerHTML = options;
+        if (formProjectSelect) formProjectSelect.innerHTML = options;
+        var dateInput = qs('[data-log-form] input[name="report_date"]');
+        if (dateInput && !dateInput.value) dateInput.value = APP_TODAY;
+        if (state.user && (hasRole('customer') || hasRole('purchaser'))) {
+            var createCard = qs('[data-log-create-card]');
+            if (createCard) createCard.remove();
+        } else {
+            bindLogForm();
+        }
+        function loadSelected() {
+            var projectId = Number(projectSelect && projectSelect.value ? projectSelect.value : state.projects[0].id);
+            var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.projects[0];
+            if (formProjectSelect) formProjectSelect.value = String(projectId);
+            loadProjectLogs(project.id, function (logs) {
+                renderLogsStats(logs);
+                renderLogsList(project, logs);
+            });
+        }
+        if (projectSelect && projectSelect.dataset.bound !== '1') {
+            projectSelect.dataset.bound = '1';
+            projectSelect.addEventListener('change', loadSelected);
+        }
+        loadSelected();
+    }
+
+    function loadProjectLogs(projectId, callback) {
+        api('/api/projects/' + projectId + '/daily-logs').then(function (data) {
+            callback(Array.isArray(data.logs) ? data.logs : []);
+        }).catch(function () {
+            callback([]);
+        });
+    }
+
+    function renderLogsStats(logs) {
+        var root = qs('[data-logs-stats]');
+        if (!root) return;
+        var visible = logs.filter(function (log) { return Number(log.is_client_visible) === 1; }).length;
+        var internal = logs.length - visible;
+        var workers = logs.reduce(function (sum, log) { return sum + Number(log.workers_count || 0); }, 0);
+        var blockers = logs.filter(function (log) { return String(log.blockers || '').trim(); }).length;
+        root.innerHTML =
+            stat('Отчетов', logs.length) +
+            stat('Видно заказчику', visible) +
+            stat('Внутренне', internal) +
+            stat('Людей в отчетах', workers) +
+            stat('С блокерами', blockers, blockers ? 'danger' : '');
+    }
+
+
+
+    function renderLogsPage() {
+        var list = qs('[data-logs-list]');
+        if (!list) return;
+        if (!state.projects.length) {
+            list.innerHTML = '<p class="muted">Нет объектов для журнала работ.</p>';
+            return;
+        }
+        var projectSelect = qs('[data-logs-project]');
+        var formProjectSelect = qs('[data-log-projects]');
+        var options = state.projects.map(function (project) {
+            return '<option value="' + project.id + '">' + escapeHtml(project.title) + '</option>';
+        }).join('');
+        if (projectSelect) projectSelect.innerHTML = options;
+        if (formProjectSelect) formProjectSelect.innerHTML = options;
+        var dateInput = qs('[data-log-form] input[name="report_date"]');
+        if (dateInput && !dateInput.value) dateInput.value = APP_TODAY;
+        if (state.user && (hasRole('customer') || hasRole('purchaser'))) {
+            var createCard = qs('[data-log-create-card]');
+            if (createCard) createCard.remove();
+        } else {
+            bindLogForm();
+        }
+        function loadSelected() {
+            var projectId = Number(projectSelect && projectSelect.value ? projectSelect.value : state.projects[0].id);
+            var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.projects[0];
+            if (formProjectSelect) formProjectSelect.value = String(projectId);
+            loadProjectLogs(project.id, function (logs) {
+                loadProjectNotifications(project.id, function (notifications) {
+                    renderLogsStats(logs, notifications);
+                    renderLogsAlerts(notifications);
+                    renderLogsList(project, logs);
+                });
+            });
+        }
+        if (projectSelect && projectSelect.dataset.bound !== '1') {
+            projectSelect.dataset.bound = '1';
+            projectSelect.addEventListener('change', loadSelected);
+        }
+        loadSelected();
+    }
+
+    function renderLogsStats(logs, notifications) {
+        var root = qs('[data-logs-stats]');
+        if (!root) return;
+        var visible = logs.filter(function (log) { return Number(log.is_client_visible) === 1; }).length;
+        var internal = logs.length - visible;
+        var workers = logs.reduce(function (sum, log) { return sum + Number(log.workers_count || 0); }, 0);
+        var blockers = logs.filter(function (log) { return String(log.blockers || '').trim(); }).length;
+        root.innerHTML =
+            stat('Отчетов', logs.length) +
+            stat('Видно заказчику', visible) +
+            stat('Внутренне', internal) +
+            stat('Людей в отчетах', workers) +
+            stat('С блокерами', blockers, blockers ? 'danger' : '') +
+            stat('Отчет сегодня', notifications && notifications.missingDailyReport ? 'нет' : 'есть', notifications && notifications.missingDailyReport ? 'danger' : '');
+    }
+
+    function renderLogsAlerts(notifications) {
+        var root = qs('[data-logs-alerts]');
+        if (!root) return;
+        if (!notifications) {
+            root.innerHTML = '';
+            return;
+        }
+        var cards = [];
+        if (notifications.missingDailyReport) {
+            cards.push('<article class="notice-card notice-warn"><b>Сегодняшний отчет еще не сдан</b><small>На 26.07.2026 по объекту нет дневного отчета.</small></article>');
+        }
+        if (notifications.blockerLogs && notifications.blockerLogs.length) {
+            var latestBlocker = notifications.blockerLogs[0];
+            cards.push('<article class="notice-card notice-danger"><b>Есть блокеры в работах</b><small>' + escapeHtml((latestBlocker.report_date || 'без даты') + ': ' + (latestBlocker.blockers || 'описание не указано')) + '</small></article>');
+        }
+        if (notifications.overdueTasks && notifications.overdueTasks.length) {
+            cards.push('<article class="notice-card"><b>Просроченные задачи: ' + notifications.overdueTasks.length + '</b><small>Их стоит разобрать вместе с отчетом за день.</small></article>');
+        }
+        root.innerHTML = cards.length ? cards.join('') : '';
+    }
+
+    // schedule procurement board
+    function scheduleProcurementClass(alert) {
+        if (!alert) return '';
+        if (alert.status === 'critical') return 'danger';
+        if (alert.status === 'soon') return 'warn';
+        return '';
+    }
+
+    function scheduleProcurementTiming(alert) {
+        if (!alert) return '';
+        if (Number(alert.daysUntilOrder) < 0) return 'срок заказа вышел ' + Math.abs(Number(alert.daysUntilOrder)) + ' дн. назад';
+        if (Number(alert.daysUntilOrder) === 0) return 'заказать сегодня';
+        return 'заказать в течение ' + Number(alert.daysUntilOrder) + ' дн.';
+    }
+
+    function scheduleProcurementStartLabel(alert) {
+        if (!alert) return '';
+        if (Number(alert.daysUntilStart) < 0) return 'раздел уже должен был стартовать ' + Math.abs(Number(alert.daysUntilStart)) + ' дн. назад';
+        if (Number(alert.daysUntilStart) === 0) return 'раздел стартует сегодня';
+        return 'раздел стартует через ' + Number(alert.daysUntilStart) + ' дн.';
+    }
+
+    function renderScheduleProcurementBoard(project) {
+        if (!project || hasRole('customer')) return '';
+        var notifications = state.notificationsByProject[project.id];
+        var alerts = notifications && Array.isArray(notifications.procurementAlerts) ? notifications.procurementAlerts : [];
+        var summary = notifications && notifications.procurementSummary ? notifications.procurementSummary : { critical: 0, soon: 0, watch: 0 };
+        if (!alerts.length) return '';
+        return '<section class="card schedule-procurement-board">' +
+            '<div class="card-head"><div><h3>Контроль закупки по графику</h3><span class="muted">Показывает, когда стартует раздел и до какой даты нужно успеть заказать материалы.</span></div></div>' +
+            '<div class="execution-summary">' +
+                stat('Срочно', String(summary.critical || 0), summary.critical ? 'danger' : '') +
+                stat('Скоро', String(summary.soon || 0), summary.soon ? 'warn' : '') +
+                stat('Подготовка', String(summary.watch || 0)) +
+            '</div>' +
+            '<div class="materials-list">' + alerts.slice(0, 8).map(function (alert) {
+                var meta = [
+                    alert.sectionTitle || alert.stageTitle || '',
+                    scheduleProcurementStartLabel(alert),
+                    scheduleProcurementTiming(alert),
+                    'доставка/запас: ' + alert.leadDays + ' дн.',
+                    'заказать до ' + alert.orderByDate
+                ].filter(Boolean).join(' • ');
+                return '<div class="material-row">' +
+                    '<div><b>' + escapeHtml(alert.title) + '</b><small>' + escapeHtml(meta) + '</small></div>' +
+                    '<div class="material-chain-side"><span class="badge ' + scheduleProcurementClass(alert) + '">' + escapeHtml(scheduleProcurementBadge(alert)) + '</span></div>' +
+                '</div>';
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    // section schedule forecast and interactions
+    function loadSectionScheduleForecast(projectId, startDate, callback, force) {
+        state.sectionScheduleByProject = state.sectionScheduleByProject || {};
+        var requestedStart = startDate || APP_TODAY;
+        var cached = state.sectionScheduleByProject[projectId];
+        if (!force && cached && cached.startDate === requestedStart) {
+            callback(cached);
+            return;
+        }
+        api('/api/projects/' + projectId + '/section-schedule-forecast', {
+            method: 'POST',
+            body: JSON.stringify({ start_date: requestedStart })
+        }).then(function (data) {
+            state.sectionScheduleByProject[projectId] = data || null;
+            callback(data || null);
+        }).catch(function (err) {
+            state.sectionScheduleByProject[projectId] = {
+                error: err && err.payload && err.payload.error ? err.payload.error : 'Не удалось рассчитать график по смете',
+                startDate: requestedStart,
+                sections: []
+            };
+            callback(state.sectionScheduleByProject[projectId]);
+        });
+    }
+
+    function finalSectionScheduleCardClass(section) {
+        var start = String(section.startDate || '').trim();
+        var end = String(section.endDate || '').trim();
+        if (start && end && start <= APP_TODAY && end >= APP_TODAY) return ' is-current';
+        if (end && end < APP_TODAY) return ' is-past';
+        if (start && start > APP_TODAY) return ' is-upcoming';
+        return '';
+    }
+
+    function sectionAccelerationHint(section) {
+        var days = Number(section.estimatedDays || 0);
+        var crew = Number(section.crewSize || 0);
+        var itemsCount = liveScheduleSectionItems(section).length;
+        if (section.hasAssumptions) return 'Уточнить объем и фронт до старта, чтобы убрать лишний запас по сроку.';
+        if (days >= 12) return 'Разбить на захватки и вести параллельно двумя звеньями.';
+        if (days >= 6) return crew >= 4
+            ? 'Вынести подготовку и поставку до старта, чтобы бригада шла без пауз.'
+            : 'Добавить людей на пиковые дни и закрыть материалы заранее.';
+        if (itemsCount >= 10) return 'Подтвердить материалы и допуск заранее, чтобы не терять день на вход.';
+        return 'Запускать раздел без пауз: материалы, доступ и люди должны быть подтверждены заранее.';
+    }
+
+    function sectionAccelerationShortHint(section) {
+        var days = Number(section.estimatedDays || 0);
+        var crew = Number(section.crewSize || 0);
+        var itemsCount = liveScheduleSectionItems(section).length;
+        if (section.hasAssumptions) return 'Уточнить объем до старта';
+        if (days >= 12) return 'Разбить на захватки';
+        if (days >= 6) return crew >= 4 ? 'Убрать паузы до старта' : 'Усилить бригаду';
+        if (itemsCount >= 10) return 'Материалы и допуск заранее';
+        return 'Запуск без пауз';
+    }
+
+    function renderSectionScheduleBrief(section) {
+        return '<article class="section-schedule-brief' + finalSectionScheduleCardClass(section) + '">' +
+            '<div class="section-schedule-brief-head">' +
+                '<h4>' + escapeHtml(section.title) + '</h4>' +
+                '<small>' + escapeHtml((section.startDate || '—') + ' - ' + (section.endDate || '—')) + '</small>' +
+            '</div>' +
+            '<div class="section-schedule-brief-duration"><strong>' + escapeHtml(String(section.estimatedDays || 0)) + '</strong><span>дн.</span></div>' +
+            '<p><span>Ускорение:</span> ' + escapeHtml(sectionAccelerationShortHint(section)) + '</p>' +
+        '</article>';
+    }
+
+    function scheduleChecklistStorageKey(projectId) {
+        return 'project_schedule_checklist_' + projectId;
+    }
+
+    function scheduleSectionStateStorageKey(projectId) {
+        return 'pmbi.schedule.sections.' + String(projectId || '');
+    }
+
+    function readStoredJson(key) {
+        try {
+            return JSON.parse(localStorage.getItem(key) || '{}');
+        } catch (error) {
+            return {};
+        }
+    }
+
+    function writeStoredJson(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value || {}));
+        } catch (error) {
+            return;
+        }
+    }
+
+    function scheduleBriefStorageKey(projectId) {
+        return 'pmbi.schedule.brief.' + String(projectId || '');
+    }
+
+    function isScheduleBriefPinned(projectId) {
+        var map = readStoredJson(scheduleBriefStorageKey(projectId));
+        return map.pinned === 1;
+    }
+
+    function setScheduleBriefPinned(projectId, isPinned) {
+        var map = readStoredJson(scheduleBriefStorageKey(projectId));
+        map.pinned = isPinned ? 1 : 0;
+        map.updatedAt = new Date().toISOString();
+        writeStoredJson(scheduleBriefStorageKey(projectId), map);
+    }
+
+    function scheduleSectionRoundedHours(section) {
+        var hours = Number(section && (section.bufferedHours || section.estimatedHours || 0));
+        if (!Number.isFinite(hours)) return 0;
+        return Math.round(hours);
+    }
+
+    function scheduleSectionDays(section) {
+        var days = Number(section && (section.estimatedDays || section.durationDays || section.days || 0));
+        if (Number.isFinite(days) && days > 0) return Math.round(days);
+        var start = section && section.startDate;
+        var end = section && section.endDate;
+        var calculated = start && end ? daysBetween(start, end) : 0;
+        return Math.max(0, Math.round(Number(calculated || 0)));
+    }
+
+    function scheduleSectionDurationLabel(section) {
+        return String(scheduleSectionDays(section)) + ' дней (' + String(scheduleSectionRoundedHours(section)) + ' чел.-ч)';
+    }
+
+    function renderPinnedScheduleBrief(project, summary, sections) {
+        return '';
+        if (!project || !isScheduleBriefPinned(project.id)) return '';
+        if (!summary || summary.error) {
+            return '<div class="schedule-brief-table-wrap"><div class="schedule-brief-title"><strong>Краткий график</strong><span>Появится после расчета разделов.</span></div></div>';
+        }
+        var rows = (sections || []).map(function (section) {
+            var progress = scheduleSectionProgress(project.id, section);
+            return '<div class="schedule-brief-row">' +
+                '<b>' + escapeHtml(section.title || 'Раздел') + '</b>' +
+                '<span>' + escapeHtml(String(scheduleSectionDays(section))) + '</span>' +
+                '<strong>' + escapeHtml(String(progress.percent || 0) + '%') + '</strong>' +
+            '</div>';
+        }).join('');
+        return '<div class="schedule-brief-table-wrap">' +
+            '<div class="schedule-brief-title"><strong>Краткий график</strong></div>' +
+            '<div class="schedule-brief-row schedule-brief-head"><b>Раздел</b><span>Дней</span><strong>% выполнения</strong></div>' +
+            rows +
+        '</div>';
+    }
+
+    function normalizedWorkKeyPart(value) {
+        return String(value == null ? '' : value).trim().toLowerCase();
+    }
+
+    function normalizedWorkQty(value) {
+        var number = Number(value);
+        if (!Number.isFinite(number)) return normalizedWorkKeyPart(value);
+        return String(Math.round(number * 1000) / 1000);
+    }
+
+    function formattedWorkQty(value) {
+        var number = Number(value);
+        if (!Number.isFinite(number)) return String(value || '0');
+        if (Math.abs(number - Math.round(number)) < 0.001) return String(Math.round(number));
+        return String(Math.round(number * 100) / 100).replace('.', ',');
+    }
+
+    function scheduleSectionKey(section) {
+        return [
+            normalizedWorkKeyPart(canonicalEstimateSectionTitle(section && (section.title || section.sectionId))),
+            normalizedWorkKeyPart(section && section.startDate),
+            normalizedWorkKeyPart(section && section.endDate)
+        ].join('|');
+    }
+
+    function scheduleWorkKey(sectionTitle, item) {
+        return [
+            normalizedWorkKeyPart(canonicalEstimateSectionTitle(sectionTitle)),
+            normalizedWorkKeyPart(item && item.title),
+            normalizedWorkQty(item && (item.planned_qty != null ? item.planned_qty : item.plannedQty)),
+            normalizedWorkKeyPart(item && item.unit)
+        ].join('|');
+    }
+
+    function isScheduleWorkDone(projectId, sectionTitle, item) {
+        var storageKey = 'project_schedule_checklist_' + projectId;
+        var map = {};
+        try { map = JSON.parse(window.localStorage.getItem(storageKey) || '{}') || {}; } catch (e) { map = {}; }
+        var plan = quantityPlanInfo(item);
+        return scheduleWorkStorageKeys(sectionTitle, item).some(function (key) {
+            var value = map[key];
+            if (value === 1 || value === true) return true;
+            if (!value || typeof value !== 'object') return false;
+            if (value.open) return false;
+            if (value.completed || value.is_done || value.isDone) return true;
+            return plan.totalQty > 0 && Number(value.qty || 0) >= plan.totalQty;
+        });
+    }
+
+    function setScheduleWorkDone(projectId, sectionTitle, item, isDone) {
+        var storageKey = 'project_schedule_checklist_' + projectId;
+        var map = {};
+        try { map = JSON.parse(window.localStorage.getItem(storageKey) || '{}') || {}; } catch (e) { map = {}; }
+        scheduleWorkStorageKeys(sectionTitle, item).forEach(function (key) {
+            map[key] = isDone ? 1 : { qty: 0, open: 1 };
+        });
+        window.localStorage.setItem(storageKey, JSON.stringify(map || {}));
+        syncScheduleWorkDoneState(projectId, sectionTitle, item, isDone);
+        forceScheduleWorkCheckboxDom(projectId, sectionTitle, item, isDone);
+    }
+
+    function scheduleWorkStorageKeys(sectionTitle, item) {
+        var keys = [];
+        if (item && item.id) keys.push('id|' + String(item.id));
+        keys.push(scheduleWorkKey(sectionTitle, item));
+        return keys.filter(function (key, index) {
+            return key && keys.indexOf(key) === index;
+        });
+    }
+
+    function syncScheduleWorkDoneState(projectId, sectionTitle, item, isDone) {
+        var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[projectId];
+        var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+        var targetKeys = scheduleWorkStorageKeys(sectionTitle, item);
+        sections.forEach(function (section) {
+            if (canonicalEstimateSectionTitle(section && section.title || '') !== canonicalEstimateSectionTitle(sectionTitle || '')) return;
+            liveScheduleSectionItems(section).forEach(function (entry) {
+                var entryKeys = scheduleWorkStorageKeys(sectionTitle, entry);
+                var sameWork = entryKeys.some(function (key) { return targetKeys.indexOf(key) !== -1; });
+                if (!sameWork) return;
+                entry.is_done = !!isDone;
+                entry.isDone = !!isDone;
+                entry.completed = !!isDone;
+                entry.actualQty = isDone ? quantityPlanInfo(entry).totalQty : 0;
+            });
+        });
+    }
+
+    function forceScheduleWorkCheckboxDom(projectId, sectionTitle, item, isDone) {
+        var targetKeys = scheduleWorkStorageKeys(sectionTitle, item);
+        qsa('[data-section-work-check][data-project-id="' + String(projectId || '') + '"]').forEach(function (checkbox) {
+            var checkboxItem = {
+                id: checkbox.getAttribute('data-work-id') || '',
+                title: checkbox.getAttribute('data-work-title') || '',
+                unit: checkbox.getAttribute('data-work-unit') || '',
+                planned_qty: checkbox.getAttribute('data-work-qty') || ''
+            };
+            var checkboxSectionTitle = checkbox.getAttribute('data-section-title') || '';
+            var checkboxKeys = scheduleWorkStorageKeys(checkboxSectionTitle, checkboxItem);
+            var sameWork = checkboxKeys.some(function (key) { return targetKeys.indexOf(key) !== -1; });
+            if (!sameWork) return;
+            checkbox.checked = !!isDone;
+            checkbox.defaultChecked = !!isDone;
+            checkbox.dataset.localChecked = isDone ? '1' : '0';
+            var holder = checkbox.closest ? checkbox.closest('.section-work-check, .quantity-work-check, .work-list-check') : null;
+            if (holder && holder.classList) holder.classList.toggle('is-done', !!isDone);
+        });
+    }
+
+    function materialProgress(projectId, items) {
+        var rows = (items || []).filter(function (item) {
+            return String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase() !== 'work';
+        });
+        var done = rows.filter(function (item) {
+            return isMaterialDone(projectId, item);
+        }).length;
+        return {
+            total: rows.length,
+            done: done,
+            left: Math.max(0, rows.length - done),
+            percent: rows.length ? Math.round((done / rows.length) * 100) : 0
+        };
+    }
+
+    function scheduleWorkSections(projectId) {
+        var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[projectId];
+        return Array.isArray(summary && summary.sections) ? summary.sections : [];
+    }
+
+    function isProjectScheduleWorkDone(projectId, sectionTitle, item) {
+        if (!projectId) return false;
+        if (isScheduleWorkDone(projectId, sectionTitle, item)) return true;
+        var canonicalSectionTitle = canonicalEstimateSectionTitle(sectionTitle);
+        return scheduleWorkSections(projectId).some(function (section) {
+            var scheduleTitle = canonicalEstimateSectionTitle(section && (section.title || section.sectionId));
+            return section && scheduleTitle !== canonicalSectionTitle && isScheduleWorkDone(projectId, scheduleTitle, item);
+        });
+    }
+
+    function workProgressForRows(projectId, sectionTitle, rows) {
+        var workRows = rows || [];
+        var done = projectId ? workRows.filter(function (item) {
+            return isProjectScheduleWorkDone(projectId, sectionTitle, item);
+        }).length : 0;
+        return {
+            total: workRows.length,
+            done: done,
+            left: Math.max(0, workRows.length - done),
+            percent: workRows.length ? Math.round((done / workRows.length) * 100) : 0
+        };
+    }
+
+    function workProgress(projectId, sectionTitle, rows) {
+        return workProgressForRows(projectId, sectionTitle, rows);
+    }
+
+    function isScheduleSectionOpen(projectId, section, fallbackOpen) {
+        var map = readStoredJson(scheduleSectionStateStorageKey(projectId));
+        var key = scheduleSectionKey(section);
+        if (Object.prototype.hasOwnProperty.call(map, key)) return map[key] === 1;
+        return !!fallbackOpen;
+    }
+
+    function setScheduleSectionOpen(projectId, section, isOpen) {
+        var map = readStoredJson(scheduleSectionStateStorageKey(projectId));
+        map[scheduleSectionKey(section)] = isOpen ? 1 : 0;
+        writeStoredJson(scheduleSectionStateStorageKey(projectId), map);
+    }
+
+    function renderScheduleSectionDetailsShell(isOpen, contentHtml) {
+        return '<div class="section-schedule-details-shell' + (isOpen ? ' is-open' : '') + '" aria-hidden="' + (isOpen ? 'false' : 'true') + '">' +
+            '<div class="section-schedule-details-clip"><div class="section-schedule-details">' + (contentHtml || '') + '</div></div>' +
+        '</div>';
+    }
+
+    function toggleScheduleSectionDom(button, projectId, section) {
+        var isOpen = button.getAttribute('aria-expanded') !== 'true';
+        var card = button.closest ? button.closest('.section-schedule-card') : null;
+        var body = card && card.querySelector ? card.querySelector('.section-schedule-details-shell') : null;
+        var chevron = button.querySelector ? button.querySelector('.section-schedule-chevron') : null;
+        setScheduleSectionOpen(projectId, section, isOpen);
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (card) card.classList.toggle('is-open', isOpen);
+        if (body) {
+            body.classList.toggle('is-open', isOpen);
+            body.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+        }
+        if (chevron) chevron.textContent = isOpen ? '-' : '+';
+        if (button.classList && button.classList.contains('section-schedule-toggle')) {
+            button.textContent = isOpen ? 'Свернуть раздел' : 'Открыть работы';
+        }
+    }
+
+    function scheduleSectionProgress(projectId, section) {
+        var sectionTitle = canonicalEstimateSectionTitle(section && (section.title || section.sectionId));
+        var sectionKey = canonicalEstimateSectionId(sectionTitle);
+        var materialItems = (state.materialsByProject && state.materialsByProject[projectId] || []).filter(function (item) {
+            var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
+            return kind !== 'work' && canonicalEstimateSectionId(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId)) === sectionKey;
+        });
+        qsa('[data-role-create-open]').forEach(function (button) {
+            if (button.dataset.roleCreateOpenBound === '1') return;
+            button.dataset.roleCreateOpenBound = '1';
+            button.addEventListener('click', openRoleCreateModal);
+        });
+        var workItems = liveScheduleSectionItems(section);
+        var materialValue = materialProgress(projectId, materialItems);
+        var workValue = workProgressForRows(projectId, sectionTitle, workItems);
+        var total = materialValue.total + workValue.total;
+        var done = materialValue.done + workValue.done;
+        return {
+            total: total,
+            done: done,
+            percent: total ? Math.round((done / total) * 100) : 0,
+            materials: materialValue,
+            works: workValue
+        };
+    }
+
+    function formatWorkLine(item) {
+        var qty = item && (item.planned_qty != null ? item.planned_qty : item.plannedQty);
+        var parts = [];
+        if (qty != null && qty !== '') parts.push(formattedWorkQty(qty) + ' ' + (item.unit || 'ед.'));
+        var hours = Number(item && (item.estimated_hours != null ? item.estimated_hours : item.estimatedHours));
+        if (Number.isFinite(hours) && hours > 0) parts.push((Math.round(hours * 10) / 10).toString().replace('.', ',') + ' чел.-ч');
+        return parts.join(' • ');
+    }
+
+    function isoTime(value) {
+        if (!value) return NaN;
+        return Date.parse(String(value).trim() + 'T00:00:00Z');
+    }
+
+    function timelineExpectedProgress(startDate, endDate) {
+        var startTime = isoTime(startDate);
+        var endTime = isoTime(endDate);
+        var todayTime = isoTime(APP_TODAY);
+        if (Number.isNaN(startTime) || Number.isNaN(endTime) || Number.isNaN(todayTime) || endTime <= startTime) return 0;
+        if (todayTime <= startTime) return 0;
+        if (todayTime >= endTime) return 100;
+        return Math.round(((todayTime - startTime) / (endTime - startTime)) * 100);
+    }
+
+    function scheduleDeadlineState(startDate, endDate, progressPercent, estimatedDays) {
+        var startTime = isoTime(startDate);
+        var endTime = isoTime(endDate);
+        var todayTime = isoTime(APP_TODAY);
+        var daysLeft = endDate ? daysBetween(APP_TODAY, endDate) : null;
+        var expected = timelineExpectedProgress(startDate, endDate);
+        var lag = expected - Number(progressPercent || 0);
+        var totalDays = Math.max(1, Number(estimatedDays || 0) || daysBetween(startDate, endDate) || 1);
+        var rushWindow = Math.max(3, Math.ceil(totalDays * 0.2));
+        var state = {
+            kind: '',
+            expected: expected,
+            daysLeft: daysLeft,
+            label: endDate ? ('Осталось ' + String(daysLeft) + ' дн.') : 'Срок не задан'
+        };
+
+        if (Number(progressPercent || 0) >= 100) {
+            state.kind = 'success';
+            state.label = 'Готово';
+            return state;
+        }
+
+        if (!Number.isNaN(endTime) && !Number.isNaN(todayTime) && todayTime > endTime) {
+            var overdueDays = daysBetween(endDate, APP_TODAY);
+            state.kind = Number(progressPercent || 0) >= 85 ? 'warn' : 'danger';
+            state.label = 'Просрочено ' + String(overdueDays) + ' дн.';
+            return state;
+        }
+
+        if (!Number.isNaN(startTime) && !Number.isNaN(todayTime) && todayTime < startTime) {
+            var daysToStart = daysBetween(APP_TODAY, startDate);
+            state.kind = daysToStart <= 2 ? 'warn' : '';
+            state.label = 'Старт через ' + String(daysToStart) + ' дн.';
+            return state;
+        }
+
+        if (lag >= 30 || (daysLeft != null && daysLeft <= 2 && Number(progressPercent || 0) < 75)) {
+            state.kind = 'danger';
+            return state;
+        }
+        if (lag >= 15 || (daysLeft != null && daysLeft <= rushWindow && Number(progressPercent || 0) < 70)) {
+            state.kind = 'warn';
+            return state;
+        }
+        if (Number(progressPercent || 0) + 5 >= expected) {
+            state.kind = 'success';
+        }
+        return state;
+    }
+
+    function scheduleDeadlineBadge(state) {
+        return '<span class="badge' + (state.kind ? (' ' + state.kind) : '') + '">' + escapeHtml(state.label) + '</span>';
+    }
+
+    function projectScheduleProgress(project, summary) {
+        var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+        var total = 0;
+        var done = 0;
+        sections.forEach(function (section) {
+            var progress = scheduleSectionProgress(project.id, section);
+            total += progress.total;
+            done += progress.done;
+        });
+        return {
+            total: total,
+            done: done,
+            percent: total ? Math.round((done / total) * 100) : 0
+        };
+    }
+
+    function rerenderProjectWorkProgress(projectId) {
+        var project = state.projects.find(function (item) {
+            return Number(item.id) === Number(projectId);
+        }) || state.selectedProject;
+        if (!project || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+        var stages = state.stagesByProject[projectId] || [];
+        var items = state.materialsByProject[projectId] || [];
+        safeReplaceChildren(qs('[data-panel="schedule"]'), renderSchedulePanel(stages, project));
+        if (qs('[data-panel="works"]')) {
+            safeReplaceChildren(qs('[data-panel="works"]'), renderWorksPanel(stages, items));
+        }
+        bindAutoScheduleForm(projectId);
+        bindScheduleStatusActions(projectId);
+        bindSectionScheduleRefresh(projectId);
+        bindSectionScheduleInteractions(projectId);
+        bindActualQuantityInputs(projectId);
+    }
+
+    function bindSectionScheduleInteractions(projectId) {
+        qsa('[data-section-schedule-toggle]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            var toggleSection = function () {
+                var sectionKey = button.getAttribute('data-section-key') || '';
+                var project = state.selectedProject;
+                if (!project || Number(project.id) !== Number(projectId)) return;
+                var summary = state.sectionScheduleByProject[projectId];
+                var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+                var section = sections.find(function (entry) {
+                    return scheduleSectionKey(entry) === sectionKey;
+                });
+                if (!section) return;
+                toggleScheduleSectionDom(button, projectId, section);
+            };
+            button.addEventListener('click', toggleSection);
+            button.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                toggleSection();
+            });
+        });
+
+        installActualQuantityDelegates();
+        qsa('[data-section-work-check]').forEach(function (input) {
+            if (input.dataset.bound === '1') return;
+            input.dataset.bound = '1';
+        });
+    }
+
+    // schedule page project rendering
+    function isScheduleProjectOpen(projectId) {
+        state.scheduleProjectOpenByProject = state.scheduleProjectOpenByProject || {};
+        return state.scheduleProjectOpenByProject[String(projectId)] === true;
+    }
+
+    function setScheduleProjectOpen(projectId, isOpen) {
+        state.scheduleProjectOpenByProject = state.scheduleProjectOpenByProject || {};
+        if (isOpen) state.scheduleProjectOpenByProject[String(projectId)] = true;
+        else delete state.scheduleProjectOpenByProject[String(projectId)];
+    }
+
+    function scheduleProjectDetails(projectId) {
+        state.scheduleProjectDetailsByProject = state.scheduleProjectDetailsByProject || {};
+        return state.scheduleProjectDetailsByProject[String(projectId)] || null;
+    }
+
+    function setScheduleProjectDetails(projectId, details) {
+        state.scheduleProjectDetailsByProject = state.scheduleProjectDetailsByProject || {};
+        state.scheduleProjectDetailsByProject[String(projectId)] = details;
+    }
+
+    function scheduleProjectBody(projectId) {
+        return qs('[data-schedule-project-body="' + String(projectId) + '"]');
+    }
+
+    function refreshScheduleProjectStats(projectId) {
+        var project = scheduleProjectById(projectId) || state.selectedProject;
+        if (!project) return;
+        var body = scheduleProjectBody(projectId);
+        var card = body && body.closest ? body.closest('.schedule-project') : null;
+        var summaryNode = card && card.querySelector ? card.querySelector('.schedule-project-summary-compact') : null;
+        if (summaryNode) {
+            summaryNode.outerHTML = renderScheduleProjectObjectSummary(project, scheduleProjectDetails(projectId));
+        }
+        var panel = state.selectedProject && Number(state.selectedProject.id) === Number(projectId) ? qs('[data-panel="schedule"]') : null;
+        if (panel) {
+            safeReplaceChildren(panel, renderSchedulePanel(state.stagesByProject[projectId] || [], project));
+            bindAutoScheduleForm(projectId);
+            bindScheduleStatusActions(projectId);
+            bindSectionScheduleRefresh(projectId);
+            bindSectionScheduleInteractions(projectId);
+            bindActualQuantityInputs(projectId);
+        }
+    }
+
+    function scheduleProjectById(projectId) {
+        return state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || null;
+    }
+
+    function scheduleForecastPromise(project, force) {
+        return new Promise(function (resolve) {
+            loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function (summary) {
+                resolve(summary);
+            }, force);
+        });
+    }
+
+    function renderScheduleProjectObjectSummary(project, details) {
+        var stages = details && Array.isArray(details.stages) ? details.stages : null;
+        var notifications = details && details.notifications ? details.notifications : null;
+        var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[project.id];
+        var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+        var progress = summary ? projectScheduleProgress(project, summary) : { percent: percent(project.progress), done: 0, total: 0 };
+        var overdue = stages ? stages.filter(function (stage) { return isStageOverdue(stage, APP_TODAY); }).length : 0;
+        var nextDate = stages ? collectNextStageDate(stages) : (project.deadline_at || '');
+        var reportText = notifications && notifications.latestDailyLog && notifications.latestDailyLog.report_date
+            ? ('Последний отчет: ' + notifications.latestDailyLog.report_date)
+            : (notifications && notifications.missingDailyReport ? 'Нет свежего отчета' : 'Раскройте объект для деталей');
+        return '<div class="schedule-project-summary schedule-project-summary-compact">' +
+            stat('Готовность', String(progress.percent || 0) + '%') +
+            stat('Статус', project.status || 'В работе') +
+            stat('Старт', project.started_at || '-') +
+            stat('Дедлайн', project.deadline_at || '-') +
+            stat('Разделов', sections.length ? String(sections.length) : (stages ? String(stages.length) : '-')) +
+            stat('Просрочено', stages ? String(overdue) : '-', overdue ? 'danger' : '') +
+            stat('Ближайшая дата', nextDate || '-') +
+            stat('Отчет', reportText, notifications && notifications.missingDailyReport ? 'danger' : '') +
+        '</div>';
+    }
+
+    function renderScheduleProjectDetails(project, details) {
+        details = details || {};
+        var stages = Array.isArray(details.stages) ? details.stages : [];
+        var notifications = details.notifications || null;
+        var materials = Array.isArray(details.materials) ? details.materials : [];
+        var tasks = Array.isArray(details.tasks) ? details.tasks : [];
+        var topBar = '<section class="schedule-project-topbar">' +
+            '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
+            (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '">⚙️ Автоплан графика</button>' : '') +
+        '</section>';
+        var objectInfo = '<section class="schedule-object-info">' +
+            dataItem('Заказчик', project.client_name || 'Не указан') +
+            dataItem('Адрес', project.address || 'Не указан') +
+            dataItem('Договор', project.contract_no || '-') +
+            dataItem('Готовность объекта', percent(project.progress) + '%') +
+            dataItem('Старт', project.started_at || '-') +
+            dataItem('Дедлайн', project.deadline_at || '-') +
+        '</section>';
+        return topBar +
+            objectInfo +
+            renderSectionScheduleForecast(project) +
+            renderScheduleActionCenter(project, stages, notifications, materials, tasks) +
+            renderScheduleCalendar(project, stages) +
+            (stages.length ? renderStages(stages) : '<div class="section-schedule-empty">Этапы объекта пока не заполнены.</div>');
+    }
+
+    function renderScheduleProject(project) {
+        var open = isScheduleProjectOpen(project.id);
+        var details = scheduleProjectDetails(project.id);
+        var types = hasRole('customer') ? ['customer'] : ['internal', 'customer'];
+        var badges = types.map(function (type) {
+            var stateMeta = getScheduleState(project, type);
+            var shortLabel = type === 'customer' ? 'Заказчик' : 'Внутренний';
+            return '<span class="badge ' + scheduleStateKind(stateMeta) + '">' + escapeHtml(shortLabel + ' v' + stateMeta.version + ' • ' + scheduleStateTitle(stateMeta)) + '</span>';
+        }).join('');
+        return '<section class="schedule-project schedule-project-accordion ui-card' + (open ? ' is-open' : '') + '">' +
+            '<button class="schedule-project-toggle" type="button" data-schedule-project-toggle data-project-id="' + escapeHtml(project.id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+                '<span class="schedule-project-toggle-main"><b>' + escapeHtml(project.title || 'Объект') + '</b><small>' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</small></span>' +
+                '<span class="project-badges">' + badges + '<span class="badge">' + escapeHtml(percent(project.progress) + '%') + '</span></span>' +
+                '<span class="section-schedule-chevron" aria-hidden="true">' + (open ? '-' : '+') + '</span>' +
+            '</button>' +
+            renderScheduleProjectObjectSummary(project, details) +
+            '<div class="schedule-project-body' + (open ? ' is-open' : '') + '" data-schedule-project-body="' + escapeHtml(project.id) + '" aria-hidden="' + (open ? 'false' : 'true') + '">' +
+                (details ? renderScheduleProjectDetails(project, details) : (open ? '<div class="section-schedule-empty"></div>' : '')) +
+            '</div>' +
+        '</section>';
+    }
+
+    function loadScheduleProjectDetails(project, force) {
+        if (!project || !project.id) return;
+        var projectId = project.id;
+        state.scheduleProjectLoadingByProject = state.scheduleProjectLoadingByProject || {};
+        if (!force && scheduleProjectDetails(projectId)) {
+            refreshScheduleProjectBody(projectId);
+            return;
+        }
+        if (state.scheduleProjectLoadingByProject[String(projectId)]) return;
+        state.scheduleProjectLoadingByProject[String(projectId)] = true;
+        var body = scheduleProjectBody(projectId);
+        if (body) body.innerHTML = '<div class="section-schedule-empty"></div>';
+        Promise.all([
+            api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; }),
+            api('/api/projects/' + projectId + '/notifications').catch(function () { return null; }),
+            api('/api/projects/' + projectId + '/materials/summary').catch(function () { return { items: [] }; }),
+            api('/api/projects/' + projectId + '/tasks').catch(function () { return { tasks: [] }; }),
+            scheduleForecastPromise(project, force)
+        ]).then(function (results) {
+            var stages = Array.isArray(results[0].stages) ? results[0].stages : [];
+            var materials = Array.isArray(results[2].items) ? results[2].items : [];
+            state.stagesByProject[projectId] = stages;
+            state.materialsByProject[projectId] = materials;
+            state.notificationsByProject[projectId] = results[1] || null;
+            setScheduleProjectDetails(projectId, {
+                stages: stages,
+                notifications: results[1] || null,
+                materials: materials,
+                tasks: Array.isArray(results[3].tasks) ? results[3].tasks : []
+            });
+            state.scheduleProjectLoadingByProject[String(projectId)] = false;
+            renderSchedulePage();
+        }).catch(function () {
+            state.scheduleProjectLoadingByProject[String(projectId)] = false;
+            var target = scheduleProjectBody(projectId);
+            if (target) target.innerHTML = '<div class="section-schedule-empty">Не удалось загрузить данные объекта.</div>';
+        });
+    }
+
+    function refreshScheduleProjectBody(projectId) {
+        var project = scheduleProjectById(projectId);
+        var body = scheduleProjectBody(projectId);
+        if (!project || !body || !isScheduleProjectOpen(projectId)) return;
+        body.innerHTML = renderScheduleProjectDetails(project, scheduleProjectDetails(projectId));
+        bindSchedulePageProjectDetails(projectId);
+    }
+
+    function bindSchedulePageActualQuantityInputs(projectId) {
+        installActualQuantityDelegates();
+        var body = scheduleProjectBody(projectId);
+        qsa('[data-actual-qty-input]', body).forEach(function (input) {
+            if (input.dataset.schedulePageActualBound === '1') return;
+            input.dataset.schedulePageActualBound = '1';
+            input.addEventListener('click', function (event) { event.stopPropagation(); });
+            var editor = input.closest ? input.closest('.quantity-actual-editor') : null;
+            if (editor && editor.dataset.actualEditorBound !== '1') {
+                editor.dataset.actualEditorBound = '1';
+                editor.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    if (event.target !== input) {
+                        input.focus();
+                        input.select();
+                    }
+                });
+            }
+            input.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') input.blur();
+                if (event.key === 'Escape') {
+                    input.value = input.defaultValue;
+                    input.blur();
+                }
+            });
+            input.addEventListener('change', function () {
+                var item = {
+                    id: input.getAttribute('data-item-id') || '',
+                    title: input.getAttribute('data-item-title') || '',
+                    unit: input.getAttribute('data-item-unit') || '',
+                    plannedQty: input.getAttribute('data-item-qty') || ''
+                };
+                if (input.getAttribute('data-actual-kind') === 'work') {
+                    setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, input.value);
+                } else {
+                    setMaterialManualActualQty(projectId, item, input.value);
+                }
+                renderSchedulePage();
+            });
+        });
+    }
+
+    function bindSchedulePageProjectDetails(projectId) {
+        var body = scheduleProjectBody(projectId);
+        var project = scheduleProjectById(projectId);
+        if (!body || !project) return;
+        qsa('[data-section-schedule-toggle]', body).forEach(function (button) {
+            if (button.dataset.schedulePageBound === '1') return;
+            button.dataset.schedulePageBound = '1';
+            var toggleSection = function () {
+                var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[projectId];
+                var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+                var key = button.getAttribute('data-section-key') || '';
+                var section = sections.find(function (entry) { return scheduleSectionKey(entry) === key; });
+                if (!section) return;
+                toggleScheduleSectionDom(button, projectId, section);
+            };
+            button.addEventListener('click', toggleSection);
+            button.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                toggleSection();
+            });
+        });
+        qsa('[data-section-work-check]', body).forEach(function (input) {
+            if (input.dataset.schedulePageWorkBound === '1') return;
+            input.dataset.schedulePageWorkBound = '1';
+            input.addEventListener('change', function () {
+                setScheduleWorkDone(projectId, input.getAttribute('data-section-title') || '', {
+                    title: input.getAttribute('data-work-title') || '',
+                    unit: input.getAttribute('data-work-unit') || '',
+                    planned_qty: input.getAttribute('data-work-qty') || ''
+                }, input.checked);
+                renderSchedulePage();
+            });
+        });
+        qsa('[data-section-schedule-refresh]', body).forEach(function (button) {
+            if (button.dataset.schedulePageRefreshBound === '1') return;
+            button.dataset.schedulePageRefreshBound = '1';
+            button.addEventListener('click', function () {
+                button.disabled = true;
+                loadScheduleProjectDetails(project, true);
+            });
+        });
+        bindScheduleActionButtons();
+        bindSchedulePageActualQuantityInputs(projectId);
+    }
+
+    function bindScheduleProjectAccordions() {
+        qsa('[data-schedule-project-toggle]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var projectId = button.getAttribute('data-project-id');
+                var project = scheduleProjectById(projectId);
+                if (!project) return;
+                var nextOpen = !isScheduleProjectOpen(projectId);
+                setScheduleProjectOpen(projectId, nextOpen);
+                var container = button.closest ? button.closest('.schedule-project-accordion') : null;
+                var body = container && container.querySelector ? container.querySelector('[data-schedule-project-body]') : null;
+                var chevron = button.querySelector ? button.querySelector('.section-schedule-chevron') : null;
+                button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+                if (container) container.classList.toggle('is-open', nextOpen);
+                if (body) {
+                    body.classList.toggle('is-open', nextOpen);
+                    body.setAttribute('aria-hidden', nextOpen ? 'false' : 'true');
+                    if (nextOpen && !scheduleProjectDetails(projectId)) {
+                        body.innerHTML = '<div class="section-schedule-empty"></div>';
+                    }
+                }
+                if (chevron) chevron.textContent = nextOpen ? '-' : '+';
+                if (nextOpen) {
+                    if (scheduleProjectDetails(projectId)) bindSchedulePageProjectDetails(projectId);
+                    else loadScheduleProjectDetails(project, false);
+                }
+            });
+        });
+        (state.projects || []).forEach(function (project) {
+            if (isScheduleProjectOpen(project.id)) {
+                if (scheduleProjectDetails(project.id)) bindSchedulePageProjectDetails(project.id);
+                else loadScheduleProjectDetails(project, false);
+            }
+        });
+    }
+
+    function renderSchedulePage() {
+        var root = qs('[data-schedule-list]');
+        if (!root) return;
+        state.scheduleQuickActions = {};
+        state.scheduleProjectOpenByProject = state.scheduleProjectOpenByProject || {};
+        if (!state.projects.length) {
+            root.innerHTML = '<p class="muted">Нет объектов для графика.</p>';
+            return;
+        }
+        root.innerHTML = '<div class="schedule-project-list">' + state.projects.map(function (project) {
+            return renderScheduleProject(project);
+        }).join('') + '</div>';
+        bindScheduleProjectAccordions();
+    }
+
+    // material schedule calendar
+    function materialScheduleForProject(projectId) {
+        state.materialScheduleByProject = state.materialScheduleByProject || {};
+        return state.materialScheduleByProject[String(projectId)] || null;
+    }
+
+    function setMaterialScheduleForProject(projectId, schedule) {
+        state.materialScheduleByProject = state.materialScheduleByProject || {};
+        state.materialScheduleVersionByProject = state.materialScheduleVersionByProject || {};
+        var key = String(projectId);
+        state.materialScheduleVersionByProject[key] = (state.materialScheduleVersionByProject[key] || 0) + 1;
+        if (schedule && typeof schedule === 'object') schedule.__renderVersion = state.materialScheduleVersionByProject[key];
+        state.materialScheduleByProject[key] = normalizeMaterialSchedule(schedule) || null;
+    }
+
+    function normalizeMaterialSchedule(schedule) {
+        if (!schedule || !Array.isArray(schedule.items)) return schedule;
+        schedule.items = schedule.items.map(function (item) {
+            if (!item.deadlineDate && item.deliveryTargetDate) item.deadlineDate = item.deliveryTargetDate;
+            if (!item.purchaseStartDate && item.purchaseByDate) item.purchaseStartDate = item.purchaseByDate;
+            if (!item.purchaseByDate && item.purchaseStartDate) item.purchaseByDate = item.purchaseStartDate;
+            return item;
+        });
+        return schedule;
+    }
+
+    function fallbackMaterialLeadDays(item) {
+        var text = String([item && item.title, item && item.notes, item && item.unit].filter(Boolean).join(' ')).toLowerCase();
+        var base = 7;
+        if (/фасад|окн|двер|жалюз|витраж/.test(text)) base = 16;
+        else if (/электр|кабел|щит|свет|видео|trassir|ip/.test(text)) base = 12;
+        else if (/сантех|труб|вод|канал|отоп/.test(text)) base = 12;
+        else if (/вент|кондиц|дымо/.test(text)) base = 16;
+        else if (/кров|крыша|гидро/.test(text)) base = 10;
+        else if (/бетон|арматур|стяж/.test(text)) base = 6;
+        else if (/кирпич|блок|клад/.test(text)) base = 7;
+        var amount = Number(item && item.plannedQty || 0) * Number(item && item.plannedPrice || 0);
+        if (amount >= 250000) base += 1;
+        if (amount >= 700000) base += 1;
+        if (amount >= 1500000) base += 1;
+        return Math.min(24, base);
+    }
+
+    function buildClientMaterialSchedule(projectId, materials) {
+        var today = APP_TODAY;
+        var warningDays = 5;
+        var rangeDates = [today];
+        var summary = { total: 0, purchased: 0, overdue: 0, warning: 0, neutral: 0, unscheduled: 0 };
+        var items = (materials || []).filter(function (item) {
+            return String(item.itemKind || 'material').toLowerCase() !== 'work';
+        }).map(function (item) {
+            var leadDays = Number(item.deliveryDays);
+            if (!Number.isFinite(leadDays)) leadDays = fallbackMaterialLeadDays(item);
+            leadDays = Math.max(0, Math.min(90, Math.round(leadDays)));
+            var deadlineDate = item.needByDate || item.stageStartDate || item.stageEndDate || '';
+            var purchaseStart = deadlineDate ? isoDateAdd(deadlineDate, -leadDays) : '';
+            var daysUntilPurchase = purchaseStart ? signedDaysBetween(today, purchaseStart) : null;
+            var daysUntilDeadline = deadlineDate ? signedDaysBetween(today, deadlineDate) : null;
+            var missingQty = Number(item.missingQty || 0);
+            var status = 'neutral';
+            var statusLabel = 'В плане';
+            var color = 'green';
+            if (missingQty <= 0) {
+                status = 'purchased';
+                statusLabel = 'Закуплено';
+                color = 'done';
+                summary.purchased += 1;
+            } else if (!deadlineDate) {
+                status = 'unscheduled';
+                statusLabel = 'Нет даты закупки';
+                color = 'muted';
+                summary.unscheduled += 1;
+            } else if (daysUntilPurchase < 0) {
+                status = 'overdue';
+                statusLabel = 'Просрочено';
+                color = 'red';
+                summary.overdue += 1;
+            } else if (daysUntilPurchase <= warningDays) {
+                status = 'warning';
+                statusLabel = 'Пора платить';
+                color = 'yellow';
+                summary.warning += 1;
+            } else {
+                summary.neutral += 1;
+            }
+            [purchaseStart, deadlineDate].filter(Boolean).forEach(function (dateValue) { rangeDates.push(dateValue); });
+            summary.total += 1;
+            return {
+                id: item.id,
+                projectId: projectId,
+                title: item.title || '',
+                unit: item.unit || '',
+                plannedQty: Number(item.plannedQty || 0),
+                plannedPrice: Number(item.plannedPrice || 0),
+                purchasedQty: Number(item.purchasedQty || 0),
+                receivedQty: Number(item.receivedQty || 0),
+                missingQty: missingQty,
+                purchaseProgress: Number(item.purchaseProgress || 0),
+                status: status,
+                statusLabel: statusLabel,
+                color: color,
+                purchaseStartDate: purchaseStart || null,
+                purchaseByDate: purchaseStart || null,
+                alertStartDate: purchaseStart ? isoDateAdd(purchaseStart, -warningDays) : null,
+                deadlineDate: deadlineDate || null,
+                deliveryTargetDate: deadlineDate || null,
+                deliveryLeadDays: leadDays,
+                estimatedDeliveryDays: fallbackMaterialLeadDays(item),
+                warningDays: warningDays,
+                daysUntilPurchase: daysUntilPurchase,
+                daysUntilDeadline: daysUntilDeadline,
+                sectionTitle: item.sectionTitle || '',
+                relatedWork: {
+                    stageId: item.stageId,
+                    title: item.stageTitle || item.sectionTitle || '',
+                    startDate: item.stageStartDate,
+                    endDate: item.stageEndDate
+                },
+                supplier: null,
+                materialUrl: '/app/projects?openProject=' + projectId + '&tab=materials&materialId=' + item.id
+            };
+        }).sort(function (a, b) {
+            return String(a.deadlineDate || '9999-12-31').localeCompare(String(b.deadlineDate || '9999-12-31')) || String(a.purchaseStartDate || '9999-12-31').localeCompare(String(b.purchaseStartDate || '9999-12-31')) || String(a.title).localeCompare(String(b.title));
+        });
+        rangeDates.sort();
+        var start = rangeDates[0] || today;
+        var end = rangeDates[rangeDates.length - 1] || isoDateAdd(start, 7);
+        if (start === end) end = isoDateAdd(start, 7);
+        return {
+            projectId: projectId,
+            today: today,
+            settings: { warningDays: warningDays, neutralDays: 7 },
+            range: { start: start, end: end },
+            summary: summary,
+            items: items,
+            fallback: true
+        };
+    }
+
+    function loadMaterialSchedule(projectId, callback, force) {
+        if (!projectId || hasRole('customer')) {
+            if (callback) callback(null);
+            return;
+        }
+        state.materialScheduleByProject = state.materialScheduleByProject || {};
+        state.materialScheduleLoadingByProject = state.materialScheduleLoadingByProject || {};
+        state.materialScheduleCallbacksByProject = state.materialScheduleCallbacksByProject || {};
+
+        var key = String(projectId);
+        var cached = materialScheduleForProject(projectId);
+        if (!force && cached) {
+            if (callback) callback(cached);
+            return;
+        }
+        if (callback) {
+            state.materialScheduleCallbacksByProject[key] = state.materialScheduleCallbacksByProject[key] || [];
+            state.materialScheduleCallbacksByProject[key].push(callback);
+        }
+        if (state.materialScheduleLoadingByProject[key]) return;
+        if (force) delete state.materialScheduleByProject[key];
+        state.materialScheduleLoadingByProject[key] = true;
+
+        function finish(schedule) {
+            state.materialScheduleLoadingByProject[key] = false;
+            var callbacks = state.materialScheduleCallbacksByProject[key] || [];
+            delete state.materialScheduleCallbacksByProject[key];
+            callbacks.forEach(function (fn) {
+                try { fn(schedule || null); } catch (callbackError) {}
+            });
+        }
+        api('/api/projects/' + encodeURIComponent(projectId) + '/material-schedule' + (force ? '?fresh=1' : '')).then(function (schedule) {
+            setMaterialScheduleForProject(projectId, schedule || { items: [] });
+            finish(materialScheduleForProject(projectId));
+        }).catch(function (err) {
+            if (err && err.status === 404) {
+                api('/api/projects/' + encodeURIComponent(projectId) + '/materials-summary').then(function (data) {
+                    var schedule = buildClientMaterialSchedule(projectId, Array.isArray(data && data.items) ? data.items : []);
+                    setMaterialScheduleForProject(projectId, schedule);
+                    finish(materialScheduleForProject(projectId));
+                }).catch(function (fallbackErr) {
+                    var fallbackCode = fallbackErr && fallbackErr.status ? (' HTTP ' + fallbackErr.status) : '';
+                    var fallbackReason = fallbackErr && fallbackErr.payload && fallbackErr.payload.error ? (': ' + fallbackErr.payload.error) : '';
+                    setMaterialScheduleForProject(projectId, { error: 'Не удалось загрузить график материалов' + fallbackCode + fallbackReason + '.', items: [] });
+                    finish(materialScheduleForProject(projectId));
+                });
+                return;
+            }
+            var code = err && err.status ? (' HTTP ' + err.status) : '';
+            var reason = err && err.payload && err.payload.error ? (': ' + err.payload.error) : '';
+            setMaterialScheduleForProject(projectId, { error: 'Не удалось загрузить график материалов' + code + reason + '.', items: [] });
+            finish(materialScheduleForProject(projectId));
+        });
+    }
+
+    function materialScheduleStatusClass(item) {
+        var color = String(item && item.color || '').toLowerCase();
+        if (color === 'red' || item.status === 'overdue') return 'is-overdue';
+        if (color === 'yellow' || item.status === 'warning') return 'is-warning';
+        if (item.status === 'purchased' || color === 'done') return 'is-done';
+        if (item.status === 'unscheduled' || color === 'muted') return 'is-muted';
+        return 'is-neutral';
+    }
+
+    function materialScheduleStatusBadge(item) {
+        if (!item) return '';
+        if (item.status === 'overdue') return 'danger';
+        if (item.status === 'warning') return 'warn';
+        if (item.status === 'purchased' || item.status === 'in_transit') return 'success';
+        return '';
+    }
+
+    function materialScheduleDayText(item) {
+        var days = item && item.daysUntilPurchase;
+        if (days == null || days === '') return 'Дата закупки не указана';
+        days = Number(days);
+        if (!Number.isFinite(days)) return 'Дата закупки не указана';
+        if (days < 0) return 'Просрочено на ' + Math.abs(days) + ' дн.';
+        if (days === 0) return 'Закупить сегодня';
+        return 'До закупки ' + days + ' дн.';
+    }
+
+    function materialScheduleRange(schedule) {
+        var range = schedule && schedule.range ? schedule.range : {};
+        var dates = [range.start, range.end, APP_TODAY].filter(Boolean).sort();
+        var start = dates[0] || APP_TODAY;
+        var end = dates[dates.length - 1] || isoDateAdd(start, 7);
+        var totalDays = Math.max(1, scheduleDayDiff(start, end) + 1);
+        return { start: start, end: end, totalDays: totalDays };
+    }
+
+    function materialSchedulePercent(range, iso) {
+        if (!iso) return 0;
+        var offset = Math.max(0, Math.min(range.totalDays - 1, scheduleDayDiff(range.start, iso)));
+        return range.totalDays === 1 ? 0 : (offset / (range.totalDays - 1)) * 100;
+    }
+
+    function renderMaterialScheduleScale(range) {
+        return '<div class="material-schedule-scale">' +
+            '<span style="left:0%"><b>' + escapeHtml(formatDisplayDate(range.start)) + '</b></span>' +
+            '<i style="left:' + materialSchedulePercent(range, APP_TODAY) + '%"></i>' +
+            '<span style="left:100%"><b>' + escapeHtml(formatDisplayDate(range.end)) + '</b></span>' +
+        '</div>';
+    }
+
+    function renderMaterialScheduleTimeline(projectId) {
+        if (!projectId || hasRole('customer')) return '';
+        var schedule = materialScheduleForProject(projectId);
+        if (!schedule) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty"></div></section>';
+        }
+        if (schedule.error) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
+        }
+        var items = Array.isArray(schedule.items) ? schedule.items : [];
+        var summary = schedule.summary || {};
+        if (!items.length) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>График материалов</h3><span class="muted">Материалы подтягиваются из вкладки материалов объекта.</span></div></div><div class="section-schedule-empty">Материалы по объекту пока не загружены.</div></section>';
+        }
+        var range = materialScheduleRange(schedule);
+        return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
+            '<div class="card-head"><div><h3>График материалов</h3><span class="muted">Метка стоит в дату, к которой надо купить. Доставка учитывается отдельным запасом.</span></div></div>' +
+            '<div class="execution-summary material-schedule-summary">' +
+                stat('Всего', String(summary.total || items.length)) +
+                stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
+                stat('Пора платить', String(summary.warning || 0), summary.warning ? 'warn' : '') +
+                stat('Закуплено', String(summary.purchased || 0), summary.purchased ? 'success' : '') +
+                stat('Сегодня', schedule.today || APP_TODAY) +
+            '</div>' +
+            '<div class="material-schedule-legend"><span><i class="is-neutral"></i>В плане</span><span><i class="is-warning"></i>Внимание</span><span><i class="is-overdue"></i>Просрочено</span><span><i class="is-done"></i>Закуплено</span></div>' +
+            renderMaterialScheduleScale(range) +
+            '<div class="material-schedule-list">' + items.map(function (item) {
+                var pointLeft = materialSchedulePercent(range, item.purchaseByDate);
+                var deliveryLeft = materialSchedulePercent(range, item.deliveryTargetDate);
+                var lineLeft = Math.min(pointLeft, deliveryLeft);
+                var lineWidth = Math.abs(deliveryLeft - pointLeft);
+                var meta = [
+                    item.purchaseByDate ? ('купить до ' + formatDisplayDate(item.purchaseByDate)) : 'без даты закупки',
+                    item.deliveryTargetDate ? ('доставка к ' + formatDisplayDate(item.deliveryTargetDate)) : '',
+                    'запас ' + (item.deliveryLeadDays || 0) + ' дн.',
+                    item.relatedWork && item.relatedWork.title ? ('работа: ' + item.relatedWork.title) : ''
+                ].filter(Boolean).join(' • ');
+                return '<div class="material-schedule-row">' +
+                    '<div class="material-schedule-meta"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(meta) + '</small></div>' +
+                    '<div class="material-schedule-track">' +
+                        (item.deliveryTargetDate && item.purchaseByDate ? '<span class="material-schedule-lead" style="left:' + lineLeft + '%;width:' + Math.max(lineWidth, 1) + '%"></span>' : '') +
+                        '<button class="material-schedule-point ' + materialScheduleStatusClass(item) + '" type="button" style="left:' + pointLeft + '%" data-material-schedule-item data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id || '') + '" aria-label="' + escapeHtml((item.title || '') + ': ' + (item.statusLabel || '')) + '"><span>' + escapeHtml(item.statusLabel || '') + '</span></button>' +
+                    '</div>' +
+                    '<div class="material-schedule-side"><span class="badge ' + materialScheduleStatusBadge(item) + '">' + escapeHtml(materialScheduleDayText(item)) + '</span></div>' +
+                '</div>';
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function materialScheduleView(projectId) {
+        state.materialScheduleViewByProject = state.materialScheduleViewByProject || {};
+        var key = String(projectId || '');
+        if (!state.materialScheduleViewByProject[key]) {
+            state.materialScheduleViewByProject[key] = { mode: 'month', cursor: APP_TODAY.slice(0, 7) + '-01' };
+        }
+        return state.materialScheduleViewByProject[key];
+    }
+
+    function setMaterialScheduleView(projectId, patch) {
+        var view = materialScheduleView(projectId);
+        Object.keys(patch || {}).forEach(function (key) { view[key] = patch[key]; });
+    }
+
+    function isoMonthStart(iso) {
+        return String(iso || APP_TODAY).slice(0, 7) + '-01';
+    }
+
+    function isoMonthAdd(iso, months) {
+        var start = isoMonthStart(iso);
+        var year = Number(start.slice(0, 4));
+        var month = Number(start.slice(5, 7));
+        if (!Number.isFinite(year) || !Number.isFinite(month)) return isoMonthStart(APP_TODAY);
+        var date = new Date(Date.UTC(year, month - 1 + Number(months || 0), 1));
+        return date.toISOString().slice(0, 10);
+    }
+
+    function isoWeekStart(iso) {
+        var base = Date.parse(String(iso || APP_TODAY) + 'T00:00:00Z');
+        if (Number.isNaN(base)) return APP_TODAY;
+        var date = new Date(base);
+        var day = date.getUTCDay() || 7;
+        return new Date(base - (day - 1) * 86400000).toISOString().slice(0, 10);
+    }
+
+    function isoMonthDays(iso) {
+        var start = isoMonthStart(iso);
+        var year = Number(start.slice(0, 4));
+        var month = Number(start.slice(5, 7));
+        var first = new Date(Date.UTC(year, month - 1, 1));
+        var last = new Date(Date.UTC(year, month, 0));
+        var gridStart = isoWeekStart(first.toISOString().slice(0, 10));
+        var gridEnd = isoDateAdd(isoWeekStart(last.toISOString().slice(0, 10)), 6);
+        var days = [];
+        for (var cursor = gridStart, safetyLimit = 0; cursor <= gridEnd && safetyLimit < 45; cursor = materialScheduleSafeIsoAdd(cursor, 1), safetyLimit += 1) {
+            if (!materialScheduleIsoDate(cursor)) break;
+            days.push(cursor);
+        }
+        return days;
+    }
+
+    function materialCalendarDays(projectId) {
+        var view = materialScheduleView(projectId);
+        if (view.mode === 'week') {
+            var start = isoWeekStart(view.cursor || APP_TODAY);
+            return [0, 1, 2, 3, 4, 5, 6].map(function (offset) { return materialScheduleSafeIsoAdd(start, offset) || APP_TODAY; });
+        }
+        return isoMonthDays(view.cursor || APP_TODAY);
+    }
+
+    function materialCalendarTitle(projectId) {
+        var view = materialScheduleView(projectId);
+        var days = materialCalendarDays(projectId).filter(materialScheduleIsoDate);
+        if (!days.length) days = [APP_TODAY];
+        if (view.mode === 'week') return formatDisplayDate(days[0]) + ' - ' + formatDisplayDate(days[6]);
+        return formatDisplayDate(isoMonthStart(view.cursor || APP_TODAY)).slice(3);
+    }
+
+    function materialCalendarMove(projectId, direction) {
+        var view = materialScheduleView(projectId);
+        var normalizedDirection = direction < 0 ? -1 : 1;
+        var next = view.mode === 'week'
+            ? (materialScheduleSafeIsoAdd(isoWeekStart(view.cursor || APP_TODAY), normalizedDirection * 7) || APP_TODAY)
+            : isoMonthAdd(view.cursor || APP_TODAY, normalizedDirection);
+        setMaterialScheduleView(projectId, { cursor: view.mode === 'week' ? isoWeekStart(next) : isoMonthStart(next) });
+    }
+
+    function materialScheduleQtyTitle(item) {
+        return finalSectionSummaryNumber(item.plannedQty || 0) + ' ' + (item.unit || 'ед.') + ' ' + (item.title || '');
+    }
+
+    function materialCalendarItemsForDay(items, day, field) {
+        return (items || []).filter(function (item) { return String(item && item[field] || '') === day; });
+    }
+
+    function materialCalendarHasWindow(items, day) {
+        return (items || []).some(function (item) {
+            if (item.status === 'purchased' || item.status === 'in_transit') return false;
+            if (!item.purchaseStartDate || !item.deadlineDate) return false;
+            return item.purchaseStartDate <= day && item.deadlineDate >= day;
+        });
+    }
+
+    function renderMaterialCalendarCard(item, compact) {
+        return '<div class="material-calendar-card ' + materialScheduleStatusClass(item) + (compact ? ' is-start' : '') + '">' +
+            '<b>' + escapeHtml(item && item.title || '') + '</b>' +
+        '</div>';
+    }
+
+    function renderMaterialCalendarOverflow(count) {
+        return count > 0 ? '<div class="calendar-more-badge">+' + escapeHtml(String(count)) + ' еще</div>' : '';
+    }
+
+    function materialScheduleIsoDate(value) {
+        var text = String(value || '').trim();
+        var match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return '';
+        var year = Number(match[1]);
+        var month = Number(match[2]);
+        var day = Number(match[3]);
+        var date = new Date(Date.UTC(year, month - 1, day));
+        if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return '';
+        return text;
+    }
+
+    function materialScheduleSafeIsoAdd(isoDate, days) {
+        isoDate = materialScheduleIsoDate(isoDate);
+        if (!isoDate) return '';
+        var date = new Date(isoDate + 'T00:00:00Z');
+        date.setUTCDate(date.getUTCDate() + Number(days || 0));
+        var next = date.toISOString().slice(0, 10);
+        return materialScheduleIsoDate(next);
+    }
+
+    function materialScheduleIsUnbought(item) {
+        if (!item || item.status === 'purchased' || item.status === 'in_transit') return false;
+        if (item.missingQty != null && Number(item.missingQty || 0) <= 0) return false;
+        return true;
+    }
+
+    function materialScheduleNeedsAttention(item, dateValue) {
+        dateValue = materialScheduleIsoDate(dateValue);
+        if (!dateValue || !materialScheduleIsUnbought(item)) return false;
+        var warningDays = Number(item.warningDays);
+        if (!Number.isFinite(warningDays)) warningDays = 5;
+        warningDays = Math.max(0, Math.min(30, Math.round(warningDays)));
+        return dateValue <= (materialScheduleSafeIsoAdd(APP_TODAY, warningDays) || APP_TODAY);
+    }
+
+    function materialScheduleNeedsCriticalPing(item, day) {
+        if (!materialScheduleIsUnbought(item)) return false;
+        var status = String(item && item.status || '').trim().toLowerCase();
+        var color = String(item && item.color || '').trim().toLowerCase();
+        return status === 'overdue' || status === 'warning' || color === 'red' || color === 'yellow';
+    }
+
+    function materialScheduleAlertIsoDate(value) {
+        var text = String(value || '').trim();
+        var match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return '';
+        var year = Number(match[1]);
+        if (!Number.isFinite(year) || year < 2026 || year > 2028) return '';
+        return materialScheduleIsoDate(text);
+    }
+
+    function materialSchedulePlanningIsoDate(value) {
+        var iso = materialScheduleIsoDate(value);
+        if (!iso) return '';
+        var year = Number(iso.slice(0, 4));
+        if (!Number.isFinite(year) || year < 2026 || year > 2028) return '';
+        return iso;
+    }
+
+    function materialScheduleHasBadPlanningYear(item) {
+        return [item && item.purchaseStartDate, item && item.purchaseByDate, item && item.deadlineDate, item && item.deliveryTargetDate].some(function (value) {
+            var text = String(value || '').trim();
+            if (!text) return false;
+            var match = text.match(/^(\d{4})-\d{2}-\d{2}$/);
+            if (!match) return false;
+            var year = Number(match[1]);
+            return !Number.isFinite(year) || year < 2026 || year > 2028;
+        });
+    }
+
+    function materialScheduleCalendarModel(projectId, schedule) {
+        var view = materialScheduleView(projectId);
+        var cacheKey = [view.mode, view.cursor, schedule && schedule.__renderVersion || 0].join('|');
+        if (schedule && schedule.__calendarModel && schedule.__calendarModel.key === cacheKey) return schedule.__calendarModel;
+        var days = materialCalendarDays(projectId).filter(materialScheduleIsoDate);
+        if (!days.length) days = [APP_TODAY];
+        var daySet = {};
+        var deadlinesByDay = {};
+        var startsByDay = {};
+        var hasWindowByDay = {};
+        var navAlerts = { prev: false, next: false };
+        var visibleStart = days[0];
+        var visibleEnd = days[days.length - 1] || visibleStart;
+        days.forEach(function (day) {
+            daySet[day] = true;
+            deadlinesByDay[day] = [];
+            startsByDay[day] = [];
+        });
+        (schedule && Array.isArray(schedule.items) ? schedule.items : []).forEach(function (item) {
+            if (materialScheduleHasBadPlanningYear(item)) return;
+            var purchaseStartDate = materialSchedulePlanningIsoDate(item && item.purchaseStartDate);
+            var deadlineDate = materialSchedulePlanningIsoDate(item && item.deadlineDate);
+            if (purchaseStartDate && deadlineDate) {
+                var fullSpan = scheduleDayDiff(purchaseStartDate, deadlineDate);
+                if (fullSpan > 45) {
+                    deadlineDate = materialScheduleSafeIsoAdd(purchaseStartDate, 30) || deadlineDate;
+                    item.deadlineDate = deadlineDate;
+                    item.deliveryTargetDate = deadlineDate;
+                }
+            }
+            if (deadlineDate && daySet[deadlineDate]) deadlinesByDay[deadlineDate].push(item);
+            if (purchaseStartDate && daySet[purchaseStartDate]) startsByDay[purchaseStartDate].push(item);
+            var alertStatus = String(item && item.status || '').trim().toLowerCase();
+            var isAlertClosed = alertStatus === 'purchased' ||
+                alertStatus === 'in_transit' ||
+                alertStatus === 'delivered' ||
+                alertStatus === 'completed' ||
+                Boolean(item && (item.is_completed || item.isCompleted || item.completed));
+            if (!isAlertClosed) {
+                var alertPurchaseStartDate = materialScheduleAlertIsoDate(item && item.purchaseStartDate);
+                var alertDeadlineDate = materialScheduleAlertIsoDate(item && item.deadlineDate);
+                if (alertPurchaseStartDate && alertDeadlineDate) {
+                    [alertPurchaseStartDate, alertDeadlineDate].forEach(function (dateValue) {
+                        if (!materialScheduleNeedsAttention(item, dateValue)) return;
+                        if (dateValue < visibleStart) navAlerts.prev = true;
+                        if (dateValue > visibleEnd) navAlerts.next = true;
+                    });
+                }
+            }
+            if (!materialScheduleIsUnbought(item) || !purchaseStartDate || !deadlineDate) return;
+            if (purchaseStartDate > deadlineDate) return;
+            if (scheduleDayDiff(purchaseStartDate, deadlineDate) > 45) {
+                deadlineDate = materialScheduleSafeIsoAdd(purchaseStartDate, 30) || deadlineDate;
+            }
+            var cursor = purchaseStartDate < days[0] ? days[0] : purchaseStartDate;
+            var end = deadlineDate > days[days.length - 1] ? days[days.length - 1] : deadlineDate;
+            var safetyLimit = 0;
+            while (cursor <= end) {
+                if (daySet[cursor]) hasWindowByDay[cursor] = true;
+                cursor = materialScheduleSafeIsoAdd(cursor, 1);
+                safetyLimit += 1;
+                if (!cursor || safetyLimit >= 31) break;
+            }
+        });
+        var model = {
+            key: cacheKey,
+            view: view,
+            days: days,
+            deadlinesByDay: deadlinesByDay,
+            startsByDay: startsByDay,
+            hasWindowByDay: hasWindowByDay,
+            navAlerts: navAlerts,
+            monthPrefix: String(view.cursor || APP_TODAY).slice(0, 7)
+        };
+        if (schedule && typeof schedule === 'object') schedule.__calendarModel = model;
+        return model;
+    }
+
+    function renderMaterialCalendarCell(day, projectId, model) {
+        var viewMode = model.view.mode;
+        var deadlineItems = model.deadlinesByDay[day] || [];
+        var startItems = model.startsByDay[day] || [];
+        var allItems = startItems.concat(deadlineItems);
+        var previewItems = allItems.slice(0, 2);
+        var isOtherMonth = viewMode === 'month' && day.slice(0, 7) !== model.monthPrefix;
+        var weekday = new Date(day + 'T00:00:00Z').getUTCDay();
+        var isWeekend = weekday === 0 || weekday === 6;
+        var hasCriticalPing = allItems.some(function (item) { return materialScheduleNeedsCriticalPing(item, day); });
+        var selectedMap = state.materialScheduleSelectedDayByProject || {};
+        var cls = 'material-calendar-day' + (day === APP_TODAY ? ' is-today' : '') + (String(selectedMap[projectId] || '') === day ? ' is-selected' : '') + (isWeekend ? ' is-weekend' : '') + (isOtherMonth ? ' is-outside' : '') + (model.hasWindowByDay[day] ? ' has-window' : '') + (allItems.length ? ' has-materials' : '') + (hasCriticalPing ? ' has-critical-materials' : '');
+        var previewHtml = previewItems.length ? '<div class="material-calendar-preview">' +
+            previewItems.map(function (item) { return renderMaterialCalendarCard(item, true); }).join('') +
+            renderMaterialCalendarOverflow(allItems.length - previewItems.length) +
+        '</div>' : '';
+        return '<div class="' + cls + '" data-material-calendar-day="' + escapeHtml(day) + '" data-project-id="' + escapeHtml(projectId) + '">' +
+            '<div class="material-calendar-date"><b class="calendar-day-number ' + (day === APP_TODAY ? 'is-today' : '') + '">' + escapeHtml(String(Number(day.slice(8, 10)))) + '</b><span>' + escapeHtml(formatDisplayDate(day)) + '</span></div>' +
+            previewHtml +
+        '</div>';
+    }
+
+    function renderMaterialScheduleTimeline(projectId) {
+        if (!projectId || hasRole('customer')) return '';
+        var schedule = materialScheduleForProject(projectId);
+        if (!schedule) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty"></div></section>';
+        }
+        if (schedule.error) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Контроль закупочных дедлайнов.</span></div></div><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
+        }
+        var items = Array.isArray(schedule.items) ? schedule.items : [];
+        var summary = schedule.summary || {};
+        if (!items.length) {
+            return '<section class="card material-schedule-card"><div class="card-head"><div><h3>Календарь закупок</h3><span class="muted">Материалы подтягиваются из вкладки материалов объекта.</span></div></div><div class="section-schedule-empty">Материалы по объекту пока не загружены.</div></section>';
+        }
+        var view = materialScheduleView(projectId);
+        var days = materialCalendarDays(projectId);
+        var model = materialScheduleCalendarModel(projectId, schedule);
+        var weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        var alertTitle = 'Внимание: в скрытом периоде есть некупленные материалы!';
+        var prevAlertClass = model.navAlerts && model.navAlerts.prev ? ' arrow-alert' : '';
+        var nextAlertClass = model.navAlerts && model.navAlerts.next ? ' arrow-alert' : '';
+        var toggleMode = view.mode === 'week' ? 'month' : 'week';
+        var toggleText = view.mode === 'week' ? '↕ Развернуть в месяц' : '↕ Свернуть в неделю';
+        return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
+            '<div class="card-head"><div><h3>Календарь закупок</h3></div></div>' +
+            '<div class="execution-summary material-schedule-summary">' +
+                stat('Всего', String(summary.total || items.length)) +
+                stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
+                stat('Закажи сейчас', String(summary.warning || 0), summary.warning ? 'warn' : '') +
+                stat('Закуплено/в пути', String(summary.purchased || 0), summary.purchased ? 'success' : '') +
+                stat('Сегодня', schedule.today || APP_TODAY) +
+            '</div>' +
+            '<div class="material-calendar-toolbar">' +
+                '<div class="material-calendar-nav"><button class="ghost compact material-calendar-arrow' + prevAlertClass + '" type="button" data-material-calendar-nav data-direction="-1" data-project-id="' + escapeHtml(projectId) + '"' + (prevAlertClass ? ' title="' + escapeHtml(alertTitle) + '" aria-label="' + escapeHtml(alertTitle) + '" data-material-calendar-alert="1"' : '') + '>&lt;</button><strong>' + escapeHtml(materialCalendarTitle(projectId)) + '</strong><button class="ghost compact material-calendar-arrow' + nextAlertClass + '" type="button" data-material-calendar-nav data-direction="1" data-project-id="' + escapeHtml(projectId) + '"' + (nextAlertClass ? ' title="' + escapeHtml(alertTitle) + '" aria-label="' + escapeHtml(alertTitle) + '" data-material-calendar-alert="1"' : '') + '>&gt;</button></div>' +
+                '<div class="material-calendar-modes"><button class="ghost compact material-calendar-toggle" type="button" data-material-calendar-mode="' + escapeHtml(toggleMode) + '" data-project-id="' + escapeHtml(projectId) + '">' + escapeHtml(toggleText) + '</button></div>' +
+            '</div>' +
+            '<div class="material-schedule-legend"><span><i class="is-neutral"></i>В плане</span><span><i class="is-warning"></i>Закажи сейчас</span><span><i class="is-overdue"></i>Просрочено</span><span><i class="is-done"></i>Закуплено/в пути</span></div>' +
+            '<div class="material-calendar-weekdays">' + weekDays.map(function (day) { return '<b>' + escapeHtml(day) + '</b>'; }).join('') + '</div>' +
+            '<div class="material-calendar-grid is-' + escapeHtml(view.mode) + (view.mode === 'week' ? ' collapsed' : '') + '">' + days.map(function (day) { return renderMaterialCalendarCell(day, projectId, model); }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function materialScheduleFindItem(projectId, materialId) {
+        var schedule = materialScheduleForProject(projectId);
+        var items = schedule && Array.isArray(schedule.items) ? schedule.items : [];
+        return items.find(function (item) { return Number(item.id) === Number(materialId); }) || null;
+    }
+
+    function materialScheduleDayItems(projectId, day) {
+        var schedule = materialScheduleForProject(projectId);
+        if (!schedule) return [];
+        var model = materialScheduleCalendarModel(projectId, schedule);
+        var seen = {};
+        return (model.startsByDay[day] || []).concat(model.deadlinesByDay[day] || []).filter(function (item) {
+            var key = String(item && item.id || '') + '|' + String(item && item.title || '');
+            if (seen[key]) return false;
+            seen[key] = true;
+            return true;
+        });
+    }
+
+    function closeDayMaterialsModal() {
+        var modal = qs('[data-calendar-modal]');
+        document.body.classList.remove('cal-modal-open');
+        if (modal) {
+            var closeProjectId = modal.getAttribute('data-project-id') || '';
+            if (state.materialScheduleSelectedDayByProject && closeProjectId) delete state.materialScheduleSelectedDayByProject[closeProjectId];
+        }
+        qsa('.material-calendar-day.is-selected').forEach(function (cell) {
+            cell.classList.remove('is-selected');
+        });
+        if (!modal) return;
+        window.setTimeout(function () {
+            if (!document.body.classList.contains('cal-modal-open')) modal.hidden = true;
+        }, 180);
+    }
+
+    function ensureDayMaterialsModal() {
+        var modal = qs('[data-calendar-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'calendar-modal-overlay';
+        modal.hidden = true;
+        modal.setAttribute('data-calendar-modal', '1');
+        modal.innerHTML =
+            '<section class="calendar-modal-card" role="dialog" aria-modal="true" aria-labelledby="calendar-modal-title">' +
+                '<button class="calendar-modal-close" type="button" data-calendar-modal-close aria-label="Закрыть">×</button>' +
+                '<div data-calendar-modal-content></div>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal || (event.target.closest && event.target.closest('[data-calendar-modal-close]'))) {
+                event.preventDefault();
+                closeDayMaterialsModal();
+            }
+        });
+        document.body.appendChild(modal);
+        modal.addEventListener('click', function (event) {
+            var goto = event.target && event.target.closest ? event.target.closest('[data-calendar-modal-goto-material]') : null;
+            if (!goto) return;
+            event.preventDefault();
+            event.stopPropagation();
+            var projectId = Number(goto.getAttribute('data-project-id') || modal.getAttribute('data-project-id') || 0);
+            var materialId = goto.getAttribute('data-material-id') || '';
+            closeDayMaterialsModal();
+            window.setTimeout(function () {
+                if (state.selectedProject && Number(state.selectedProject.id) === projectId) activateProjectTab('schedule');
+                focusProjectMaterialRow(materialId, projectId);
+            }, 220);
+        });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            var goto = event.target && event.target.closest ? event.target.closest('[data-calendar-modal-goto-material]') : null;
+            if (!goto) return;
+            event.preventDefault();
+            goto.click();
+        });
+        if (!document.body.dataset.calendarModalEscBound) {
+            document.body.dataset.calendarModalEscBound = '1';
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && document.body.classList.contains('cal-modal-open')) closeDayMaterialsModal();
+            });
+        }
+        return modal;
+    }
+
+
+    function materialModalQuantityMeta(item) {
+        var plan = quantityPlanInfo(item);
+        var unit = plan.unit || (item && item.unit) || 'РµРґ.';
+        var main = quantityText(plan.totalQty) + ' ' + unit;
+        return {
+            main: main,
+            formula: plan.hasMultiplier ? (quantityText(plan.rawQty) + ' x ' + quantityText(plan.multiplier) + ' = ' + main) : ''
+        };
+    }
+
+
+    function renderDayMaterialModalRow(projectId, item) {
+        var qty = materialModalQuantityMeta(item);
+        var done = isMaterialDone(projectId, item);
+        var status = done ? 'Готово' : (item.statusLabel || materialScheduleDayText(item) || 'В плане');
+        var statusClass = done ? 'is-done' : materialScheduleStatusClass(item).replace('is-done', 'is-neutral');
+        return '<article class="calendar-material-item calendar-modal-row ' + statusClass + (done ? ' is-done' : '') + '" role="button" tabindex="0" data-calendar-modal-goto-material data-project-id="' + escapeHtml(projectId || '') + '" data-item-id="' + escapeHtml(item.id || '') + '" data-material-id="' + escapeHtml(item.id || '') + '">' +
+            '<div class="calendar-modal-row-main">' +
+                '<strong><span>' + escapeHtml(qty.main) + '</span> ' + escapeHtml(item.title || 'Материал') + '</strong>' +
+                '<small>' + escapeHtml([status, qty.formula].filter(Boolean).join(' • ')) + '</small>' +
+            '</div>' +
+        '</article>';
+    }
+
+    function calendarModalSectionTitle(item) {
+        return String(item && (item.sectionTitle || item.section_title || item.stageTitle || item.section || '') || '').trim() || 'Без раздела';
+    }
+
+    function sectionTitleForMaterial(item) {
+        return calendarModalSectionTitle(item);
+    }
+
+    function estimateTotalSectionCount(items, fallbackOrder) {
+        var seen = {};
+        var count = 0;
+        (items || []).forEach(function (item) {
+            var title = canonicalEstimateSectionTitle(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId));
+            if (seen[title]) return;
+            seen[title] = 1;
+            count += 1;
+        });
+        if (count) return count;
+        (fallbackOrder || []).forEach(function (title) {
+            title = String(title || '').trim() || 'Без раздела';
+            if (seen[title]) return;
+            seen[title] = 1;
+            count += 1;
+        });
+        return count;
+    }
+
+    function groupDayMaterialItemsBySection(items) {
+        var groups = [];
+        var byTitle = {};
+        (items || []).forEach(function (item) {
+            var title = calendarModalSectionTitle(item);
+            if (!byTitle[title]) {
+                byTitle[title] = { title: title, items: [] };
+                groups.push(byTitle[title]);
+            }
+            byTitle[title].items.push(item);
+        });
+        return groups;
+    }
+
+    function renderDayMaterialModalGroups(projectId, items) {
+        return groupDayMaterialItemsBySection(items).map(function (group) {
+            return '<section class="calendar-section-group calendar-modal-section">' +
+                '<header class="calendar-modal-section-head"><h4>' + escapeHtml(group.title) + '</h4><span>' + escapeHtml(String(group.items.length) + ' поз.') + '</span></header>' +
+                '<div class="calendar-modal-section-items">' + group.items.map(function (item) { return renderDayMaterialModalRow(projectId, item); }).join('') + '</div>' +
+            '</section>';
+        }).join('');
+    }
+
+    function showDayMaterialsModal(projectId, day, items) {
+        if (!day || !Array.isArray(items) || !items.length) return;
+        var modal = ensureDayMaterialsModal();
+        var content = qs('[data-calendar-modal-content]', modal);
+        state.materialScheduleSelectedDayByProject = state.materialScheduleSelectedDayByProject || {};
+        state.materialScheduleSelectedDayByProject[projectId] = day;
+        modal.setAttribute('data-calendar-modal-day', day);
+        modal.setAttribute('data-project-id', projectId || '');
+        qsa('.material-calendar-day.is-selected').forEach(function (cell) {
+            cell.classList.remove('is-selected');
+        });
+        qsa('[data-material-calendar-day="' + progressSelectorValue(day) + '"][data-project-id="' + progressSelectorValue(projectId) + '"]').forEach(function (cell) {
+            cell.classList.add('is-selected');
+        });
+        var html =
+            '<div class="calendar-modal-head">' +
+                '<p>Закупки</p>' +
+                '<h3 id="calendar-modal-title">Закупки на ' + escapeHtml(formatDisplayDate(day)) + '</h3>' +
+            '</div>' +
+            '<div class="calendar-modal-list calendar-modal-section-list">' + renderDayMaterialModalGroups(projectId, items) + '</div>';
+        safeReplaceChildren(content, html);
+        modal.hidden = false;
+        window.requestAnimationFrame(function () {
+            document.body.classList.add('cal-modal-open');
+        });
+    }
+
+    function closeMaterialScheduleDrawer() {
+        qsa('[data-material-schedule-drawer]').forEach(function (node) {
+            if (node.parentNode) node.parentNode.removeChild(node);
+        });
+    }
+
+    function openMaterialScheduleDrawer(projectId, materialId) {
+        var item = materialScheduleFindItem(projectId, materialId);
+        if (!item) return;
+        closeMaterialScheduleDrawer();
+        var qty = finalSectionSummaryNumber(item.plannedQty || 0) + ' ' + (item.unit || 'ед.');
+        var relatedWork = item.relatedWork && item.relatedWork.title ? item.relatedWork.title : 'Не связана';
+        var supplier = item.supplier && item.supplier.name ? item.supplier.name : 'Поставщик не выбран';
+        var drawer = document.createElement('aside');
+        drawer.className = 'material-schedule-drawer';
+        drawer.setAttribute('data-material-schedule-drawer', '1');
+        drawer.innerHTML =
+            '<button class="material-schedule-drawer-close" type="button" data-material-schedule-close aria-label="Закрыть">×</button>' +
+            '<div class="material-schedule-drawer-head"><span class="badge ' + materialScheduleStatusBadge(item) + '">' + escapeHtml(item.statusLabel || '') + '</span><h3>' + escapeHtml(item.title || '') + '</h3></div>' +
+            '<div class="material-schedule-drawer-grid">' +
+                dataItem('Количество', qty) +
+                dataItem('Статус', item.statusLabel || '') +
+                dataItem('Закупить до', item.purchaseByDate ? formatDisplayDate(item.purchaseByDate) : 'Не указано') +
+                dataItem('Доставка', String(item.deliveryLeadDays || 0) + ' дн.') +
+                dataItem('Связанная работа', relatedWork) +
+                dataItem('Поставщик', supplier) +
+            '</div>' +
+            '<div class="material-schedule-drawer-actions">' +
+                '<button class="primary compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">К материалу</button>' +
+                (item.relatedWork && item.relatedWork.title ? '<button class="ghost compact" type="button" data-material-schedule-work>К работам</button>' : '') +
+            '</div>';
+        document.body.appendChild(drawer);
+    }
+
+    function openMaterialScheduleDrawer(projectId, materialId) {
+        var item = materialScheduleFindItem(projectId, materialId);
+        if (!item) return;
+        closeMaterialScheduleDrawer();
+        var qty = finalSectionSummaryNumber(item.plannedQty || 0) + ' ' + (item.unit || 'ед.');
+        var missingQty = finalSectionSummaryNumber(item.missingQty || 0) + ' ' + (item.unit || 'ед.');
+        var relatedWork = item.relatedWork && item.relatedWork.title ? item.relatedWork.title : 'Не связана';
+        var supplier = item.supplier && item.supplier.name ? item.supplier.name : 'Поставщик не выбран';
+        var planText = 'Оплатить до: ' + (item.purchaseStartDate ? formatDisplayDate(item.purchaseStartDate) : 'не указано') +
+            ' | Доставка: ' + String(item.deliveryLeadDays || 0) + ' дн. | Дедлайн на объекте: ' + (item.deadlineDate ? formatDisplayDate(item.deadlineDate) : 'не указан');
+        var drawer = document.createElement('aside');
+        drawer.className = 'material-schedule-drawer';
+        drawer.setAttribute('data-material-schedule-drawer', '1');
+        drawer.innerHTML =
+            '<button class="material-schedule-drawer-close" type="button" data-material-schedule-close aria-label="Закрыть">×</button>' +
+            '<div class="material-schedule-drawer-head"><span class="badge ' + materialScheduleStatusBadge(item) + '">' + escapeHtml(item.statusLabel || '') + '</span><h3>' + escapeHtml(item.title || '') + '</h3><p>' + escapeHtml(planText) + '</p></div>' +
+            '<div class="material-schedule-drawer-grid">' +
+                dataItem('Количество', qty) +
+                dataItem('Осталось купить', missingQty) +
+                dataItem('Оплатить до', item.purchaseStartDate ? formatDisplayDate(item.purchaseStartDate) : 'Не указано') +
+                dataItem('Дедлайн', item.deadlineDate ? formatDisplayDate(item.deadlineDate) : 'Не указан') +
+                dataItem('Связанная работа', relatedWork) +
+                dataItem('Поставщик', supplier) +
+            '</div>' +
+            '<label class="material-schedule-delivery-field"><span>Срок доставки, дней</span><input type="number" min="0" max="90" step="1" value="' + escapeHtml(String(item.deliveryLeadDays || 0)) + '" data-material-schedule-delivery-input></label>' +
+            '<div class="material-schedule-drawer-actions">' +
+                '<button class="primary compact" type="button" data-material-schedule-mark-purchased data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '"' + (Number(item.missingQty || 0) <= 0 ? ' disabled' : '') + '>Отметить как закуплено</button>' +
+                '<button class="ghost compact" type="button" data-material-schedule-save-delivery data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">Сохранить срок</button>' +
+                '<button class="ghost compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">К материалу</button>' +
+                (item.relatedWork && item.relatedWork.title ? '<button class="ghost compact" type="button" data-material-schedule-work>К работам</button>' : '') +
+            '</div>';
+        document.body.appendChild(drawer);
+    }
+
+    function refreshMaterialScheduleProject(projectId, force) {
+        if (force && state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
+        loadMaterialSchedule(projectId, function (schedule) {
+            var details = scheduleProjectDetails(projectId);
+            if (details) {
+                details.materialSchedule = schedule;
+                setScheduleProjectDetails(projectId, details);
+            }
+            var body = scheduleProjectBody(projectId);
+            var project = scheduleProjectById(projectId) || state.selectedProject;
+            if (body && project && isScheduleProjectOpen(projectId)) {
+                body.innerHTML = renderScheduleProjectDetails(project, scheduleProjectDetails(projectId) || { materialSchedule: schedule });
+                bindSchedulePageProjectDetails(projectId);
+            }
+            if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                if (replaceSelectedProjectMaterialCalendar(projectId)) return;
+                bindAutoScheduleForm(projectId);
+                bindScheduleStatusActions(projectId);
+                bindSectionScheduleRefresh(projectId);
+            }
+        }, force);
+    }
+
+    function materialScheduleRenderKey(projectId) {
+        var schedule = materialScheduleForProject(projectId);
+        var view = materialScheduleView(projectId);
+        return [
+            String(projectId || ''),
+            schedule && schedule.__renderVersion || 0,
+            schedule && schedule.error || '',
+            view.mode || 'month',
+            view.cursor || ''
+        ].join('|');
+    }
+
+    function renderMaterialScheduleContainer(projectId) {
+        return '<div id="material-calendar-target" class="material-schedule-container" data-material-schedule-container="' + escapeHtml(projectId || '') + '">' +
+            renderMaterialScheduleTimeline(projectId) +
+        '</div>';
+    }
+
+    function ensureMaterialScheduleContainer(projectId) {
+        var panel = qs('[data-panel="schedule"]');
+        if (!panel) return null;
+        var container = panel.querySelector('#material-calendar-target') || panel.querySelector('.material-schedule-container');
+        if (container) {
+            container.id = 'material-calendar-target';
+            container.setAttribute('data-material-schedule-container', String(projectId || ''));
+            return container;
+        }
+
+        container = document.createElement('div');
+        container.id = 'material-calendar-target';
+        container.className = 'material-schedule-container';
+        container.setAttribute('data-material-schedule-container', String(projectId || ''));
+
+        var legacyBlock = panel.querySelector('.material-schedule-card');
+        if (legacyBlock && legacyBlock.parentNode === panel) {
+            panel.insertBefore(container, legacyBlock);
+            container.appendChild(legacyBlock);
+            return container;
+        }
+
+        panel.insertBefore(container, panel.firstChild);
+        return container;
+    }
+
+    function bindMaterialCalendarCells(root) {
+        qsa('.material-calendar-day.has-materials', root || document).forEach(function (cell) {
+            if (cell.dataset.materialCalendarCellBound === '1') return;
+            cell.dataset.materialCalendarCellBound = '1';
+            cell.addEventListener('click', function (event) {
+                if (event.target && event.target.closest && event.target.closest('[data-material-schedule-item], button, a, input, select, textarea')) return;
+                event.preventDefault();
+                var target = event.currentTarget;
+                var day = target.getAttribute('data-material-calendar-day') || '';
+                var projectId = target.getAttribute('data-project-id') || '';
+                var items = materialScheduleDayItems(projectId, day);
+                showDayMaterialsModal(projectId, day, items);
+            });
+        });
+    }
+
+    function replaceSelectedProjectMaterialCalendar(projectId) {
+        if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return false;
+        var container = ensureMaterialScheduleContainer(projectId);
+        if (!container) return false;
+        if (state.isMaterialScheduleRendering) return true;
+        state.renderingScheduleForProject = state.renderingScheduleForProject || null;
+        var projectKey = String(projectId);
+        if (state.renderingScheduleForProject === projectKey) return true;
+        var renderKey = materialScheduleRenderKey(projectId);
+        if (container.getAttribute('data-material-schedule-render-key') === renderKey) return true;
+        state.isMaterialScheduleRendering = true;
+        state.renderingScheduleForProject = projectKey;
+        try {
+            var cleanHTML = renderMaterialScheduleTimeline(projectId);
+            safeReplaceChildren(container, cleanHTML);
+            bindMaterialCalendarCells(container);
+            container.setAttribute('data-material-schedule-render-key', renderKey);
+        } catch (err) {
+            if (window.console && console.error) console.error('Critical material schedule render error:', err);
+        } finally {
+            state.isMaterialScheduleRendering = false;
+            if (state.renderingScheduleForProject === projectKey) state.renderingScheduleForProject = null;
+        }
+        return true;
+    }
+
+    function isSelectedProjectScheduleTabActive() {
+        var panel = qs('[data-panel="schedule"]');
+        return !!(panel && panel.classList.contains('active'));
+    }
+
+    function loadSelectedProjectMaterialSchedule(force) {
+        if (state.isMaterialScheduleRendering) return;
+        if (!state.selectedProject || hasRole('customer') || !isSelectedProjectScheduleTabActive()) return;
+        var projectId = state.selectedProject.id;
+        replaceSelectedProjectMaterialCalendar(projectId);
+        loadMaterialSchedule(projectId, function () {
+            if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId) || !isSelectedProjectScheduleTabActive()) return;
+            replaceSelectedProjectMaterialCalendar(projectId);
+        }, force);
+    }
+
+    function focusProjectMaterialRow(materialId, projectId) {
+        if (!projectId) {
+            var legacyInput = qs('[data-section-material-check][data-material-id="' + progressSelectorValue(materialId) + '"]');
+            var legacyRow = legacyInput && legacyInput.closest ? legacyInput.closest('.material-row') : null;
+            if (!legacyRow) return;
+            legacyRow.classList.remove('material-row-focus');
+            void legacyRow.offsetWidth;
+            legacyRow.classList.add('material-row-focus');
+            legacyRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(function () { legacyRow.classList.remove('material-row-focus'); }, 3000);
+            return;
+        }
+        var schedulePanel = qs('[data-panel="schedule"]');
+        var scope = schedulePanel || document;
+        var input = qs('[data-section-material-check][data-material-id="' + progressSelectorValue(materialId) + '"]', scope);
+        var row = input && input.closest ? input.closest('.section-material-check, .section-work-check, .material-row') : null;
+        if (!row) return;
+        var section = row.closest ? row.closest('.section-schedule-card') : null;
+        var head = section && section.querySelector ? section.querySelector('[data-section-schedule-toggle]') : null;
+        if (section && !section.classList.contains('is-open')) {
+            var body = section.querySelector ? section.querySelector('.section-schedule-details-shell') : null;
+            var chevron = head && head.querySelector ? head.querySelector('.section-schedule-chevron') : null;
+            section.classList.add('is-open');
+            if (head) {
+                head.setAttribute('aria-expanded', 'true');
+                var targetProjectId = Number(projectId || head.getAttribute('data-project-id') || (state.selectedProject && state.selectedProject.id) || 0);
+                var key = head.getAttribute('data-section-key') || '';
+                var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[targetProjectId];
+                var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+                var scheduleSection = sections.find(function (entry) { return scheduleSectionKey(entry) === key; });
+                if (scheduleSection) setScheduleSectionOpen(targetProjectId, scheduleSection, true);
+            }
+            if (body) {
+                body.classList.add('is-open');
+                body.setAttribute('aria-hidden', 'false');
+            }
+            if (chevron) chevron.textContent = '-';
+        }
+        if (head) {
+            head.classList.remove('section-schedule-focus');
+            void head.offsetWidth;
+            head.classList.add('section-schedule-focus');
+        }
+        row.classList.remove('material-row-focus');
+        void row.offsetWidth;
+        row.classList.add('material-row-focus');
+        (head || section || row).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(function () {
+            if (head) head.classList.remove('section-schedule-focus');
+            row.classList.remove('material-row-focus');
+        }, 3000);
+    }
+
+    function bindMaterialScheduleTimeline() {
+        bindMaterialCalendarCells(document);
+        if (document.body.dataset.materialScheduleDelegated === '1') return;
+        document.body.dataset.materialScheduleDelegated = '1';
+        document.addEventListener('click', function (event) {
+            var close = event.target && event.target.closest ? event.target.closest('[data-material-schedule-close]') : null;
+            if (close) {
+                closeMaterialScheduleDrawer();
+                return;
+            }
+            var nav = event.target && event.target.closest ? event.target.closest('[data-material-calendar-nav]') : null;
+            if (nav) {
+                event.preventDefault();
+                var navProjectId = nav.getAttribute('data-project-id') || '';
+                materialCalendarMove(navProjectId, Number(nav.getAttribute('data-direction') || 1));
+                refreshMaterialScheduleProject(navProjectId, false);
+                return;
+            }
+            var mode = event.target && event.target.closest ? event.target.closest('[data-material-calendar-mode]') : null;
+            if (mode) {
+                event.preventDefault();
+                var modeProjectId = mode.getAttribute('data-project-id') || '';
+                var nextMode = mode.getAttribute('data-material-calendar-mode') === 'week' ? 'week' : 'month';
+                var switchView = function () {
+                    setMaterialScheduleView(modeProjectId, { mode: nextMode, cursor: nextMode === 'week' ? isoWeekStart(APP_TODAY) : isoMonthStart(APP_TODAY) });
+                    refreshMaterialScheduleProject(modeProjectId, false);
+                };
+                if (nextMode === 'week') {
+                    var scheduleCard = mode.closest ? mode.closest('[data-material-schedule]') : null;
+                    var activeGrid = scheduleCard && scheduleCard.querySelector ? scheduleCard.querySelector('.material-calendar-grid') : null;
+                    var weekStart = isoWeekStart(APP_TODAY);
+                    var weekEnd = materialScheduleSafeIsoAdd(weekStart, 6) || weekStart;
+                    if (activeGrid) {
+                        activeGrid.classList.add('is-collapsing-week', 'collapsed');
+                        qsa('[data-material-calendar-day]', activeGrid).forEach(function (cell) {
+                            var cellDay = materialScheduleIsoDate(cell.getAttribute('data-material-calendar-day'));
+                            if (!cellDay || cellDay < weekStart || cellDay > weekEnd) cell.classList.add('is-collapse-hidden');
+                        });
+                        window.setTimeout(switchView, 220);
+                        return;
+                    }
+                }
+                switchView();
+                return;
+            }
+            var point = event.target && event.target.closest ? event.target.closest('[data-material-schedule-item]') : null;
+            if (point) {
+                event.preventDefault();
+                event.stopPropagation();
+                openMaterialScheduleDrawer(point.getAttribute('data-project-id'), point.getAttribute('data-material-id'));
+                return;
+            }
+            var saveDelivery = event.target && event.target.closest ? event.target.closest('[data-material-schedule-save-delivery]') : null;
+            if (saveDelivery) {
+                event.preventDefault();
+                var saveProjectId = saveDelivery.getAttribute('data-project-id') || '';
+                var saveMaterialId = saveDelivery.getAttribute('data-material-id') || '';
+                var drawer = saveDelivery.closest ? saveDelivery.closest('[data-material-schedule-drawer]') : null;
+                var input = drawer && drawer.querySelector ? drawer.querySelector('[data-material-schedule-delivery-input]') : null;
+                saveDelivery.disabled = true;
+                api('/api/materials/' + saveMaterialId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({ delivery_days: input ? Number(input.value || 0) : 0 })
+                }).then(function (data) {
+                    if (data && Array.isArray(data.items)) state.materialsByProject[saveProjectId] = data.items;
+                    closeMaterialScheduleDrawer();
+                    refreshMaterialScheduleProject(saveProjectId, true);
+                }).finally(function () {
+                    saveDelivery.disabled = false;
+                });
+                return;
+            }
+            var markPurchased = event.target && event.target.closest ? event.target.closest('[data-material-schedule-mark-purchased]') : null;
+            if (markPurchased) {
+                event.preventDefault();
+                var purchaseProjectId = markPurchased.getAttribute('data-project-id') || '';
+                var purchaseMaterialId = markPurchased.getAttribute('data-material-id') || '';
+                var material = materialScheduleFindItem(purchaseProjectId, purchaseMaterialId);
+                if (!material) return;
+                markPurchased.disabled = true;
+                api('/api/projects/' + purchaseProjectId + '/stock-moves', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        estimate_item_id: Number(purchaseMaterialId),
+                        move_type: 'purchase',
+                        qty: Math.max(0.01, Number(material.missingQty || material.plannedQty || 1)),
+                        price: Number(material.plannedPrice || 0),
+                        comment: 'Отмечено из календаря закупок'
+                    })
+                }).then(function () {
+                    closeMaterialScheduleDrawer();
+                    loadMaterials(purchaseProjectId, function () {
+                        refreshMaterialScheduleProject(purchaseProjectId, true);
+                    });
+                }).finally(function () {
+                    markPurchased.disabled = false;
+                });
+                return;
+            }
+            var goto = event.target && event.target.closest ? event.target.closest('[data-material-schedule-goto]') : null;
+            if (goto) {
+                var gotoProjectId = Number(goto.getAttribute('data-project-id') || 0);
+                var gotoMaterialId = goto.getAttribute('data-material-id') || '';
+                closeMaterialScheduleDrawer();
+                if (!state.selectedProject || Number(state.selectedProject.id) !== gotoProjectId) {
+                    location.href = '/app/projects?openProject=' + gotoProjectId + '&tab=materials&materialId=' + encodeURIComponent(gotoMaterialId);
+                    return;
+                }
+                activateProjectTab('materials');
+                setTimeout(function () { focusProjectMaterialRow(gotoMaterialId); }, 80);
+                return;
+            }
+            var work = event.target && event.target.closest ? event.target.closest('[data-material-schedule-work]') : null;
+            if (work) {
+                closeMaterialScheduleDrawer();
+                activateProjectTab('works');
+            }
+        });
+    }
+
+    var baseRenderScheduleProjectDetailsForMaterialSchedule = renderScheduleProjectDetails;
+    renderScheduleProjectDetails = function (project, details) {
+        if (details && details.materialSchedule) setMaterialScheduleForProject(project.id, details.materialSchedule);
+        return baseRenderScheduleProjectDetailsForMaterialSchedule(project, details);
+    };
+
+    var baseLoadScheduleProjectDetailsForMaterialSchedule = loadScheduleProjectDetails;
+    loadScheduleProjectDetails = function (project, force) {
+        baseLoadScheduleProjectDetailsForMaterialSchedule(project, force);
+        if (!project || !project.id || hasRole('customer')) return;
+        loadMaterialSchedule(project.id, function (schedule) {
+            var details = scheduleProjectDetails(project.id);
+            if (details) {
+                details.materialSchedule = schedule;
+                setScheduleProjectDetails(project.id, details);
+            }
+            var body = scheduleProjectBody(project.id);
+            if (body && isScheduleProjectOpen(project.id)) {
+                body.innerHTML = renderScheduleProjectDetails(project, scheduleProjectDetails(project.id) || { materialSchedule: schedule });
+                bindSchedulePageProjectDetails(project.id);
+            }
+        }, force);
+    };
+    var materialScheduleOpenTokens = {};
+
+    var baseActivateProjectTabForMaterialSchedule = activateProjectTab;
+    activateProjectTab = function (tabName) {
+        baseActivateProjectTabForMaterialSchedule(tabName);
+        if (tabName !== 'schedule') return;
+        loadSelectedProjectMaterialSchedule(false);
+    };
+
+    PMBI.planning = PMBI.planning || {};
+        if (typeof scheduleTypeLabel === 'function') PMBI.planning.scheduleTypeLabel = scheduleTypeLabel;
+        if (typeof getScheduleState === 'function') PMBI.planning.getScheduleState = getScheduleState;
+        if (typeof scheduleStateKind === 'function') PMBI.planning.scheduleStateKind = scheduleStateKind;
+        if (typeof scheduleStateTitle === 'function') PMBI.planning.scheduleStateTitle = scheduleStateTitle;
+        if (typeof scheduleStateMeta === 'function') PMBI.planning.scheduleStateMeta = scheduleStateMeta;
+        if (typeof renderScheduleStateBoard === 'function') PMBI.planning.renderScheduleStateBoard = renderScheduleStateBoard;
+        if (typeof bindScheduleStatusActions === 'function') PMBI.planning.bindScheduleStatusActions = bindScheduleStatusActions;
+        if (typeof renderAutoScheduleDrawer === 'function') PMBI.planning.renderAutoScheduleDrawer = renderAutoScheduleDrawer;
+        if (typeof renderSchedulePlanner === 'function') PMBI.planning.renderSchedulePlanner = renderSchedulePlanner;
+        if (typeof renderScheduleRows === 'function') PMBI.planning.renderScheduleRows = renderScheduleRows;
+        if (typeof renderSectionScheduleRow === 'function') PMBI.planning.renderSectionScheduleRow = renderSectionScheduleRow;
+        if (typeof renderSectionScheduleForecast === 'function') PMBI.planning.renderSectionScheduleForecast = renderSectionScheduleForecast;
+        if (typeof bindSectionScheduleRefresh === 'function') PMBI.planning.bindSectionScheduleRefresh = bindSectionScheduleRefresh;
+        if (typeof renderSchedulePanel === 'function') PMBI.planning.renderSchedulePanel = renderSchedulePanel;
+        if (typeof buildScheduleStageSummary === 'function') PMBI.planning.buildScheduleStageSummary = buildScheduleStageSummary;
+        if (typeof scheduleTimelineClass === 'function') PMBI.planning.scheduleTimelineClass = scheduleTimelineClass;
+        if (typeof finalSectionSummaryNumber === 'function') PMBI.planning.finalSectionSummaryNumber = finalSectionSummaryNumber;
+        if (typeof finalSectionSummaryTitle === 'function') PMBI.planning.finalSectionSummaryTitle = finalSectionSummaryTitle;
+        if (typeof renderScheduleStageBadges === 'function') PMBI.planning.renderScheduleStageBadges = renderScheduleStageBadges;
+        if (typeof closeAutoScheduleDrawer === 'function') PMBI.planning.closeAutoScheduleDrawer = closeAutoScheduleDrawer;
+        if (typeof openAutoScheduleDrawer === 'function') PMBI.planning.openAutoScheduleDrawer = openAutoScheduleDrawer;
+        if (typeof bindAutoScheduleForm === 'function') PMBI.planning.bindAutoScheduleForm = bindAutoScheduleForm;
+        if (typeof renderSchedulePage === 'function') PMBI.planning.renderSchedulePage = renderSchedulePage;
+        if (typeof renderScheduleProject === 'function') PMBI.planning.renderScheduleProject = renderScheduleProject;
+        if (typeof renderScheduleProjectSummary === 'function') PMBI.planning.renderScheduleProjectSummary = renderScheduleProjectSummary;
+        if (typeof collectNextStageDate === 'function') PMBI.planning.collectNextStageDate = collectNextStageDate;
+        if (typeof renderScheduleActionCenter === 'function') PMBI.planning.renderScheduleActionCenter = renderScheduleActionCenter;
+        if (typeof buildScheduleActions === 'function') PMBI.planning.buildScheduleActions = buildScheduleActions;
+        if (typeof renderScheduleActionCard === 'function') PMBI.planning.renderScheduleActionCard = renderScheduleActionCard;
+        if (typeof bindScheduleActionButtons === 'function') PMBI.planning.bindScheduleActionButtons = bindScheduleActionButtons;
+        if (typeof renderScheduleCalendar === 'function') PMBI.planning.renderScheduleCalendar = renderScheduleCalendar;
+        if (typeof buildScheduleCalendarRange === 'function') PMBI.planning.buildScheduleCalendarRange = buildScheduleCalendarRange;
+        if (typeof renderScheduleScale === 'function') PMBI.planning.renderScheduleScale = renderScheduleScale;
+        if (typeof scheduleDeadlineState === 'function') PMBI.planning.scheduleDeadlineState = scheduleDeadlineState;
+        if (typeof scheduleDeadlineBadge === 'function') PMBI.planning.scheduleDeadlineBadge = scheduleDeadlineBadge;
+        if (typeof renderScheduleCalendarRow === 'function') PMBI.planning.renderScheduleCalendarRow = renderScheduleCalendarRow;
+        if (typeof renderScheduleProcurementBoard === 'function') PMBI.planning.renderScheduleProcurementBoard = renderScheduleProcurementBoard;
+        if (typeof loadSectionScheduleForecast === 'function') PMBI.planning.loadSectionScheduleForecast = loadSectionScheduleForecast;
+        if (typeof finalSectionScheduleCardClass === 'function') PMBI.planning.finalSectionScheduleCardClass = finalSectionScheduleCardClass;
+        if (typeof sectionAccelerationHint === 'function') PMBI.planning.sectionAccelerationHint = sectionAccelerationHint;
+        if (typeof sectionAccelerationShortHint === 'function') PMBI.planning.sectionAccelerationShortHint = sectionAccelerationShortHint;
+        if (typeof renderSectionScheduleBrief === 'function') PMBI.planning.renderSectionScheduleBrief = renderSectionScheduleBrief;
+        if (typeof materialProgress === 'function') PMBI.planning.materialProgress = materialProgress;
+        if (typeof workProgress === 'function') PMBI.planning.workProgress = workProgress;
+        if (typeof workProgressForRows === 'function') PMBI.planning.workProgressForRows = workProgressForRows;
+        if (typeof liveScheduleSectionItems === 'function') PMBI.planning.liveScheduleSectionItems = liveScheduleSectionItems;
+        if (typeof isScheduleWorkDone === 'function') PMBI.planning.isScheduleWorkDone = isScheduleWorkDone;
+        if (typeof setScheduleWorkDone === 'function') PMBI.planning.setScheduleWorkDone = setScheduleWorkDone;
+        if (typeof scheduleChecklistStorageKey === 'function') PMBI.planning.scheduleChecklistStorageKey = scheduleChecklistStorageKey;
+        if (typeof normalizedWorkKeyPart === 'function') PMBI.planning.normalizedWorkKeyPart = normalizedWorkKeyPart;
+        if (typeof normalizedWorkQty === 'function') PMBI.planning.normalizedWorkQty = normalizedWorkQty;
+        if (typeof scheduleWorkKey === 'function') PMBI.planning.scheduleWorkKey = scheduleWorkKey;
+        if (typeof scheduleSectionKey === 'function') PMBI.planning.scheduleSectionKey = scheduleSectionKey;
+        if (typeof isScheduleSectionOpen === 'function') PMBI.planning.isScheduleSectionOpen = isScheduleSectionOpen;
+        if (typeof setScheduleSectionOpen === 'function') PMBI.planning.setScheduleSectionOpen = setScheduleSectionOpen;
+        if (typeof setScheduleBriefPinned === 'function') PMBI.planning.setScheduleBriefPinned = setScheduleBriefPinned;
+        if (typeof isScheduleBriefPinned === 'function') PMBI.planning.isScheduleBriefPinned = isScheduleBriefPinned;
+        if (typeof scheduleSectionDetails === 'function') PMBI.planning.scheduleSectionDetails = scheduleSectionDetails;
+        if (typeof scheduleSectionToggleIcon === 'function') PMBI.planning.scheduleSectionToggleIcon = scheduleSectionToggleIcon;
+        if (typeof isScheduleSectionFullyChecked === 'function') PMBI.planning.isScheduleSectionFullyChecked = isScheduleSectionFullyChecked;
+        if (typeof renderScheduleStageCard === 'function') PMBI.planning.renderScheduleStageCard = renderScheduleStageCard;
+        if (typeof renderScheduleMaterials === 'function') PMBI.planning.renderScheduleMaterials = renderScheduleMaterials;
+        if (typeof renderScheduleWorks === 'function') PMBI.planning.renderScheduleWorks = renderScheduleWorks;
+        if (typeof renderScheduleSectionDetailsShell === 'function') PMBI.planning.renderScheduleSectionDetailsShell = renderScheduleSectionDetailsShell;
+        if (typeof toggleScheduleSectionDom === 'function') PMBI.planning.toggleScheduleSectionDom = toggleScheduleSectionDom;
+        if (typeof scheduleSectionProgress === 'function') PMBI.planning.scheduleSectionProgress = scheduleSectionProgress;
+        if (typeof projectScheduleProgress === 'function') PMBI.planning.projectScheduleProgress = projectScheduleProgress;
+        if (typeof bindSectionScheduleInteractions === 'function') PMBI.planning.bindSectionScheduleInteractions = bindSectionScheduleInteractions;
+        if (typeof isScheduleProjectOpen === 'function') PMBI.planning.isScheduleProjectOpen = isScheduleProjectOpen;
+        if (typeof setScheduleProjectOpen === 'function') PMBI.planning.setScheduleProjectOpen = setScheduleProjectOpen;
+        if (typeof scheduleProjectDetails === 'function') PMBI.planning.scheduleProjectDetails = scheduleProjectDetails;
+        if (typeof setScheduleProjectDetails === 'function') PMBI.planning.setScheduleProjectDetails = setScheduleProjectDetails;
+        if (typeof scheduleProjectBody === 'function') PMBI.planning.scheduleProjectBody = scheduleProjectBody;
+        if (typeof scheduleProjectById === 'function') PMBI.planning.scheduleProjectById = scheduleProjectById;
+        if (typeof scheduleForecastPromise === 'function') PMBI.planning.scheduleForecastPromise = scheduleForecastPromise;
+        if (typeof renderScheduleProjectObjectSummary === 'function') PMBI.planning.renderScheduleProjectObjectSummary = renderScheduleProjectObjectSummary;
+        if (typeof renderScheduleProjectDetails === 'function') PMBI.planning.renderScheduleProjectDetails = renderScheduleProjectDetails;
+        if (typeof loadScheduleProjectDetails === 'function') PMBI.planning.loadScheduleProjectDetails = loadScheduleProjectDetails;
+        if (typeof refreshScheduleProjectBody === 'function') PMBI.planning.refreshScheduleProjectBody = refreshScheduleProjectBody;
+        if (typeof bindSchedulePageActualQuantityInputs === 'function') PMBI.planning.bindSchedulePageActualQuantityInputs = bindSchedulePageActualQuantityInputs;
+        if (typeof bindSchedulePageProjectDetails === 'function') PMBI.planning.bindSchedulePageProjectDetails = bindSchedulePageProjectDetails;
+        if (typeof bindScheduleProjectAccordions === 'function') PMBI.planning.bindScheduleProjectAccordions = bindScheduleProjectAccordions;
+        if (typeof materialScheduleForProject === 'function') PMBI.planning.materialScheduleForProject = materialScheduleForProject;
+        if (typeof setMaterialScheduleForProject === 'function') PMBI.planning.setMaterialScheduleForProject = setMaterialScheduleForProject;
+        if (typeof normalizeMaterialSchedule === 'function') PMBI.planning.normalizeMaterialSchedule = normalizeMaterialSchedule;
+        if (typeof fallbackMaterialLeadDays === 'function') PMBI.planning.fallbackMaterialLeadDays = fallbackMaterialLeadDays;
+        if (typeof buildClientMaterialSchedule === 'function') PMBI.planning.buildClientMaterialSchedule = buildClientMaterialSchedule;
+        if (typeof loadMaterialSchedule === 'function') PMBI.planning.loadMaterialSchedule = loadMaterialSchedule;
+        if (typeof materialScheduleStatusClass === 'function') PMBI.planning.materialScheduleStatusClass = materialScheduleStatusClass;
+        if (typeof materialScheduleStatusBadge === 'function') PMBI.planning.materialScheduleStatusBadge = materialScheduleStatusBadge;
+        if (typeof materialScheduleDayText === 'function') PMBI.planning.materialScheduleDayText = materialScheduleDayText;
+        if (typeof materialScheduleRange === 'function') PMBI.planning.materialScheduleRange = materialScheduleRange;
+        if (typeof materialSchedulePercent === 'function') PMBI.planning.materialSchedulePercent = materialSchedulePercent;
+        if (typeof renderMaterialScheduleScale === 'function') PMBI.planning.renderMaterialScheduleScale = renderMaterialScheduleScale;
+        if (typeof renderMaterialScheduleTimeline === 'function') PMBI.planning.renderMaterialScheduleTimeline = renderMaterialScheduleTimeline;
+        if (typeof materialScheduleView === 'function') PMBI.planning.materialScheduleView = materialScheduleView;
+        if (typeof setMaterialScheduleView === 'function') PMBI.planning.setMaterialScheduleView = setMaterialScheduleView;
+        if (typeof isoMonthStart === 'function') PMBI.planning.isoMonthStart = isoMonthStart;
+        if (typeof isoMonthAdd === 'function') PMBI.planning.isoMonthAdd = isoMonthAdd;
+        if (typeof isoWeekStart === 'function') PMBI.planning.isoWeekStart = isoWeekStart;
+        if (typeof isoMonthDays === 'function') PMBI.planning.isoMonthDays = isoMonthDays;
+        if (typeof materialCalendarDays === 'function') PMBI.planning.materialCalendarDays = materialCalendarDays;
+        if (typeof materialCalendarTitle === 'function') PMBI.planning.materialCalendarTitle = materialCalendarTitle;
+        if (typeof materialCalendarMove === 'function') PMBI.planning.materialCalendarMove = materialCalendarMove;
+        if (typeof materialScheduleQtyTitle === 'function') PMBI.planning.materialScheduleQtyTitle = materialScheduleQtyTitle;
+        if (typeof materialCalendarItemsForDay === 'function') PMBI.planning.materialCalendarItemsForDay = materialCalendarItemsForDay;
+        if (typeof materialCalendarHasWindow === 'function') PMBI.planning.materialCalendarHasWindow = materialCalendarHasWindow;
+        if (typeof renderMaterialCalendarCard === 'function') PMBI.planning.renderMaterialCalendarCard = renderMaterialCalendarCard;
+        if (typeof renderMaterialCalendarOverflow === 'function') PMBI.planning.renderMaterialCalendarOverflow = renderMaterialCalendarOverflow;
+        if (typeof materialScheduleIsoDate === 'function') PMBI.planning.materialScheduleIsoDate = materialScheduleIsoDate;
+        if (typeof materialScheduleSafeIsoAdd === 'function') PMBI.planning.materialScheduleSafeIsoAdd = materialScheduleSafeIsoAdd;
+        if (typeof materialScheduleIsUnbought === 'function') PMBI.planning.materialScheduleIsUnbought = materialScheduleIsUnbought;
+        if (typeof materialScheduleNeedsAttention === 'function') PMBI.planning.materialScheduleNeedsAttention = materialScheduleNeedsAttention;
+        if (typeof materialScheduleNeedsCriticalPing === 'function') PMBI.planning.materialScheduleNeedsCriticalPing = materialScheduleNeedsCriticalPing;
+        if (typeof materialScheduleAlertIsoDate === 'function') PMBI.planning.materialScheduleAlertIsoDate = materialScheduleAlertIsoDate;
+        if (typeof materialSchedulePlanningIsoDate === 'function') PMBI.planning.materialSchedulePlanningIsoDate = materialSchedulePlanningIsoDate;
+        if (typeof materialScheduleHasBadPlanningYear === 'function') PMBI.planning.materialScheduleHasBadPlanningYear = materialScheduleHasBadPlanningYear;
+        if (typeof materialScheduleCalendarModel === 'function') PMBI.planning.materialScheduleCalendarModel = materialScheduleCalendarModel;
+        if (typeof renderMaterialCalendarCell === 'function') PMBI.planning.renderMaterialCalendarCell = renderMaterialCalendarCell;
+        if (typeof materialScheduleFindItem === 'function') PMBI.planning.materialScheduleFindItem = materialScheduleFindItem;
+        if (typeof materialScheduleDayItems === 'function') PMBI.planning.materialScheduleDayItems = materialScheduleDayItems;
+        if (typeof closeDayMaterialsModal === 'function') PMBI.planning.closeDayMaterialsModal = closeDayMaterialsModal;
+        if (typeof ensureDayMaterialsModal === 'function') PMBI.planning.ensureDayMaterialsModal = ensureDayMaterialsModal;
+        if (typeof materialModalQuantityMeta === 'function') PMBI.planning.materialModalQuantityMeta = materialModalQuantityMeta;
+        if (typeof renderDayMaterialModalRow === 'function') PMBI.planning.renderDayMaterialModalRow = renderDayMaterialModalRow;
+        if (typeof calendarModalSectionTitle === 'function') PMBI.planning.calendarModalSectionTitle = calendarModalSectionTitle;
+        if (typeof sectionTitleForMaterial === 'function') PMBI.planning.sectionTitleForMaterial = sectionTitleForMaterial;
+        if (typeof estimateTotalSectionCount === 'function') PMBI.planning.estimateTotalSectionCount = estimateTotalSectionCount;
+        if (typeof groupDayMaterialItemsBySection === 'function') PMBI.planning.groupDayMaterialItemsBySection = groupDayMaterialItemsBySection;
+        if (typeof renderDayMaterialModalGroups === 'function') PMBI.planning.renderDayMaterialModalGroups = renderDayMaterialModalGroups;
+        if (typeof showDayMaterialsModal === 'function') PMBI.planning.showDayMaterialsModal = showDayMaterialsModal;
+        if (typeof closeMaterialScheduleDrawer === 'function') PMBI.planning.closeMaterialScheduleDrawer = closeMaterialScheduleDrawer;
+        if (typeof openMaterialScheduleDrawer === 'function') PMBI.planning.openMaterialScheduleDrawer = openMaterialScheduleDrawer;
+        if (typeof refreshMaterialScheduleProject === 'function') PMBI.planning.refreshMaterialScheduleProject = refreshMaterialScheduleProject;
+        if (typeof materialScheduleRenderKey === 'function') PMBI.planning.materialScheduleRenderKey = materialScheduleRenderKey;
+        if (typeof renderMaterialScheduleContainer === 'function') PMBI.planning.renderMaterialScheduleContainer = renderMaterialScheduleContainer;
+        if (typeof ensureMaterialScheduleContainer === 'function') PMBI.planning.ensureMaterialScheduleContainer = ensureMaterialScheduleContainer;
+        if (typeof bindMaterialCalendarCells === 'function') PMBI.planning.bindMaterialCalendarCells = bindMaterialCalendarCells;
+        if (typeof replaceSelectedProjectMaterialCalendar === 'function') PMBI.planning.replaceSelectedProjectMaterialCalendar = replaceSelectedProjectMaterialCalendar;
+        if (typeof isSelectedProjectScheduleTabActive === 'function') PMBI.planning.isSelectedProjectScheduleTabActive = isSelectedProjectScheduleTabActive;
+        if (typeof loadSelectedProjectMaterialSchedule === 'function') PMBI.planning.loadSelectedProjectMaterialSchedule = loadSelectedProjectMaterialSchedule;
+        if (typeof focusProjectMaterialRow === 'function') PMBI.planning.focusProjectMaterialRow = focusProjectMaterialRow;
+        if (typeof bindMaterialScheduleTimeline === 'function') PMBI.planning.bindMaterialScheduleTimeline = bindMaterialScheduleTimeline;
+    window.PMBI = PMBI;
+})();

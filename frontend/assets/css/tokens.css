@@ -1,0 +1,82 @@
+/* Extracted from app.css: tokens. Keep app.css as the import entrypoint. */
+
+:root {
+    --bg: #f2f6fc;
+    --panel: #ffffff;
+    --ink: #1d2b44;
+    --muted: #6e7f98;
+    --line: #dbe5f1;
+    --green: #2f6fed;
+    --green-2: #5ea1ff;
+    --green-soft: #e9f2ff;
+    --orange: #d9822b;
+    --red: #b9473f;
+    --shadow: 0 12px 34px rgba(24, 50, 89, .08);
+    --base-radius: 8px;
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --border-muted: #e2e8f0;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --badge-success-bg: #e6f4ea;
+    --badge-success-text: #137333;
+    --badge-warn-bg: #fef7e0;
+    --badge-warn-text: #b06000;
+    --badge-danger-bg: #fce8e6;
+    --badge-danger-text: #c5221f;
+    --surface-main: #ffffff;
+    --surface-muted: #f8fafc;
+    --badge-neutral-bg: #f1f5f9;
+    --badge-neutral-text: #475569;
+    --border-hover: #cbd5e1;
+    --accent-main: #2563eb;
+}
+
+/* Compact CRM density layer */
+:root {
+    --shadow: 0 6px 18px rgba(26, 49, 42, .055);
+}
+
+/* Color refresh and clearer section separation */
+:root {
+    --bg: #f3f7fd;
+    --panel: #fbfdff;
+    --ink: #1c2c45;
+    --muted: #70829d;
+    --line: #d9e5f3;
+    --green: #2e6ee8;
+    --green-2: #67a8ff;
+    --green-soft: #e8f1ff;
+    --blue: #173f78;
+    --blue-soft: #e7f0ff;
+    --sand: #f5f9ff;
+    --orange: #d77a28;
+    --red: #c1493f;
+    --red-soft: #fff0ed;
+    --shadow: 0 8px 24px rgba(24, 48, 87, .08);
+}
+
+/* Stricter B2B radius layer */
+:root {
+    --radius-xs: 3px;
+    --radius-sm: 5px;
+    --radius-md: 7px;
+    --radius-lg: 9px;
+}
+
+/* Final UI consistency pass */
+:root {
+    --ui-radius-sm: 10px;
+    --ui-radius-md: 12px;
+    --ui-radius-lg: 14px;
+    --ui-control-height: 42px;
+    --ui-control-height-sm: 38px;
+}
+
+/* Dense workspace pass */
+:root {
+    --ui-control-height: 38px;
+    --ui-control-height-sm: 34px;
+}

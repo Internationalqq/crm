@@ -60,7 +60,9 @@
         authConfig: window.__PMBI_AUTH__ || {}
     };
     var REMEMBER_SESSION_KEY = 'pmbi_remember_session';
+    var AUTO_LOGIN_ATTEMPT_KEY = 'pmbi_auto_login_attempted';
     var USER_INITIAL_CACHE_KEY = 'pmbi_current_user_initial';
+    var currentUserPromise = null;
 
     function rememberSessionEnabled() {
         try {
@@ -77,12 +79,99 @@
         } catch (error) {}
     }
 
+    function wasAutoLoginAttempted() {
+        try {
+            return window.sessionStorage.getItem(AUTO_LOGIN_ATTEMPT_KEY) === '1';
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function markAutoLoginAttempted() {
+        try {
+            window.sessionStorage.setItem(AUTO_LOGIN_ATTEMPT_KEY, '1');
+        } catch (error) {}
+    }
+
+    function clearAutoLoginAttempt() {
+        try {
+            window.sessionStorage.removeItem(AUTO_LOGIN_ATTEMPT_KEY);
+        } catch (error) {}
+    }
+
+    function clearSessionCookieFallback() {
+        try {
+            document.cookie = 'pmbi_session=; Path=/; Max-Age=0; SameSite=Lax';
+        } catch (error) {}
+    }
+
+    function resetRememberAuthState() {
+        setRememberSession(false);
+        clearAutoLoginAttempt();
+        state.user = null;
+        state.currentUser = null;
+        currentUserPromise = null;
+        clearSessionCookieFallback();
+        return api('/api/auth/logout', {
+            method: 'POST',
+            silentLoader: true
+        }).catch(function () {
+            clearSessionCookieFallback();
+        });
+    }
+
+    function applyCurrentUser(user) {
+        state.user = user || null;
+        state.currentUser = user || null;
+        if (user) {
+            rememberUserInitial(user);
+        }
+        return user;
+    }
+
+    function loadCurrentUser(options) {
+        options = options || {};
+        if (!options.force && state.currentUser) return Promise.resolve(state.currentUser);
+        if (!options.force && currentUserPromise) return currentUserPromise;
+        currentUserPromise = api('/api/auth/me', {
+            silentLoader: options.silentLoader === true
+        }).then(function (data) {
+            currentUserPromise = null;
+            if (!data || !data.user) {
+                var error = new Error('auth_required');
+                error.status = 401;
+                throw error;
+            }
+            return applyCurrentUser(data && data.user);
+        }).catch(function (error) {
+            currentUserPromise = null;
+            state.user = null;
+            state.currentUser = null;
+            throw error;
+        });
+        return currentUserPromise;
+    }
+
     function qs(selector, root) {
         return (root || document).querySelector(selector);
     }
 
     function qsa(selector, root) {
         return Array.prototype.slice.call((root || document).querySelectorAll(selector));
+    }
+
+    function readStoredJson(key) {
+        try {
+            return JSON.parse(window.localStorage.getItem(key) || '{}') || {};
+        } catch (error) {
+            return {};
+        }
+    }
+
+    function writeStoredJson(key, value) {
+        try {
+            window.localStorage.setItem(key, JSON.stringify(value || {}));
+        } catch (error) {}
     }
 
     function safeReplaceChildren(container, htmlContent) {
@@ -780,7 +869,7 @@
     function allowedModules() {
         var permissions = currentPermissions();
         if (permissions.fullAccess) {
-            return ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'];
+            return ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'users'];
         }
         var modules = Array.isArray(permissions.modules) ? permissions.modules.slice() : [];
         if (modules.indexOf('users') === -1) modules.push('users');
@@ -849,13 +938,25 @@
 
 
     window.PMBI = Object.assign(window.PMBI || {}, {
+        core: Object.assign(window.PMBI && window.PMBI.core || {}, {
+            readStoredJson: readStoredJson,
+            writeStoredJson: writeStoredJson
+        }),
         page: page,
         APP_TODAY: APP_TODAY,
         state: state,
         rememberSessionEnabled: rememberSessionEnabled,
         setRememberSession: setRememberSession,
+        wasAutoLoginAttempted: wasAutoLoginAttempted,
+        markAutoLoginAttempted: markAutoLoginAttempted,
+        clearAutoLoginAttempt: clearAutoLoginAttempt,
+        resetRememberAuthState: resetRememberAuthState,
+        applyCurrentUser: applyCurrentUser,
+        loadCurrentUser: loadCurrentUser,
         qs: qs,
         qsa: qsa,
+        readStoredJson: readStoredJson,
+        writeStoredJson: writeStoredJson,
         safeReplaceChildren: safeReplaceChildren,
         refreshLucideIcons: refreshLucideIcons,
         showAppNotice: showAppNotice,

@@ -63,22 +63,20 @@
     </div>
 </section>
 <section class="card" data-project-detail hidden>
-    <div class="card-head">
-        <h3 data-detail-title>Карточка объекта</h3>
-        <div class="card-head-actions">
-            <button class="ghost hidden" type="button" data-project-access-open data-director-only>Доступ</button>
-            <button class="ghost" type="button" data-close-detail>К объектам</button>
+    <div class="project-detail-nav">
+        <button class="project-back-button" type="button" data-close-detail aria-label="Назад к объектам" title="Назад к объектам">
+            <i data-lucide="arrow-left" aria-hidden="true"></i>
+        </button>
+        <div class="tabs">
+            <button class="tab active" data-tab="overview">Обзор</button>
+            <button class="tab" data-tab="materials">Материалы</button>
+            <button class="tab" data-tab="works">Работы</button>
+            <button class="tab" data-tab="schedule">График</button>
+            <button class="tab" data-tab="reports">Отчеты</button>
+            <button class="tab" data-tab="tasks">Задачи</button>
+            <button class="tab" data-tab="finance">Финансы</button>
+            <button class="tab" data-tab="documents">Документы</button>
         </div>
-    </div>
-    <div class="tabs">
-        <button class="tab active" data-tab="overview">Обзор</button>
-        <button class="tab" data-tab="materials">Материалы</button>
-        <button class="tab" data-tab="works">Работы</button>
-        <button class="tab" data-tab="schedule">График</button>
-        <button class="tab" data-tab="reports">Отчеты</button>
-        <button class="tab" data-tab="tasks">Задачи</button>
-        <button class="tab" data-tab="finance">Финансы</button>
-        <button class="tab" data-tab="documents">Документы</button>
     </div>
     <div class="tab-panel active" data-panel="overview"></div>
     <div class="tab-panel" data-panel="materials"></div>

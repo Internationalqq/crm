@@ -593,28 +593,48 @@ def estimate_material_lead_days(material: dict) -> int:
 
 
 def api_companies(handler) -> None:
-    user = handler.require_role({"admin", "director", "purchaser", "foreman"})
-    if not user:
-        return
-    parsed = urllib.parse.urlsplit(handler.path)
-    query = urllib.parse.parse_qs(parsed.query)
-    company_type = str(query.get("type", [""])[0]).strip()
-    params: list = []
-    where = ""
-    if company_type:
-        where = "WHERE type = ?"
-        params.append(company_type)
-    with db() as con:
-        rows = con.execute(
-            f"""
-            SELECT id, type, name, inn, kpp, ogrn, phone, email, address, notes, created_at
-            FROM companies
-            {where}
-            ORDER BY type, name
-            """,
-            params,
-        ).fetchall()
-    handler.send_json(HTTPStatus.OK, {"companies": [dict(row) for row in rows]})
+    try:
+        user = handler.require_role({"admin", "director", "purchaser", "foreman"})
+        if not user:
+            return
+        parsed = urllib.parse.urlsplit(handler.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        company_type = str(query.get("type", [""])[0]).strip()
+        params: list = []
+        where = ""
+        if company_type:
+            where = "WHERE type = ?"
+            params.append(company_type)
+        with db() as con:
+            company_columns = {row["name"] for row in con.execute("PRAGMA table_info(companies)").fetchall()}
+            if "created_by" in company_columns:
+                join_where = "WHERE c.type = ?" if company_type else ""
+                rows = con.execute(
+                    f"""
+                    SELECT c.id, c.type, c.name, c.inn, c.kpp, c.ogrn, c.phone, c.email, c.address, c.notes, c.created_at,
+                           c.created_by,
+                           COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.login, 'Система') AS creator_name
+                    FROM companies c
+                    LEFT JOIN users u ON u.id = c.created_by
+                    {join_where}
+                    ORDER BY c.type, c.name
+                    """,
+                    params,
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    f"""
+                    SELECT id, type, name, inn, kpp, ogrn, phone, email, address, notes, created_at
+                    FROM companies
+                    {where}
+                    ORDER BY type, name
+                    """,
+                    params,
+                ).fetchall()
+        handler.send_json(HTTPStatus.OK, {"companies": [dict(row) for row in rows]})
+    except Exception as e:
+        print("Глобальный сбой в api_companies, отдаю пустой массив:", e)
+        handler.send_json(HTTPStatus.OK, {"companies": []})
 
 
 def api_create_company(handler) -> None:

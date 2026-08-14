@@ -5,8 +5,11 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const coreJs = fs.readFileSync(path.join(root, 'frontend/assets/core.js'), 'utf8');
 const dailyTasksJs = fs.readFileSync(path.join(root, 'frontend/assets/daily-tasks.js'), 'utf8');
+const planningJs = fs.readFileSync(path.join(root, 'frontend/assets/planning.js'), 'utf8');
+const procurementJs = fs.readFileSync(path.join(root, 'frontend/assets/procurement.js'), 'utf8');
+const operationsJs = fs.readFileSync(path.join(root, 'frontend/assets/operations.js'), 'utf8');
 const appJs = fs.readFileSync(path.join(root, 'frontend/assets/app.js'), 'utf8');
-const frontendJs = [coreJs, dailyTasksJs, appJs].join('\n');
+const frontendJs = [coreJs, dailyTasksJs, planningJs, procurementJs, operationsJs, appJs].join('\n');
 const authPy = fs.readFileSync(path.join(root, 'backend/auth.py'), 'utf8');
 const serverPy = fs.readFileSync(path.join(root, 'backend/server.py'), 'utf8');
 
@@ -105,8 +108,8 @@ test('Calendar material quantities render as one calculated value, not glued val
   const label = `${quantityText(plan.totalQty)} ${plan.unit}`;
   assert.equal(label, '400 м2');
   assert.notEqual(label, '100 400м2');
-  assert.match(appJs, /materialModalQuantityMeta/);
-  assert.match(appJs, /quantityText\(plan\.totalQty\) \+ ' ' \+ unit/);
+  assert.match(frontendJs, /materialModalQuantityMeta/);
+  assert.match(frontendJs, /quantityText\(plan\.totalQty\) \+ ' ' \+ unit/);
 });
 
 if (process.exitCode) process.exit(process.exitCode);
