@@ -308,6 +308,7 @@ def user_is_hidden_admin(user: dict | sqlite3.Row | None) -> bool:
 
 
 def user_payload(row: sqlite3.Row) -> dict:
+    keys = set(row.keys())
     role = normalize_role(row["role"])
     if str(row["login"] or "").strip().lower() == "admin":
         role = "admin"
@@ -333,19 +334,22 @@ def user_payload(row: sqlite3.Row) -> dict:
     if role == "admin":
         roles = ["admin"]
         permissions = normalize_permissions({"fullAccess": True}, "admin")
-    can_show_private = role == "admin"
+    legacy_name = row["name"] if "name" in keys else ""
+    first_name_value = row["first_name"] if "first_name" in keys else ""
+    last_name_value = row["last_name"] if "last_name" in keys else ""
+    login = row["login"] if "login" in keys else "User"
     first_name, last_name = split_user_name(
-        row["name"] if "name" in row.keys() else "",
-        row["first_name"] if "first_name" in row.keys() else "",
-        row["last_name"] if "last_name" in row.keys() else "",
+        legacy_name,
+        first_name_value,
+        last_name_value,
     )
-    display_name = display_user_name(row["name"], first_name, last_name, row["login"])
+    display_name = display_user_name(legacy_name, first_name, last_name, login)
     return {
         "id": row["id"],
-        "login": row["login"],
-        "email": row["email"] if can_show_private and "email" in row.keys() else None,
-        "phone": row["phone"] if can_show_private and "phone" in row.keys() else None,
-        "clerkUserId": row["clerk_user_id"] if can_show_private and "clerk_user_id" in row.keys() else None,
+        "login": login,
+        "email": row["email"] if "email" in keys else None,
+        "phone": row["phone"] if "phone" in keys else None,
+        "clerkUserId": row["clerk_user_id"] if "clerk_user_id" in keys else None,
         "role": role,
         "roles": sorted(set(roles)),
         "roleLabel": ROLE_LABELS.get(role, role),
@@ -354,7 +358,7 @@ def user_payload(row: sqlite3.Row) -> dict:
         "lastName": last_name,
         "displayName": display_name,
         "name": display_name,
-        "avatarUrl": row["avatar_url"] if "avatar_url" in row.keys() else None,
+        "avatarUrl": row["avatar_url"] if "avatar_url" in keys else None,
     }
 
 

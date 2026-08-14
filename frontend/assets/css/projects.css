@@ -526,6 +526,8 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     background: linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%);
     color: #214f8d;
     font-weight: 900;
+    text-decoration: none;
+    cursor: pointer;
     box-shadow: 0 6px 14px rgba(47, 111, 237, .09);
     transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }

@@ -634,6 +634,9 @@
                         var error = new Error(payload.error || 'request_failed');
                         error.status = response.status;
                         error.payload = payload;
+                        if (response.status === 403) {
+                            console.warn('API access forbidden', path, payload);
+                        }
                         throw error;
                     }
                     return payload;

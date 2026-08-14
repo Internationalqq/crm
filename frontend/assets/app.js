@@ -342,6 +342,13 @@
             initPage();
             checkDailyStandup();
         }).catch(function (err) {
+            // Жесткий предохранитель: если пользователь уже находится внутри рабочего приложения (/app/),
+            // не нужно выкидывать его на логин при фоновых заминках сети или кэша, если сервер не вернул жесткий 401 статус!
+            if (location.pathname.indexOf('/app/') !== -1 && err.status !== 401) {
+                console.warn('Фоновая заминка loadCurrentUser проигнорирована предохранителем:', err);
+                return;
+            }
+
             if (rememberSessionEnabled() || wasAutoLoginAttempted()) {
                 stopBrokenAutoLogin().finally(function () {
                     location.replace('/login');
@@ -3847,7 +3854,7 @@ function renderLogsDayView(project, logs) {
                 var displayStartDate = projectDisplayStartDate(project);
                 var displayDeadlineDate = projectDisplayDeadlineDate(project);
                 var deadlineText = displayStartDate || displayDeadlineDate
-                    ? escapeHtml((project.started_at ? formatDisplayDate(project.started_at) : 'Без старта') + ' - ' + (project.deadline_at ? formatDisplayDate(project.deadline_at) : 'Без дедлайна'))
+                    ? escapeHtml((displayStartDate ? formatDisplayDate(displayStartDate) : 'Без старта') + ' - ' + (displayDeadlineDate ? formatDisplayDate(displayDeadlineDate) : 'Без дедлайна'))
                     : 'Сроки не указаны';
                 var financeQuickAction = canSeeFinances()
                     ? '<button class="project-quick-action" type="button" data-project-quick-tab="finance" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Финансы"><i data-lucide="wallet"></i></button>'
@@ -4276,7 +4283,6 @@ function renderLogsDayView(project, logs) {
         var status = project.status || 'Подготовка';
         var budget = project.budget == null ? 'Не указано' : money(project.budget);
         var paid = project.paid == null ? '0 ₽' : money(project.paid);
-        var overviewScheduleSummary = projectScheduleSummary(project);
         var overviewStart = projectDisplayStartDate(project);
         var overviewDeadline = projectDisplayDeadlineDate(project);
         return '<section class="project-overview-hero">' +
@@ -4293,7 +4299,7 @@ function renderLogsDayView(project, logs) {
                 dataItem('Номер договора', project.contract_no || 'Не указано') +
                 dataItem('Бюджет', budget) +
                 dataItem('Оплачено', paid) +
-                dataItem('Старт', project.started_at ? formatDisplayDate(project.started_at) : '—') +
+                dataItem('Старт', overviewStart ? formatDisplayDate(overviewStart) : '—') +
                 dataItem('Дедлайн', overviewDeadline ? formatDisplayDate(overviewDeadline) : '—') +
                 dataItem('Город', project.city || 'Не указан') +
                 dataItem('Регион', project.region || 'Не указан') +
@@ -7932,8 +7938,8 @@ function renderLogsDayView(project, logs) {
     }
 
     renderProjectOverviewHero = function (project) {
-        var overviewScheduleSummary = state.sectionScheduleByProject && project && project.id ? state.sectionScheduleByProject[project.id] : null;
-        var overviewDeadline = String(project.deadline_at || project.deadline || (overviewScheduleSummary && overviewScheduleSummary.finishDate) || '').trim();
+        var overviewStart = projectDisplayStartDate(project);
+        var overviewDeadline = projectDisplayDeadlineDate(project);
         return '<section class="project-overview-shell">' +
             '<section class="project-overview-hero ui-card">' +
                 '<div class="project-overview-head">' +
@@ -7945,7 +7951,7 @@ function renderLogsDayView(project, logs) {
                 '<div class="project-overview-meta">' +
                     projectOverviewMetaItemV2('Заказчик', project.client_name || 'Не указан') +
                     projectOverviewMetaItemV2('Договор', project.contract_no || 'Не указан') +
-                    projectOverviewMetaItemV2('Старт', project.started_at ? formatDisplayDate(project.started_at) : '—') +
+                    projectOverviewMetaItemV2('Старт', overviewStart ? formatDisplayDate(overviewStart) : '—') +
                     projectOverviewMetaItemV2('Дедлайн', overviewDeadline ? formatDisplayDate(overviewDeadline) : '—') +
                     projectOverviewMetaItemV2('Город', project.city || 'Не указан') +
                     projectOverviewMetaItemV2('Регион', project.region || 'Не указан') +

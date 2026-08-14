@@ -2180,8 +2180,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
         )
 
     def api_users(self) -> None:
-        admin = self.require_user()
-        if not admin:
+        viewer = self.require_user()
+        if not viewer:
             return
         with db() as con:
             rows = con.execute(
@@ -2244,9 +2244,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 return normalize_permissions(roles[0].get("permissions") if roles else None, roles[0].get("code") if roles else row["role"])
             visible_rows = [
                 row for row in rows
-                if not user_is_hidden_admin(row) or user_is_hidden_admin(admin)
+                if not user_is_hidden_admin(row) or user_is_hidden_admin(viewer)
             ]
-            can_view_private = user_is_hidden_admin(admin)
+            can_view_private = user_is_hidden_admin(viewer)
             def user_work_status(row: sqlite3.Row) -> tuple[str, str]:
                 daily_status = daily_status_by_user.get(int(row["id"]))
                 if daily_status == "in_progress":

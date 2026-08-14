@@ -8,6 +8,34 @@ body {
         var(--bg);
 }
 
+.login-form .remember-me input[type="checkbox"] {
+    position: relative;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    flex: 0 0 20px;
+    border: 2px solid #8ea09a;
+    border-radius: 4px;
+    background: #ffffff !important;
+}
+
+.login-form .remember-me input[type="checkbox"]:checked {
+    border-color: var(--green);
+}
+
+.login-form .remember-me input[type="checkbox"]:checked::before {
+    position: absolute;
+    left: 6px;
+    top: 4px;
+    width: 6px;
+    height: 10px;
+    border-color: var(--green);
+    border-width: 0 3px 3px 0;
+    transform: rotate(45deg);
+    transform-origin: center;
+}
+
 /* Expert polish pass: stability, density, overflow control */
 html {
     scrollbar-gutter: stable;

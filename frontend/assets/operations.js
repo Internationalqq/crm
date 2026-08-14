@@ -40,6 +40,22 @@
         }
         return fn.apply(null, args);
     }
+
+    function projectScheduleSummary(project) {
+        if (!project || !project.id || !state.sectionScheduleByProject) return null;
+        return state.sectionScheduleByProject[project.id] || state.sectionScheduleByProject[String(project.id)] || null;
+    }
+
+    function projectDisplayStartDate(project) {
+        var summary = projectScheduleSummary(project);
+        return String(summary && (summary.startDate || summary.projectStart) || project && (project.started_at || project.startDate) || '').trim();
+    }
+
+    function projectDisplayDeadlineDate(project) {
+        var summary = projectScheduleSummary(project);
+        return String(summary && (summary.finishDate || summary.projectEnd) || project && (project.deadline_at || project.deadline) || '').trim();
+    }
+
     function loadProjects() { return appCall('loadProjects', arguments); }
     function loadDashboard() { return appCall('loadDashboard', arguments); }
     function loadProjectNotifications() { return appCall('loadProjectNotifications', arguments); }
@@ -123,7 +139,13 @@
     function reportLogStatus() { return appCall('reportLogStatus', arguments); }
     function renderProjectReportDeleteButton() { return appCall('renderProjectReportDeleteButton', arguments); }
     function bindProjectReportDeleteActions() { return appCall('bindProjectReportDeleteActions', arguments); }
-    function initTeamPage() { return initUsersPage.apply(null, arguments); }
+    function teamCurrentUser() {
+        return (window.PMBI && window.PMBI.state && window.PMBI.state.currentUser) || null;
+    }
+
+    function initTeamPage() {
+        return initUsersPage.apply(null, arguments);
+    }
     // roles helpers
     function loadRoles(callback) {
         if (state.roles.length) {
@@ -1206,8 +1228,8 @@
     function renderProjectOverviewHero(project) {
         var budget = project.budget == null ? 'Скрыто ролью' : money(project.budget);
         var paid = project.paid == null ? 'Скрыто ролью' : money(project.paid);
-        var overviewScheduleSummary = state.sectionScheduleByProject && project && project.id ? state.sectionScheduleByProject[project.id] : null;
-        var overviewDeadline = String(project.deadline_at || project.deadline || (overviewScheduleSummary && overviewScheduleSummary.finishDate) || '').trim();
+        var overviewStart = projectDisplayStartDate(project);
+        var overviewDeadline = projectDisplayDeadlineDate(project);
         return '<section class="project-overview-hero ui-card">' +
             '<div class="project-overview-head">' +
                 '<div>' +
@@ -1221,7 +1243,7 @@
                 dataItem('Номер договора', project.contract_no || 'Не указано') +
                 dataItem('Бюджет', budget) +
                 dataItem('Оплачено', paid) +
-                dataItem('Старт', project.started_at ? formatDisplayDate(project.started_at) : '—') +
+                dataItem('Старт', overviewStart ? formatDisplayDate(overviewStart) : '—') +
                 dataItem('Дедлайн', overviewDeadline ? formatDisplayDate(overviewDeadline) : '—') +
                 dataItem('Город', project.city || 'Не указано') +
                 dataItem('Регион', project.region || 'Не указано') +
@@ -1851,95 +1873,6 @@
     function setProjectTabMode(projectId, tab, mode) {
         if (!state.projectTabModesByProject[projectId]) state.projectTabModesByProject[projectId] = {};
         state.projectTabModesByProject[projectId][tab] = mode === 'market' ? 'market' : 'list';
-    }
-
-    function initShell() {
-        applySidebarPreference();
-        try {
-            document.documentElement.classList.remove('sidebar-pref-collapsed');
-            if (page !== 'projects') {
-                document.documentElement.classList.remove('project-route-loading');
-            } else {
-                var initialProjectParams = new URLSearchParams(location.search);
-                if (!Number(initialProjectParams.get('openProject') || 0)) {
-                    document.documentElement.classList.remove('project-route-loading');
-                }
-            }
-        } catch (error) {
-            document.documentElement.classList.remove('sidebar-pref-collapsed');
-            document.documentElement.classList.remove('project-route-loading');
-        }
-        api('/api/auth/me').then(function (data) {
-            state.user = data.user;
-            state.currentUser = data.user;
-            if (typeof renderAppTopbar === 'function') renderAppTopbar();
-            syncCurrentUserHeader(data.user);
-            forceTopbarAvatar(data.user);
-            setTimeout(function () { forceTopbarAvatar(data.user); }, 80);
-            setTimeout(function () { forceTopbarAvatar(data.user); }, 350);
-            renderUser();
-            applyRole();
-            refreshLucideIcons(document);
-            initPage();
-            checkDailyStandup();
-        }).catch(function () {
-            location.replace('/login?next=' + encodeURIComponent(location.pathname + location.search));
-        });
-
-        var logout = qs('[data-logout]');
-        if (logout && logout.dataset.bound !== '1') {
-            logout.dataset.bound = '1';
-            logout.addEventListener('click', function () {
-                setRememberSession(false);
-                if (isClerkEnabled()) {
-                    loadClerk().then(function (clerk) {
-                        return api('/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
-                            return clerk ? clerk.signOut({ redirectUrl: state.authConfig.clerkAfterSignOutUrl || '/login' }) : null;
-                        });
-                    }).catch(function () {
-                        location.replace('/login');
-                    });
-                    return;
-                }
-                api('/api/auth/logout', { method: 'POST' }).finally(function () {
-                    location.replace('/login');
-                });
-            });
-        }
-
-        qsa('[data-menu-toggle], [data-sidebar-toggle]').forEach(function (toggle) {
-            if (toggle.dataset.bound === '1') return;
-            toggle.dataset.bound = '1';
-            toggle.addEventListener('click', function (event) {
-                event.preventDefault();
-                if (window.innerWidth <= 720) {
-                    document.body.classList.toggle('menu-open');
-                    return;
-                }
-                toggleSidebarCollapsed();
-            });
-        });
-        syncSidebarToggleTitle();
-
-        initAiAssistant();
-        bindAutobotImmersiveMode();
-
-        qsa('[data-placeholder-form]').forEach(function (form) {
-            if (form.dataset.bound === '1') return;
-            form.dataset.bound = '1';
-            form.addEventListener('submit', function (event) {
-                event.preventDefault();
-                alert('Этот модуль подключим следующим backend-слоем.');
-            });
-        });
-
-        qsa('[data-placeholder-action]').forEach(function (button) {
-            if (button.dataset.bound === '1') return;
-            button.dataset.bound = '1';
-            button.addEventListener('click', function () {
-                alert(button.dataset.placeholderAction || 'Функция будет подключена к API.');
-            });
-        });
     }
 
     function bindUserMenu() {

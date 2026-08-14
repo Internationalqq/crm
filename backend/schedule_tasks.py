@@ -1653,10 +1653,10 @@ def _api_project_auto_schedule(handler, path: str) -> None:
                     "UPDATE estimate_items SET need_by_date = ?, updated_at = ? WHERE id = ?",
                     (item["need_by_date"], now_ts(), item["id"]),
                 )
-        if not project["started_at"]:
+        if project["started_at"] != plan["project_start"] or project["deadline_at"] != plan["project_end"]:
             con.execute(
-                "UPDATE projects SET started_at = ?, updated_at = ? WHERE id = ?",
-                (plan["project_start"], now_ts(), project_id),
+                "UPDATE projects SET started_at = ?, deadline_at = ?, updated_at = ? WHERE id = ?",
+                (plan["project_start"], plan["project_end"], now_ts(), project_id),
             )
         mark_project_schedule_draft(con, project_id, generated_at=TODAY_ISO)
         material_schedule = build_material_schedule_payload(con, project_id)
