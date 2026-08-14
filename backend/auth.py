@@ -64,13 +64,13 @@ ROLE_ALLOWED_PREFIXES = {
     "main_admin": ["*"],
     "admin": ["*"],
     "director": ["*"],
-    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
-    "buyer": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
-    "purchaser": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers", "/app/chats"],
-    "financier": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/reports"],
-    "accountant": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/reports"],
-    "client": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs", "/app/chats"],
-    "customer": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs", "/app/chats"],
+    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "buyer": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "purchaser": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "financier": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot"],
+    "accountant": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot"],
+    "client": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs"],
+    "customer": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs"],
 }
 
 ROLE_LABELS = {
@@ -108,22 +108,20 @@ ALL_MODULES = [
     "logs",
     "warehouse",
     "suppliers",
-    "chats",
     "users",
-    "reports",
 ]
 
 DEFAULT_ROLE_PERMISSIONS = {
     "main_admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
     "admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
     "director": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
-    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "schedule", "logs", "warehouse", "suppliers", "chats", "users"], "projects": "edit", "dailyTasks": "own"},
-    "purchaser": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "chats", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
-    "buyer": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "chats", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
-    "financier": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "reports", "users"], "projects": "view", "dailyTasks": "own"},
-    "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "reports", "users"], "projects": "view", "dailyTasks": "own"},
-    "customer": {"modules": ["dashboard", "projects", "schedule", "logs", "chats", "users"], "projects": "view"},
-    "client": {"modules": ["dashboard", "projects", "schedule", "logs", "chats", "users"], "projects": "view"},
+    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "schedule", "logs", "warehouse", "suppliers", "users"], "projects": "edit", "dailyTasks": "own"},
+    "purchaser": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
+    "buyer": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
+    "financier": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "users"], "projects": "view", "dailyTasks": "own"},
+    "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "users"], "projects": "view", "dailyTasks": "own"},
+    "customer": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
+    "client": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
 }
 
 LEGACY_ROLE_ALIASES = {
@@ -475,9 +473,7 @@ def user_can_open(user: dict, path: str) -> bool:
         "/app/logs": "logs",
         "/app/warehouse": "warehouse",
         "/app/suppliers": "suppliers",
-        "/app/chats": "chats",
         "/app/users": "users",
-        "/app/reports": "reports",
     }
     module = module_by_path.get(path)
     if module:

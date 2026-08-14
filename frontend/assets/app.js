@@ -1,816 +1,81 @@
 (function () {
     'use strict';
 
-    var page = document.body.dataset.page;
-    var APP_TODAY = (function () {
-        var date = new Date();
-        var month = String(date.getMonth() + 1).padStart(2, '0');
-        var day = String(date.getDate()).padStart(2, '0');
-        return date.getFullYear() + '-' + month + '-' + day;
-    })();
-    var state = {
-        user: null,
-        currentUser: null,
-        projects: [],
-        users: [],
-        dailyTasks: [],
-        dailyArchive: [],
-        dailyTasksRequestToken: 0,
-        dailyArchiveRequestToken: 0,
-        teamRefreshTimer: null,
-        dailySelectedUserId: 'all',
-        dailyMyOnly: false,
-        dailyCompletionTimers: {},
-        roles: [],
-        companies: [],
-        companiesAllLoaded: false,
-        selectedProject: null,
-        projectLoadingToken: 0,
-        selectedProjectLoadingToken: null,
-        stagesByProject: {},
-        materialsByProject: {},
-        materialInsightsByProject: {},
-        marketAnalysisByProject: {},
-        materialCounterpartyFiltersByProject: {},
-        notificationsByProject: {},
-        materialScheduleByProject: {},
-        materialScheduleViewByProject: {},
-        renderingScheduleForProject: null,
-        isMaterialScheduleRendering: false,
-        schedulePlanByProject: {},
-        sectionScheduleByProject: {},
-        scheduleQuickActions: {},
-        projectTabModesByProject: {},
-        logsCalendarMonthByProject: {},
-        logsSelectedDateByProject: {},
-        dashboard: null,
-        reportsBundle: null,
-        authConfig: window.__PMBI_AUTH__ || {}
-    };
-    var REMEMBER_SESSION_KEY = 'pmbi_remember_session';
-    var USER_INITIAL_CACHE_KEY = 'pmbi_current_user_initial';
-
-    function rememberSessionEnabled() {
-        try {
-            return window.localStorage.getItem(REMEMBER_SESSION_KEY) === '1';
-        } catch (error) {
-            return false;
-        }
+    var PMBI = window.PMBI || {};
+    var page = PMBI.page;
+    var APP_TODAY = PMBI.APP_TODAY;
+    var state = PMBI.state;
+    var rememberSessionEnabled = PMBI.rememberSessionEnabled;
+    var setRememberSession = PMBI.setRememberSession;
+    var qs = PMBI.qs;
+    var qsa = PMBI.qsa;
+    var safeReplaceChildren = PMBI.safeReplaceChildren;
+    var refreshLucideIcons = PMBI.refreshLucideIcons;
+    var showAppNotice = PMBI.showAppNotice;
+    var getAutoBotLoaderHTML = PMBI.getAutoBotLoaderHTML;
+    var appErrorMessage = PMBI.appErrorMessage;
+    var withSubmitLock = PMBI.withSubmitLock;
+    var beginProjectLoading = PMBI.beginProjectLoading;
+    var isCurrentProject = PMBI.isCurrentProject;
+    var escapeHtml = PMBI.escapeHtml;
+    var displayUserName = PMBI.displayUserName;
+    var safeAvatarUrl = PMBI.safeAvatarUrl;
+    var computeUserInitial = PMBI.computeUserInitial;
+    var rememberUserInitial = PMBI.rememberUserInitial;
+    var profileUserInitials = PMBI.profileUserInitials;
+    var userAvatarMarkup = PMBI.userAvatarMarkup;
+    var topbarAvatarInner = PMBI.topbarAvatarInner;
+    var forceTopbarAvatar = PMBI.forceTopbarAvatar;
+    var safeExternalUrl = PMBI.safeExternalUrl;
+    var safeTelHref = PMBI.safeTelHref;
+    var formatDisplayDate = PMBI.formatDisplayDate;
+    var installVisibleDateFormatter = PMBI.installVisibleDateFormatter;
+    var isClerkEnabled = PMBI.isClerkEnabled;
+    var loadClerk = PMBI.loadClerk;
+    var api = PMBI.api;
+    var apiFormData = PMBI.apiFormData;
+    var money = PMBI.money;
+    var percent = PMBI.percent;
+    var progressSectionId = PMBI.progressSectionId;
+    var canonicalEstimateSectionTitle = PMBI.canonicalEstimateSectionTitle;
+    var canonicalEstimateSectionId = PMBI.canonicalEstimateSectionId;
+    var progressSelectorValue = PMBI.progressSelectorValue;
+    var updateProjectProgressState = PMBI.updateProjectProgressState;
+    var updateProgressNode = PMBI.updateProgressNode;
+    var updateUIProgress = PMBI.updateUIProgress;
+    var applyProgressApiResponse = PMBI.applyProgressApiResponse;
+    var isoDateAdd = PMBI.isoDateAdd;
+    var formatRuDate = PMBI.formatRuDate;
+    var downloadTextFile = PMBI.downloadTextFile;
+    var downloadCsv = PMBI.downloadCsv;
+    var normalizeRole = PMBI.normalizeRole;
+    var hasRole = PMBI.hasRole;
+    var currentRoleLabel = PMBI.currentRoleLabel;
+    var isBootstrapAdminUser = PMBI.isBootstrapAdminUser;
+    var effectiveUserRoles = PMBI.effectiveUserRoles;
+    var isSuperAdminRole = PMBI.isSuperAdminRole;
+    var isMainAdminRole = PMBI.isMainAdminRole;
+    var isDirectorRole = PMBI.isDirectorRole;
+    var isForemanRole = PMBI.isForemanRole;
+    var isAdminRole = PMBI.isAdminRole;
+    var currentPermissions = PMBI.currentPermissions;
+    var personDisplayName = PMBI.personDisplayName;
+    var allowedModules = PMBI.allowedModules;
+    var canManageTeam = PMBI.canManageTeam;
+    var canManageDailyTasks = PMBI.canManageDailyTasks;
+    var canViewPrivateContacts = PMBI.canViewPrivateContacts;
+    var canSeeFinances = PMBI.canSeeFinances;
+    var canManageSuppliers = PMBI.canManageSuppliers;
+    var canManageDocuments = PMBI.canManageDocuments;
+    var canManageSchedule = PMBI.canManageSchedule;
+    var nextPath = PMBI.nextPath;
+    var userInitials = PMBI.userInitials;
+    function initDailyTasksPage() {
+        return PMBI.dailyTasks && PMBI.dailyTasks.initDailyTasksPage ? PMBI.dailyTasks.initDailyTasksPage() : null;
+    }
+    function checkDailyStandup() {
+        return PMBI.dailyTasks && PMBI.dailyTasks.checkDailyStandup ? PMBI.dailyTasks.checkDailyStandup() : null;
     }
-
-    function setRememberSession(enabled) {
-        try {
-            if (enabled) window.localStorage.setItem(REMEMBER_SESSION_KEY, '1');
-            else window.localStorage.removeItem(REMEMBER_SESSION_KEY);
-        } catch (error) {}
-    }
-
-    function qs(selector, root) {
-        return (root || document).querySelector(selector);
-    }
-
-    function qsa(selector, root) {
-        return Array.prototype.slice.call((root || document).querySelectorAll(selector));
-    }
-
-    function safeReplaceChildren(container, htmlContent) {
-        var node = typeof container === 'string' ? qs(container) : container;
-        if (!node) return null;
-        while (node.firstChild) node.removeChild(node.firstChild);
-        if (htmlContent == null || htmlContent === '') return node;
-        if (htmlContent.nodeType) {
-            node.appendChild(htmlContent);
-            return node;
-        }
-        if (typeof htmlContent !== 'string') {
-            node.textContent = String(htmlContent);
-            return node;
-        }
-        try {
-            var range = document.createRange();
-            range.selectNodeContents(node);
-            node.appendChild(range.createContextualFragment(htmlContent));
-        } catch (error) {
-            var template = document.createElement('template');
-            template.innerHTML = htmlContent;
-            node.appendChild(template.content.cloneNode(true));
-        }
-        return node;
-    }
-
-    function refreshLucideIcons(root) {
-        if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
-        window.lucide.createIcons({
-            attrs: {
-                'aria-hidden': 'true'
-            }
-        });
-    }
-
-    function showAppNotice(message, type) {
-        var root = qs('[data-app-notice-root]');
-        var noticeType = ['success', 'error', 'warn'].indexOf(type) !== -1 ? type : 'error';
-        if (!root) {
-            root = document.createElement('div');
-            root.className = 'app-notice-root';
-            root.setAttribute('data-app-notice-root', '');
-            root.setAttribute('aria-live', 'polite');
-            document.body.appendChild(root);
-        }
-        var notice = document.createElement('div');
-        notice.className = 'app-notice app-notice-' + noticeType;
-        notice.setAttribute('role', noticeType === 'error' ? 'alert' : 'status');
-        notice.textContent = message || '';
-        root.appendChild(notice);
-        requestAnimationFrame(function () {
-            notice.classList.add('active');
-        });
-        setTimeout(function () {
-            notice.classList.remove('active');
-            setTimeout(function () {
-                if (notice.parentNode) notice.parentNode.removeChild(notice);
-            }, 220);
-        }, 4200);
-        return notice;
-    }
-
-    var loaderHideTimeout = null;
-    var loaderCleanupTimeout = null;
-    var loaderStartTime = 0;
-    var loaderActiveCount = 0;
-    var loaderDisplayText = 'Синхронизация...';
-    var MIN_LOADER_TIME = 450;
-
-    function ensureGlobalLoader() {
-        var loaderEl = document.querySelector('.global-app-loader');
-        if (loaderEl) return loaderEl;
-        loaderEl = document.createElement('div');
-        loaderEl.className = 'global-app-loader';
-        loaderEl.setAttribute('role', 'status');
-        loaderEl.setAttribute('aria-live', 'polite');
-        loaderEl.innerHTML = '<div class="loader-spinner-ring" aria-hidden="true"></div><div class="loader-spinner-text">Синхронизация...</div>';
-        document.body.appendChild(loaderEl);
-        return loaderEl;
-    }
-
-    window.showLoader = function (text) {
-        var loaderEl = ensureGlobalLoader();
-        var nextText = String(text || loaderDisplayText || 'Синхронизация...');
-        var textEl = loaderEl.querySelector('.loader-spinner-text');
-        loaderDisplayText = nextText;
-        loaderActiveCount += 1;
-        if (loaderHideTimeout) {
-            clearTimeout(loaderHideTimeout);
-            loaderHideTimeout = null;
-        }
-        if (loaderCleanupTimeout) {
-            clearTimeout(loaderCleanupTimeout);
-            loaderCleanupTimeout = null;
-        }
-        if (textEl) textEl.textContent = nextText;
-        if (!loaderEl.classList.contains('is-active')) {
-            loaderStartTime = Date.now();
-        }
-        loaderEl.classList.remove('is-hiding');
-        requestAnimationFrame(function () {
-            loaderEl.classList.add('is-active');
-        });
-    };
-
-    window.hideLoader = function () {
-        var loaderEl = document.querySelector('.global-app-loader');
-        if (!loaderEl) return;
-        if (loaderActiveCount > 0) loaderActiveCount -= 1;
-        if (loaderActiveCount > 0) return;
-        var elapsed = Date.now() - loaderStartTime;
-        var delay = elapsed < MIN_LOADER_TIME ? (MIN_LOADER_TIME - elapsed) : 0;
-        if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
-        if (loaderCleanupTimeout) clearTimeout(loaderCleanupTimeout);
-        loaderHideTimeout = setTimeout(function () {
-            if (loaderActiveCount > 0) return;
-            loaderEl.classList.add('is-hiding');
-            loaderCleanupTimeout = setTimeout(function () {
-                if (loaderActiveCount > 0) return;
-                loaderEl.classList.remove('is-active', 'is-hiding');
-            }, 300);
-        }, delay);
-    };
-
-    function ensureTopProgressBar() {
-        var barEl = document.querySelector('.global-top-progress-bar');
-        if (barEl) return barEl;
-        barEl = document.createElement('div');
-        barEl.className = 'global-top-progress-bar';
-        barEl.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(barEl);
-        return barEl;
-    }
-
-    window.showLoader = function () {
-        var barEl = ensureTopProgressBar();
-        loaderActiveCount += 1;
-        barEl.style.transition = 'width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.2s ease';
-        barEl.classList.remove('is-finishing', 'is-loading');
-        void barEl.offsetWidth;
-        requestAnimationFrame(function () {
-            barEl.classList.add('is-loading');
-        });
-    };
-
-    window.hideLoader = function () {
-        var barEl = document.querySelector('.global-top-progress-bar');
-        if (!barEl) return;
-        if (loaderActiveCount > 0) loaderActiveCount -= 1;
-        if (loaderActiveCount > 0) return;
-        barEl.classList.remove('is-loading');
-        barEl.classList.add('is-finishing');
-        setTimeout(function () {
-            if (loaderActiveCount > 0) return;
-            barEl.style.transition = 'none';
-            barEl.classList.remove('is-finishing');
-            void barEl.offsetWidth;
-            barEl.style.transition = 'width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.2s ease';
-        }, 200);
-    };
-
-    function getAutoBotLoaderHTML() {
-        return '<div class="autobot-spinner-container" role="status" aria-live="polite">' +
-            '<div class="autobot-spinner" aria-hidden="true"></div>' +
-            '<strong>AutoBot собирает данные</strong>' +
-            '<span>Подождите немного, страница обновится автоматически.</span>' +
-        '</div>';
-    }
-
-    window.getAutoBotLoaderHTML = getAutoBotLoaderHTML;
-
-    function appErrorMessage(error, fallback) {
-        return error && error.payload && (error.payload.message || error.payload.error) ? (error.payload.message || error.payload.error) : fallback;
-    }
-
-    function submitLockControls(target) {
-        if (!target) return [];
-        if (target.tagName === 'FORM') {
-            return qsa('button[type="submit"], input[type="submit"]', target);
-        }
-        return [target];
-    }
-
-    function withSubmitLock(formOrButton, promiseFactory) {
-        var target = formOrButton;
-        if (target && target.dataset && target.dataset.submitLocked === '1') return Promise.resolve(null);
-        var controls = submitLockControls(target);
-        var previous = controls.map(function (control) {
-            return { node: control, disabled: !!control.disabled };
-        });
-        if (target && target.dataset) target.dataset.submitLocked = '1';
-        if (target && target.classList) target.classList.add('is-loading');
-        controls.forEach(function (control) {
-            control.disabled = true;
-            if (control.classList) control.classList.add('is-loading');
-        });
-        var request;
-        try {
-            request = Promise.resolve(promiseFactory());
-        } catch (error) {
-            request = Promise.reject(error);
-        }
-        return request.finally(function () {
-            previous.forEach(function (entry) {
-                entry.node.disabled = entry.disabled;
-                if (entry.node.classList) entry.node.classList.remove('is-loading');
-            });
-            if (target && target.classList) target.classList.remove('is-loading');
-            if (target && target.dataset) target.dataset.submitLocked = '0';
-        });
-    }
-
-    function beginProjectLoading(projectId) {
-        state.projectLoadingToken += 1;
-        state.selectedProjectLoadingToken = {
-            projectId: Number(projectId),
-            token: state.projectLoadingToken
-        };
-        return state.projectLoadingToken;
-    }
-
-    function isCurrentProject(projectId, loadingToken) {
-        if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return false;
-        if (loadingToken == null) return true;
-        return !!state.selectedProjectLoadingToken
-            && Number(state.selectedProjectLoadingToken.projectId) === Number(projectId)
-            && Number(state.selectedProjectLoadingToken.token) === Number(loadingToken);
-    }
-
-    function escapeHtml(value) {
-        return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
-            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
-        });
-    }
-
-    function displayUserName(user) {
-        user = user || {};
-        return user.displayName || [user.lastName, user.firstName].filter(Boolean).join(' ') || user.name || user.login || 'Пользователь';
-    }
-
-    function safeAvatarUrl(value) {
-        var raw = String(value == null ? '' : value).trim();
-        if (!raw) return '';
-        if (raw.charAt(0) === '/') return raw;
-        return /^https?:\/\//i.test(raw) ? raw : '';
-    }
-
-    function cachedUserInitial() {
-        try {
-            return String(window.localStorage.getItem(USER_INITIAL_CACHE_KEY) || '').trim();
-        } catch (error) {
-            return '';
-        }
-    }
-
-    function computeUserInitial(user) {
-        user = user || {};
-        var first = String(user.firstName || user.first_name || '').trim();
-        var last = String(user.lastName || user.last_name || '').trim();
-        if (first) return first.charAt(0).toLocaleUpperCase('ru');
-        if (last) return last.charAt(0).toLocaleUpperCase('ru');
-        var name = String(user.displayName || user.name || user.login || '').trim();
-        return String(name).trim().split(/\s+/).filter(Boolean).slice(0, 1).map(function (part) {
-            return part.charAt(0).toLocaleUpperCase('ru');
-        }).join('');
-    }
-
-    function rememberUserInitial(user) {
-        var initial = computeUserInitial(user);
-        if (!initial) return initial;
-        try {
-            window.localStorage.setItem(USER_INITIAL_CACHE_KEY, initial);
-        } catch (error) {}
-        return initial;
-    }
-
-    function profileUserInitials(user) {
-        return computeUserInitial(user) || cachedUserInitial();
-    }
-
-    function userAvatarMarkup(user, className) {
-        user = user || {};
-        var avatarUrl = user.avatarUrl || user.avatar_url || '';
-        className = className || 'topbar-avatar';
-        if (avatarUrl) {
-            return '<span class="' + escapeHtml(className) + '" aria-hidden="true"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>';
-        }
-        return '<span class="' + escapeHtml(className) + '" aria-hidden="true">' + escapeHtml(userInitials(user)) + '</span>';
-    }
-
-    function topbarAvatarInner(user) {
-        user = user || {};
-        var avatarUrl = user.avatarUrl || user.avatar_url || '';
-        if (avatarUrl) {
-            return '<img src="' + escapeHtml(avatarUrl) + '" alt="">';
-        }
-        return escapeHtml(userInitials(user));
-    }
-
-    function forceTopbarAvatar(user) {
-        user = user || state.currentUser || state.user || {};
-        var avatarUrl = user.avatarUrl || user.avatar_url || '';
-        var initial = userInitials(user);
-        qsa('.topbar-avatar, [data-user-badge]').forEach(function (node) {
-            if (!node) return;
-            if (avatarUrl) {
-                safeReplaceChildren(node, '<img src="' + escapeHtml(avatarUrl) + '" alt="">');
-                return;
-            }
-            safeReplaceChildren(node, escapeHtml(initial));
-        });
-    }
-
-    function safeExternalUrl(value) {
-        var raw = String(value == null ? '' : value).trim();
-        if (!raw) return '';
-        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) raw = 'https://' + raw;
-        try {
-            var url = new URL(raw, window.location.origin);
-            if (url.protocol === 'http:' || url.protocol === 'https:') return url.href;
-        } catch (error) {}
-        return '';
-    }
-
-    function safeTelHref(value) {
-        var phone = String(value == null ? '' : value).trim();
-        if (!phone) return '';
-        var normalized = phone.replace(/[^\d+]/g, '');
-        if (!normalized) return '';
-        if (normalized.indexOf('+') > 0) normalized = normalized.replace(/\+/g, '');
-        return 'tel:' + normalized;
-    }
-
-    function formatDisplayDate(value) {
-        if (!value) return '—';
-        var match = String(value).trim().match(/^(\d{4})[-.](\d{2})[-.](\d{2})(?:[T\s].*)?$/);
-        if (!match) return value;
-        return match[3] + '.' + match[2] + '.' + match[1];
-    }
-
-    function formatDisplayDatesInText(value) {
-        return String(value == null ? '' : value).replace(/\b(\d{4})[-.](\d{2})[-.](\d{2})\b/g, function (_, year, month, day) {
-            return day + '.' + month + '.' + year;
-        });
-    }
-
-    function formatVisibleDates(root) {
-        root = root || document.body;
-        if (!root || typeof document.createTreeWalker !== 'function') return;
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode: function (node) {
-                var parent = node.parentElement;
-                if (!parent || /^(SCRIPT|STYLE|TEXTAREA|INPUT|SELECT|OPTION)$/i.test(parent.tagName)) return NodeFilter.FILTER_REJECT;
-                return /\b\d{4}[-.]\d{2}[-.]\d{2}\b/.test(node.nodeValue || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-            }
-        });
-        var node;
-        while ((node = walker.nextNode())) {
-            node.nodeValue = formatDisplayDatesInText(node.nodeValue);
-        }
-    }
-
-    function installVisibleDateFormatter() {
-        if (!document.body) {
-            document.addEventListener('DOMContentLoaded', installVisibleDateFormatter, { once: true });
-            return;
-        }
-        if (document.body.dataset.dateFormatterInstalled === '1') return;
-        document.body.dataset.dateFormatterInstalled = '1';
-        var pending = false;
-        var roots = [];
-        var observer = null;
-        function queueRoot(root) {
-            if (!root) return;
-            if (root.nodeType === Node.TEXT_NODE) root = root.parentElement;
-            if (!root || root.nodeType !== Node.ELEMENT_NODE) return;
-            if (roots.indexOf(root) === -1) roots.push(root);
-        }
-        function scheduleFormat() {
-            if (pending) return;
-            pending = true;
-            requestAnimationFrame(function () {
-                pending = false;
-                var batch = roots.splice(0, 25);
-                if (!batch.length) return;
-                if (observer) observer.disconnect();
-                batch.forEach(function (root) { formatVisibleDates(root); });
-                if (observer) observer.observe(document.body, { childList: true, subtree: true });
-                if (roots.length) scheduleFormat();
-            });
-        }
-        formatVisibleDates(document.body);
-        observer = new MutationObserver(function (mutations) {
-            mutations.forEach(function (mutation) {
-                Array.prototype.forEach.call(mutation.addedNodes || [], queueRoot);
-            });
-            if (roots.length) scheduleFormat();
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    }
-
-    function isClerkEnabled() {
-        return !!(state.authConfig && state.authConfig.clerkEnabled && state.authConfig.clerkPublishableKey);
-    }
-
-    var clerkLoadPromise = null;
-
-    function loadClerk() {
-        if (!isClerkEnabled()) return Promise.resolve(null);
-        if (clerkLoadPromise) return clerkLoadPromise;
-        clerkLoadPromise = new Promise(function (resolve, reject) {
-            var started = Date.now();
-            function check() {
-                if (window.Clerk) {
-                    window.Clerk.load({
-                        publishableKey: state.authConfig.clerkPublishableKey
-                    }).then(function () {
-                        resolve(window.Clerk);
-                    }).catch(reject);
-                    return;
-                }
-                if (Date.now() - started > 15000) {
-                    reject(new Error('clerk_load_timeout'));
-                    return;
-                }
-                setTimeout(check, 50);
-            }
-            check();
-        });
-        return clerkLoadPromise;
-    }
-
-    function authHeaders() {
-        if (!isClerkEnabled()) return Promise.resolve({});
-        return loadClerk().then(function (clerk) {
-            if (!clerk || !clerk.session) return {};
-            return clerk.session.getToken();
-        }).then(function (token) {
-            return token ? { Authorization: 'Bearer ' + token } : {};
-        }).catch(function () {
-            return {};
-        });
-    }
-
-    function api(path, options) {
-        var requestOptions = Object.assign({}, options || {});
-        var useLoader = requestOptions.silentLoader !== true;
-        var loaderText = requestOptions.loaderText || 'Синхронизация...';
-        delete requestOptions.silentLoader;
-        delete requestOptions.loaderText;
-        requestOptions.credentials = 'same-origin';
-        if (useLoader && typeof window.showLoader === 'function') window.showLoader(loaderText);
-        return authHeaders().then(function (headers) {
-            requestOptions.headers = Object.assign({ Accept: 'application/json' }, headers, requestOptions.headers || {});
-            if (requestOptions.body && !requestOptions.headers['Content-Type']) requestOptions.headers['Content-Type'] = 'application/json';
-            return fetch(path, requestOptions).then(function (response) {
-                return response.json().catch(function () { return {}; }).then(function (payload) {
-                    if (!response.ok) {
-                        var error = new Error(payload.error || 'request_failed');
-                        error.status = response.status;
-                        error.payload = payload;
-                        throw error;
-                    }
-                    return payload;
-                });
-            });
-        }).finally(function () {
-            if (useLoader && typeof window.hideLoader === 'function') window.hideLoader();
-        });
-    }
-
-    function apiFormData(path, formData, options) {
-        var requestOptions = Object.assign({}, options || {});
-        var useLoader = requestOptions.silentLoader !== true;
-        var loaderText = requestOptions.loaderText || 'Синхронизация...';
-        delete requestOptions.silentLoader;
-        delete requestOptions.loaderText;
-        if (useLoader && typeof window.showLoader === 'function') window.showLoader(loaderText);
-        return authHeaders().then(function (headers) {
-            return fetch(path, {
-                method: requestOptions.method || 'POST',
-                body: formData,
-                credentials: 'same-origin',
-                headers: Object.assign({ Accept: 'application/json' }, headers, requestOptions.headers || {})
-            }).then(function (response) {
-                return response.json().catch(function () { return {}; }).then(function (payload) {
-                    if (!response.ok) {
-                        var error = new Error(payload.error || 'request_failed');
-                        error.status = response.status;
-                        error.payload = payload;
-                        throw error;
-                    }
-                    return payload;
-                });
-            });
-        }).finally(function () {
-            if (useLoader && typeof window.hideLoader === 'function') window.hideLoader();
-        });
-    }
-
-    function money(value) {
-        return new Intl.NumberFormat('ru-RU').format(Number(value) || 0) + ' ₽';
-    }
-
-    function percent(value) {
-        return Math.max(0, Math.min(100, Number(value) || 0));
-    }
-
-    function progressSectionId(value) {
-        return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ') || 'без раздела';
-    }
-
-    function canonicalEstimateSectionTitle(value) {
-        var clean = String(value || '').replace(/\s+/g, ' ').trim();
-        if (!clean) return 'Без раздела';
-        var normalized = clean.toLocaleLowerCase('ru').replace(/ё/g, 'е');
-        if (normalized === 'подготовка' || /^раздел\s*0?1\.?\s*подготовка$/.test(normalized)) {
-            return 'Раздел 1. Окна и фасад';
-        }
-        return clean;
-    }
-
-    function canonicalEstimateSectionId(value) {
-        return progressSectionId(canonicalEstimateSectionTitle(value));
-    }
-
-    function progressSelectorValue(value) {
-        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(value || ''));
-        return String(value || '').replace(/["\\]/g, '\\$&');
-    }
-
-    function updateProjectProgressState(projectId, totalProjectPercent, projectPayload) {
-        var nextPercent = percent(totalProjectPercent);
-        function applyProject(project) {
-            if (!project || Number(project.id) !== Number(projectId)) return project;
-            if (projectPayload) Object.assign(project, projectPayload);
-            project.progress = nextPercent;
-            return project;
-        }
-        state.projects = (state.projects || []).map(applyProject);
-        if (state.selectedProject) applyProject(state.selectedProject);
-    }
-
-    function updateProgressNode(root, value, text) {
-        var safePercent = percent(value);
-        qsa('.progress i, .progress-strong-track i, .section-schedule-progress-bar > span, i > em', root).forEach(function (bar) {
-            if (bar.closest && bar.closest('.schedule-progress-milestones')) return;
-            bar.style.width = safePercent + '%';
-        });
-        qsa('[data-progress-text], .section-schedule-progress-value, .progress-strong-head strong, .section-schedule-progress-meta strong', root).forEach(function (label) {
-            label.textContent = text || (safePercent + '%');
-        });
-    }
-
-    function updateUIProgress(sectionId, sectionPercent, totalProjectPercent, kind) {
-        var normalizedId = progressSectionId(sectionId);
-        var safeSection = percent(sectionPercent);
-        var safeTotal = percent(totalProjectPercent);
-        var sectionSelector = progressSelectorValue(normalizedId);
-        qsa('[data-section-progress="' + sectionSelector + '"], [data-progress-section-id="' + sectionSelector + '"]').forEach(function (node) {
-            var nodeKind = node.getAttribute('data-section-progress-kind') || '';
-            if (kind && nodeKind && nodeKind !== kind) return;
-            updateProgressNode(node, safeSection, safeSection + '%');
-            node.setAttribute('aria-valuenow', String(safeSection));
-        });
-        qsa('[data-project-total-progress]').forEach(function (node) {
-            updateProgressNode(node, safeTotal, safeTotal + '%');
-            node.setAttribute('aria-valuenow', String(safeTotal));
-        });
-    }
-
-    function applyProgressApiResponse(projectId, data, sectionFallback) {
-        if (!data) return;
-        if (Array.isArray(data.items)) {
-            state.materialsByProject[projectId] = data.items;
-            var byId = {};
-            data.items.forEach(function (item) { byId[Number(item.id || 0)] = item; });
-            var schedule = state.sectionScheduleByProject && state.sectionScheduleByProject[projectId];
-            (Array.isArray(schedule && schedule.sections) ? schedule.sections : []).forEach(function (section) {
-                (Array.isArray(section.items) ? section.items : []).forEach(function (item) {
-                    var fresh = byId[Number(item.id || 0)];
-                    if (!fresh) return;
-                    item.isCompleted = !!fresh.isCompleted;
-                    item.actualQty = Number(fresh.actualQty || 0);
-                });
-            });
-        }
-        var progress = data.progress || {};
-        var section = progress.section || {};
-        var sectionId = section.sectionId || sectionFallback || '';
-        var projectPercent = progress.totalProjectPercent != null ? progress.totalProjectPercent : (progress.projectProgress != null ? progress.projectProgress : data.project_progress);
-        updateProjectProgressState(projectId, projectPercent, data.project);
-        updateUIProgress(sectionId, section.percent || 0, projectPercent, progress.kind || data.kind || '');
-    }
-
-    function isoDateAdd(isoDate, days) {
-        if (!isoDate) return '';
-        var date = new Date(isoDate + 'T00:00:00');
-        date.setDate(date.getDate() + Number(days || 0));
-        return date.toISOString().slice(0, 10);
-    }
-
-    function formatRuDate(isoDate) {
-        return formatDisplayDate(isoDate);
-    }
-
-    function downloadTextFile(filename, text, mimeType) {
-        var blob = new Blob(['\uFEFF' + text], { type: mimeType || 'text/plain;charset=utf-8' });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(function () {
-            URL.revokeObjectURL(url);
-        }, 250);
-    }
-
-    function csvCell(value) {
-        var text = String(value == null ? '' : value).replace(/"/g, '""');
-        return '"' + text + '"';
-    }
-
-    function downloadCsv(filename, rows) {
-        var text = rows.map(function (row) {
-            return row.map(csvCell).join(';');
-        }).join('\n');
-        downloadTextFile(filename, text, 'text/csv;charset=utf-8');
-    }
-
-    function normalizeRole(role) {
-        if (role && typeof role === 'object') role = role.code || role.role || role.name || '';
-        if (role === 'buyer') return 'purchaser';
-        if (role === 'client') return 'customer';
-        return role;
-    }
-
-    function hasRole(role) {
-        var user = state.currentUser || state.user;
-        if (!user) return false;
-        var current = normalizeRole(user.role);
-        if (current === role) return true;
-        var roles = Array.isArray(user.roles) ? user.roles : [];
-        return roles.map(normalizeRole).indexOf(role) !== -1;
-    }
-
-    function currentRoleLabel(user) {
-        user = user || state.currentUser || state.user || {};
-        var role = normalizeRole(user.role);
-        if (role === 'main_admin') return 'Главный Админ';
-        if (role === 'admin') return '\u0410\u0414\u041c\u0418\u041d';
-        if (role === 'director') return '\u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440';
-        if (role === 'foreman') return '\u041f\u0440\u043e\u0440\u0430\u0431';
-        return user.roleLabel || role || '\u041f\u0440\u043e\u0440\u0430\u0431';
-    }
-
-    function isSuperAdminRole() {
-        return hasRole('admin');
-    }
-
-    function isMainAdminRole() {
-        return hasRole('main_admin') || isBootstrapAdminUser(state.currentUser || state.user || {});
-    }
-
-    function isDirectorRole() {
-        return isSuperAdminRole() || hasRole('director');
-    }
-
-    function isForemanRole() {
-        return hasRole('foreman') && !isDirectorRole();
-    }
-
-    function isAdminRole() {
-        return hasRole('admin') || hasRole('director');
-    }
-
-    function currentPermissions() {
-        var user = state.currentUser || state.user || {};
-        return user.permissions && typeof user.permissions === 'object' ? user.permissions : {};
-    }
-
-    function personDisplayName(user) {
-        user = user || {};
-        var display = String(user.displayName || '').trim();
-        if (display) return display;
-        var full = [user.lastName || user.last_name || '', user.firstName || user.first_name || ''].map(function (part) {
-            return String(part || '').trim();
-        }).filter(Boolean).join(' ');
-        return full || user.name || user.login || '';
-    }
-
-    function allowedModules() {
-        var permissions = currentPermissions();
-        if (permissions.fullAccess) {
-            return ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'chats', 'users', 'reports'];
-        }
-        var modules = Array.isArray(permissions.modules) ? permissions.modules.slice() : [];
-        if (modules.indexOf('users') === -1) modules.push('users');
-        return modules;
-    }
-
-    function canManageTeam() {
-        return isMainAdminRole();
-    }
-
-    function canManageDailyTasks() {
-        var permissions = currentPermissions();
-        return !!(permissions.fullAccess || permissions.dailyTasks === 'all' || isDirectorRole());
-    }
-
-    function canViewPrivateContacts() {
-        var user = state.currentUser || state.user || {};
-        return isBootstrapAdminUser(user);
-    }
-
-    function canSeeFinances() {
-        return !!(state.currentUser || state.user);
-    }
-
-    function canManageSuppliers() {
-        return hasRole('admin') || hasRole('director') || hasRole('foreman') || hasRole('purchaser');
-    }
-
-    function canManageDocuments() {
-        return hasRole('admin') || hasRole('director') || hasRole('foreman') || hasRole('purchaser') || hasRole('financier') || hasRole('accountant');
-    }
-
-    function canManageSchedule() {
-        return hasRole('admin') || hasRole('director') || hasRole('foreman');
-    }
-
-    function nextPath() {
-        var params = new URLSearchParams(location.search);
-        var next = params.get('next');
-        return next && next.indexOf('/app/') === 0 ? next : '/app/dashboard';
-    }
-
     function showLoginError(message) {
         var error = qs('[data-login-error]');
         if (!error) return;
@@ -2986,42 +2251,60 @@
             event.preventDefault();
             var error = qs('[data-auto-schedule-error]');
             if (error) error.classList.remove('active');
+            var activeProjectId = form.getAttribute('data-project-id') || form.dataset.projectId || projectId;
+            var startInput = form.elements && form.elements.start_date ? form.elements.start_date : form.querySelector('input[name="start_date"]');
+            var requestedStart = startInput && startInput.value ? startInput.value : APP_TODAY;
+            var autoScheduleStep = 'запрос автоплана';
             withSubmitLock(form, function () {
-                closeAutoScheduleDrawer();
-                return api('/api/projects/' + projectId + '/auto-schedule', {
+                return api('/api/projects/' + encodeURIComponent(activeProjectId) + '/auto-schedule', {
                 method: 'POST',
                 body: JSON.stringify({
-                    start_date: form.start_date.value
+                    start_date: requestedStart
                 })
             }).then(function (data) {
+                autoScheduleStep = 'обновление состояния проекта';
                 updateProjectInState(data.project);
-                state.schedulePlanByProject[projectId] = data.summary || null;
-                setScheduleBriefPinned(projectId, true);
-                state.stagesByProject[projectId] = null;
-                state.materialsByProject[projectId] = null;
-                if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
-                return api('/api/projects/' + projectId + '/material-schedule', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        start_date: form.start_date.value,
-                        schedule: data.materialSchedule || null
-                    })
-                }).then(function (schedule) {
-                    setMaterialScheduleForProject(projectId, schedule || { items: [] });
-                    openProject(projectId);
-                    activateProjectTab('schedule');
-                    loadMaterialSchedule(projectId, function (freshSchedule) {
-                        var details = scheduleProjectDetails(projectId);
-                        if (details) {
-                            details.materialSchedule = freshSchedule;
-                            setScheduleProjectDetails(projectId, details);
-                        }
-                        replaceSelectedProjectMaterialCalendar(projectId);
-                    }, true);
+                state.schedulePlanByProject[activeProjectId] = data.summary || null;
+                setScheduleBriefPinned(activeProjectId, true);
+                state.stagesByProject[activeProjectId] = null;
+                state.materialsByProject[activeProjectId] = null;
+                if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(activeProjectId)];
+                autoScheduleStep = 'загрузка календаря материалов';
+                return api('/api/projects/' + encodeURIComponent(activeProjectId) + '/material-schedule?fresh=1').then(function (schedule) {
+                    autoScheduleStep = 'обновление календаря на странице';
+                    closeAutoScheduleDrawer();
+                    setMaterialScheduleForProject(activeProjectId, schedule || { items: [] });
+                    try {
+                        openProject(activeProjectId);
+                        activateProjectTab('schedule');
+                        loadMaterialSchedule(activeProjectId, function (freshSchedule) {
+                            var details = scheduleProjectDetails(activeProjectId);
+                            if (details) {
+                                details.materialSchedule = freshSchedule;
+                                setScheduleProjectDetails(activeProjectId, details);
+                            }
+                            replaceSelectedProjectMaterialCalendar(activeProjectId);
+                        }, true);
+                    } catch (renderError) {
+                        if (window.console && console.error) console.error('Auto schedule saved, but refresh failed:', renderError);
+                        showAppNotice('График пересчитан. Обновите страницу, если календарь не обновился автоматически.', 'warn');
+                    }
                 });
             }).catch(function (err) {
+                var rawMessage = err && err.payload && (err.payload.message || err.payload.error)
+                    ? (err.payload.message || err.payload.error)
+                    : (err && err.message ? err.message : 'Неизвестная ошибка');
+                var statusText = err && err.status ? ('HTTP ' + err.status + ': ') : '';
+                var message = 'Автоплан: ' + autoScheduleStep + '. ' + statusText + rawMessage;
+                if (window.console && console.error) console.error('Auto schedule failed:', {
+                    step: autoScheduleStep,
+                    status: err && err.status,
+                    payload: err && err.payload,
+                    error: err
+                });
+                if (typeof window.alert === 'function') window.alert(message);
                 if (error) {
-                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось построить график';
+                    error.textContent = message;
                     error.classList.add('active');
                 }
             });
@@ -5600,30 +4883,6 @@
         if (code === 'director') return ' is-director';
         if (code === 'foreman') return ' is-foreman';
         return '';
-    }
-
-    function isBootstrapAdminUser(user) {
-        return normalizeRole(user && user.role) === 'admin' || String(user && user.login || '').trim().toLowerCase() === 'admin';
-    }
-
-    function effectiveUserRoles(user) {
-        if (isBootstrapAdminUser(user)) return [{ code: 'admin', name: '\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440' }];
-        return Array.isArray(user && user.roles) && user.roles.length
-            ? user.roles
-            : [{ code: user && user.role, name: user && (user.roleLabel || user.role) }];
-    }
-
-    function userInitials(user) {
-        user = user || {};
-        var first = String(user.firstName || user.first_name || '').trim();
-        var last = String(user.lastName || user.last_name || '').trim();
-        if (first) return first.charAt(0).toLocaleUpperCase('ru');
-        if (last) return last.charAt(0).toLocaleUpperCase('ru');
-        var source = String(personDisplayName(user) || user.login || '?').trim();
-        var parts = source.split(/\s+/).filter(Boolean);
-        return parts.slice(0, 1).map(function (part) {
-            return part.charAt(0).toLocaleUpperCase('ru');
-        }).join('') || '?';
     }
 
     function userAssignedProjects(user) {
@@ -16006,37 +15265,27 @@ function renderLogsDayView(project, logs) {
                 closeDayMaterialsModal();
             }
         });
-        modal.addEventListener('click', function (event) {
-            var button = event.target && event.target.closest ? event.target.closest('[data-calendar-modal-mark-purchased]') : null;
-            if (!button) return;
-            event.preventDefault();
-            var projectId = button.getAttribute('data-project-id') || '';
-            var materialId = button.getAttribute('data-material-id') || '';
-            var item = materialScheduleFindItem(projectId, materialId);
-            if (!item) return;
-            withSubmitLock(button, function () {
-                return api('/api/projects/' + projectId + '/stock-moves', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        estimate_item_id: Number(materialId),
-                        move_type: 'purchase',
-                        qty: Math.max(0.01, Number(item.missingQty || item.plannedQty || 1)),
-                        price: Number(item.plannedPrice || 0),
-                        comment: 'Отмечено из календаря закупок'
-                    })
-                }).then(function () {
-                    item.status = 'purchased';
-                    item.statusLabel = 'Закуплено/в пути';
-                    item.color = 'done';
-                    item.missingQty = 0;
-                    updateMaterialScheduleItemDom(materialId, true);
-                    showDayMaterialsModal(projectId, modal.getAttribute('data-calendar-modal-day'), materialScheduleDayItems(projectId, modal.getAttribute('data-calendar-modal-day')));
-                });
-            }).catch(function (error) {
-                showAppNotice(appErrorMessage(error, 'Не удалось обновить статус материала'), 'error');
-            });
-        });
         document.body.appendChild(modal);
+        modal.addEventListener('click', function (event) {
+            var goto = event.target && event.target.closest ? event.target.closest('[data-calendar-modal-goto-material]') : null;
+            if (!goto) return;
+            event.preventDefault();
+            event.stopPropagation();
+            var projectId = Number(goto.getAttribute('data-project-id') || modal.getAttribute('data-project-id') || 0);
+            var materialId = goto.getAttribute('data-material-id') || '';
+            closeDayMaterialsModal();
+            window.setTimeout(function () {
+                if (state.selectedProject && Number(state.selectedProject.id) === projectId) activateProjectTab('schedule');
+                focusProjectMaterialRow(materialId, projectId);
+            }, 220);
+        });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            var goto = event.target && event.target.closest ? event.target.closest('[data-calendar-modal-goto-material]') : null;
+            if (!goto) return;
+            event.preventDefault();
+            goto.click();
+        });
         if (!document.body.dataset.calendarModalEscBound) {
             document.body.dataset.calendarModalEscBound = '1';
             document.addEventListener('keydown', function (event) {
@@ -16046,19 +15295,6 @@ function renderLogsDayView(project, logs) {
         return modal;
     }
 
-    function renderDayMaterialModalRow(projectId, item) {
-        var qty = finalSectionSummaryNumber(item.plannedQty || item.planned_qty || 0) + ' ' + (item.unit || 'ед.');
-        var status = item.statusLabel || materialScheduleDayText(item) || 'В плане';
-        var hasMissingQty = item.missingQty !== undefined && item.missingQty !== null && item.missingQty !== '';
-        var done = String(item.status || '') === 'purchased' || String(item.status || '') === 'in_stock' || (hasMissingQty && Number(item.missingQty) <= 0);
-        return '<article class="calendar-modal-row ' + materialScheduleStatusClass(item) + '" data-material-id="' + escapeHtml(item.id || '') + '">' +
-            '<div class="calendar-modal-row-main">' +
-                '<strong><span>' + escapeHtml(qty) + '</span> ' + escapeHtml(item.title || 'Материал') + '</strong>' +
-                '<small>' + escapeHtml(status) + '</small>' +
-            '</div>' +
-            '<button class="ghost compact calendar-modal-status-btn" type="button" data-calendar-modal-mark-purchased data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(item.id || '') + '"' + (done ? ' disabled' : '') + '>' + (done ? 'Готово' : 'Куплено/в пути') + '</button>' +
-        '</article>';
-    }
 
     function materialModalQuantityMeta(item) {
         var plan = quantityPlanInfo(item);
@@ -16070,19 +15306,46 @@ function renderLogsDayView(project, logs) {
         };
     }
 
-    renderDayMaterialModalRow = function (projectId, item) {
+
+    function renderDayMaterialModalRow(projectId, item) {
         var qty = materialModalQuantityMeta(item);
         var done = isMaterialDone(projectId, item);
-        var status = done ? 'Р“РѕС‚РѕРІРѕ' : (item.statusLabel || materialScheduleDayText(item) || 'Р’ РїР»Р°РЅРµ');
+        var status = done ? 'Готово' : (item.statusLabel || materialScheduleDayText(item) || 'В плане');
         var statusClass = done ? 'is-done' : materialScheduleStatusClass(item).replace('is-done', 'is-neutral');
-        return '<article class="calendar-modal-row ' + statusClass + (done ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '" data-material-id="' + escapeHtml(item.id || '') + '">' +
-            '<label class="calendar-modal-check"><input type="checkbox" data-section-material-check data-calendar-material-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(item.sectionTitle || item.stageTitle || '') + '" data-material-id="' + escapeHtml(item.id || '') + '" data-material-title="' + escapeHtml(item.title || '') + '" data-material-unit="' + escapeHtml(item.unit || '') + '" data-material-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : item.planned_qty || '')) + '"' + (done ? ' checked' : '') + '></label>' +
+        return '<article class="calendar-material-item calendar-modal-row ' + statusClass + (done ? ' is-done' : '') + '" role="button" tabindex="0" data-calendar-modal-goto-material data-project-id="' + escapeHtml(projectId || '') + '" data-item-id="' + escapeHtml(item.id || '') + '" data-material-id="' + escapeHtml(item.id || '') + '">' +
             '<div class="calendar-modal-row-main">' +
-                '<strong><span>' + escapeHtml(qty.main) + '</span> ' + escapeHtml(item.title || 'РњР°С‚РµСЂРёР°Р»') + '</strong>' +
+                '<strong><span>' + escapeHtml(qty.main) + '</span> ' + escapeHtml(item.title || 'Материал') + '</strong>' +
                 '<small>' + escapeHtml([status, qty.formula].filter(Boolean).join(' • ')) + '</small>' +
             '</div>' +
         '</article>';
-    };
+    }
+
+    function calendarModalSectionTitle(item) {
+        return String(item && (item.sectionTitle || item.section_title || item.stageTitle || item.section || '') || '').trim() || 'Без раздела';
+    }
+
+    function groupDayMaterialItemsBySection(items) {
+        var groups = [];
+        var byTitle = {};
+        (items || []).forEach(function (item) {
+            var title = calendarModalSectionTitle(item);
+            if (!byTitle[title]) {
+                byTitle[title] = { title: title, items: [] };
+                groups.push(byTitle[title]);
+            }
+            byTitle[title].items.push(item);
+        });
+        return groups;
+    }
+
+    function renderDayMaterialModalGroups(projectId, items) {
+        return groupDayMaterialItemsBySection(items).map(function (group) {
+            return '<section class="calendar-section-group calendar-modal-section">' +
+                '<header class="calendar-modal-section-head"><h4>' + escapeHtml(group.title) + '</h4><span>' + escapeHtml(String(group.items.length) + ' поз.') + '</span></header>' +
+                '<div class="calendar-modal-section-items">' + group.items.map(function (item) { return renderDayMaterialModalRow(projectId, item); }).join('') + '</div>' +
+            '</section>';
+        }).join('');
+    }
 
     function showDayMaterialsModal(projectId, day, items) {
         if (!day || !Array.isArray(items) || !items.length) return;
@@ -16103,7 +15366,7 @@ function renderLogsDayView(project, logs) {
                 '<p>Закупки</p>' +
                 '<h3 id="calendar-modal-title">Закупки на ' + escapeHtml(formatDisplayDate(day)) + '</h3>' +
             '</div>' +
-            '<div class="calendar-modal-list">' + items.map(function (item) { return renderDayMaterialModalRow(projectId, item); }).join('') + '</div>';
+            '<div class="calendar-modal-list calendar-modal-section-list">' + renderDayMaterialModalGroups(projectId, items) + '</div>';
         safeReplaceChildren(content, html);
         modal.hidden = false;
         window.requestAnimationFrame(function () {
@@ -16304,13 +15567,57 @@ function renderLogsDayView(project, logs) {
         }, force);
     }
 
-    function focusProjectMaterialRow(materialId) {
-        var input = qs('[data-section-material-check][data-material-id="' + String(materialId) + '"]');
-        var row = input && input.closest ? input.closest('.material-row') : null;
+    function focusProjectMaterialRow(materialId, projectId) {
+        if (!projectId) {
+            var legacyInput = qs('[data-section-material-check][data-material-id="' + progressSelectorValue(materialId) + '"]');
+            var legacyRow = legacyInput && legacyInput.closest ? legacyInput.closest('.material-row') : null;
+            if (!legacyRow) return;
+            legacyRow.classList.remove('material-row-focus');
+            void legacyRow.offsetWidth;
+            legacyRow.classList.add('material-row-focus');
+            legacyRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(function () { legacyRow.classList.remove('material-row-focus'); }, 3000);
+            return;
+        }
+        var schedulePanel = qs('[data-panel="schedule"]');
+        var scope = schedulePanel || document;
+        var input = qs('[data-section-material-check][data-material-id="' + progressSelectorValue(materialId) + '"]', scope);
+        var row = input && input.closest ? input.closest('.section-material-check, .section-work-check, .material-row') : null;
         if (!row) return;
+        var section = row.closest ? row.closest('.section-schedule-card') : null;
+        var head = section && section.querySelector ? section.querySelector('[data-section-schedule-toggle]') : null;
+        if (section && !section.classList.contains('is-open')) {
+            var body = section.querySelector ? section.querySelector('.section-schedule-details-shell') : null;
+            var chevron = head && head.querySelector ? head.querySelector('.section-schedule-chevron') : null;
+            section.classList.add('is-open');
+            if (head) {
+                head.setAttribute('aria-expanded', 'true');
+                var targetProjectId = Number(projectId || head.getAttribute('data-project-id') || (state.selectedProject && state.selectedProject.id) || 0);
+                var key = head.getAttribute('data-section-key') || '';
+                var summary = state.sectionScheduleByProject && state.sectionScheduleByProject[targetProjectId];
+                var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
+                var scheduleSection = sections.find(function (entry) { return scheduleSectionKey(entry) === key; });
+                if (scheduleSection) setScheduleSectionOpen(targetProjectId, scheduleSection, true);
+            }
+            if (body) {
+                body.classList.add('is-open');
+                body.setAttribute('aria-hidden', 'false');
+            }
+            if (chevron) chevron.textContent = '-';
+        }
+        if (head) {
+            head.classList.remove('section-schedule-focus');
+            void head.offsetWidth;
+            head.classList.add('section-schedule-focus');
+        }
+        row.classList.remove('material-row-focus');
+        void row.offsetWidth;
         row.classList.add('material-row-focus');
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setTimeout(function () { row.classList.remove('material-row-focus'); }, 1800);
+        (head || section || row).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(function () {
+            if (head) head.classList.remove('section-schedule-focus');
+            row.classList.remove('material-row-focus');
+        }, 3000);
     }
 
     function bindMaterialScheduleTimeline() {
@@ -18043,1135 +17350,6 @@ function renderLogsDayView(project, logs) {
             projectOverviewWidgetControlV2(project, tasks, logs) +
         '</div>';
     };
-
-    function dailyTaskStatusLabel(status) {
-        return {
-            planned: 'План на сегодня',
-            in_progress: 'В процессе',
-            done: 'Выполнено',
-            archived: 'Архив'
-        }[status] || 'План на сегодня';
-    }
-
-    function dailyTaskColumns() {
-        return [
-            { status: 'planned', title: 'План на сегодня', icon: 'list-todo' },
-            { status: 'in_progress', title: 'В процессе', icon: 'loader-circle' },
-            { status: 'done', title: 'Выполнено', icon: 'badge-check' }
-        ];
-    }
-
-    function dailyTaskTime(value) {
-        if (!value) return '';
-        var date = new Date(value);
-        if (Number.isNaN(date.getTime())) {
-            var match = String(value).match(/T(\d{2}):(\d{2})/);
-            return match ? match[1] + ':' + match[2] : '';
-        }
-        return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
-    }
-
-    function dailyTaskUserName(task) {
-        if (task.userName) return task.userName;
-        var match = dailyTaskUsers().filter(function (user) {
-            return Number(user.id) === Number(task.userId);
-        })[0];
-        return match ? match.name : '';
-    }
-
-    function dailyTaskVisibleUsers() {
-        return dailyTaskUsers().filter(function (user) {
-            var role = normalizeRole(user.role);
-            return role !== 'customer' && role !== 'client';
-        });
-    }
-
-    function renderDailyTaskProgress(tasks) {
-        var root = qs('[data-daily-progress]');
-        if (!root) return;
-        var total = tasks.length;
-        var done = tasks.filter(function (task) { return task.status === 'done'; }).length;
-        var active = tasks.filter(function (task) { return task.status === 'in_progress'; }).length;
-        var percentValue = total ? Math.round((done / total) * 100) : 0;
-        safeReplaceChildren(root,
-            '<span><b>' + done + '/' + total + '</b> выполнено</span>' +
-            '<span><b>' + active + '</b> в процессе</span>' +
-            '<span class="daily-task-progress-bar"><i style="width:' + percentValue + '%"></i></span>'
-        );
-    }
-
-    function renderDailyTaskCard(task) {
-        var completedTime = task.completedAt ? dailyTaskTime(task.completedAt) : '';
-        var userName = dailyTaskUserName(task);
-        return '<article class="daily-task-card" data-daily-task-card data-daily-task-id="' + escapeHtml(task.id) + '" data-daily-task-status="' + escapeHtml(task.status) + '">' +
-            '<div class="daily-task-card-top">' +
-                '<span class="daily-task-pill">' + escapeHtml(dailyTaskStatusLabel(task.status)) + '</span>' +
-                '<button class="daily-task-icon-btn" type="button" data-daily-task-archive title="Отправить в архив" aria-label="Отправить в архив"><i data-lucide="archive"></i></button>' +
-            '</div>' +
-            '<p class="daily-task-text">' + escapeHtml(task.text) + '</p>' +
-            '<div class="daily-task-meta">' +
-                (canManageDailyTasks() ? '<span><i data-lucide="user-round"></i>' + escapeHtml(userName || 'Сотрудник') + '</span>' : '') +
-                '<span><i data-lucide="calendar"></i>' + escapeHtml(formatDisplayDate(task.date)) + '</span>' +
-                (completedTime ? '<span class="daily-task-done-time"><i data-lucide="clock"></i>Выполнено в ' + escapeHtml(completedTime) + '</span>' : '') +
-            '</div>' +
-        '</article>';
-    }
-
-    function renderDailyTaskBoard(tasks) {
-        var root = qs('[data-daily-board]');
-        if (!root) return;
-        var html = dailyTaskColumns().map(function (column) {
-            var items = tasks.filter(function (task) { return task.status === column.status; });
-            return '<section class="daily-task-column" data-daily-drop-list data-daily-status="' + escapeHtml(column.status) + '">' +
-                '<div class="daily-task-column-head">' +
-                    '<h3><i data-lucide="' + escapeHtml(column.icon) + '"></i><span>' + escapeHtml(column.title) + '</span></h3>' +
-                    '<b>' + items.length + '</b>' +
-                '</div>' +
-                '<div class="daily-task-list">' + (items.length ? items.map(renderDailyTaskCard).join('') : '<div class="daily-task-empty">Задач нет</div>') + '</div>' +
-            '</section>';
-        }).join('');
-        safeReplaceChildren(root, html);
-        renderDailyTaskProgress(tasks);
-        refreshLucideIcons(root);
-        initDailyTaskDragAndDrop();
-    }
-
-    function renderDailyTaskArchive(tasks) {
-        var root = qs('[data-daily-archive-list]');
-        if (!root) return;
-        if (!tasks.length) {
-            safeReplaceChildren(root, '<div class="daily-task-empty archive-empty">Архив пока пуст</div>');
-            return;
-        }
-        safeReplaceChildren(root, '<div class="daily-task-archive-list">' + tasks.map(function (task) {
-            var doneTime = task.completedAt ? dailyTaskTime(task.completedAt) : '';
-            return '<article class="daily-task-archive-row">' +
-                '<div><strong>' + escapeHtml(task.text) + '</strong><small>' + escapeHtml(dailyTaskUserName(task) || 'Сотрудник') + ' · ' + escapeHtml(formatDisplayDate(task.date)) + '</small></div>' +
-                '<span class="daily-task-pill">' + escapeHtml(task.status === 'archived' ? 'Отменено' : (doneTime ? 'Выполнено в ' + doneTime : 'Выполнено')) + '</span>' +
-            '</article>';
-        }).join('') + '</div>');
-        refreshLucideIcons(root);
-    }
-
-    function dailyTaskQuery(archive) {
-        var params = new URLSearchParams();
-        if (archive) params.set('archive', '1');
-        if (canManageDailyTasks() && state.dailySelectedUserId && state.dailySelectedUserId !== 'all') {
-            params.set('userId', state.dailySelectedUserId);
-        }
-        var query = params.toString();
-        return '/api/daily-tasks' + (query ? '?' + query : '');
-    }
-
-    function loadDailyTasks() {
-        return api(dailyTaskQuery(false)).then(function (data) {
-            state.dailyTasks = Array.isArray(data.tasks) ? data.tasks : [];
-            renderDailyTaskBoard(state.dailyTasks);
-        }).catch(function (error) {
-            showAppNotice(appErrorMessage(error, 'Не удалось загрузить задачи сотрудников.'), 'error');
-        });
-    }
-
-    function loadDailyArchive() {
-        return api(dailyTaskQuery(true)).then(function (data) {
-            state.dailyArchive = Array.isArray(data.tasks) ? data.tasks : [];
-            renderDailyTaskArchive(state.dailyArchive);
-        }).catch(function (error) {
-            showAppNotice(appErrorMessage(error, 'Не удалось загрузить архив задач.'), 'error');
-        });
-    }
-
-    function updateDailyTask(taskId, payload) {
-        return api('/api/daily-tasks/' + encodeURIComponent(taskId) + '/update', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-    }
-
-    function syncDailyTaskDropLists() {
-        qsa('[data-daily-drop-list]').forEach(function (column) {
-            var list = qs('.daily-task-list', column);
-            var cards = qsa('[data-daily-task-card]', list);
-            var empty = qs('.daily-task-empty', list);
-            if (!cards.length && !empty) {
-                empty = document.createElement('div');
-                empty.className = 'daily-task-empty';
-                empty.textContent = 'Задач нет';
-                list.appendChild(empty);
-            }
-            if (empty) empty.hidden = cards.length > 0;
-            var count = qs('.daily-task-column-head b', column);
-            if (count) count.textContent = String(cards.length);
-        });
-    }
-
-    function initDailyTaskDragAndDrop() {
-        if (!window.Sortable) {
-            if (window.console) console.warn('SortableJS не загружен: перетаскивание задач сотрудников отключено.');
-            return;
-        }
-        qsa('[data-daily-drop-list] .daily-task-list').forEach(function (list) {
-            if (list.dataset.sortableBound === '1') return;
-            list.dataset.sortableBound = '1';
-            window.Sortable.create(list, {
-                group: 'daily-tasks',
-                animation: 150,
-                invertSwap: true,
-                swapThreshold: 0.22,
-                draggable: '[data-daily-task-card]',
-                handle: '[data-daily-task-card]',
-                filter: 'button, input, select, textarea, option, p, span, strong, small, .daily-task-text, .daily-task-meta',
-                preventOnFilter: false,
-                ghostClass: 'daily-sortable-ghost',
-                chosenClass: 'daily-sortable-chosen',
-                dragClass: 'daily-sortable-drag',
-                fallbackClass: 'daily-sortable-drag',
-                forceFallback: true,
-                fallbackOnBody: true,
-                emptyInsertThreshold: 24,
-                onChoose: function (event) {
-                    qsa('.daily-task-list').forEach(function (dropList) { dropList.classList.add('is-drop-ready'); });
-                    if (event.item) event.item.classList.add('is-daily-dragging-source');
-                },
-                onUnchoose: function (event) {
-                    qsa('.daily-task-list').forEach(function (dropList) { dropList.classList.remove('is-drop-ready', 'is-drag-over'); });
-                    if (event.item) event.item.classList.remove('is-daily-dragging-source');
-                },
-                onMove: function (event) {
-                    qsa('.daily-task-list').forEach(function (dropList) {
-                        dropList.classList.toggle('is-drag-over', dropList === event.to);
-                    });
-                    return true;
-                },
-                onEnd: function (event) {
-                    qsa('.daily-task-list').forEach(function (dropList) { dropList.classList.remove('is-drop-ready', 'is-drag-over'); });
-                    syncDailyTaskDropLists();
-                    var card = event.item;
-                    var targetColumn = event.to ? event.to.closest('[data-daily-drop-list]') : null;
-                    var status = targetColumn ? targetColumn.dataset.dailyStatus : '';
-                    var previousStatus = card ? card.dataset.dailyTaskStatus : '';
-                    if (!card || !status || status === previousStatus) return;
-                    card.classList.add('is-daily-saving');
-                    updateDailyTask(card.dataset.dailyTaskId, {
-                        status: status,
-                        text: qs('.daily-task-text', card) ? qs('.daily-task-text', card).textContent : ''
-                    }).then(function () {
-                        return loadDailyTasks();
-                    }).catch(function (error) {
-                        showAppNotice(appErrorMessage(error, 'Не удалось перенести задачу.'), 'error');
-                        loadDailyTasks();
-                    });
-                }
-            });
-        });
-    }
-
-    function renderDailyUserFilter() {
-        var tools = qs('[data-daily-director-tools]');
-        var select = qs('[data-daily-user-filter]');
-        if (!tools || !select) return;
-        tools.hidden = !canManageDailyTasks();
-        if (!canManageDailyTasks()) return;
-        var options = '<option value="all">Все сотрудники</option>' + dailyTaskVisibleUsers().map(function (user) {
-            return '<option value="' + escapeHtml(user.id) + '"' + (String(state.dailySelectedUserId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(personDisplayName(user) || user.login) + '</option>';
-        }).join('');
-        safeReplaceChildren(select, options);
-        if (select.dataset.bound !== '1') {
-            select.dataset.bound = '1';
-            select.addEventListener('change', function () {
-                state.dailySelectedUserId = select.value || 'all';
-                loadDailyTasks();
-                if (!qs('[data-daily-archive]').hidden) loadDailyArchive();
-            });
-        }
-    }
-
-    function ensureDailyQuickModal() {
-        var modal = qs('[data-daily-quick-modal]');
-        if (modal) return modal;
-        modal = document.createElement('div');
-        modal.className = 'daily-standup-modal';
-        modal.setAttribute('data-daily-quick-modal', '');
-        modal.hidden = true;
-        modal.innerHTML =
-            '<button class="daily-standup-backdrop" type="button" data-daily-quick-close aria-label="Закрыть"></button>' +
-            '<section class="daily-standup-dialog" role="dialog" aria-modal="true" aria-label="Новая задача">' +
-                '<div class="daily-standup-head"><div><span class="section-label">Новая задача</span><h3>Добавить в план</h3></div><button class="ghost compact" type="button" data-daily-quick-close>Закрыть</button></div>' +
-                '<form data-daily-quick-form><textarea name="text" rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea><div class="daily-standup-actions"><button class="primary" type="submit">Добавить</button></div></form>' +
-            '</section>';
-        modal.addEventListener('click', function (event) {
-            if (event.target.closest('[data-daily-quick-close]')) modal.hidden = true;
-        });
-        qs('[data-daily-quick-form]', modal).addEventListener('submit', function (event) {
-            event.preventDefault();
-            var form = event.currentTarget;
-            withSubmitLock(form, function () {
-                return api('/api/daily-tasks', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        text: form.text.value,
-                        userId: canManageDailyTasks() && state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : undefined
-                    })
-                }).then(function () {
-                    form.reset();
-                    modal.hidden = true;
-                    loadDailyTasks();
-                });
-            }).catch(function (error) {
-                showAppNotice(appErrorMessage(error, 'Не удалось добавить задачу.'), 'error');
-            });
-        });
-        document.body.appendChild(modal);
-        return modal;
-    }
-
-    function openDailyQuickModal() {
-        var modal = ensureDailyQuickModal();
-        modal.hidden = false;
-        var textarea = qs('textarea', modal);
-        if (textarea) textarea.focus();
-        refreshLucideIcons(modal);
-    }
-
-    function dailyStandupDateKey(date) {
-        var value = date || new Date();
-        var year = value.getFullYear();
-        var month = String(value.getMonth() + 1).padStart(2, '0');
-        var day = String(value.getDate()).padStart(2, '0');
-        return year + '-' + month + '-' + day;
-    }
-
-    function dailyStandupStorageKey() {
-        var userId = state.user && state.user.id ? String(state.user.id) : 'anonymous';
-        return 'last_standup_date_' + userId;
-    }
-
-    function dailyStandupCanCheckNow() {
-        var now = new Date();
-        if (now.getHours() < 8) return false;
-        try {
-            var today = dailyStandupDateKey(now);
-            return window.localStorage.getItem(dailyStandupStorageKey()) !== today;
-        } catch (error) {
-            return true;
-        }
-    }
-
-    function markDailyStandupDone(date) {
-        try {
-            var value = date || dailyStandupDateKey();
-            window.localStorage.setItem(dailyStandupStorageKey(), value);
-            if (window.localStorage.getItem('last_standup_date') === value) {
-                window.localStorage.removeItem('last_standup_date');
-            }
-        } catch (error) {}
-    }
-
-    function dailyStandupNewTasks(modal) {
-        return qsa('[data-daily-standup-new-task]', modal).map(function (node) {
-            return (node.textContent || '').trim();
-        }).filter(Boolean);
-    }
-
-    function renderDailyStandupNewTasks(modal, tasks) {
-        var list = qs('[data-daily-standup-new-list]', modal);
-        if (!list) return;
-        if (!tasks.length) {
-            safeReplaceChildren(list, '');
-            list.hidden = true;
-            return;
-        }
-        list.hidden = false;
-        safeReplaceChildren(list, tasks.map(function (task) {
-            return '<button class="daily-standup-new-task" type="button" data-daily-standup-new-task title="Убрать задачу">' + escapeHtml(task) + '</button>';
-        }).join(''));
-    }
-
-    function addDailyStandupNewTask(modal) {
-        var input = qs('[data-daily-standup-new-input]', modal);
-        if (!input) return;
-        var value = String(input.value || '').trim();
-        if (!value) return;
-        var tasks = dailyStandupNewTasks(modal);
-        value.split(/\n|;/).map(function (item) { return item.trim(); }).filter(Boolean).forEach(function (item) {
-            tasks.push(item);
-        });
-        input.value = '';
-        renderDailyStandupNewTasks(modal, tasks);
-        input.focus();
-    }
-
-    function closeDailyStandupModal(modal) {
-        if (!modal) return;
-        modal.classList.add('is-closing');
-        setTimeout(function () {
-            if (modal.parentNode) modal.parentNode.removeChild(modal);
-        }, 180);
-    }
-
-    function ensureDailyStandupModal(data) {
-        var modal = qs('[data-daily-standup-modal]');
-        if (modal) modal.remove();
-        data = data || {};
-        var carryover = Array.isArray(data.carryover) ? data.carryover : [];
-        modal = document.createElement('div');
-        modal.className = 'daily-standup-modal is-open';
-        modal.setAttribute('data-daily-standup-modal', '');
-        modal.innerHTML =
-            '<div class="daily-standup-backdrop"></div>' +
-            '<section class="daily-standup-dialog" role="dialog" aria-modal="true" aria-label="План на сегодня">' +
-                '<div class="daily-standup-head"><h3>План на сегодня 🚀</h3></div>' +
-                '<div class="daily-standup-block">' +
-                    '<strong>Перенести со вчера</strong>' +
-                    (carryover.length ? '<div class="daily-carryover-list">' + carryover.map(function (task) {
-                    return '<article class="daily-carryover-item" data-carryover-id="' + escapeHtml(task.id) + '" data-carryover-action="transfer">' +
-                        '<p>' + escapeHtml(task.text) + '</p>' +
-                        '<small>' + escapeHtml(formatDisplayDate(task.date)) + '</small>' +
-                        '<div><button class="ghost compact active" type="button" data-carryover-action-btn="transfer">Оставить на сегодня</button><button class="ghost compact" type="button" data-carryover-action-btn="archive">В архив</button></div>' +
-                    '</article>';
-                }).join('') + '</div>' : '<div class="daily-standup-empty">Нечего переносить</div>') +
-                '</div>' +
-                '<form data-daily-standup-form>' +
-                    '<div class="daily-standup-block">' +
-                        '<strong>+ Добавить новые задачи</strong>' +
-                        '<div class="daily-standup-new-row">' +
-                            '<input type="text" data-daily-standup-new-input placeholder="Новая задача">' +
-                            '<button class="ghost compact" type="button" data-daily-standup-new-add>Добавить</button>' +
-                        '</div>' +
-                        '<div class="daily-standup-new-list" data-daily-standup-new-list hidden></div>' +
-                    '</div>' +
-                    '<div class="daily-standup-actions"><button class="primary" type="submit">Начать рабочий день</button></div>' +
-                '</form>' +
-            '</section>';
-        modal.addEventListener('click', function (event) {
-            var button = event.target.closest('[data-carryover-action-btn]');
-            if (button) {
-                var item = button.closest('[data-carryover-id]');
-                if (!item) return;
-                item.dataset.carryoverAction = button.dataset.carryoverActionBtn;
-                qsa('[data-carryover-action-btn]', item).forEach(function (node) {
-                    node.classList.toggle('active', node === button);
-                });
-                return;
-            }
-            if (event.target.closest('[data-daily-standup-new-add]')) {
-                addDailyStandupNewTask(modal);
-                return;
-            }
-            var newTask = event.target.closest('[data-daily-standup-new-task]');
-            if (newTask) {
-                var tasks = dailyStandupNewTasks(modal).filter(function (task) {
-                    return task !== (newTask.textContent || '').trim();
-                });
-                renderDailyStandupNewTasks(modal, tasks);
-            }
-        });
-        modal.addEventListener('keydown', function (event) {
-            if (event.key !== 'Enter' || !event.target.closest('[data-daily-standup-new-input]')) return;
-            event.preventDefault();
-            addDailyStandupNewTask(modal);
-        });
-        qs('[data-daily-standup-form]', modal).addEventListener('submit', function (event) {
-            event.preventDefault();
-            var form = event.currentTarget;
-            var actions = qsa('[data-carryover-id]', modal).map(function (item) {
-                return { id: item.dataset.carryoverId, action: item.dataset.carryoverAction || 'transfer' };
-            });
-            var input = qs('[data-daily-standup-new-input]', modal);
-            if (input && String(input.value || '').trim()) addDailyStandupNewTask(modal);
-            var tasks = dailyStandupNewTasks(modal);
-            withSubmitLock(form, function () {
-                return api('/api/daily-tasks/standup', {
-                    method: 'POST',
-                    body: JSON.stringify({ tasks: tasks, carryover: actions })
-                }).then(function (response) {
-                    markDailyStandupDone(response && response.today ? response.today : dailyStandupDateKey());
-                    closeDailyStandupModal(modal);
-                    if (page === 'daily_tasks') loadDailyTasks();
-                });
-            }).catch(function (error) {
-                showAppNotice(appErrorMessage(error, 'Не удалось сохранить утренний стендап.'), 'error');
-            });
-        });
-        document.body.appendChild(modal);
-        var input = qs('[data-daily-standup-new-input]', modal);
-        if (input) input.focus();
-        refreshLucideIcons(modal);
-        return modal;
-    }
-
-    function checkDailyStandup() {
-        if (hasRole('admin')) return;
-        if (hasRole('customer') || hasRole('client')) return;
-        if (!dailyStandupCanCheckNow()) return;
-        api('/api/daily-tasks/standup', { silentLoader: true }).then(function (data) {
-            if (data && data.shouldShow) {
-                ensureDailyStandupModal(data);
-            } else if (data && data.today) {
-                markDailyStandupDone(data.today);
-            }
-        }).catch(function () {});
-    }
-
-    function initDailyTasksPage() {
-        var quick = qs('[data-daily-quick-add]');
-        if (quick && quick.dataset.bound !== '1') {
-            quick.dataset.bound = '1';
-            quick.addEventListener('click', openDailyQuickModal);
-        }
-        var archive = qs('[data-daily-archive]');
-        var archiveToggle = qs('[data-daily-archive-toggle]');
-        if (archiveToggle && archiveToggle.dataset.bound !== '1') {
-            archiveToggle.dataset.bound = '1';
-            archiveToggle.addEventListener('click', function () {
-                if (!archive) return;
-                archive.hidden = !archive.hidden;
-                if (!archive.hidden) loadDailyArchive();
-            });
-        }
-        var archiveRefresh = qs('[data-daily-archive-refresh]');
-        if (archiveRefresh && archiveRefresh.dataset.bound !== '1') {
-            archiveRefresh.dataset.bound = '1';
-            archiveRefresh.addEventListener('click', loadDailyArchive);
-        }
-        document.addEventListener('click', function (event) {
-            var button = event.target.closest('[data-daily-task-archive]');
-            if (!button) return;
-            var card = button.closest('[data-daily-task-card]');
-            if (!card) return;
-            event.preventDefault();
-            updateDailyTask(card.dataset.dailyTaskId, {
-                status: 'archived',
-                text: qs('.daily-task-text', card) ? qs('.daily-task-text', card).textContent : ''
-            }).then(function () {
-                loadDailyTasks();
-                if (archive && !archive.hidden) loadDailyArchive();
-            }).catch(function (error) {
-                showAppNotice(appErrorMessage(error, 'Не удалось отправить задачу в архив.'), 'error');
-            });
-        });
-        if (canManageDailyTasks()) {
-            loadUserDirectory(function () {
-                renderDailyUserFilter();
-                loadDailyTasks();
-            });
-        } else {
-            renderDailyUserFilter();
-            loadDailyTasks();
-        }
-    }
-
-    function dailyTaskUserById(userId) {
-        return dailyTaskUsers().filter(function (user) {
-            return Number(user.id) === Number(userId);
-        })[0] || null;
-    }
-
-    function normalizeDailyUser(user) {
-        user = user || {};
-        var name = String(personDisplayName(user) || user.fullName || user.login || 'Сотрудник').trim();
-        return {
-            id: Number(user.id) || 0,
-            name: name || 'Сотрудник',
-            displayName: name || 'Сотрудник',
-            firstName: user.firstName || user.first_name || '',
-            lastName: user.lastName || user.last_name || '',
-            avatar: safeAvatarUrl(user.avatar || user.avatarUrl || user.avatar_url || user.userAvatarUrl) || '',
-            role: normalizeRole(user.role || 'employee')
-        };
-    }
-
-    function dailyTaskUsers() {
-        return (state.users || []).map(normalizeDailyUser).filter(function (user) {
-            return user.id > 0;
-        });
-    }
-
-    function dailyPersonAvatar(user, className) {
-        user = normalizeDailyUser(user);
-        className = className || '';
-        if (user.avatar) {
-            return '<span class="daily-person-avatar ' + escapeHtml(className) + '" aria-hidden="true"><img src="' + escapeHtml(user.avatar) + '" alt=""></span>';
-        }
-        return '<span class="daily-person-avatar ' + escapeHtml(className) + '" aria-hidden="true">' + escapeHtml(profileUserInitials({ name: user.name })) + '</span>';
-    }
-
-    function dailyAvatar(user, label, className) {
-        user = normalizeDailyUser(user);
-        label = label || user.name || 'Сотрудник';
-        className = className || '';
-        if (user.avatar) {
-            return '<span class="daily-avatar ' + escapeHtml(className) + '" title="' + escapeHtml(label) + '"><img src="' + escapeHtml(user.avatar) + '" alt=""></span>';
-        }
-        return '<span class="daily-avatar ' + escapeHtml(className) + '" title="' + escapeHtml(label) + '">' + escapeHtml(profileUserInitials({ name: label })) + '</span>';
-    }
-
-    function dailyTaskAssignee(task) {
-        return dailyTaskUserById(task.userId) || normalizeDailyUser({
-            id: task.userId,
-            name: task.userName || 'Сотрудник',
-            avatar: task.userAvatar || task.userAvatarUrl || ''
-        });
-    }
-
-    function dailyTaskCreator(task) {
-        return dailyTaskUserById(task.createdBy) || normalizeDailyUser({
-            id: task.createdBy,
-            name: task.creatorName || 'Директор',
-            role: task.creatorRole || '',
-            avatar: task.creatorAvatar || task.creatorAvatarUrl || ''
-        });
-    }
-
-    function dailyTaskIsDone(task) {
-        return task && task.status === 'done';
-    }
-
-    function renderDailyTaskProgress(tasks) {
-        var root = qs('[data-daily-progress]');
-        if (!root) return;
-        var total = tasks.length;
-        var done = tasks.filter(dailyTaskIsDone).length;
-        safeReplaceChildren(root,
-            '<span><b>' + done + '/' + total + '</b> выполнено</span>' +
-            '<span class="daily-task-progress-bar"><i style="width:' + (total ? Math.round(done / total * 100) : 0) + '%"></i></span>'
-        );
-    }
-
-    function renderDailyPeopleList() {
-        var root = qs('[data-daily-people-list]');
-        if (!root) return;
-        var currentUserId = state.user && state.user.id ? Number(state.user.id) : 0;
-        var users = dailyTaskVisibleUsers().filter(function (user) {
-            return !currentUserId || Number(user.id) !== currentUserId;
-        });
-        var activeKey = state.dailyMyOnly ? 'my' : String(state.dailySelectedUserId || 'all');
-        var current = qs('[data-daily-people-current]');
-        var currentAvatar = qs('[data-daily-people-current-avatar]');
-        var activeUser = activeKey !== 'all' && activeKey !== 'my' ? dailyTaskUserById(activeKey) : null;
-        if (current) {
-            current.textContent = activeKey === 'my' ? 'Мои задачи' : (activeUser ? activeUser.name : 'Все пользователи');
-        }
-        if (currentAvatar) {
-            var currentUser = activeKey === 'my' ? (state.user || { name: 'Мои задачи' }) : activeUser;
-            currentAvatar.hidden = !currentUser;
-            safeReplaceChildren(currentAvatar, currentUser ? dailyPersonAvatar(currentUser) : '');
-        }
-        var items = [
-            '<button class="daily-person-item daily-person-item-all' + (activeKey === 'all' ? ' active' : '') + '" type="button" data-daily-person="all">' +
-                '<span class="daily-person-name">Все пользователи</span>' +
-            '</button>',
-            '<button class="daily-person-item' + (activeKey === 'my' ? ' active' : '') + '" type="button" data-daily-person="my">' +
-                dailyPersonAvatar(state.user || { name: 'Мои задачи' }) +
-                '<span class="daily-person-name">Мои задачи</span>' +
-            '</button>'
-        ].concat(users.map(function (user) {
-            return '<button class="daily-person-item' + (activeKey === String(user.id) ? ' active' : '') + '" type="button" data-daily-person="' + escapeHtml(user.id) + '">' +
-                dailyPersonAvatar(user) +
-                '<span class="daily-person-name">' + escapeHtml(user.name) + '</span>' +
-            '</button>';
-        }));
-        safeReplaceChildren(root, items.join(''));
-    }
-
-    function renderDailyTaskRow(task) {
-        var assignee = dailyTaskAssignee(task);
-        var creator = dailyTaskCreator(task);
-        var done = dailyTaskIsDone(task);
-        var boss = !!task.fromBoss;
-        return '<article class="daily-list-row' + (done ? ' is-done' : '') + (boss ? ' is-from-boss' : '') + '" data-daily-task-id="' + escapeHtml(task.id) + '" role="button" tabindex="0" aria-pressed="' + (done ? 'true' : 'false') + '">' +
-            '<div class="daily-row-avatars">' +
-                (boss ? dailyAvatar(creator, creator.name || 'Директор', 'daily-avatar-boss') : '') +
-                dailyAvatar(assignee, assignee.name || task.userName || 'Сотрудник') +
-            '</div>' +
-            '<div class="daily-row-main">' +
-                '<div class="daily-row-text"><span data-daily-row-text-label>' + escapeHtml(task.text) + '</span><span class="daily-undo-timer" data-daily-undo-timer hidden>5</span></div>' +
-                '<div class="daily-row-meta">' +
-                    '<span class="daily-row-user">' + escapeHtml(assignee.name || 'Сотрудник') + '</span>' +
-                    (boss ? '<span class="daily-boss-badge">От Босса</span>' : '') +
-                '</div>' +
-            '</div>' +
-        '</article>';
-    }
-
-    function renderDailyTaskList(tasks) {
-        var root = qs('[data-daily-task-feed]');
-        if (!root) return;
-        safeReplaceChildren(root, tasks.length ? tasks.map(renderDailyTaskRow).join('') : '<div class="daily-task-empty">Задач нет</div>');
-        renderDailyTaskProgress(tasks);
-        refreshLucideIcons(root);
-    }
-
-    function renderDailyTaskArchive(tasks) {
-        var root = qs('[data-daily-archive-modal-list]');
-        if (!root) return;
-        if (!tasks.length) {
-            safeReplaceChildren(root, '<div class="daily-task-empty archive-empty">Архив пока пуст</div>');
-            return;
-        }
-        safeReplaceChildren(root, '<div class="daily-archive-clean-list">' + tasks.map(function (task) {
-            var assignee = dailyTaskAssignee(task);
-            var completedTime = task.completedAt ? dailyTaskTime(task.completedAt) : '';
-            var archivedTime = task.archivedAt ? dailyTaskTime(task.archivedAt) : '';
-            var archiveLabel = completedTime ? ('Выполнено в ' + completedTime) : (archivedTime ? ('Отменено в ' + archivedTime) : 'Отменено');
-            return '<article class="daily-archive-clean-row" data-daily-archive-task-id="' + escapeHtml(task.id) + '">' +
-                '<div class="daily-row-avatars">' + dailyAvatar(assignee, assignee.name || task.userName || 'Сотрудник') + '</div>' +
-                '<div><strong>' + escapeHtml(task.text) + '</strong><small>' + escapeHtml(assignee.name || task.userName || 'Сотрудник') + ' · ' + escapeHtml(formatDisplayDate(task.date)) + '</small></div>' +
-                '<div class="daily-archive-row-actions">' +
-                    '<span>' + escapeHtml(archiveLabel) + '</span>' +
-                    '<button class="ghost compact" type="button" data-daily-archive-restore>Вернуть</button>' +
-                    '<button class="ghost compact danger" type="button" data-daily-archive-delete>Удалить</button>' +
-                '</div>' +
-            '</article>';
-        }).join('') + '</div>');
-        refreshLucideIcons(root);
-    }
-
-    function dailyTaskQuery(archive) {
-        var params = new URLSearchParams();
-        if (archive) params.set('archive', '1');
-        if (state.dailyMyOnly) {
-            if (state.user && state.user.id) params.set('userId', state.user.id);
-        } else if (state.dailySelectedUserId && state.dailySelectedUserId !== 'all') {
-            params.set('userId', state.dailySelectedUserId);
-        }
-        var query = params.toString();
-        return '/api/daily-tasks' + (query ? '?' + query : '');
-    }
-
-    function loadDailyTasks() {
-        var requestToken = (state.dailyTasksRequestToken || 0) + 1;
-        state.dailyTasksRequestToken = requestToken;
-        return api(dailyTaskQuery(false)).then(function (data) {
-            if (requestToken !== state.dailyTasksRequestToken) return;
-            clearDailyCompletionTimers();
-            state.dailyTasks = Array.isArray(data.tasks) ? data.tasks : [];
-            if (Array.isArray(data.users)) state.users = data.users.map(normalizeDailyUser);
-            renderDailyPeopleList();
-            renderDailyTaskList(state.dailyTasks);
-        }).catch(function (error) {
-            showAppNotice(appErrorMessage(error, 'Не удалось загрузить задачи сотрудников.'), 'error');
-        });
-    }
-
-    function clearDailyCompletionTimers() {
-        Object.keys(state.dailyCompletionTimers || {}).forEach(function (taskId) {
-            var entry = state.dailyCompletionTimers[taskId];
-            if (entry && entry.timerId) clearInterval(entry.timerId);
-            delete state.dailyCompletionTimers[taskId];
-        });
-    }
-
-    function loadDailyArchive() {
-        var requestToken = (state.dailyArchiveRequestToken || 0) + 1;
-        state.dailyArchiveRequestToken = requestToken;
-        return api('/api/daily-tasks?archive=1').then(function (data) {
-            if (requestToken !== state.dailyArchiveRequestToken) return;
-            state.dailyArchive = Array.isArray(data.tasks) ? data.tasks : [];
-            if (Array.isArray(data.users)) state.users = data.users.map(normalizeDailyUser);
-            renderDailyTaskArchive(state.dailyArchive);
-        }).catch(function (error) {
-            showAppNotice(appErrorMessage(error, 'Не удалось загрузить архив задач.'), 'error');
-        });
-    }
-
-    function deleteDailyTask(taskId) {
-        return api('/api/daily-tasks/' + encodeURIComponent(taskId) + '/delete', {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
-    }
-
-    function dailyArchiveTaskById(taskId) {
-        return (state.dailyArchive || []).filter(function (task) {
-            return String(task.id) === String(taskId);
-        })[0] || null;
-    }
-
-    function removeDailyArchiveTask(taskId) {
-        state.dailyArchive = (state.dailyArchive || []).filter(function (task) {
-            return String(task.id) !== String(taskId);
-        });
-        renderDailyTaskArchive(state.dailyArchive);
-    }
-
-    function restoreDailyArchiveTask(button, row) {
-        var taskId = row.getAttribute('data-daily-archive-task-id');
-        var task = dailyArchiveTaskById(taskId);
-        if (!task || button.disabled) return;
-        button.disabled = true;
-        updateDailyTask(taskId, {
-            status: 'planned',
-            text: task.text || '',
-            date: task.date || undefined
-        }).then(function () {
-            removeDailyArchiveTask(taskId);
-            loadDailyTasks();
-        }).catch(function (error) {
-            button.disabled = false;
-            showAppNotice(appErrorMessage(error, 'Не удалось вернуть задачу.'), 'error');
-        });
-    }
-
-    function deleteDailyArchiveTask(button, row) {
-        var taskId = row.getAttribute('data-daily-archive-task-id');
-        if (!taskId || button.disabled) return;
-        button.disabled = true;
-        deleteDailyTask(taskId).then(function () {
-            removeDailyArchiveTask(taskId);
-        }).catch(function (error) {
-            if (error && (error.message === 'task_not_found' || error.status === 404)) {
-                removeDailyArchiveTask(taskId);
-                return;
-            }
-            button.disabled = false;
-            showAppNotice(appErrorMessage(error, 'Не удалось удалить задачу.'), 'error');
-        });
-    }
-
-    function ensureDailyArchiveModal() {
-        var modal = qs('[data-daily-archive-modal]');
-        if (modal) return modal;
-        modal = document.createElement('div');
-        modal.className = 'daily-archive-modal';
-        modal.setAttribute('data-daily-archive-modal', '');
-        modal.hidden = true;
-        modal.innerHTML =
-            '<button class="daily-archive-backdrop" type="button" data-daily-archive-close aria-label="Закрыть архив"></button>' +
-            '<section class="daily-archive-dialog" role="dialog" aria-modal="true" aria-label="Архив задач">' +
-                '<div class="daily-archive-head"><div><span class="section-label">Архив задач</span><h3>Выполненные задачи прошлых дней</h3></div><button class="ghost compact" type="button" data-daily-archive-close>Закрыть</button></div>' +
-                '<div class="daily-archive-body" data-daily-archive-modal-list></div>' +
-            '</section>';
-        modal.addEventListener('click', function (event) {
-            var restore = event.target.closest('[data-daily-archive-restore]');
-            if (restore) {
-                var restoreRow = restore.closest('[data-daily-archive-task-id]');
-                if (restoreRow) restoreDailyArchiveTask(restore, restoreRow);
-                return;
-            }
-            var del = event.target.closest('[data-daily-archive-delete]');
-            if (del) {
-                var deleteRow = del.closest('[data-daily-archive-task-id]');
-                if (deleteRow) deleteDailyArchiveTask(del, deleteRow);
-                return;
-            }
-            if (!event.target.closest('[data-daily-archive-close]')) return;
-            modal.hidden = true;
-            document.body.classList.remove('daily-archive-opened');
-        });
-        document.body.appendChild(modal);
-        return modal;
-    }
-
-    function openDailyArchiveModal() {
-        var modal = ensureDailyArchiveModal();
-        modal.hidden = false;
-        document.body.classList.add('daily-archive-opened');
-        loadDailyArchive();
-        refreshLucideIcons(modal);
-    }
-
-    function ensureDailyQuickModal() {
-        var modal = qs('[data-daily-quick-modal]');
-        if (modal) return modal;
-        modal = document.createElement('div');
-        modal.className = 'daily-standup-modal';
-        modal.setAttribute('data-daily-quick-modal', '');
-        modal.hidden = true;
-        modal.innerHTML =
-            '<button class="daily-standup-backdrop" type="button" data-daily-quick-close aria-label="Закрыть"></button>' +
-            '<section class="daily-standup-dialog daily-task-create-dialog" role="dialog" aria-modal="true" aria-label="Новая задача">' +
-                '<div class="daily-standup-head"><div><h3>Добавить задачу</h3></div><button class="ghost compact" type="button" data-daily-quick-close>Закрыть</button></div>' +
-                '<form data-daily-quick-form>' +
-                    '<label class="daily-create-field"><span>Исполнитель</span><select name="userId" data-daily-create-user></select></label>' +
-                    '<textarea name="text" rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
-                    '<div class="daily-standup-actions"><button class="primary" type="submit">Добавить</button></div>' +
-                '</form>' +
-            '</section>';
-        modal.addEventListener('click', function (event) {
-            if (event.target.closest('[data-daily-quick-close]')) modal.hidden = true;
-        });
-        qs('[data-daily-quick-form]', modal).addEventListener('submit', function (event) {
-            event.preventDefault();
-            var form = event.currentTarget;
-            withSubmitLock(form, function () {
-                return api('/api/daily-tasks', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        text: form.text.value,
-                        userId: form.userId && form.userId.value ? form.userId.value : (state.user && state.user.id)
-                    })
-                }).then(function () {
-                    form.reset();
-                    modal.hidden = true;
-                    loadDailyTasks();
-                });
-            }).catch(function (error) {
-                showAppNotice(appErrorMessage(error, 'Не удалось добавить задачу.'), 'error');
-            });
-        });
-        document.body.appendChild(modal);
-        return modal;
-    }
-
-    function syncDailyCreateUsers(modal) {
-        var select = qs('[data-daily-create-user]', modal);
-        if (!select) return;
-        var canAssignUser = canManageDailyTasks();
-        var field = select.closest('.daily-create-field');
-        var users = canAssignUser ? dailyTaskVisibleUsers() : (state.user ? [state.user] : []);
-        var currentId = canAssignUser && !state.dailyMyOnly ? (state.dailySelectedUserId !== 'all' ? state.dailySelectedUserId : (state.user && state.user.id)) : (state.user && state.user.id);
-        if (field) field.hidden = !canAssignUser;
-        select.disabled = !canAssignUser;
-        if (!users.length && state.user) users = [state.user];
-        if (!currentId && state.user) currentId = state.user.id;
-        safeReplaceChildren(select, users.map(function (user) {
-            return '<option value="' + escapeHtml(user.id) + '"' + (String(currentId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(personDisplayName(user) || user.login) + '</option>';
-        }).join(''));
-    }
-
-    function openDailyQuickModal() {
-        var modal = ensureDailyQuickModal();
-        syncDailyCreateUsers(modal);
-        modal.hidden = false;
-        var textarea = qs('textarea', modal);
-        if (textarea) textarea.focus();
-        refreshLucideIcons(modal);
-    }
-
-    function dailyTaskTimerNode(row) {
-        var timer = qs('[data-daily-undo-timer]', row);
-        if (timer) return timer;
-        var text = qs('.daily-row-text', row);
-        if (!text) return null;
-        timer = document.createElement('span');
-        timer.className = 'daily-undo-timer';
-        timer.setAttribute('data-daily-undo-timer', '');
-        timer.hidden = true;
-        timer.textContent = '5';
-        text.appendChild(timer);
-        return timer;
-    }
-
-    function dailyTaskTextValue(row) {
-        var label = qs('[data-daily-row-text-label]', row);
-        return label ? label.textContent : (qs('.daily-row-text', row).textContent || '');
-    }
-
-    function dailyTaskClickPoint(event, row) {
-        if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
-            return { x: event.clientX, y: event.clientY };
-        }
-        var rect = row.getBoundingClientRect();
-        return {
-            x: rect.left + Math.min(rect.width - 24, Math.max(24, rect.width * 0.52)),
-            y: rect.top + rect.height * 0.45
-        };
-    }
-
-    function showDailyTaskSuccessPop(event, row) {
-        var point = dailyTaskClickPoint(event, row);
-        var pop = document.createElement('span');
-        pop.className = 'pop-success';
-        pop.textContent = 'Красавчик! 🔥';
-        pop.style.left = (point.x + 12) + 'px';
-        pop.style.top = (point.y - 4) + 'px';
-        document.body.appendChild(pop);
-        setTimeout(function () {
-            if (pop.parentNode) pop.parentNode.removeChild(pop);
-        }, 1650);
-    }
-
-    function animateDailyTaskToArchive(row, done) {
-        var archiveButton = qs('[data-daily-archive-toggle]');
-        var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!archiveButton || reduceMotion || !row.getBoundingClientRect || !window.Element || !window.Element.prototype.animate) {
-            done();
-            return;
-        }
-        var rowRect = row.getBoundingClientRect();
-        var targetRect = archiveButton.getBoundingClientRect();
-        var flyer = row.cloneNode(true);
-        var deltaX = targetRect.left + targetRect.width / 2 - (rowRect.left + rowRect.width / 2);
-        var deltaY = targetRect.top + targetRect.height / 2 - (rowRect.top + rowRect.height / 2);
-        flyer.classList.add('daily-archive-flyer');
-        flyer.style.left = rowRect.left + 'px';
-        flyer.style.top = rowRect.top + 'px';
-        flyer.style.width = rowRect.width + 'px';
-        flyer.style.height = rowRect.height + 'px';
-        document.body.appendChild(flyer);
-        row.classList.add('is-archive-source');
-        archiveButton.classList.add('is-archive-catch');
-        var animation = flyer.animate([
-            { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1, offset: 0 },
-            { transform: 'translate3d(' + Math.round(deltaX * .46) + 'px, ' + Math.round(deltaY * .18 - 18) + 'px, 0) scale(.82)', opacity: .92, offset: .45 },
-            { transform: 'translate3d(' + Math.round(deltaX) + 'px, ' + Math.round(deltaY) + 'px, 0) scale(0)', opacity: 0, offset: 1 }
-        ], {
-            duration: 760,
-            easing: 'cubic-bezier(.18, .9, .22, 1)',
-            fill: 'forwards'
-        });
-        animation.onfinish = function () {
-            if (flyer.parentNode) flyer.parentNode.removeChild(flyer);
-            archiveButton.classList.remove('is-archive-catch');
-            done();
-        };
-        animation.oncancel = animation.onfinish;
-    }
-
-    function cancelDailyTaskCompletion(row) {
-        var taskId = row.getAttribute('data-daily-task-id');
-        var entry = state.dailyCompletionTimers && state.dailyCompletionTimers[taskId];
-        if (entry && entry.timerId) clearInterval(entry.timerId);
-        if (state.dailyCompletionTimers) delete state.dailyCompletionTimers[taskId];
-        row.classList.remove('is-done', 'is-pending-complete', 'is-saving', 'is-archiving', 'is-archive-source');
-        row.setAttribute('aria-pressed', 'false');
-        var timer = dailyTaskTimerNode(row);
-        if (timer) {
-            timer.hidden = true;
-            timer.classList.remove('is-running');
-            timer.textContent = '5';
-        }
-    }
-
-    function finishDailyTaskCompletion(row, task) {
-        var taskId = row.getAttribute('data-daily-task-id');
-        if (state.dailyCompletionTimers) delete state.dailyCompletionTimers[taskId];
-        row.classList.remove('is-pending-complete');
-        row.classList.add('is-saving');
-        updateDailyTask(taskId, {
-            status: 'done',
-            text: task.text || dailyTaskTextValue(row)
-        }).then(function (data) {
-            var updated = data && data.task ? data.task : null;
-            state.dailyTasks = (state.dailyTasks || []).filter(function (item) {
-                return String(item.id) !== String(taskId);
-            });
-            if (updated) state.dailyArchive = [updated].concat(state.dailyArchive || []);
-            animateDailyTaskToArchive(row, function () {
-                row.classList.add('is-archiving');
-                if (row.parentNode) row.parentNode.removeChild(row);
-                renderDailyTaskProgress(state.dailyTasks);
-                if (!state.dailyTasks.length) renderDailyTaskList(state.dailyTasks);
-                var archiveModal = qs('[data-daily-archive-modal]');
-                if (archiveModal && !archiveModal.hidden) loadDailyArchive();
-            });
-        }).catch(function (error) {
-            row.classList.remove('is-done', 'is-saving', 'is-archiving', 'is-archive-source');
-            row.setAttribute('aria-pressed', 'false');
-            var timer = dailyTaskTimerNode(row);
-            if (timer) {
-                timer.hidden = true;
-                timer.classList.remove('is-running');
-                timer.textContent = '5';
-            }
-            showAppNotice(appErrorMessage(error, 'Не удалось завершить задачу.'), 'error');
-        });
-    }
-
-    function setDailyTaskDone(row, done, event) {
-        var taskId = row.getAttribute('data-daily-task-id');
-        if (!done || row.classList.contains('is-pending-complete')) {
-            cancelDailyTaskCompletion(row);
-            return;
-        }
-        if (row.classList.contains('is-saving')) return;
-        var task = (state.dailyTasks || []).filter(function (item) { return String(item.id) === String(taskId); })[0] || {};
-        var timer = dailyTaskTimerNode(row);
-        row.classList.add('is-done', 'is-pending-complete');
-        row.setAttribute('aria-pressed', 'true');
-        if (timer) {
-            timer.hidden = false;
-            timer.classList.remove('is-running');
-            timer.textContent = '5';
-            void timer.offsetWidth;
-            timer.classList.add('is-running');
-        }
-        showDailyTaskSuccessPop(event, row);
-        var entry = {
-            remaining: 5,
-            timerId: setInterval(function () {
-                entry.remaining -= 1;
-                var timer = dailyTaskTimerNode(row);
-                if (timer) timer.textContent = String(Math.max(entry.remaining, 0));
-                if (entry.remaining <= 0) {
-                    clearInterval(entry.timerId);
-                    finishDailyTaskCompletion(row, task);
-                }
-            }, 1000)
-        };
-        state.dailyCompletionTimers[taskId] = entry;
-    }
-
-    function bindDailyTaskPageEvents() {
-        var quick = qs('[data-daily-quick-add]');
-        if (quick && quick.dataset.bound !== '1') {
-            quick.dataset.bound = '1';
-            quick.addEventListener('click', openDailyQuickModal);
-        }
-        var archive = qs('[data-daily-archive-toggle]');
-        if (archive && archive.dataset.bound !== '1') {
-            archive.dataset.bound = '1';
-            archive.addEventListener('click', openDailyArchiveModal);
-        }
-        var peopleToggle = qs('[data-daily-people-toggle]');
-        var peopleDropdown = qs('[data-daily-people-dropdown]');
-        var people = qs('[data-daily-people-list]');
-        if (peopleToggle && people && peopleToggle.dataset.bound !== '1') {
-            peopleToggle.dataset.bound = '1';
-            peopleToggle.addEventListener('click', function (event) {
-                event.preventDefault();
-                var open = people.hidden;
-                people.hidden = !open;
-                peopleToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-            });
-        }
-        if (people && people.dataset.bound !== '1') {
-            people.dataset.bound = '1';
-            people.addEventListener('click', function (event) {
-                var button = event.target.closest('[data-daily-person]');
-                if (!button) return;
-                var value = button.getAttribute('data-daily-person') || 'all';
-                state.dailyMyOnly = value === 'my';
-                state.dailySelectedUserId = state.dailyMyOnly ? 'all' : value;
-                people.hidden = true;
-                if (peopleToggle) peopleToggle.setAttribute('aria-expanded', 'false');
-                loadDailyTasks();
-            });
-        }
-        if (peopleDropdown && peopleDropdown.dataset.closeBound !== '1') {
-            peopleDropdown.dataset.closeBound = '1';
-            document.addEventListener('click', function (event) {
-                if (!people || !peopleToggle || event.target.closest('[data-daily-people-dropdown]')) return;
-                people.hidden = true;
-                peopleToggle.setAttribute('aria-expanded', 'false');
-            });
-        }
-        var feed = qs('[data-daily-task-feed]');
-        if (feed && feed.dataset.bound !== '1') {
-            feed.dataset.bound = '1';
-            feed.addEventListener('click', function (event) {
-                if (event.target.closest('a, button, input, select, textarea, label')) return;
-                var row = event.target.closest('[data-daily-task-id]');
-                if (!row) return;
-                setDailyTaskDone(row, !row.classList.contains('is-done'), event);
-            });
-            feed.addEventListener('keydown', function (event) {
-                if (event.key !== 'Enter' && event.key !== ' ') return;
-                var row = event.target.closest('[data-daily-task-id]');
-                if (!row) return;
-                event.preventDefault();
-                setDailyTaskDone(row, !row.classList.contains('is-done'), event);
-            });
-        }
-    }
-
-    function initDailyTasksPage() {
-        state.dailySelectedUserId = 'all';
-        state.dailyMyOnly = false;
-        bindDailyTaskPageEvents();
-        loadDailyTasks();
-    }
 
     bindMaterialScheduleTimeline();
     installVisibleDateFormatter();

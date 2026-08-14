@@ -10,6 +10,7 @@ import secrets
 import sqlite3
 import sys
 import time
+import traceback
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -159,9 +160,7 @@ APP_PAGES = {
     "/app/warehouse": ("warehouse", "Склад"),
     "/app/schedule": ("schedule", "График работ"),
     "/app/logs": ("logs", "Журнал работ"),
-    "/app/chats": ("chats", "Чаты"),
     "/app/users": ("users", "Наша Команда"),
-    "/app/reports": ("reports", "Отчётность"),
 }
 
 APP_PAGES["/app/suppliers"] = ("suppliers", "Контрагенты")
@@ -1981,6 +1980,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_json"})
         except ValueError as error:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+        except Exception as error:
+            traceback.print_exc()
+            self.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": "server_error", "message": str(error) or error.__class__.__name__},
+            )
 
     def api_login(self) -> None:
         auth_api_login(self)

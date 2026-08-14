@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import display_user_name, user_can_manage_documents, user_has_any_role
+from auth import display_user_name, user_can_manage_documents, user_can_manage_schedule, user_has_any_role
 from projects import serialize_project
 from warehouse import (
     canonical_estimate_section_title,
@@ -530,11 +530,18 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         (project_id,),
     ).fetchall()
     items = []
+
+    def safe_float(value: object, default: float = 0.0) -> float:
+        try:
+            return float(value if value not in (None, "") else default)
+        except (TypeError, ValueError):
+            return default
+
     for row in rows:
-        planned = float(row["planned_qty"])
-        purchased = float(row["purchased_qty"])
-        received = float(row["received_qty"])
-        used = float(row["used_qty"])
+        planned = safe_float(row["planned_qty"])
+        purchased = safe_float(row["purchased_qty"])
+        received = safe_float(row["received_qty"])
+        used = safe_float(row["used_qty"])
         covered = max(purchased, received)
         stock_base = received if received else purchased
         stock = max(stock_base - used, 0)
@@ -547,7 +554,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "notes": row["notes"],
                 "unit": row["unit"],
                 "planned_qty": planned,
-                "planned_price": float(row["planned_price"] or 0),
+                "planned_price": safe_float(row["planned_price"]),
             }
         )
         delivery_days = int(row["delivery_days"]) if row["delivery_days"] is not None else int(estimated_delivery_days)
@@ -573,11 +580,11 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "unit": row["unit"],
                 "article": row["article"] or "",
                 "plannedQty": planned,
-                "plannedPrice": float(row["planned_price"] or 0),
+                "plannedPrice": safe_float(row["planned_price"]),
                 "purchasedQty": purchased,
                 "receivedQty": received,
                 "usedQty": used,
-                "actualQty": float(row["actual_qty"] or 0),
+                "actualQty": safe_float(row["actual_qty"]),
                 "isCompleted": bool(row["is_completed"]),
                 "stockQty": stock,
                 "missingQty": missing,
@@ -1293,23 +1300,65 @@ def build_auto_schedule_plan(project: sqlite3.Row, stages: list[sqlite3.Row], ma
     material_updates: list[dict] = []
     material_update_by_id: dict[int, dict] = {}
 
-    def register_material_update(material: dict, stage_id: int, stage_start: date) -> None:
+    def material_schedule_weight(material: dict) -> float:
+        try:
+            qty = float(material.get("planned_qty", material.get("plannedQty", 0)) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty > 0:
+            return qty
+        try:
+            price = float(material.get("planned_price", material.get("plannedPrice", 0)) or 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        return max(price / 10000.0, 1.0)
+
+    def material_stage_sort_key(material: dict) -> tuple[str, int]:
+        title = str(material.get("title") or "").strip().lower()
+        try:
+            item_id = int(material.get("id") or 0)
+        except (TypeError, ValueError):
+            item_id = 0
+        return (title, item_id)
+
+    def material_need_date_for_stage(stage_start: date, stage_end: date, offset_days: int) -> date:
+        duration_days = max((stage_end - stage_start).days + 1, 1)
+        return stage_start + timedelta(days=max(0, min(offset_days, duration_days - 1)))
+
+    def register_material_update(material: dict, stage_id: int, need_by_date: date) -> None:
         lead_days_raw = material.get("delivery_days", material.get("deliveryDays"))
         try:
             lead_days = int(lead_days_raw) if lead_days_raw not in (None, "") else int(estimate_material_lead_days(material))
         except (TypeError, ValueError):
             lead_days = int(estimate_material_lead_days(material))
         lead_days = max(0, min(lead_days, 90))
-        purchase_start = stage_start - timedelta(days=lead_days)
+        purchase_start = need_by_date - timedelta(days=lead_days)
         update = {
             "id": int(material["id"]),
             "stage_id": stage_id,
-            "need_by_date": stage_start.isoformat(),
+            "need_by_date": need_by_date.isoformat(),
             "purchase_by_date": purchase_start.isoformat(),
             "lead_days": lead_days,
             "title": material["title"],
         }
         material_update_by_id[int(material["id"])] = update
+
+    def register_stage_material_updates(stage_id: int, stage_start: date, stage_end: date) -> None:
+        stage_materials = sorted(materials_by_stage.get(stage_id, []), key=material_stage_sort_key)
+        if not stage_materials:
+            return
+        duration_days = max((stage_end - stage_start).days + 1, 1)
+        total_weight = sum(material_schedule_weight(material) for material in stage_materials)
+        if total_weight <= 0:
+            total_weight = float(len(stage_materials))
+        cursor_weight = 0.0
+        for material in stage_materials:
+            weight = material_schedule_weight(material)
+            midpoint = cursor_weight + weight / 2.0
+            offset = int((midpoint / total_weight) * duration_days)
+            need_by_date = material_need_date_for_stage(stage_start, stage_end, offset)
+            register_material_update(material, stage_id, need_by_date)
+            cursor_weight += weight
 
     def walk(stage_id: int, cursor: date) -> tuple[date, date, date]:
         stage = stage_by_id[stage_id]
@@ -1341,8 +1390,7 @@ def build_auto_schedule_plan(project: sqlite3.Row, stages: list[sqlite3.Row], ma
             end = start + timedelta(days=duration - 1)
             next_cursor = end + timedelta(days=1)
 
-        for material in materials_by_stage.get(stage_id, []):
-            register_material_update(material, stage_id, start)
+        register_stage_material_updates(stage_id, start, end)
 
         duration_days = max((end - start).days + 1, 1)
         customer_shift = 0 if stage["stage_kind"] != "work" else min(2, max(0, duration_days // 10))
@@ -1499,6 +1547,19 @@ def api_save_material_schedule(handler, path: str) -> None:
 
 
 def api_project_auto_schedule(handler, path: str) -> None:
+    try:
+        return _api_project_auto_schedule(handler, path)
+    except Exception as error:
+        try:
+            handler.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": "auto_schedule_failed", "message": f"{error.__class__.__name__}: {error}"},
+            )
+        except Exception:
+            raise
+
+
+def _api_project_auto_schedule(handler, path: str) -> None:
     project_id = parse_path_int(path, 2)
     if not project_id:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
@@ -1519,11 +1580,12 @@ def api_project_auto_schedule(handler, path: str) -> None:
             "SELECT * FROM work_stages WHERE project_id = ? ORDER BY position, id",
             (project_id,),
         ).fetchall()
+        live_where = live_estimate_items_where(con, "")
         materials = con.execute(
-            """
+            f"""
             SELECT id, title, unit, planned_qty, planned_price, stage_id, item_kind, section_title, delivery_days, need_by_date, notes
             FROM estimate_items
-            WHERE project_id = ?
+            WHERE project_id = ? AND {live_where}
             ORDER BY id
             """,
             (project_id,),
@@ -1534,10 +1596,28 @@ def api_project_auto_schedule(handler, path: str) -> None:
         if not materials:
             handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "materials_required"})
             return
-        requested_start = parse_iso_date(payload.get("start_date", payload.get("startDate")))
+        requested_start_raw = str(payload.get("start_date", payload.get("startDate", "")) or "").strip()
+        requested_start = None
+        if requested_start_raw:
+            try:
+                requested_start = datetime.strptime(requested_start_raw[:10], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_start_date", "message": "start_date must be YYYY-MM-DD"})
+                return
         project_start = parse_iso_date(project["started_at"])
         start_at = requested_start or project_start or date(2026, 7, 25)
         plan = build_auto_schedule_plan(project, stages, materials, start_at)
+        con.execute(
+            f"""
+            UPDATE estimate_items
+            SET need_by_date = NULL, updated_at = ?
+            WHERE project_id = ?
+              AND {live_where}
+              AND lower(COALESCE(item_kind, 'material')) != 'work'
+            """,
+            (now_ts(), project_id),
+        )
+        con.execute("DELETE FROM material_schedule_snapshots WHERE project_id = ?", (project_id,))
         for item in plan["stage_updates"]:
             con.execute(
                 """
@@ -1580,6 +1660,19 @@ def api_project_auto_schedule(handler, path: str) -> None:
             )
         mark_project_schedule_draft(con, project_id, generated_at=TODAY_ISO)
         material_schedule = build_material_schedule_payload(con, project_id)
+        material_schedule["saved"] = True
+        material_schedule["savedAt"] = now_ts()
+        con.execute(
+            """
+            INSERT INTO material_schedule_snapshots (project_id, payload, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                payload = excluded.payload,
+                created_by = excluded.created_by,
+                updated_at = excluded.updated_at
+            """,
+            (project_id, json.dumps(material_schedule, ensure_ascii=False), user["id"], now_ts(), now_ts()),
+        )
         create_audit(
             con,
             user["id"],
@@ -1598,6 +1691,8 @@ def api_project_auto_schedule(handler, path: str) -> None:
     handler.send_json(
         HTTPStatus.OK,
         {
+            "ok": True,
+            "projectId": project_id,
             "project": serialize_project(project_row, user),
             "summary": {
                 "projectStart": plan["project_start"],
@@ -1606,10 +1701,7 @@ def api_project_auto_schedule(handler, path: str) -> None:
                 "materialsPlanned": len(plan["material_updates"]),
                 "materialsAutoLinked": len(plan["auto_linked_materials"]),
                 "deadlineOverrunDays": plan["deadline_overrun_days"],
-                "longestStages": plan["longest_stages"],
-                "procurementHotspots": plan["material_updates"][:8],
             },
-            "materialSchedule": material_schedule,
         },
     )
 

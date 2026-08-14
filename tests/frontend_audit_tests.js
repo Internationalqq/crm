@@ -3,7 +3,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const coreJs = fs.readFileSync(path.join(root, 'frontend/assets/core.js'), 'utf8');
+const dailyTasksJs = fs.readFileSync(path.join(root, 'frontend/assets/daily-tasks.js'), 'utf8');
 const appJs = fs.readFileSync(path.join(root, 'frontend/assets/app.js'), 'utf8');
+const frontendJs = [coreJs, dailyTasksJs, appJs].join('\n');
 const authPy = fs.readFileSync(path.join(root, 'backend/auth.py'), 'utf8');
 const serverPy = fs.readFileSync(path.join(root, 'backend/server.py'), 'utf8');
 
@@ -69,24 +72,24 @@ test('Remember Me uses an HttpOnly session cookie and logout deletes server sess
   assert.match(authPy, /session_cookie_secure_attr/);
   assert.match(authPy, /DELETE FROM sessions WHERE token_hash = \?/);
   assert.match(authPy, /Max-Age=0; HttpOnly; SameSite=Lax/);
-  assert.doesNotMatch(appJs, /localStorage\.setItem\([^,\n]*token/i);
+  assert.doesNotMatch(frontendJs, /localStorage\.setItem\([^,\n]*token/i);
 });
 
 test('Morning standup is user-scoped and protected from duplicate POST inserts', () => {
-  assert.match(appJs, /last_standup_date_'\s*\+\s*userId/);
-  const canCheckStart = appJs.indexOf('function dailyStandupCanCheckNow()');
-  const canCheckEnd = appJs.indexOf('function markDailyStandupDone', canCheckStart);
-  const canCheckBlock = appJs.slice(canCheckStart, canCheckEnd);
+  assert.match(frontendJs, /last_standup_date_'\s*\+\s*userId/);
+  const canCheckStart = frontendJs.indexOf('function dailyStandupCanCheckNow()');
+  const canCheckEnd = frontendJs.indexOf('function markDailyStandupDone', canCheckStart);
+  const canCheckBlock = frontendJs.slice(canCheckStart, canCheckEnd);
   assert.doesNotMatch(canCheckBlock, /getItem\('last_standup_date'\)/);
-  assert.match(appJs, /now\.getHours\(\) < 8/);
+  assert.match(frontendJs, /now\.getHours\(\) < 8/);
   assert.match(serverPy, /BEGIN IMMEDIATE/);
   assert.match(serverPy, /alreadySaved/);
   assert.ok(serverPy.indexOf('SELECT 1 FROM daily_standups') < serverPy.indexOf('INSERT INTO daily_tasks (user_id, text, status, task_date, created_by, created_at, updated_at)'));
 });
 
 test('Daily task loads ignore stale responses and checkbox saves are de-duped', () => {
-  assert.match(appJs, /dailyTasksRequestToken/);
-  assert.match(appJs, /requestToken !== state\.dailyTasksRequestToken/);
+  assert.match(frontendJs, /dailyTasksRequestToken/);
+  assert.match(frontendJs, /requestToken !== state\.dailyTasksRequestToken/);
   assert.match(appJs, /progressSyncPending/);
   const bindStart = appJs.indexOf('function bindMaterialManualChecks(projectId)');
   const bindEnd = appJs.indexOf('var baseBindProjectChainActionsFinal', bindStart);
