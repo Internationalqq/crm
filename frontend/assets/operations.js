@@ -32,6 +32,10 @@
     var isClerkEnabled = PMBI.isClerkEnabled;
     var userInitials = PMBI.userInitials;
     var safeTelHref = PMBI.safeTelHref;
+    var safeAvatarUrl = PMBI.safeAvatarUrl;
+    var displayUserName = PMBI.displayUserName;
+    var rememberUserInitial = PMBI.rememberUserInitial;
+    var profileUserInitials = PMBI.profileUserInitials;
 
     function appCall(name, args) {
         var fn = PMBI.app && PMBI.app[name];
@@ -184,10 +188,17 @@
 
     // team users reports shell
     function initUsersPage() {
-        qsa('[data-user-create-open]').forEach(function (button) {
-            button.hidden = !canManageTeam();
-        });
-        if (canManageTeam()) setupUserCreateModal();
+        var user = (window.PMBI && window.PMBI.state && window.PMBI.state.currentUser) || {};
+        if (!canManageTeam()) {
+            var formContainer = qs('[data-user-create-container]');
+            if (formContainer) formContainer.remove();
+            var openBtn = qs('[data-user-create-open]');
+            if (openBtn) openBtn.remove();
+            var modal = qs('[data-user-create-modal]');
+            if (modal) modal.remove();
+        } else {
+            setupAdminUserManagement();
+        }
         loadUsers();
         loadProjects(function () {
             renderUserProjectAccessChecks();
@@ -195,54 +206,29 @@
         });
         startTeamAutoRefresh();
         var refresh = qs('[data-users-refresh]');
-        if (refresh) refresh.addEventListener('click', loadUsers);
+        if (refresh && refresh.dataset.usersRefreshBound !== '1') {
+            refresh.dataset.usersRefreshBound = '1';
+            refresh.addEventListener('click', loadUsers);
+        }
         var form = qs('[data-user-create-form]');
         if (!form) return;
         if (!canManageTeam()) return;
         bindLockedUserCreateForm(form);
-        return;
-        form.addEventListener('submit', function (event) {
-            event.preventDefault();
-            var error = qs('[data-user-create-error]');
-            if (error) error.classList.remove('active');
-            if (isClerkEnabled() && !String(form.email.value || '').trim()) {
-                if (error) {
-                    error.textContent = 'Для входа через Clerk нужен email пользователя.';
-                    error.classList.add('active');
-                }
-                return;
-            }
-            var roles = qsa('input[name="roles"]:checked', form).map(function (input) {
-                return input.value;
-            });
-            if (roles.indexOf(form.role.value) === -1) roles.unshift(form.role.value);
-            var projectIds = qsa('input[name="project_ids"]:checked', form).map(function (input) {
-                return Number(input.value);
-            });
-            var endpoint = '/api/users/manage';
-            api(endpoint, {
-                method: 'POST',
-                body: JSON.stringify({
-                    name: form.name.value.trim(),
-                    login: form.login.value.trim(),
-                    email: form.email.value.trim(),
-                    phone: form.phone.value.trim(),
-                    password: form.password.value,
-                    role: form.role.value,
-                    roles: roles,
-                    project_ids: projectIds
-                })
-            }).then(function () {
-                form.reset();
-                renderUserProjectAccessChecks();
-                loadUsers();
-            }).catch(function (err) {
-                if (error) {
-                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось создать пользователя';
-                    error.classList.add('active');
-                }
-            });
-        });
+    }
+
+    function setupAdminUserManagement() {
+        var formContainer = qs('[data-user-create-container]');
+        if (formContainer && !qs('[data-user-create-open]', formContainer)) {
+            var button = document.createElement('button');
+            button.className = 'primary';
+            button.type = 'button';
+            button.setAttribute('data-user-create-open', '');
+            button.textContent = '+ \u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0430';
+            formContainer.appendChild(button);
+        }
+        setupUserCreateModal();
+        var form = qs('[data-user-create-form]');
+        if (form) bindLockedUserCreateForm(form);
     }
 
     function bindLockedUserCreateForm(form) {
@@ -253,7 +239,7 @@
             event.preventDefault();
             event.stopImmediatePropagation();
             if (!canManageTeam()) {
-                showAppNotice('Доступ разрешен только Главному Админу', 'error');
+                showAppNotice('Доступ разрешен только Админу или Директору', 'error');
                 return;
             }
             var error = qs('[data-user-create-error]', form);
@@ -360,6 +346,12 @@
     function isValidUserEmail(value) {
         var text = String(value || '').trim();
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+    }
+
+    function safeUserDisplayName(user) {
+        user = user || {};
+        var splitName = (String(user.last_name || user.lastName || '') + ' ' + String(user.first_name || user.firstName || '')).trim();
+        return user.displayName || user.name || splitName || user.login || '';
     }
 
     function bindUserPhoneMask(form) {
@@ -638,7 +630,8 @@
                     return '<span class="badge">' + escapeHtml(role.name || role.code) + '</span>';
                 }).join('');
                 var contacts = [user.login, user.email, user.phone, user.status].filter(Boolean).join(' • ');
-                return '<div class="user-row"><div><b>' + escapeHtml(user.name) + '</b><small>' + escapeHtml(contacts) + '</small></div><div class="badge-list">' + roleBadges + '</div></div>';
+                var displayName = safeUserDisplayName(user);
+                return '<div class="user-row"><div><b>' + escapeHtml(displayName) + '</b><small>' + escapeHtml(contacts) + '</small></div><div class="badge-list">' + roleBadges + '</div></div>';
             }).join('') + '</div>';
         }).catch(function () {
             root.innerHTML = '<p class="muted">Не удалось загрузить список команды. Обнови страницу или попробуй позже.</p>';
@@ -715,6 +708,7 @@
 
     function renderUserCard(user) {
         user = user || {};
+        var displayName = safeUserDisplayName(user);
         var roles = effectiveUserRoles(user);
         var roleBadges = roles.map(function (role) {
             return '<span class="employee-role-badge' + userRoleClass(role) + '">' + escapeHtml(userRoleLabel(role)) + '</span>';
@@ -723,7 +717,7 @@
         return '<article class="employee-card" data-employee-card data-user-id="' + escapeHtml(user.id || '') + '">' +
             '<div class="employee-card-top">' +
                 '<div class="employee-avatar" aria-hidden="true">' + avatar + '</div>' +
-                '<div class="employee-main"><h3>' + escapeHtml(personDisplayName(user) || 'Сотрудник') + '</h3><div class="employee-role-list">' + roleBadges + '</div></div>' +
+                '<div class="employee-main"><h3>' + escapeHtml(displayName || 'Сотрудник') + '</h3><div class="employee-role-list">' + roleBadges + '</div></div>' +
             '</div>' +
             '<div class="employee-card-meta">' +
                 '<div><span>Закрепленный объект</span><strong>' + escapeHtml(userCurrentObjectLabel(user)) + '</strong></div>' +

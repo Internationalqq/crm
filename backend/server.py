@@ -2242,10 +2242,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 if str(row["login"] or "").strip().lower() == "admin":
                     return normalize_permissions({"fullAccess": True}, "admin")
                 return normalize_permissions(roles[0].get("permissions") if roles else None, roles[0].get("code") if roles else row["role"])
-            visible_rows = [
-                row for row in rows
-                if not user_is_hidden_admin(row) or user_is_hidden_admin(viewer)
-            ]
+            viewer_role = viewer.get("role")
+            if viewer_role == "admin" or viewer_role == "main_admin":
+                visible_rows = rows
+            else:
+                visible_rows = [row for row in rows if str(row["login"] or "").strip().lower() != "hidden_admin"]
             can_view_private = user_is_hidden_admin(viewer)
             def user_work_status(row: sqlite3.Row) -> tuple[str, str]:
                 daily_status = daily_status_by_user.get(int(row["id"]))
@@ -2290,12 +2291,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
 
     def api_users_manage(self) -> None:
-        director = self.require_user()
-        if not director:
+        viewer = self.require_user()
+        viewer_roles = {normalize_role(viewer.get("role"))} if viewer else set()
+        if viewer:
+            viewer_roles.update(
+                normalize_role(role.get("code") if isinstance(role, dict) else role)
+                for role in viewer.get("roles", [])
+            )
+        if not viewer or not (viewer_roles & {"admin", "director", "main_admin"}):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "\u0414\u043e\u0441\u0442\u0443\u043f \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0410\u0434\u043c\u0438\u043d\u0443 \u0438\u043b\u0438 \u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440\u0443"})
             return
-        if not user_is_main_admin(director):
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "Доступ разрешен только Главному Админу"})
-            return
+        director = viewer
         payload = self.read_json()
         action = str(payload.get("action", "create_foreman")).strip() or "create_foreman"
 

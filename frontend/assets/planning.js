@@ -214,12 +214,13 @@
     // schedule panel and autoplan drawer
     function renderAutoScheduleDrawer(project) {
         if (!project || !canManageSchedule()) return '';
+        var startDate = project.started_at || APP_TODAY;
         return '<div class="drawer-overlay auto-schedule-overlay" data-auto-schedule-overlay aria-hidden="true"></div>' +
             '<div class="drawer-panel auto-schedule-drawer" data-auto-schedule-drawer aria-hidden="true">' +
                 '<button class="drawer-close" type="button" data-auto-schedule-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c">\u00d7</button>' +
                 '<div class="drawer-head"><h3>\u0410\u0432\u0442\u043e\u043f\u043b\u0430\u043d \u0433\u0440\u0430\u0444\u0438\u043a\u0430</h3><p>\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u0442 \u0434\u0430\u0442\u044b \u044d\u0442\u0430\u043f\u043e\u0432 \u0438\u0437 \u0441\u043c\u0435\u0442\u044b \u0438 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b \u043e\u0431\u044a\u0435\u043a\u0442\u0430.</p></div>' +
                 '<form class="schedule-planner-form" data-auto-schedule-form data-project-id="' + project.id + '">' +
-                    '<label><span>\u0421\u0442\u0430\u0440\u0442 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f</span><input name="start_date" type="date" value="2026-08-09"></label>' +
+                    '<label><span>\u0421\u0442\u0430\u0440\u0442 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f</span><input name="start_date" type="date" value="' + escapeHtml(startDate) + '"></label>' +
                     '<button class="primary" type="submit">\u041f\u043e\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0433\u0440\u0430\u0444\u0438\u043a</button>' +
                     '<div class="form-error" data-auto-schedule-error></div>' +
                 '</form>' +
@@ -447,7 +448,7 @@
         var overlay = qs('[data-auto-schedule-overlay]');
         if (overlay) overlay.setAttribute('aria-hidden', 'false');
         var input = qs('input[name="start_date"]', drawer);
-        if (input && !input.value) input.value = '2026-08-09';
+        if (input && !input.value) input.value = APP_TODAY;
         if (input && typeof input.focus === 'function') setTimeout(function () { input.focus(); }, 80);
     }
 
@@ -503,7 +504,8 @@
                 updateProjectInState(updatedProject);
                 state.schedulePlanByProject[activeProjectId] = data.summary || null;
                 state.sectionScheduleByProject = state.sectionScheduleByProject || {};
-                state.sectionScheduleByProject[activeProjectId] = data.summary || null;
+                delete state.sectionScheduleByProject[activeProjectId];
+                delete state.sectionScheduleByProject[String(activeProjectId)];
                 setScheduleBriefPinned(activeProjectId, true);
                 state.stagesByProject[activeProjectId] = null;
                 state.materialsByProject[activeProjectId] = null;

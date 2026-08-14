@@ -880,7 +880,7 @@
     }
 
     function canManageTeam() {
-        return isMainAdminRole();
+        return isAdminRole() || isMainAdminRole();
     }
 
     function canManageDailyTasks() {

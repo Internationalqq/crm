@@ -7671,11 +7671,11 @@ function renderLogsDayView(project, logs) {
                         '<div data-reminder-list></div>' +
                     '</div>' +
                 '</div>' +
-                '<button class="topbar-icon-button ai-circle" type="button" data-ai-open aria-label="Открыть AI помощника" title="AI помощник">' +
+                '<button class="topbar-icon-button ai-circle" type="button" data-ai-open data-header-ai-trigger aria-label="Открыть AI помощника" title="AI помощник">' +
                     '<i data-lucide="sparkles" aria-hidden="true"></i>' +
                 '</button>' +
                 '<div class="topbar-profile-wrap">' +
-                    '<button class="topbar-profile" type="button" data-user-toggle aria-expanded="false" aria-label="Открыть личный кабинет" title="Личный кабинет">' +
+                    '<button class="topbar-profile" type="button" data-user-toggle data-header-profile-trigger aria-expanded="false" aria-label="Открыть личный кабинет" title="Личный кабинет">' +
                         userAvatarMarkup(state.currentUser || state.user || {}, 'topbar-avatar') +
                         '<i data-lucide="chevron-down" aria-hidden="true"></i>' +
                     '</button>' +
@@ -8192,6 +8192,56 @@ function renderLogsDayView(project, logs) {
         bindMaterialScheduleTimeline();
     }
     installVisibleDateFormatter();
+
+    document.addEventListener('click', function (event) {
+        var target = event.target && event.target.closest ? event.target : null;
+        if (!target) return;
+
+        var userToggle = target.closest('[data-user-toggle]');
+        if (userToggle) {
+            var profileWrap = userToggle.closest('.topbar-profile-wrap');
+            var popover = profileWrap ? profileWrap.querySelector('[data-user-popover]') : null;
+            if (popover) {
+                event.preventDefault();
+                event.stopPropagation();
+                popover.hidden = !popover.hidden;
+                userToggle.setAttribute('aria-expanded', popover.hidden ? 'false' : 'true');
+                return;
+            }
+        }
+
+        var profileBtn = target.closest('[data-profile-open]');
+        if (profileBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            var openPopover = profileBtn.closest('[data-user-popover]');
+            var openToggle = openPopover && openPopover.parentElement ? openPopover.parentElement.querySelector('[data-user-toggle]') : null;
+            if (openPopover) openPopover.hidden = true;
+            if (openToggle) openToggle.setAttribute('aria-expanded', 'false');
+            if (window.PMBI && window.PMBI.operations && typeof window.PMBI.operations.openProfileModal === 'function') {
+                window.PMBI.operations.openProfileModal();
+            } else if (typeof operationsCall === 'function') {
+                operationsCall('openProfileModal', []);
+            } else {
+                console.error('Функция профиля не найдена');
+            }
+            return;
+        }
+
+        var aiBtn = target.closest('[data-header-ai-trigger], [data-ai-open]');
+        if (aiBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (window.PMBI && window.PMBI.operations && typeof window.PMBI.operations.toggleAiAssistantDrawer === 'function') {
+                window.PMBI.operations.toggleAiAssistantDrawer();
+            } else if (typeof operationsCall === 'function') {
+                operationsCall('toggleAiAssistantDrawer', []);
+            } else {
+                console.error('Функция ИИ не найдена');
+            }
+            return;
+        }
+    }, true);
 
     if (page === 'login') initLogin();
     else initShell();
