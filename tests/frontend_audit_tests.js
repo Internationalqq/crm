@@ -12,6 +12,7 @@ const appJs = fs.readFileSync(path.join(root, 'frontend/assets/app.js'), 'utf8')
 const frontendJs = [coreJs, dailyTasksJs, planningJs, procurementJs, operationsJs, appJs].join('\n');
 const authPy = fs.readFileSync(path.join(root, 'backend/auth.py'), 'utf8');
 const serverPy = fs.readFileSync(path.join(root, 'backend/server.py'), 'utf8');
+const projectsPy = fs.readFileSync(path.join(root, 'backend/projects.py'), 'utf8');
 
 function test(name, fn) {
   try {
@@ -110,6 +111,17 @@ test('Daily task loads ignore stale responses and checkbox saves are de-duped', 
   assert.equal((appJs.match(/^\s*saveManualQuantityCheckbox\(input\)/gm) || []).length, 0);
 });
 
+test('Daily task all-user visibility is separate from completion ownership', () => {
+  assert.match(serverPy, /if status == "done" and int\(row\["user_id"\]\) != int\(user\["id"\]\):/);
+  assert.match(serverPy, /"error": "not_task_assignee"/);
+  assert.doesNotMatch(serverPy, /if not self\.daily_task_manager\(user\):\s*requested_user_id = int\(user\["id"\]\)/);
+  assert.match(serverPy, /"createdAt": row\["created_at"\]/);
+  assert.match(frontendJs, /function dailyTaskCanComplete\(task\)/);
+  assert.match(frontendJs, /data-daily-task-owner-id/);
+  assert.match(frontendJs, /function dailyTaskCreatedText\(task\)/);
+  assert.match(frontendJs, /Выполнить задачу может только ее исполнитель\./);
+});
+
 test('Calendar material quantities render as one calculated value, not glued values', () => {
   const plan = quantityPlanInfo({ plannedQty: 100, unit: '4 м2' });
   const label = `${quantityText(plan.totalQty)} ${plan.unit}`;
@@ -134,6 +146,31 @@ test('Main admin account is only visible to itself in user directories', () => {
   assert.match(serverPy, /def viewer_is_same_user\(row: sqlite3\.Row\) -> bool/);
   assert.match(serverPy, /not user_is_main_admin_account\(row\)[\s\S]+or viewer_is_same_user\(row\)/);
   assert.match(serverPy, /u\.role = 'main_admin'/);
+});
+
+test('Project cards can be edited by all visible users, while project delete is admin-only', () => {
+  assert.doesNotMatch(appJs, /var editButton = isAdminRole\(\)/);
+  assert.match(appJs, /var editButton = '<button class="project-card-menu"/);
+  assert.match(coreJs, /function canDeleteProject\(\) \{\s*return isMainAdminRole\(\) \|\| hasRole\('admin'\);/);
+  assert.match(operationsJs, /deleteButton\.hidden = !canDeleteProject\(\)/);
+  assert.match(operationsJs, /Удалять объект может только Админ\./);
+  assert.match(projectsPy, /user = handler\.require_user\(\)[\s\S]+if not can_access_project\(handler, user, project_id\):/);
+  assert.match(projectsPy, /if not \(user_is_main_admin\(user\) or user_has_any_role\(user, \{"admin"\}\)\):/);
+});
+
+test('Reminder bell loads visible projects before showing what is urgent', () => {
+  assert.match(appJs, /state\.reminderProjectsLoading/);
+  assert.match(appJs, /api\('\/api\/projects', \{ silentLoader: true \}\)/);
+});
+
+test('Employee contacts are visible while team mutations are admin-only', () => {
+  assert.match(coreJs, /function canManageTeam\(\) \{\s*return hasRole\('admin'\) \|\| isMainAdminRole\(\);/);
+  assert.match(serverPy, /"email": row\["email"\]/);
+  assert.match(serverPy, /"phone": row\["phone"\]/);
+  assert.match(serverPy, /if not viewer or not user_is_main_admin\(viewer\):/);
+  assert.doesNotMatch(serverPy, /viewer_roles & \{"admin", "director", "main_admin"\}/);
+  assert.match(operationsJs, /var avatarUrl = safeAvatarUrl\(user\.avatarUrl \|\| user\.avatar_url \|\| user\.avatar \|\| ''\);/);
+  assert.match(operationsJs, /'<div class="employee-profile-avatar" aria-hidden="true">' \+ avatar \+ '<\/div>'/);
 });
 
 if (process.exitCode) process.exit(process.exitCode);

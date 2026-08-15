@@ -2259,7 +2259,6 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 for row in rows
                 if not row_is_main_admin_account(row) or viewer_is_same_user(row)
             ]
-            can_view_private = user_is_hidden_admin(viewer)
             def user_work_status(row: sqlite3.Row) -> tuple[str, str]:
                 daily_status = daily_status_by_user.get(int(row["id"]))
                 if daily_status == "in_progress":
@@ -2277,9 +2276,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         "avatarUrl": row["avatar_url"] if "avatar_url" in row.keys() else None,
                         "id": row["id"],
                         "login": row["login"],
-                        "email": row["email"] if can_view_private else None,
-                        "phone": row["phone"] if can_view_private else None,
-                        "clerkUserId": row["clerk_user_id"] if can_view_private else None,
+                        "email": row["email"],
+                        "phone": row["phone"],
+                        "clerkUserId": row["clerk_user_id"] if user_is_hidden_admin(viewer) else None,
                         "role": "admin" if str(row["login"] or "").strip().lower() == "admin" else normalize_role(row["role"]),
                         "roles": user_roles_for_row(row),
                         "roleLabel": user_roles_for_row(row)[0].get("name") if user_roles_for_row(row) else ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
@@ -2304,14 +2303,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def api_users_manage(self) -> None:
         viewer = self.require_user()
-        viewer_roles = {normalize_role(viewer.get("role"))} if viewer else set()
-        if viewer:
-            viewer_roles.update(
-                normalize_role(role.get("code") if isinstance(role, dict) else role)
-                for role in viewer.get("roles", [])
-            )
-        if not viewer or not (viewer_roles & {"admin", "director", "main_admin"}):
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "\u0414\u043e\u0441\u0442\u0443\u043f \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0410\u0434\u043c\u0438\u043d\u0443 \u0438\u043b\u0438 \u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440\u0443"})
+        if not viewer or not user_is_main_admin(viewer):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "\u0414\u043e\u0441\u0442\u0443\u043f \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0410\u0434\u043c\u0438\u043d\u0443"})
             return
         director = viewer
         payload = self.read_json()
@@ -2752,6 +2745,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             "date": row["task_date"],
             "completedAt": row["completed_at"],
             "archivedAt": row["archived_at"] if "archived_at" in row.keys() else None,
+            "createdAt": row["created_at"] if "created_at" in row.keys() else None,
             "fromBoss": creator_role == "director",
         }
         if "user_name" in row.keys():
@@ -2882,8 +2876,6 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
                     return
-        if not self.daily_task_manager(user):
-            requested_user_id = int(user["id"])
         with db() as con:
             rows = self.daily_task_rows(con, user, archive=archive, user_id=requested_user_id)
             users = self.daily_task_users(con, user)
@@ -2966,6 +2958,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             status = str(payload.get("status", row["status"]) or row["status"]).strip()
             if status not in {"planned", "in_progress", "done", "archived"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+                return
+            if status == "done" and int(row["user_id"]) != int(user["id"]):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "not_task_assignee"})
                 return
             text = str(payload.get("text", row["text"]) or "").strip()
             if not text:
@@ -3148,7 +3143,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with db() as con:
-            if user_has_any_role(user, {"admin", "director"}):
+            if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
                 projects = con.execute("SELECT * FROM projects").fetchall()
             elif user_has_any_role(user, {"foreman"}):
                 projects = con.execute(

@@ -6,7 +6,7 @@ import time
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import ROLE_LABELS, display_user_name, normalize_role, user_has_any_role, user_is_hidden_admin
+from auth import ROLE_LABELS, display_user_name, normalize_role, user_has_any_role, user_is_hidden_admin, user_is_main_admin
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -198,15 +198,24 @@ def api_projects(handler) -> None:
     if not user:
         return
     with db() as con:
-        if user_has_any_role(user, {"admin", "director"}):
+        if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
             rows = con.execute("SELECT * FROM projects ORDER BY id DESC").fetchall()
         elif user_has_any_role(user, {"foreman"}):
             rows = con.execute(
                 """
                 SELECT DISTINCT p.*
                 FROM projects p
-                JOIN object_assignments oa ON oa.object_id = p.id
-                WHERE oa.user_id = ? AND oa.role_code = 'foreman'
+                LEFT JOIN object_assignments own_oa
+                    ON own_oa.object_id = p.id
+                    AND own_oa.user_id = ?
+                    AND own_oa.role_code = 'foreman'
+                WHERE own_oa.id IS NOT NULL
+                   OR NOT EXISTS (
+                        SELECT 1
+                        FROM object_assignments foreman_oa
+                        WHERE foreman_oa.object_id = p.id
+                          AND foreman_oa.role_code = 'foreman'
+                   )
                 ORDER BY p.id DESC
                 """,
                 (user["id"],),
@@ -230,7 +239,7 @@ def api_create_project(handler) -> None:
     user = handler.require_user()
     if not user:
         return
-    if not user_has_any_role(user, {"admin", "director"}):
+    if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
@@ -372,8 +381,11 @@ def api_update_project(handler, path: str) -> None:
     if not project_id:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
         return
-    user = handler.require_role({"admin", "director"})
+    user = handler.require_user()
     if not user:
+        return
+    if not can_access_project(handler, user, project_id):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
     with db() as con:
@@ -452,8 +464,11 @@ def api_delete_project(handler, path: str) -> None:
     if not project_id:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
         return
-    user = handler.require_role({"admin", "director"})
+    user = handler.require_user()
     if not user:
+        return
+    if not (user_is_main_admin(user) or user_has_any_role(user, {"admin"})):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     with db() as con:
         current = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -489,17 +504,32 @@ def api_delete_project(handler, path: str) -> None:
 
 
 def can_access_project(handler, user: dict, project_id: int) -> bool:
-    if user_has_any_role(user, {"admin", "director"}):
+    if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
         return True
     with db() as con:
         if user_has_any_role(user, {"foreman"}):
             row = con.execute(
                 """
                 SELECT 1
-                FROM object_assignments
-                WHERE user_id = ? AND object_id = ? AND role_code = 'foreman'
+                FROM projects p
+                WHERE p.id = ?
+                  AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM object_assignments own_oa
+                        WHERE own_oa.object_id = p.id
+                          AND own_oa.user_id = ?
+                          AND own_oa.role_code = 'foreman'
+                    )
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM object_assignments foreman_oa
+                        WHERE foreman_oa.object_id = p.id
+                          AND foreman_oa.role_code = 'foreman'
+                    )
+                  )
                 """,
-                (user["id"], project_id),
+                (project_id, user["id"]),
             ).fetchone()
         else:
             row = con.execute(

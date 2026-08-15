@@ -293,11 +293,11 @@ def user_permissions(user: dict) -> dict:
 
 
 def user_can_manage_roles(user: dict) -> bool:
-    return bool(user_permissions(user).get("manageRoles")) or user_has_any_role(user, {"admin", "director"})
+    return user_is_main_admin(user)
 
 
 def user_can_manage_users(user: dict) -> bool:
-    return bool(user_permissions(user).get("manageUsers")) or user_has_any_role(user, {"admin", "director"})
+    return user_is_main_admin(user)
 
 
 def user_is_hidden_admin(user: dict | sqlite3.Row | None) -> bool:

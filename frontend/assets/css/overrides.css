@@ -483,10 +483,17 @@ body[data-page="companies"].counterparty-create-open {
     place-items: center;
     border-radius: 50%;
     color: #fff;
+    overflow: hidden;
     font-size: 28px;
     font-weight: 900;
     background: linear-gradient(135deg, #2563eb, #20b486);
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.24), 0 16px 34px rgba(37,99,235,.24);
+}
+
+.employee-profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .employee-profile-head h3 {
@@ -4964,7 +4971,7 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 
 .daily-list-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
     min-height: 72px;
@@ -4981,6 +4988,14 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 
 .daily-list-row:hover {
     background: #f8fbff;
+}
+
+.daily-list-row.is-readonly {
+    cursor: default;
+}
+
+.daily-list-row.is-readonly:hover {
+    background: #ffffff;
 }
 
 .daily-list-row:focus-visible {
@@ -5076,6 +5091,15 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 
 .daily-row-meta:empty {
     display: none;
+}
+
+.daily-row-created {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 750;
+    justify-self: end;
+    text-align: right;
+    white-space: nowrap;
 }
 
 .daily-row-action {
@@ -5477,6 +5501,13 @@ body.daily-archive-opened {
     .daily-row-action {
         grid-column: 2;
         justify-content: flex-start;
+    }
+
+    .daily-row-created {
+        grid-column: 2;
+        justify-self: start;
+        text-align: left;
+        white-space: normal;
     }
 
     .daily-archive-clean-row {

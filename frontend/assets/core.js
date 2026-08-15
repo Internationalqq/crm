@@ -878,7 +878,11 @@
     }
 
     function isAdminRole() {
-        return hasRole('admin') || hasRole('director');
+        return isMainAdminRole() || !!currentPermissions().fullAccess || hasRole('admin') || hasRole('director');
+    }
+
+    function canDeleteProject() {
+        return isMainAdminRole() || hasRole('admin');
     }
 
     function currentPermissions() {
@@ -907,7 +911,7 @@
     }
 
     function canManageTeam() {
-        return isAdminRole() || isMainAdminRole();
+        return hasRole('admin') || isMainAdminRole();
     }
 
     function canManageDailyTasks() {
@@ -1041,6 +1045,7 @@
         isDirectorRole: isDirectorRole,
         isForemanRole: isForemanRole,
         isAdminRole: isAdminRole,
+        canDeleteProject: canDeleteProject,
         currentPermissions: currentPermissions,
         personDisplayName: personDisplayName,
         allowedModules: allowedModules,

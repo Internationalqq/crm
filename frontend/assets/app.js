@@ -3862,9 +3862,7 @@ function renderLogsDayView(project, logs) {
                 var statusMeta = projectStatusMeta(project, completed);
                 var foremenMeta = projectForemenMeta(project);
                 var statusBadge = '<span class="project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>';
-                var editButton = isAdminRole()
-                    ? '<button class="project-card-menu" type="button" aria-label="\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442" data-project-edit="' + escapeHtml(project.id || '') + '"><i data-lucide="ellipsis"></i></button>'
-                    : '';
+                var editButton = '<button class="project-card-menu" type="button" aria-label="Редактировать объект" data-project-edit="' + escapeHtml(project.id || '') + '"><i data-lucide="ellipsis"></i></button>';
                 var riskBadge = (!completed && criticalCount)
                     ? '<span class="project-inline-note is-danger"><i data-lucide="triangle-alert"></i><span>Нехватки: ' + escapeHtml(String(criticalCount)) + '</span></span>'
                     : '';
@@ -6253,7 +6251,20 @@ function renderLogsDayView(project, logs) {
     function refreshReminderBell() {
         if (!qsa('[data-reminder-toggle]').length) return;
         if (!state.projects.length) {
-            renderReminderBell([], false);
+            if (state.reminderProjectsLoading) {
+                renderReminderBell([], true);
+                return;
+            }
+            state.reminderProjectsLoading = true;
+            renderReminderBell([], true);
+            api('/api/projects', { silentLoader: true }).then(function (data) {
+                state.projects = Array.isArray(data.projects) ? data.projects : [];
+                state.reminderProjectsLoading = false;
+                refreshReminderBell();
+            }).catch(function () {
+                state.reminderProjectsLoading = false;
+                renderReminderBell([], false);
+            });
             return;
         }
         renderReminderBell([], true);

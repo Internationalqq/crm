@@ -603,6 +603,27 @@
         return task && task.status === 'done';
     }
 
+    function dailyTaskCanComplete(task) {
+        return task && state.user && String(task.userId) === String(state.user.id);
+    }
+
+    function dailyTaskCreatedText(task) {
+        var raw = task && task.createdAt;
+        if (!raw) return '';
+        var date = null;
+        if (typeof raw === 'number' || /^\d+$/.test(String(raw))) {
+            date = new Date(Number(raw) * 1000);
+        } else {
+            date = new Date(String(raw));
+        }
+        if (!date || Number.isNaN(date.getTime())) return '';
+        var day = String(date.getDate()).padStart(2, '0');
+        var month = String(date.getMonth() + 1).padStart(2, '0');
+        var year = date.getFullYear();
+        var time = String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+        return day + '.' + month + '.' + year + ' ' + time;
+    }
+
     function renderDailyTaskProgress(tasks) {
         var root = qs('[data-daily-progress]');
         if (!root) return;
@@ -654,8 +675,10 @@
         var assignee = dailyTaskAssignee(task);
         var creator = dailyTaskCreator(task);
         var done = dailyTaskIsDone(task);
+        var canComplete = dailyTaskCanComplete(task);
         var boss = !!task.fromBoss;
-        return '<article class="daily-list-row' + (done ? ' is-done' : '') + (boss ? ' is-from-boss' : '') + '" data-daily-task-id="' + escapeHtml(task.id) + '" role="button" tabindex="0" aria-pressed="' + (done ? 'true' : 'false') + '">' +
+        var createdText = dailyTaskCreatedText(task);
+        return '<article class="daily-list-row' + (done ? ' is-done' : '') + (boss ? ' is-from-boss' : '') + (!canComplete ? ' is-readonly' : '') + '" data-daily-task-id="' + escapeHtml(task.id) + '" data-daily-task-owner-id="' + escapeHtml(task.userId) + '" role="button" tabindex="0" aria-pressed="' + (done ? 'true' : 'false') + '"' + (!canComplete ? ' aria-disabled="true"' : '') + '>' +
             '<div class="daily-row-avatars">' +
                 (boss ? dailyAvatar(creator, creator.name || 'Директор', 'daily-avatar-boss') : '') +
                 dailyAvatar(assignee, assignee.name || task.userName || 'Сотрудник') +
@@ -667,6 +690,7 @@
                     (boss ? '<span class="daily-boss-badge">От Босса</span>' : '') +
                 '</div>' +
             '</div>' +
+            (createdText ? '<time class="daily-row-created" datetime="' + escapeHtml(String(task.createdAt || '')) + '">Создано ' + escapeHtml(createdText) + '</time>' : '') +
         '</article>';
     }
 
@@ -741,7 +765,7 @@
     function loadDailyArchive() {
         var requestToken = (state.dailyArchiveRequestToken || 0) + 1;
         state.dailyArchiveRequestToken = requestToken;
-        return api('/api/daily-tasks?archive=1').then(function (data) {
+        return api(dailyTaskQuery(true)).then(function (data) {
             if (requestToken !== state.dailyArchiveRequestToken) return;
             state.dailyArchive = Array.isArray(data.tasks) ? data.tasks : [];
             if (Array.isArray(data.users)) state.users = data.users.map(normalizeDailyUser);
@@ -1053,6 +1077,10 @@
         }
         if (row.classList.contains('is-saving')) return;
         var task = (state.dailyTasks || []).filter(function (item) { return String(item.id) === String(taskId); })[0] || {};
+        if (!dailyTaskCanComplete(task)) {
+            showAppNotice('Выполнить задачу может только ее исполнитель.', 'error');
+            return;
+        }
         var timer = dailyTaskTimerNode(row);
         row.classList.add('is-done', 'is-pending-complete');
         row.setAttribute('aria-pressed', 'true');

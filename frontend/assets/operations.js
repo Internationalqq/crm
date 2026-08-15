@@ -25,6 +25,7 @@
     var canViewPrivateContacts = PMBI.canViewPrivateContacts;
     var canManageDailyTasks = PMBI.canManageDailyTasks;
     var canManageSuppliers = PMBI.canManageSuppliers;
+    var canDeleteProject = PMBI.canDeleteProject || function () { return hasRole('admin'); };
     var canSeeFinances = PMBI.canSeeFinances;
     var currentRoleLabel = PMBI.currentRoleLabel;
     var personDisplayName = PMBI.personDisplayName;
@@ -246,7 +247,7 @@
             event.preventDefault();
             event.stopImmediatePropagation();
             if (!canManageTeam()) {
-                showAppNotice('Доступ разрешен только Админу или Директору', 'error');
+                showAppNotice('Доступ разрешен только Админу', 'error');
                 return;
             }
             var error = qs('[data-user-create-error]', form);
@@ -781,6 +782,8 @@
     function renderEmployeeProfile(user) {
         user = user || {};
         var role = employeePrimaryRole(user);
+        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url || user.avatar || '');
+        var avatar = avatarUrl ? '<img src="' + escapeHtml(avatarUrl) + '" alt="">' : escapeHtml(userInitials(user));
         var projects = userAssignedProjects(user);
         var projectsHtml = projects.length ? projects.map(function (project) {
             var projectId = project && (project.id || project.project_id || project.projectId);
@@ -796,7 +799,7 @@
         return '<div class="employee-profile-card">' +
             '<button class="ghost compact employee-profile-close" type="button" data-employee-profile-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
             '<div class="employee-profile-head">' +
-                '<div class="employee-profile-avatar" aria-hidden="true">' + escapeHtml(userInitials(user)) + '</div>' +
+                '<div class="employee-profile-avatar" aria-hidden="true">' + avatar + '</div>' +
                 '<h3>' + escapeHtml(personDisplayName(user) || 'Сотрудник') + '</h3>' +
                 '<span class="employee-role-badge' + userRoleClass(role) + '">' + escapeHtml(userRoleLabel(role)) + '</span>' +
             '</div>' +
@@ -1306,6 +1309,8 @@
         if (form.city) form.city.value = project.city || '';
         if (form.region) form.region.value = project.region || '';
         if (form.description) form.description.value = project.description || '';
+        var deleteButton = qs('[data-project-delete]', card);
+        if (deleteButton) deleteButton.hidden = !canDeleteProject();
         var error = qs('[data-project-edit-error]');
         if (error) {
             error.textContent = '';
@@ -1442,7 +1447,7 @@
                 '<span>Проверь, что сервис AutoBot запущен, или открой его отдельно.</span>' +
                 '<a href="' + href + '" target="_blank" rel="noopener noreferrer">Открыть AutoBot</a>' +
             '</div>' +
-            '<iframe class="autobot-embed" data-autobot-frame src="' + href + '" title="AutoBot" loading="eager" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; microphone" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-modals allow-top-navigation-by-user-activation"></iframe>' +
+            '<iframe class="autobot-embed" data-autobot-frame src="' + href + '" title="AutoBot" loading="eager" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; microphone"></iframe>' +
         '</div>';
     }
 
@@ -1467,6 +1472,22 @@
             clearAutobotFrameLoader();
             offline.hidden = false;
             showAppNotice('AutoBot не отвечает. Проверь, что сервис запущен.', 'error');
+        });
+    }
+
+    function bindAutobotCrmNavigation() {
+        if (window.__pmbiAutobotCrmNavigationBound) return;
+        window.__pmbiAutobotCrmNavigationBound = true;
+        window.addEventListener('message', function (event) {
+            var data = event && event.data;
+            if (!data || data.type !== 'pmbi:navigate') return;
+            var href = String(data.href || '').trim();
+            if (!href) return;
+            try {
+                var url = new URL(href, location.origin);
+                if (url.pathname !== '/app/projects') return;
+                location.href = url.pathname + url.search + url.hash;
+            } catch (error) {}
         });
     }
 
@@ -1688,10 +1709,12 @@
         var root = getAutoBotContentRoot();
         if (stage && root && !qs('[data-autobot-tender-form]', root) && !qs('[data-autobot-estimate-form]', root)) {
             safeReplaceChildren(root, renderAutobotShellHTML(stage.getAttribute('data-autobot-url') || ''));
+            bindAutobotCrmNavigation();
             bindAutobotFrameLoader();
             bindAutobotOfflineCheck();
             return;
         }
+        bindAutobotCrmNavigation();
         fillAutobotProjectSelects();
         bindAutobotTenderMode();
         bindAutobotTenderForm();
@@ -2328,6 +2351,8 @@
         if (form.city) form.city.value = project.city || '';
         if (form.region) form.region.value = project.region || '';
         if (form.description) form.description.value = project.description || '';
+        var deleteButton = qs('[data-project-delete]', card);
+        if (deleteButton) deleteButton.hidden = !canDeleteProject();
         var error = qs('[data-project-edit-error]');
         if (error) {
             error.textContent = '';
@@ -2383,6 +2408,10 @@
             event.preventDefault();
             var projectId = Number(form.project_id.value);
             if (!projectId) return;
+            if (!canDeleteProject()) {
+                showAppNotice('Удалять объект может только Админ.', 'error');
+                return;
+            }
             var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
             var projectTitle = project && project.title ? project.title : 'этот объект';
             if (!window.confirm('Удалить объект "' + projectTitle + '"? Это действие удалит связанные данные.')) return;
@@ -2483,6 +2512,10 @@
             deleteButton.addEventListener('click', function () {
                 var projectId = Number(form.project_id.value);
                 if (!projectId) return;
+                if (!canDeleteProject()) {
+                    showAppNotice('Удалять объект может только Админ.', 'error');
+                    return;
+                }
                 var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
                 var projectTitle = project && project.title ? project.title : 'этот объект';
                 if (!window.confirm('Удалить объект "' + projectTitle + '"? Это действие удалит связанные данные.')) return;
@@ -2795,6 +2828,8 @@
         if (form.city) form.city.value = project.city || '';
         if (form.region) form.region.value = project.region || '';
         if (form.description) form.description.value = project.description || '';
+        var deleteButton = qs('[data-project-delete]', card);
+        if (deleteButton) deleteButton.hidden = !canDeleteProject();
         var error = qs('[data-project-edit-error]');
         if (error) {
             error.textContent = '';
