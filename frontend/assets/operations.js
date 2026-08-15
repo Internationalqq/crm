@@ -121,8 +121,14 @@
     function installActualQuantityDelegates() { return appCall('installActualQuantityDelegates', arguments); }
     function bindActualQuantityInputs() { return appCall('bindActualQuantityInputs', arguments); }
     function syncCurrentUserHeader() { return appCall('syncCurrentUserHeader', arguments); }
-    function topbarAvatarInner() { return appCall('topbarAvatarInner', arguments); }
-    function forceTopbarAvatar() { return appCall('forceTopbarAvatar', arguments); }
+    function topbarAvatarInner() {
+        if (typeof PMBI.topbarAvatarInner === 'function') return PMBI.topbarAvatarInner.apply(PMBI, arguments);
+        return appCall('topbarAvatarInner', arguments);
+    }
+    function forceTopbarAvatar() {
+        if (typeof PMBI.forceTopbarAvatar === 'function') return PMBI.forceTopbarAvatar.apply(PMBI, arguments);
+        return appCall('forceTopbarAvatar', arguments);
+    }
     function initReminderBell() { return appCall('initReminderBell', arguments); }
     function renderAppTopbar() { return appCall('renderAppTopbar', arguments); }
     function bindUserMenu() { return appCall('bindUserMenu', arguments); }
@@ -2038,11 +2044,14 @@
                     formData.append('avatar', avatarFile.files[0]);
                 }
                 return apiFormData('/api/auth/update-profile', formData).then(function (data) {
-                    state.currentUser = data.user;
-                    state.user = data.user;
-                    syncCurrentUserHeader(data.user);
-                    showAppNotice('Профиль обновлен', 'success');
+                    applyProfileUser(data.user);
+                    showAppNotice('\u041f\u0440\u043e\u0444\u0438\u043b\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d', 'success');
                     closeProfileModal();
+                }).catch(function (error) {
+                    return recoverProfileSave(error).then(function () {
+                        showAppNotice('\u041f\u0440\u043e\u0444\u0438\u043b\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d', 'success');
+                        closeProfileModal();
+                    });
                 });
             }).catch(function (error) {
                 showAppNotice(appErrorMessage(error, 'Не удалось обновить профиль'), 'error');
@@ -2102,8 +2111,40 @@
         qsa('.topbar-avatar').forEach(function (node) {
             safeReplaceChildren(node, topbarAvatarInner(user));
         });
+        qsa('[data-current-user-avatar]').forEach(function (node) {
+            safeReplaceChildren(node, topbarAvatarInner(user));
+        });
         forceTopbarAvatar(user);
         refreshLucideIcons(document);
+    }
+
+    function applyProfileUser(user) {
+        if (!user) return null;
+        state.currentUser = user;
+        state.user = user;
+        if (Array.isArray(state.users)) {
+            state.users = state.users.map(function (item) {
+                return item && Number(item.id) === Number(user.id) ? Object.assign({}, item, user) : item;
+            });
+        }
+        if (typeof PMBI.applyCurrentUser === 'function') PMBI.applyCurrentUser(user);
+        syncCurrentUserHeader(user);
+        try {
+            window.dispatchEvent(new CustomEvent('pmbi:user-updated', { detail: { user: user } }));
+        } catch (error) {}
+        return user;
+    }
+
+    function recoverProfileSave(error) {
+        if (error && error.status && error.status < 500) return Promise.reject(error);
+        if (!PMBI.loadCurrentUser) return Promise.reject(error);
+        return PMBI.loadCurrentUser({ force: true, silentLoader: true }).then(function (user) {
+            if (!user) throw error;
+            applyProfileUser(user);
+            return { recovered: true, user: user };
+        }).catch(function () {
+            throw error;
+        });
     }
 
     function initAiAssistant() {

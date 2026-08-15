@@ -516,6 +516,11 @@
         var node = qs('[data-current-user]');
         if (!node || !state.user) return;
         node.textContent = displayUserName(state.user);
+        state.currentUser = state.user;
+        forceTopbarAvatar(state.user);
+        if (window.PMBI && window.PMBI.app && typeof window.PMBI.app.syncCurrentUserHeader === 'function') {
+            window.PMBI.app.syncCurrentUserHeader(state.user);
+        }
     }
 
     function applyRole() {
@@ -7683,7 +7688,10 @@ function renderLogsDayView(project, logs) {
                     '</button>' +
                     '<div class="user-popover" data-user-popover hidden>' +
                         '<div class="user-popover-head">' +
-                            '<strong data-current-user>Профиль</strong>' +
+                            '<div class="user-popover-name-row">' +
+                                '<span class="user-popover-avatar" data-current-user-avatar aria-hidden="true">' + topbarAvatarInner(state.currentUser || state.user || {}) + '</span>' +
+                                '<strong data-current-user>Профиль</strong>' +
+                            '</div>' +
                             '<span data-current-role>Роль</span>' +
                         '</div>' +
                         '<button class="topbar-profile-menu-item" type="button" data-profile-open>' +
@@ -7719,6 +7727,15 @@ function renderLogsDayView(project, logs) {
         renderAppTopbar();
         baseInitShellForTopbarPolish();
     };
+
+    window.addEventListener('pmbi:user-updated', function (event) {
+        var user = event && event.detail ? event.detail.user : null;
+        if (!user) return;
+        state.user = user;
+        state.currentUser = user;
+        renderAppTopbar();
+        forceTopbarAvatar(user);
+    });
 
     function projectOverviewMetaItemV2(label, value) {
         return '<div class="project-overview-meta-item"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value || '—') + '</strong></div>';

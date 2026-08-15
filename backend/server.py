@@ -144,6 +144,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 DOCUMENTS_DIR = DATA_DIR / "documents"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
 BOOTSTRAP_PATH = DATA_DIR / "INITIAL_ADMIN.txt"
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 HOST = os.environ.get("PMBI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PMBI_PORT", os.environ.get("PORT", "8080")))

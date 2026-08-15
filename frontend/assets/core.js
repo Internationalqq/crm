@@ -62,6 +62,7 @@
     var REMEMBER_SESSION_KEY = 'pmbi_remember_session';
     var AUTO_LOGIN_ATTEMPT_KEY = 'pmbi_auto_login_attempted';
     var USER_INITIAL_CACHE_KEY = 'pmbi_current_user_initial';
+    var USER_AVATAR_CACHE_KEY = 'pmbi_current_user_avatar';
     var currentUserPromise = null;
 
     function rememberSessionEnabled() {
@@ -125,7 +126,11 @@
         state.currentUser = user || null;
         if (user) {
             rememberUserInitial(user);
+            rememberUserAvatar(user);
         }
+        try {
+            window.dispatchEvent(new CustomEvent('pmbi:user-updated', { detail: { user: user || null } }));
+        } catch (error) {}
         return user;
     }
 
@@ -428,6 +433,14 @@
         }
     }
 
+    function cachedUserAvatarUrl() {
+        try {
+            return safeAvatarUrl(window.localStorage.getItem(USER_AVATAR_CACHE_KEY) || '');
+        } catch (error) {
+            return '';
+        }
+    }
+
     function computeUserInitial(user) {
         user = user || {};
         var first = String(user.firstName || user.first_name || '').trim();
@@ -449,13 +462,25 @@
         return initial;
     }
 
+    function rememberUserAvatar(user) {
+        var avatarUrl = safeAvatarUrl(user && (user.avatarUrl || user.avatar_url || ''));
+        try {
+            if (avatarUrl) {
+                window.localStorage.setItem(USER_AVATAR_CACHE_KEY, avatarUrl);
+            } else {
+                window.localStorage.removeItem(USER_AVATAR_CACHE_KEY);
+            }
+        } catch (error) {}
+        return avatarUrl;
+    }
+
     function profileUserInitials(user) {
         return computeUserInitial(user) || cachedUserInitial();
     }
 
     function userAvatarMarkup(user, className) {
         user = user || {};
-        var avatarUrl = user.avatarUrl || user.avatar_url || '';
+        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url || '') || (!user.id ? cachedUserAvatarUrl() : '');
         className = className || 'topbar-avatar';
         if (avatarUrl) {
             return '<span class="' + escapeHtml(className) + '" aria-hidden="true"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>';
@@ -465,7 +490,7 @@
 
     function topbarAvatarInner(user) {
         user = user || {};
-        var avatarUrl = user.avatarUrl || user.avatar_url || '';
+        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url || '') || (!user.id ? cachedUserAvatarUrl() : '');
         if (avatarUrl) {
             return '<img src="' + escapeHtml(avatarUrl) + '" alt="">';
         }
@@ -474,14 +499,16 @@
 
     function forceTopbarAvatar(user) {
         user = user || state.currentUser || state.user || {};
-        var avatarUrl = user.avatarUrl || user.avatar_url || '';
+        var avatarUrl = safeAvatarUrl(user.avatarUrl || user.avatar_url || '') || (!user.id ? cachedUserAvatarUrl() : '');
         var initial = userInitials(user);
         qsa('.topbar-avatar, [data-user-badge]').forEach(function (node) {
             if (!node) return;
             if (avatarUrl) {
+                node.classList.add('has-image');
                 safeReplaceChildren(node, '<img src="' + escapeHtml(avatarUrl) + '" alt="">');
                 return;
             }
+            node.classList.remove('has-image');
             safeReplaceChildren(node, escapeHtml(initial));
         });
     }

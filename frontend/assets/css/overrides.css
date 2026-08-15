@@ -2480,6 +2480,11 @@ button:hover svg.lucide {
     stroke-width: 2;
 }
 
+.topbar-avatar.has-image,
+.topbar-circle-text.has-image {
+    background: #ffffff;
+}
+
 .topbar-avatar img,
 .profile-avatar-preview img,
 .topbar-circle-text img {
@@ -2539,6 +2544,39 @@ button:hover svg.lucide {
     padding: 4px 4px 12px;
 }
 
+.user-popover-name-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.user-popover-avatar {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 999px;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 850;
+    line-height: 1;
+    background: linear-gradient(135deg, #172033, #20b486);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
+}
+
+.user-popover-avatar img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    object-fit: cover;
+}
+
 .user-popover-head strong {
     color: #111827 !important;
     font-size: 21px !important;
@@ -2547,7 +2585,7 @@ button:hover svg.lucide {
     letter-spacing: 0 !important;
 }
 
-.user-popover-head span {
+.user-popover-head [data-current-role] {
     display: inline-flex;
     align-items: center;
     width: max-content;
