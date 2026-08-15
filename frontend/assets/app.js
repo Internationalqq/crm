@@ -336,6 +336,34 @@
         });
     }
 
+    function logoutCurrentUser() {
+        setRememberSession(false);
+        if (isClerkEnabled()) {
+            loadClerk().then(function (clerk) {
+                return api('/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
+                    return clerk ? clerk.signOut({ redirectUrl: state.authConfig.clerkAfterSignOutUrl || '/login' }) : null;
+                });
+            }).catch(function () {
+                location.replace('/login');
+            });
+            return;
+        }
+        api('/api/auth/logout', { method: 'POST' }).finally(function () {
+            location.replace('/login');
+        });
+    }
+
+    function bindLogoutButtons() {
+        if (document.documentElement.dataset.logoutBound === '1') return;
+        document.documentElement.dataset.logoutBound = '1';
+        document.addEventListener('click', function (event) {
+            var logout = event.target && event.target.closest ? event.target.closest('[data-logout]') : null;
+            if (!logout) return;
+            event.preventDefault();
+            logoutCurrentUser();
+        });
+    }
+
     function initShell() {
         loadCurrentUser({ force: true }).then(function (user) {
             clearAutoLoginAttempt();
@@ -360,25 +388,7 @@
             location.replace('/login?next=' + encodeURIComponent(location.pathname + location.search));
         });
 
-        var logout = qs('[data-logout]');
-        if (logout) {
-            logout.addEventListener('click', function () {
-                setRememberSession(false);
-                if (isClerkEnabled()) {
-                    loadClerk().then(function (clerk) {
-                        return api('/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
-                            return clerk ? clerk.signOut({ redirectUrl: state.authConfig.clerkAfterSignOutUrl || '/login' }) : null;
-                        });
-                    }).catch(function () {
-                        location.replace('/login');
-                    });
-                    return;
-                }
-                api('/api/auth/logout', { method: 'POST' }).finally(function () {
-                    location.replace('/login');
-                });
-            });
-        }
+        bindLogoutButtons();
 
         var menuToggle = qs('[data-menu-toggle]');
         if (menuToggle) {
@@ -3977,9 +3987,13 @@ function renderLogsDayView(project, logs) {
             refreshLucideIcons(qs('[data-project-detail]') || document);
             var params = new URLSearchParams(location.search);
             var openProjectId = Number(params.get('openProject') || 0);
+            var openProjectTab = params.get('tab') || '';
             if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
                 var matched = (state.projects || []).some(function (project) { return Number(project.id) === openProjectId; });
-                if (matched) openProject(openProjectId);
+                if (matched) {
+                    openProject(openProjectId);
+                    if (openProjectTab) activateProjectTab(openProjectTab);
+                }
             }
         } catch (error) {
             console.error('renderProjectsPage failed', error);

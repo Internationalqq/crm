@@ -78,6 +78,13 @@ test('Remember Me uses an HttpOnly session cookie and logout deletes server sess
   assert.doesNotMatch(frontendJs, /localStorage\.setItem\([^,\n]*token/i);
 });
 
+test('Logout click is delegated so rerendered topbar buttons keep working', () => {
+  assert.match(appJs, /function logoutCurrentUser\(\)/);
+  assert.match(appJs, /document\.addEventListener\('click', function \(event\)/);
+  assert.match(appJs, /event\.target\.closest\('\[data-logout\]'\)/);
+  assert.match(appJs, /document\.documentElement\.dataset\.logoutBound/);
+});
+
 test('Morning standup is user-scoped and protected from duplicate POST inserts', () => {
   assert.match(frontendJs, /last_standup_date_'\s*\+\s*userId/);
   const canCheckStart = frontendJs.indexOf('function dailyStandupCanCheckNow()');
@@ -110,6 +117,23 @@ test('Calendar material quantities render as one calculated value, not glued val
   assert.notEqual(label, '100 400м2');
   assert.match(frontendJs, /materialModalQuantityMeta/);
   assert.match(frontendJs, /quantityText\(plan\.totalQty\) \+ ' ' \+ unit/);
+});
+
+test('Project delete success is not reported as an API failure when UI refresh stumbles', () => {
+  assert.match(operationsJs, /function removeDeletedProjectFromUi\(projectId\)/);
+  assert.match(operationsJs, /Project delete UI refresh failed/);
+  assert.match(operationsJs, /removeDeletedProjectFromUi\(projectId\);\s*closeProjectEditCard\(\);\s*showAppNotice\('Объект удален\.', 'success'\);/);
+  assert.match(operationsJs, /params\.delete\('openProject'\)/);
+});
+
+test('Main admin account is only visible to itself in user directories', () => {
+  assert.match(authPy, /def user_is_main_admin_account/);
+  assert.match(authPy, /role == "main_admin"/);
+  assert.match(serverPy, /def row_is_main_admin_account/);
+  assert.match(serverPy, /not row_is_main_admin_account\(row\) or viewer_is_same_user\(row\)/);
+  assert.match(serverPy, /def viewer_is_same_user\(row: sqlite3\.Row\) -> bool/);
+  assert.match(serverPy, /not user_is_main_admin_account\(row\)[\s\S]+or viewer_is_same_user\(row\)/);
+  assert.match(serverPy, /u\.role = 'main_admin'/);
 });
 
 if (process.exitCode) process.exit(process.exitCode);

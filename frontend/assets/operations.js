@@ -1442,7 +1442,7 @@
                 '<span>Проверь, что сервис AutoBot запущен, или открой его отдельно.</span>' +
                 '<a href="' + href + '" target="_blank" rel="noopener noreferrer">Открыть AutoBot</a>' +
             '</div>' +
-            '<iframe class="autobot-embed" data-autobot-frame src="' + href + '" title="AutoBot" loading="eager" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; microphone"></iframe>' +
+            '<iframe class="autobot-embed" data-autobot-frame src="' + href + '" title="AutoBot" loading="eager" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; microphone" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-modals allow-top-navigation-by-user-activation"></iframe>' +
         '</div>';
     }
 
@@ -1478,9 +1478,29 @@
         });
     }
 
-    function renderAutobotResult(root, project, text, secondaryHref, secondaryText) {
+    function autobotProjectHref(projectId, tab) {
+        var params = new URLSearchParams();
+        if (projectId) params.set('openProject', String(projectId));
+        if (tab) params.set('tab', tab);
+        return '/app/projects' + (params.toString() ? '?' + params.toString() : '');
+    }
+
+    function bindAutobotResultActions(root) {
+        if (!root || root.dataset.resultActionsBound === '1') return;
+        root.dataset.resultActionsBound = '1';
+        root.addEventListener('click', function (event) {
+            var button = event.target && event.target.closest ? event.target.closest('[data-autobot-result-action]') : null;
+            if (!button || !root.contains(button)) return;
+            event.preventDefault();
+            location.href = button.getAttribute('data-href') || '/app/projects';
+        });
+    }
+
+    function renderAutobotResult(root, project, text, secondaryHref, secondaryText, primaryHref) {
         if (!root) return;
         root.hidden = false;
+        var projectHref = primaryHref || autobotProjectHref(project && project.id);
+        var nextHref = secondaryHref || projectHref || '/app/projects';
         root.innerHTML =
             '<div class="autobot-result-head">' +
                 '<strong>' + escapeHtml(project.title || 'Объект CRM') + '</strong>' +
@@ -1488,9 +1508,10 @@
             '</div>' +
             '<p>' + escapeHtml(text) + '</p>' +
             '<div class="autobot-actions">' +
-                '<a class="primary" href="/app/projects?openProject=' + project.id + '">Открыть в CRM</a>' +
-                '<a class="ghost" href="' + escapeHtml(secondaryHref || '/app/projects') + '">' + escapeHtml(secondaryText || 'Перейти дальше') + '</a>' +
+                '<button class="primary" type="button" data-autobot-result-action data-href="' + escapeHtml(projectHref) + '">Открыть в CRM</button>' +
+                '<button class="ghost" type="button" data-autobot-result-action data-href="' + escapeHtml(nextHref) + '">' + escapeHtml(secondaryText || 'Перейти дальше') + '</button>' +
             '</div>';
+        bindAutobotResultActions(root);
     }
 
     function bindAutobotTenderMode() {
@@ -1553,7 +1574,7 @@
                     updateProjectInState(data.project);
                     renderProjectList(state.projects);
                     fillAutobotProjectSelects();
-                    renderAutobotResult(result, data.project, 'Тендерный пакет загружен в существующий объект.', '/app/projects?openProject=' + data.project.id, 'Открыть объект');
+                    renderAutobotResult(result, data.project, 'Тендерный пакет загружен в существующий объект.', autobotProjectHref(data.project.id), 'Открыть объект');
                 }).catch(function (err) {
                     if (result) {
                         result.hidden = true;
@@ -1603,7 +1624,7 @@
                 fillAutobotProjectSelects();
                 form.reset();
                 bindAutobotTenderMode();
-                renderAutobotResult(result, data.project, 'Новый объект создан и заполнен тендерным пакетом.', '/app/projects?openProject=' + data.project.id, 'Открыть объект');
+                renderAutobotResult(result, data.project, 'Новый объект создан и заполнен тендерным пакетом.', autobotProjectHref(data.project.id), 'Открыть объект');
             }).catch(function (err) {
                 if (result) {
                     result.hidden = true;
@@ -1648,7 +1669,7 @@
             }).then(function (data) {
                 var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || { id: projectId, title: 'Объект CRM' };
                 state.materialsByProject[projectId] = data.items || [];
-                renderAutobotResult(result, project, 'Смета добавлена в материалы объекта.', '/app/warehouse', 'Открыть склад');
+                renderAutobotResult(result, project, 'Смета добавлена в материалы объекта.', autobotProjectHref(projectId, 'materials'), 'Открыть объект', autobotProjectHref(projectId, 'materials'));
             }).catch(function (err) {
                 if (result) {
                     result.hidden = true;
@@ -2324,6 +2345,36 @@
         });
     }
 
+    function removeDeletedProjectFromUi(projectId) {
+        state.projects = (state.projects || []).filter(function (item) {
+            return Number(item.id) !== Number(projectId);
+        });
+        if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+            state.selectedProject = null;
+            var detail = qs('[data-project-detail]');
+            if (detail) detail.hidden = true;
+            try {
+                setProjectFocusMode(false);
+            } catch (focusError) {
+                console.error('Project delete focus reset failed', focusError);
+            }
+        }
+        try {
+            var params = new URLSearchParams(location.search);
+            if (Number(params.get('openProject') || 0) === Number(projectId)) {
+                params.delete('openProject');
+                history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params.toString() : ''));
+            }
+        } catch (historyError) {}
+        try {
+            renderProjectStats();
+            renderProjectCritical();
+            renderProjectList(state.projects);
+        } catch (renderError) {
+            console.error('Project delete UI refresh failed', renderError);
+        }
+    }
+
     function bindProjectDeleteAction(form) {
         var deleteButton = qs('[data-project-delete]');
         if (!form || !deleteButton || deleteButton.dataset.bound === '1') return;
@@ -2341,18 +2392,7 @@
             api('/api/projects/' + projectId + '/delete', {
                 method: 'POST'
             }).then(function () {
-                state.projects = state.projects.filter(function (item) {
-                    return Number(item.id) !== projectId;
-                });
-                if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
-                    state.selectedProject = null;
-                    var detail = qs('[data-project-detail]');
-                    if (detail) detail.hidden = true;
-                    setProjectFocusMode(false);
-                }
-                renderProjectStats();
-                renderProjectCritical();
-                renderProjectList(state.projects);
+                removeDeletedProjectFromUi(projectId);
                 closeProjectEditCard();
                 showAppNotice('Объект удален.', 'success');
             }).catch(function (err) {
@@ -2452,23 +2492,16 @@
                 api('/api/projects/' + projectId + '/delete', {
                     method: 'POST'
                 }).then(function () {
-                    state.projects = state.projects.filter(function (item) {
-                        return Number(item.id) !== projectId;
-                    });
-                    if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
-                        state.selectedProject = null;
-                        var detail = qs('[data-project-detail]');
-                        if (detail) detail.hidden = true;
-                        setProjectFocusMode(false);
-                    }
-                    renderProjectStats();
-                    renderProjectCritical();
-                    renderProjectList(state.projects);
+                    removeDeletedProjectFromUi(projectId);
                     closeProjectEditCard();
+                    showAppNotice('Объект удален.', 'success');
                 }).catch(function (err) {
-                    if (!error) return;
-                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось удалить объект';
-                    error.classList.add('active');
+                    var message = appErrorMessage(err, 'Не удалось удалить объект');
+                    if (error) {
+                        error.textContent = message;
+                        error.classList.add('active');
+                    }
+                    showAppNotice(message, 'error');
                 }).finally(function () {
                     deleteButton.disabled = false;
                 });

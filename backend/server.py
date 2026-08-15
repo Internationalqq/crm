@@ -52,6 +52,7 @@ from auth import (
     user_has_any_role,
     user_is_hidden_admin,
     user_is_main_admin,
+    user_is_main_admin_account,
     user_permissions,
     user_payload,
 )
@@ -2243,11 +2244,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 if str(row["login"] or "").strip().lower() == "admin":
                     return normalize_permissions({"fullAccess": True}, "admin")
                 return normalize_permissions(roles[0].get("permissions") if roles else None, roles[0].get("code") if roles else row["role"])
-            viewer_role = viewer.get("role")
-            if viewer_role == "admin" or viewer_role == "main_admin":
-                visible_rows = rows
-            else:
-                visible_rows = [row for row in rows if str(row["login"] or "").strip().lower() != "hidden_admin"]
+            def row_is_main_admin_account(row: sqlite3.Row) -> bool:
+                return user_is_main_admin_account(row) or any(
+                    normalize_role(role.get("code")) == "main_admin"
+                    for role in user_roles_for_row(row)
+                )
+            def viewer_is_same_user(row: sqlite3.Row) -> bool:
+                try:
+                    return int(viewer.get("id")) == int(row["id"])
+                except (TypeError, ValueError):
+                    return False
+            visible_rows = [
+                row
+                for row in rows
+                if not row_is_main_admin_account(row) or viewer_is_same_user(row)
+            ]
             can_view_private = user_is_hidden_admin(viewer)
             def user_work_status(row: sqlite3.Row) -> tuple[str, str]:
                 daily_status = daily_status_by_user.get(int(row["id"]))
@@ -2785,6 +2796,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
             ORDER BY name COLLATE NOCASE, id
             """
         ).fetchall()
+        def viewer_is_same_user(row: sqlite3.Row) -> bool:
+            if not viewer:
+                return False
+            try:
+                return int(viewer.get("id")) == int(row["id"])
+            except (TypeError, ValueError):
+                return False
         return [
             {
                 "id": row["id"],
@@ -2798,7 +2816,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "avatarUrl": row["avatar_url"],
             }
             for row in rows
-            if not user_is_hidden_admin(row) or user_is_hidden_admin(viewer)
+            if (not user_is_hidden_admin(row) or user_is_hidden_admin(viewer))
+            and (
+                not user_is_main_admin_account(row)
+                or viewer_is_same_user(row)
+            )
         ]
 
     def daily_task_rows(self, con: sqlite3.Connection, user: dict, archive: bool = False, user_id: int | None = None) -> list[sqlite3.Row]:
@@ -2811,8 +2833,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if user_id:
             where.append("t.user_id = ?")
             args.append(user_id)
-        if not user_is_hidden_admin(user):
-            where.append("NOT (lower(COALESCE(u.login, '')) = 'admin' OR u.role = 'admin')")
+        if user_is_main_admin_account(user):
+            where.append("(NOT (lower(COALESCE(u.login, '')) = 'admin' OR u.role = 'main_admin') OR u.id = ?)")
+            args.append(int(user["id"]))
+        else:
+            where.append("NOT (lower(COALESCE(u.login, '')) = 'admin' OR u.role = 'main_admin')")
+            if not user_is_hidden_admin(user):
+                where.append("NOT (u.role = 'admin')")
         return con.execute(
             """
             SELECT

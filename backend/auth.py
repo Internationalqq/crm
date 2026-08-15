@@ -308,6 +308,18 @@ def user_is_hidden_admin(user: dict | sqlite3.Row | None) -> bool:
     return login == "admin" or role == "admin"
 
 
+def user_is_main_admin_account(user: dict | sqlite3.Row | None) -> bool:
+    if not user:
+        return False
+    login = str(user["login"] if isinstance(user, sqlite3.Row) else user.get("login", "")).strip().lower()
+    role = normalize_role(user["role"] if isinstance(user, sqlite3.Row) else user.get("role"))
+    if login == "admin" or role == "main_admin":
+        return True
+    if not isinstance(user, sqlite3.Row):
+        return user_has_any_role(user, {"main_admin"})
+    return False
+
+
 def user_payload(row: sqlite3.Row) -> dict:
     keys = set(row.keys())
     role = normalize_role(row["role"])
@@ -458,7 +470,7 @@ def user_has_any_role(user: dict, roles: set[str]) -> bool:
 
 
 def user_is_main_admin(user: dict) -> bool:
-    return user_has_any_role(user, {"main_admin"}) or user_is_hidden_admin(user)
+    return user_is_main_admin_account(user) or user_is_hidden_admin(user)
 
 
 def user_can_open(user: dict, path: str) -> bool:
