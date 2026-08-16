@@ -5021,7 +5021,7 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     padding: 12px 16px;
     border-bottom: 1px solid #edf2f7;
     background: #ffffff;
-    cursor: pointer;
+    cursor: default;
     transition: background .16s ease, opacity .16s ease, box-shadow .16s ease;
 }
 
@@ -5047,8 +5047,13 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 }
 
 .daily-list-row.is-from-boss {
-    background: #fffdf5;
-    box-shadow: inset 3px 0 0 #f59e0b;
+    background: #ffffff;
+    box-shadow: none;
+}
+
+.daily-list-row.is-in-progress {
+    background: #f8fbff;
+    box-shadow: inset 3px 0 0 #2563eb;
 }
 
 .daily-list-row.is-done {
@@ -5153,6 +5158,24 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     min-width: 0;
 }
 
+.daily-status-action {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.daily-status-action:hover {
+    border-color: #93c5fd;
+    background: #dbeafe;
+}
+
 @property --daily-timer-cut {
     syntax: "<angle>";
     inherits: false;
@@ -5250,17 +5273,19 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     }
 }
 
-.daily-boss-badge {
+.daily-director-badge {
     display: inline-flex;
     align-items: center;
-    min-height: 22px;
-    padding: 2px 7px;
+    min-height: 16px;
+    padding: 1px 5px;
     border-radius: 999px;
-    background: #fffbeb;
-    color: #92400e;
-    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, .22);
-    font-size: 11px;
-    font-weight: 900;
+    background: #fff7ed;
+    color: #c2410c;
+    box-shadow: inset 0 0 0 1px rgba(234, 88, 12, .24);
+    font-size: 9px;
+    font-weight: 750;
+    line-height: 1.1;
+    white-space: nowrap;
 }
 
 .daily-row-avatars {
@@ -5951,6 +5976,132 @@ body.cal-modal-open .profile-modal-card {
     .ai-shell[data-open="1"] .ai-panel {
         animation: none !important;
     }
+}
+
+[data-panel="tasks"] .tasks-board {
+    grid-template-columns: repeat(4, minmax(240px, 1fr)) !important;
+    align-items: start !important;
+}
+
+[data-panel="tasks"] .tasks-column {
+    width: auto !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    justify-items: stretch !important;
+}
+
+[data-panel="tasks"] .tasks-column-head {
+    display: grid !important;
+    grid-template-columns: auto 32px !important;
+    justify-content: start !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+[data-panel="tasks"] .tasks-column-head h3 {
+    min-width: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+[data-panel="tasks"] .tasks-column-head span {
+    justify-self: start !important;
+    width: 32px !important;
+    min-width: 32px !important;
+    max-width: 32px !important;
+}
+
+[data-panel="tasks"] .tasks-column-list,
+[data-panel="tasks"] .task-card {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    justify-self: stretch !important;
+}
+
+[data-panel="tasks"] .task-card {
+    margin: 0 !important;
+    position: relative !important;
+    cursor: grab !important;
+}
+
+[data-panel="tasks"] .task-card-top {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: start !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+}
+
+[data-panel="tasks"] .task-card:active,
+[data-panel="tasks"] .task-card.sortable-chosen {
+    cursor: grabbing !important;
+}
+
+[data-panel="tasks"] .task-card-body,
+[data-panel="tasks"] .task-card-footer,
+[data-panel="tasks"] .task-card-controls {
+    min-width: 0 !important;
+}
+
+[data-panel="tasks"] .task-card-body h4,
+[data-panel="tasks"] .task-card-body p {
+    min-width: 0 !important;
+}
+
+[data-panel="tasks"] .task-card-footer {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(72px, auto) !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    gap: 10px !important;
+}
+
+[data-panel="tasks"] .task-assignee,
+[data-panel="tasks"] .task-deadline,
+[data-panel="tasks"] .task-completed-time {
+    min-width: 0 !important;
+}
+
+[data-panel="tasks"] .task-assignee span:last-child,
+[data-panel="tasks"] .task-deadline span:last-child,
+[data-panel="tasks"] .task-completed-time span:last-child {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+[data-panel="tasks"] .task-avatar {
+    overflow: hidden !important;
+}
+
+[data-panel="tasks"] .task-avatar img {
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+    object-fit: cover !important;
+}
+
+[data-panel="tasks"] .task-card-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    cursor: default !important;
+}
+
+[data-panel="tasks"] .task-card-controls > * {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    cursor: auto !important;
+}
+
+[data-panel="tasks"] .task-card-controls .task-save {
+    grid-column: 1 / -1 !important;
 }
 
 @media (max-width: 760px) {

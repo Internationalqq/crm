@@ -2159,13 +2159,14 @@ body[data-page="autobot"] .autobot-embed {
     display: grid;
     grid-template-columns: repeat(4, minmax(248px, 1fr));
     gap: 16px;
-    align-items: start;
+    align-items: stretch;
     overflow-x: auto;
     padding-bottom: 8px;
 }
 
 [data-panel="tasks"] .tasks-column {
     display: grid;
+    grid-template-rows: auto minmax(180px, 1fr);
     min-width: 248px;
     gap: 16px;
     padding: 16px;
@@ -2211,8 +2212,9 @@ body[data-page="autobot"] .autobot-embed {
 
 [data-panel="tasks"] .tasks-column-list {
     display: grid;
+    align-content: start;
     gap: 16px;
-    min-height: 74px;
+    min-height: 180px;
     border-radius: var(--task-radius);
     transition: background .18s ease, box-shadow .18s ease;
 }
@@ -2234,6 +2236,18 @@ body[data-page="autobot"] .autobot-embed {
     color: var(--task-muted);
     font-size: 13px;
     text-align: center;
+}
+
+[data-panel="tasks"] .tasks-column-list[data-empty="1"]::before {
+    content: "Задач нет";
+    display: block;
+    padding: 24px 16px;
+    border: 1px dashed #d9e3ef;
+    border-radius: var(--task-radius);
+    color: var(--task-muted);
+    font-size: 13px;
+    text-align: center;
+    pointer-events: none;
 }
 
 [data-panel="tasks"] .task-card,

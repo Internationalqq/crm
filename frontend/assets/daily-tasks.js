@@ -79,6 +79,7 @@
     function renderDailyTaskCard(task) {
         var completedTime = task.completedAt ? dailyTaskTime(task.completedAt) : '';
         var userName = dailyTaskUserName(task);
+        var issuedByManager = dailyTaskIssuedByManager(task);
         return '<article class="daily-task-card" data-daily-task-card data-daily-task-id="' + escapeHtml(task.id) + '" data-daily-task-status="' + escapeHtml(task.status) + '">' +
             '<div class="daily-task-card-top">' +
                 '<span class="daily-task-pill">' + escapeHtml(dailyTaskStatusLabel(task.status)) + '</span>' +
@@ -87,6 +88,7 @@
             '<p class="daily-task-text">' + escapeHtml(task.text) + '</p>' +
             '<div class="daily-task-meta">' +
                 (canManageDailyTasks() ? '<span><i data-lucide="user-round"></i>' + escapeHtml(userName || 'Сотрудник') + '</span>' : '') +
+                (issuedByManager ? '<span class="daily-director-badge">Выдано руководителем</span>' : '') +
                 '<span><i data-lucide="calendar"></i>' + escapeHtml(formatDisplayDate(task.date)) + '</span>' +
                 (completedTime ? '<span class="daily-task-done-time"><i data-lucide="clock"></i>Выполнено в ' + escapeHtml(completedTime) + '</span>' : '') +
             '</div>' +
@@ -607,6 +609,18 @@
         return task && state.user && String(task.userId) === String(state.user.id);
     }
 
+    function dailyTaskStatusAction(task) {
+        if (!dailyTaskCanComplete(task)) return null;
+        if (task.status === 'planned') return { status: 'in_progress', label: 'В работу' };
+        if (task.status === 'in_progress') return { status: 'done', label: 'Готово' };
+        return null;
+    }
+
+    function dailyTaskIssuedByManager(task) {
+        if (!task || !task.fromBoss) return false;
+        if (!task.createdBy || !task.userId) return true;
+        return String(task.createdBy) !== String(task.userId);
+    }
     function dailyTaskCreatedText(task) {
         var raw = task && task.createdAt;
         if (!raw) return '';
@@ -676,21 +690,24 @@
         var creator = dailyTaskCreator(task);
         var done = dailyTaskIsDone(task);
         var canComplete = dailyTaskCanComplete(task);
-        var boss = !!task.fromBoss;
+        var boss = dailyTaskIssuedByManager(task);
+        var action = dailyTaskStatusAction(task);
         var createdText = dailyTaskCreatedText(task);
-        return '<article class="daily-list-row' + (done ? ' is-done' : '') + (boss ? ' is-from-boss' : '') + (!canComplete ? ' is-readonly' : '') + '" data-daily-task-id="' + escapeHtml(task.id) + '" data-daily-task-owner-id="' + escapeHtml(task.userId) + '" role="button" tabindex="0" aria-pressed="' + (done ? 'true' : 'false') + '"' + (!canComplete ? ' aria-disabled="true"' : '') + '>' +
+        return '<article class="daily-list-row' + (done ? ' is-done' : '') + (task.status === 'in_progress' ? ' is-in-progress' : '') + (boss ? ' is-from-boss' : '') + (!canComplete ? ' is-readonly' : '') + '" data-daily-task-id="' + escapeHtml(task.id) + '" data-daily-task-owner-id="' + escapeHtml(task.userId) + '">' +
             '<div class="daily-row-avatars">' +
-                (boss ? dailyAvatar(creator, creator.name || 'Директор', 'daily-avatar-boss') : '') +
                 dailyAvatar(assignee, assignee.name || task.userName || 'Сотрудник') +
             '</div>' +
             '<div class="daily-row-main">' +
                 '<div class="daily-row-text"><span data-daily-row-text-label>' + escapeHtml(task.text) + '</span><span class="daily-undo-timer" data-daily-undo-timer hidden>5</span></div>' +
                 '<div class="daily-row-meta">' +
                     '<span class="daily-row-user">' + escapeHtml(assignee.name || 'Сотрудник') + '</span>' +
-                    (boss ? '<span class="daily-boss-badge">От Босса</span>' : '') +
+                    (boss ? '<span class="daily-director-badge">Выдано руководителем</span>' : '') +
                 '</div>' +
             '</div>' +
-            (createdText ? '<time class="daily-row-created" datetime="' + escapeHtml(String(task.createdAt || '')) + '">Создано ' + escapeHtml(createdText) + '</time>' : '') +
+            '<div class="daily-row-action">' +
+                (createdText ? '<time class="daily-row-created" datetime="' + escapeHtml(String(task.createdAt || '')) + '">Создано ' + escapeHtml(createdText) + '</time>' : '') +
+                (action ? '<button class="daily-status-action" type="button" data-daily-status-action="' + escapeHtml(action.status) + '">' + escapeHtml(action.label) + '</button>' : '') +
+            '</div>' +
         '</article>';
     }
 
@@ -1107,6 +1124,32 @@
         state.dailyCompletionTimers[taskId] = entry;
     }
 
+    function setDailyTaskStatus(row, status, event) {
+        var taskId = row.getAttribute('data-daily-task-id');
+        var task = (state.dailyTasks || []).filter(function (item) { return String(item.id) === String(taskId); })[0] || {};
+        if (!dailyTaskCanComplete(task)) {
+            showAppNotice('Изменить статус задачи может только ее исполнитель.', 'error');
+            return;
+        }
+        if (status === 'done') {
+            setDailyTaskDone(row, true, event);
+            return;
+        }
+        if (status !== 'in_progress' && status !== 'planned') return;
+        if (row.classList.contains('is-saving')) return;
+        cancelDailyTaskCompletion(row);
+        row.classList.add('is-saving');
+        updateDailyTask(taskId, {
+            status: status,
+            text: task.text || dailyTaskTextValue(row)
+        }).then(function () {
+            return loadDailyTasks();
+        }).catch(function (error) {
+            row.classList.remove('is-saving');
+            showAppNotice(appErrorMessage(error, 'Не удалось изменить статус задачи.'), 'error');
+        });
+    }
+
     function bindDailyTaskPageEvents() {
         var quick = qs('[data-daily-quick-add]');
         if (quick && quick.dataset.bound !== '1') {
@@ -1155,17 +1198,24 @@
         if (feed && feed.dataset.bound !== '1') {
             feed.dataset.bound = '1';
             feed.addEventListener('click', function (event) {
+                var statusButton = event.target.closest('[data-daily-status-action]');
+                if (statusButton) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var actionRow = statusButton.closest('[data-daily-task-id]');
+                    if (actionRow) setDailyTaskStatus(actionRow, statusButton.getAttribute('data-daily-status-action'), event);
+                    return;
+                }
                 if (event.target.closest('a, button, input, select, textarea, label')) return;
                 var row = event.target.closest('[data-daily-task-id]');
                 if (!row) return;
-                setDailyTaskDone(row, !row.classList.contains('is-done'), event);
             });
             feed.addEventListener('keydown', function (event) {
+                if (event.target.closest('a, button, input, select, textarea, label')) return;
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 var row = event.target.closest('[data-daily-task-id]');
                 if (!row) return;
                 event.preventDefault();
-                setDailyTaskDone(row, !row.classList.contains('is-done'), event);
             });
         }
     }

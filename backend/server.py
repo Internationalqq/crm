@@ -2761,7 +2761,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             "completedAt": row["completed_at"],
             "archivedAt": row["archived_at"] if "archived_at" in row.keys() else None,
             "createdAt": row["created_at"] if "created_at" in row.keys() else None,
-            "fromBoss": creator_role == "director",
+            "fromBoss": creator_role in {"admin", "main_admin", "director"},
         }
         if "user_name" in row.keys():
             payload["userName"] = display_user_name(

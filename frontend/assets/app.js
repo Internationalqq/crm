@@ -2155,18 +2155,15 @@
     }
 
     function renderTaskColumn(column, tasks, users) {
-        var cards = tasks.length
-            ? tasks.map(function (task) { return renderTaskRow(task, users); }).join('')
-            : '<div class="tasks-empty">Задач нет</div>';
+        var cards = tasks.length ? tasks.map(function (task) { return renderTaskRow(task, users); }).join('') : '';
         return '<section class="tasks-column tasks-column-' + column.status + '" data-task-column-status="' + escapeHtml(column.status) + '">' +
             '<div class="tasks-column-head">' +
                 '<h3>' + escapeHtml(column.title) + '</h3>' +
                 '<span>' + tasks.length + '</span>' +
             '</div>' +
-            '<div class="tasks-column-list" data-task-drop-list data-task-status="' + escapeHtml(column.status) + '">' + cards + '</div>' +
+            '<div class="tasks-column-list" data-task-drop-list data-task-status="' + escapeHtml(column.status) + '" data-empty="' + (tasks.length ? '0' : '1') + '">' + cards + '</div>' +
         '</section>';
     }
-
     function taskPriorityClass(priority) {
         if (priority === 'high') return 'high';
         if (priority === 'low') return 'low';
@@ -2179,6 +2176,33 @@
             return Number(user.id) === Number(task.assignee_id);
         })[0];
         return match ? match.name : 'Без ответственного';
+    }
+
+    function taskAssigneeUser(task, users) {
+        var match = (users || []).filter(function (user) {
+            return Number(user.id) === Number(task.assignee_id);
+        })[0];
+        if (match) return match;
+        if (task && task.assignee_id) {
+            return {
+                id: task.assignee_id,
+                name: task.assignee_name || '',
+                displayName: task.assignee_name || '',
+                avatarUrl: task.assignee_avatar_url || task.assigneeAvatarUrl || task.assignee_avatar || task.assigneeAvatar || ''
+            };
+        }
+        return null;
+    }
+
+    function taskAssigneeAvatar(task, users) {
+        var user = taskAssigneeUser(task, users);
+        if (!user || !user.id) {
+            return '<span class="task-avatar" aria-hidden="true">—</span>';
+        }
+        if (typeof userAvatarMarkup === 'function') {
+            return userAvatarMarkup(user, 'task-avatar');
+        }
+        return '<span class="task-avatar" aria-hidden="true">' + escapeHtml(taskInitials(taskAssigneeName(task, users))) + '</span>';
     }
 
     function taskInitials(name) {
@@ -2209,7 +2233,7 @@
             '</div>' +
             '<div class="task-card-footer">' +
                 '<div class="task-assignee">' +
-                    '<span class="task-avatar">' + escapeHtml(taskInitials(assigneeName)) + '</span>' +
+                    taskAssigneeAvatar(task, users) +
                     '<span>' + escapeHtml(assigneeName) + '</span>' +
                 '</div>' +
                 '<div class="task-deadline' + (isOverdue ? ' task-deadline-overdue' : '') + '">' +
@@ -2231,6 +2255,44 @@
     function taskStatusFromDropList(list) {
         if (!list) return '';
         return list.dataset.taskStatus || (list.closest('[data-task-column-status]') || {}).dataset.taskColumnStatus || '';
+    }
+
+    function taskDropListFromPoint(event) {
+        var originalEvent = event && event.originalEvent;
+        if (!originalEvent || typeof document.elementFromPoint !== 'function') return null;
+        var clientX = originalEvent.clientX;
+        var clientY = originalEvent.clientY;
+        if ((!clientX && clientX !== 0) || (!clientY && clientY !== 0)) {
+            var touch = originalEvent.changedTouches && originalEvent.changedTouches[0];
+            if (!touch) touch = originalEvent.touches && originalEvent.touches[0];
+            if (!touch) return null;
+            clientX = touch.clientX;
+            clientY = touch.clientY;
+        }
+        var element = document.elementFromPoint(clientX, clientY);
+        return element ? element.closest('[data-task-drop-list]') : null;
+    }
+
+    function taskDragPoint(event) {
+        var originalEvent = event && event.originalEvent;
+        if (!originalEvent) return null;
+        var clientX = originalEvent.clientX;
+        var clientY = originalEvent.clientY;
+        if ((!clientX && clientX !== 0) || (!clientY && clientY !== 0)) {
+            var touch = originalEvent.changedTouches && originalEvent.changedTouches[0];
+            if (!touch) touch = originalEvent.touches && originalEvent.touches[0];
+            if (!touch) return null;
+            clientX = touch.clientX;
+            clientY = touch.clientY;
+        }
+        return { x: clientX, y: clientY };
+    }
+
+    function isTaskDragPointInsideList(list, event) {
+        var point = taskDragPoint(event);
+        if (!list || !point || typeof list.getBoundingClientRect !== 'function') return true;
+        var rect = list.getBoundingClientRect();
+        return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
     }
 
     function refreshTaskProgressAfterMove(projectId) {
@@ -2277,23 +2339,15 @@
     function syncTaskDropLists() {
         qsa('[data-task-drop-list]').forEach(function (list) {
             var cards = qsa('[data-task-edit-form]', list);
-            var emptyStates = qsa('.tasks-empty', list);
-            if (!cards.length && !emptyStates.length) {
-                var empty = document.createElement('div');
-                empty.className = 'tasks-empty';
-                empty.textContent = 'Задач нет';
-                list.appendChild(empty);
-                emptyStates = [empty];
-            }
-            emptyStates.forEach(function (empty) {
-                empty.hidden = cards.length > 0;
+            qsa('.tasks-empty', list).forEach(function (empty) {
+                empty.remove();
             });
+            list.dataset.empty = cards.length ? '0' : '1';
             var column = list.closest('[data-task-column-status]');
             var count = column ? qs('.tasks-column-head span', column) : null;
             if (count) count.textContent = String(cards.length);
         });
     }
-
     function initTaskDragAndDrop(projectId) {
         if (!window.Sortable) {
             if (window.console) console.warn('SortableJS не загружен: перетаскивание задач отключено.');
@@ -2304,25 +2358,27 @@
             if (list.dataset.sortableBound === '1') return;
             list.dataset.sortableBound = '1';
             window.Sortable.create(list, {
-                group: 'shared-tasks',
+                group: {
+                    name: 'shared-tasks',
+                    pull: true,
+                    put: true
+                },
                 delay: 0,
                 delayOnTouchOnly: false,
                 animation: 150,
-                invertSwap: true,
-                swapThreshold: 0.2,
+                invertSwap: false,
+                swapThreshold: 0.65,
                 draggable: '[data-task-edit-form]',
                 handle: '[data-task-edit-form]',
-                filter: 'input, select, textarea, button, option, p, span, h4, .task-title, .task-text',
+                filter: 'input, select, textarea, button, option, .task-card-controls, .task-card-controls *',
                 preventOnFilter: false,
                 ghostClass: 'sortable-ghost',
                 chosenClass: 'sortable-chosen',
                 dragClass: 'sortable-drag',
                 fallbackClass: 'sortable-drag',
-                forceFallback: true,
-                fallbackOnBody: true,
-                fallbackTolerance: 0,
+                forceFallback: false,
                 touchStartThreshold: 0,
-                emptyInsertThreshold: 24,
+                emptyInsertThreshold: 18,
                 onAdd: function (event) {
                     if (event.to) event.to.classList.remove('is-drag-over');
                 },
@@ -2339,6 +2395,10 @@
                     if (event.item) event.item.classList.remove('is-task-dragging-source');
                 },
                 onMove: function (event) {
+                    if (!isTaskDragPointInsideList(event.to, event)) {
+                        if (event.to) event.to.classList.remove('is-drag-over');
+                        return false;
+                    }
                     qsa('[data-task-drop-list]').forEach(function (dropList) {
                         dropList.classList.toggle('is-drag-over', dropList === event.to);
                     });
@@ -2348,11 +2408,16 @@
                     qsa('[data-task-drop-list]').forEach(function (dropList) {
                         dropList.classList.remove('is-drop-ready', 'is-drag-over');
                     });
-                    syncTaskDropLists();
                     var form = event.item;
                     if (!form) return;
                     form.classList.remove('is-task-dragging-source');
-                    var status = taskStatusFromDropList(event.to);
+                    var pointList = taskDropListFromPoint(event);
+                    var targetList = pointList || event.to;
+                    if (targetList && targetList !== form.parentNode) {
+                        targetList.appendChild(form);
+                    }
+                    syncTaskDropLists();
+                    var status = taskStatusFromDropList(targetList);
                     var previousStatus = form.dataset.taskCurrentStatus || taskStatusFromDropList(event.from) || 'open';
                     if (!status || status === previousStatus) return;
                     persistTaskDragMove(projectId, form, status, previousStatus, event.from, event.oldIndex);
