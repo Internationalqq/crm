@@ -3813,11 +3813,13 @@ function renderLogsDayView(project, logs) {
                     return Number(item && item.id) === Number(userId);
                 }) || null;
             }
-            function projectInitials(name) {
-                var clean = String(name || '').trim();
-                if (!clean) return 'PR';
-                var parts = clean.split(/\s+/).filter(Boolean).slice(0, 2);
-                return parts.map(function (part) { return part.charAt(0).toUpperCase(); }).join('') || clean.slice(0, 2).toUpperCase();
+            function projectAvatarChip(person, index) {
+                var avatarUrl = safeAvatarUrl(person && (person.avatarUrl || person.avatar_url || person.avatar || ''));
+                var attrs = ' class="project-avatar-chip is-profile-avatar' + (avatarUrl ? ' has-image' : '') + '" style="z-index:' + (10 - index) + '" title="' + escapeHtml(person.name) + '" aria-label="' + escapeHtml(person.name) + '"';
+                if (avatarUrl) {
+                    return '<span' + attrs + '><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>';
+                }
+                return '<span' + attrs + '>' + escapeHtml(profileUserInitials(person.user || person) || 'П') + '</span>';
             }
             function projectForemenMeta(project) {
                 var assigned = Array.isArray(project && project.assigned_foremen) ? project.assigned_foremen : [];
@@ -3826,17 +3828,33 @@ function renderLogsDayView(project, logs) {
                     return {
                         id: userId,
                         name: user && (user.name || user.login) ? (user.name || user.login) : ('Прораб #' + userId),
-                        initials: projectInitials(user && (user.name || user.login))
+                        user: user || null,
+                        avatarUrl: user && (user.avatarUrl || user.avatar_url || user.avatar || '')
                     };
                 });
                 var preview = people.slice(0, 4).map(function (person, index) {
-                    return '<span class="project-avatar-chip" style="z-index:' + (10 - index) + '" title="' + escapeHtml(person.name) + '" aria-label="' + escapeHtml(person.name) + '">' + escapeHtml(person.initials) + '</span>';
+                    return projectAvatarChip(person, index);
                 }).join('');
                 return {
                     count: people.length,
                     label: people.length ? (people.length + ' прораб' + (people.length > 1 ? 'а' : '')) : 'Прорабы не назначены',
                     avatars: preview || '<span class="project-avatar-chip is-empty" aria-hidden="true">+</span>'
                 };
+            }
+            function currentUserId() {
+                var user = state.currentUser || state.user || {};
+                return Number(user.id || 0);
+            }
+            function isProjectAssignedToCurrentForeman(project) {
+                var assigned = Array.isArray(project && project.assigned_foremen) ? project.assigned_foremen.map(Number) : [];
+                return !!currentUserId() && assigned.indexOf(currentUserId()) !== -1;
+            }
+            function canCurrentForemanClaimProject(project) {
+                var assigned = Array.isArray(project && project.assigned_foremen) ? project.assigned_foremen : [];
+                return isForemanRole() && !isCompletedProject(project) && (!assigned.length || isProjectAssignedToCurrentForeman(project));
+            }
+            function canEditProjectFromCard() {
+                return isAdminRole() || currentPermissions().projects === 'edit';
             }
             if (!projects.length) {
                 safeReplaceChildren(root, '<div class="projects-empty-state muted">\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043e\u0431\u044a\u0435\u043a\u0442\u043e\u0432 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442.</div>');
@@ -3862,7 +3880,15 @@ function renderLogsDayView(project, logs) {
                 var statusMeta = projectStatusMeta(project, completed);
                 var foremenMeta = projectForemenMeta(project);
                 var statusBadge = '<span class="project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>';
-                var editButton = '<button class="project-card-menu" type="button" aria-label="Редактировать объект" data-project-edit="' + escapeHtml(project.id || '') + '"><i data-lucide="ellipsis"></i></button>';
+                var menuItems = [];
+                if (canEditProjectFromCard()) menuItems.push('<button type="button" data-project-edit="' + escapeHtml(project.id || '') + '"><i data-lucide="pencil"></i><span>Редактировать</span></button>');
+                if (canManageProjectAccess()) menuItems.push('<button type="button" data-project-card-access="' + escapeHtml(project.id || '') + '"><i data-lucide="users"></i><span>Доступ прораба</span></button>');
+                if (canCurrentForemanClaimProject(project)) {
+                    menuItems.push('<button type="button" data-project-claim-foreman="' + escapeHtml(project.id || '') + '"><i data-lucide="hand"></i><span>' + (isProjectAssignedToCurrentForeman(project) ? 'Уже мой объект' : 'Взять объект') + '</span></button>');
+                }
+                var editButton = menuItems.length
+                    ? '<div class="project-card-menu-wrap"><button class="project-card-menu" type="button" aria-label="Действия с объектом" data-project-menu-toggle="' + escapeHtml(project.id || '') + '"><i data-lucide="ellipsis"></i></button><div class="project-card-menu-panel" data-project-menu-panel="' + escapeHtml(project.id || '') + '" hidden>' + menuItems.join('') + '</div></div>'
+                    : '';
                 var riskBadge = (!completed && criticalCount)
                     ? '<span class="project-inline-note is-danger"><i data-lucide="triangle-alert"></i><span>Нехватки: ' + escapeHtml(String(criticalCount)) + '</span></span>'
                     : '';
@@ -3914,8 +3940,21 @@ function renderLogsDayView(project, logs) {
                 if (card.dataset.projectCardBound === '1') return;
                 card.dataset.projectCardBound = '1';
                 card.addEventListener('click', function (event) {
-                    if (event.target && event.target.closest('[data-project-edit], [data-project-quick-tab]')) return;
+                    if (event.target && event.target.closest('[data-project-edit], [data-project-quick-tab], [data-project-menu-toggle], [data-project-card-access], [data-project-claim-foreman], .project-card-menu-panel')) return;
                     openProject(Number(card.dataset.projectId));
+                });
+            });
+            qsa('[data-project-menu-toggle]', root).forEach(function (button) {
+                if (button.dataset.projectMenuBound === '1') return;
+                button.dataset.projectMenuBound = '1';
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var panel = qs('[data-project-menu-panel="' + button.dataset.projectMenuToggle + '"]', root);
+                    qsa('[data-project-menu-panel]', root).forEach(function (item) {
+                        if (item !== panel) item.hidden = true;
+                    });
+                    if (panel) panel.hidden = !panel.hidden;
                 });
             });
             qsa('[data-project-edit]', root).forEach(function (button) {
@@ -3925,6 +3964,41 @@ function renderLogsDayView(project, logs) {
                     event.preventDefault();
                     event.stopPropagation();
                     openProjectEdit(Number(button.dataset.projectEdit));
+                });
+            });
+            qsa('[data-project-card-access]', root).forEach(function (button) {
+                if (button.dataset.projectAccessBound === '1') return;
+                button.dataset.projectAccessBound = '1';
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var projectId = Number(button.dataset.projectCardAccess || 0);
+                    var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
+                    if (!project) return;
+                    state.selectedProject = project;
+                    openProjectAccessModal();
+                });
+            });
+            qsa('[data-project-claim-foreman]', root).forEach(function (button) {
+                if (button.dataset.projectClaimBound === '1') return;
+                button.dataset.projectClaimBound = '1';
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var projectId = Number(button.dataset.projectClaimForeman || 0);
+                    if (!projectId || button.disabled) return;
+                    button.disabled = true;
+                    api('/api/projects/' + projectId + '/claim-foreman', { method: 'POST', body: JSON.stringify({}) }).then(function (data) {
+                        if (data && data.project) updateProjectInState(data.project);
+                        renderProjectList(state.projects);
+                        showAppNotice('Объект закреплён за вами.', 'success');
+                    }).catch(function (err) {
+                        var fallback = err && err.payload && err.payload.error === 'project_already_has_foreman'
+                            ? 'У объекта уже есть прораб.'
+                            : 'Не удалось взять объект.';
+                        showAppNotice(appErrorMessage(err, fallback), 'error');
+                        button.disabled = false;
+                    });
                 });
             });
             qsa('[data-project-quick-tab]', root).forEach(function (button) {
@@ -7513,6 +7587,10 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    function canManageProjectAccess() {
+        return canManageTeam() || isDirectorRole() || isAdminRole();
+    }
+
     function ensureProjectAccessModal() {
         var modal = qs('[data-project-access-modal]');
         if (modal) return modal;
@@ -7579,7 +7657,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function openProjectAccessModal() {
-        if (!canManageTeam()) return;
+        if (!canManageProjectAccess()) return;
         var project = state.selectedProject;
         if (!project) {
             showAppNotice('Сначала открой объект.', 'warn');
@@ -7594,7 +7672,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function saveProjectAccess(form) {
-        if (!canManageTeam()) {
+        if (!canManageProjectAccess()) {
             showAppNotice('Доступ разрешен только Главному Админу', 'error');
             return;
         }
@@ -8095,6 +8173,8 @@ function renderLogsDayView(project, logs) {
     if (typeof loadDashboard === 'function') PMBI.app.loadDashboard = loadDashboard;
     if (typeof loadProjectLogs === 'function') PMBI.app.loadProjectLogs = loadProjectLogs;
     if (typeof applyRoleVisibility === 'function') PMBI.app.applyRoleVisibility = applyRoleVisibility;
+    if (typeof renderProjectStats === 'function') PMBI.app.renderProjectStats = renderProjectStats;
+    if (typeof renderProjectList === 'function') PMBI.app.renderProjectList = renderProjectList;
     if (typeof openSideDrawer === 'function') PMBI.app.openSideDrawer = openSideDrawer;
     if (typeof closeSideDrawer === 'function') PMBI.app.closeSideDrawer = closeSideDrawer;
     if (typeof ensureSideDrawerFromCard === 'function') PMBI.app.ensureSideDrawerFromCard = ensureSideDrawerFromCard;

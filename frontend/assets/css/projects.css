@@ -983,6 +983,10 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     gap: 10px;
 }
 
+.project-card-menu-wrap {
+    position: relative;
+}
+
 .project-card-menu {
     min-width: 38px;
     min-height: 38px;
@@ -1001,6 +1005,50 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     background: #eaf2fd;
     border-color: #b9d0ee;
     transform: translateY(-1px);
+}
+
+.project-card-menu-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    display: grid;
+    min-width: 190px;
+    padding: 6px;
+    border: 1px solid #d7e4f3;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, .16);
+}
+
+.project-card-menu-panel[hidden] {
+    display: none;
+}
+
+.project-card-menu-panel button {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 36px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #173863;
+    font-weight: 800;
+    text-align: left;
+    cursor: pointer;
+}
+
+.project-card-menu-panel button:hover {
+    background: #f1f6fd;
+}
+
+.project-card-menu-panel svg {
+    width: 16px;
+    height: 16px;
 }
 
 .object-actions {

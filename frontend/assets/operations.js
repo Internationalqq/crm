@@ -1983,6 +1983,11 @@
         return escapeHtml(profileUserInitials(user));
     }
 
+    function profileAvatarPreviewClass(user) {
+        user = user || {};
+        return 'topbar-avatar' + (safeAvatarUrl(user.avatarUrl || user.avatar_url) ? ' has-image' : '');
+    }
+
     function renderProfileModalContent() {
         var user = state.currentUser || state.user || {};
         var parts = profileNameParts(user);
@@ -1996,7 +2001,7 @@
             '<form class="profile-modal-form" data-profile-form>' +
                 '<div class="profile-avatar-block">' +
                     '<button class="profile-avatar-preview" type="button" data-profile-avatar-pick aria-label="Сменить аватарку">' +
-                        '<span data-profile-avatar-preview>' + profileAvatarInner(user) + '</span>' +
+                        '<span class="' + profileAvatarPreviewClass(user) + '" data-profile-avatar-preview>' + profileAvatarInner(user) + '</span>' +
                         '<span class="profile-avatar-edit"><i data-lucide="pencil" aria-hidden="true"></i></span>' +
                     '</button>' +
                     '<input class="visually-hidden" type="file" name="avatar" accept="image/png,image/jpeg,image/webp,image/gif" data-profile-avatar-file>' +
@@ -2073,6 +2078,7 @@
                     return;
                 }
                 var previewUrl = URL.createObjectURL(file);
+                avatarPreview.classList.add('has-image');
                 safeReplaceChildren(avatarPreview, '<img src="' + escapeHtml(previewUrl) + '" alt="">');
             });
         }

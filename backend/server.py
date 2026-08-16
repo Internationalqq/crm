@@ -57,6 +57,7 @@ from auth import (
     user_payload,
 )
 from projects import (
+    api_claim_project_foreman as projects_api_claim_project_foreman,
     api_create_project as projects_api_create_project,
     api_create_project_assignment as projects_api_create_project_assignment,
     api_delete_project as projects_api_delete_project,
@@ -1886,6 +1887,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_assignments(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/assignments"):
                 self.api_create_project_assignment(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/claim-foreman"):
+                self.api_claim_project_foreman(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/materials-summary"):
                 self.api_materials_summary(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/warehouse-matches"):
@@ -2303,12 +2306,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def api_users_manage(self) -> None:
         viewer = self.require_user()
-        if not viewer or not user_is_main_admin(viewer):
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "\u0414\u043e\u0441\u0442\u0443\u043f \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0410\u0434\u043c\u0438\u043d\u0443"})
+        if not viewer:
             return
         director = viewer
         payload = self.read_json()
         action = str(payload.get("action", "create_foreman")).strip() or "create_foreman"
+        can_set_project_access = (
+            user_is_main_admin(viewer)
+            or user_has_any_role(viewer, {"admin", "director"})
+            or user_permissions(viewer).get("fullAccess")
+        )
+        if (action in {"set_project_foremen", "set_access"} and not can_set_project_access) or (
+            action not in {"set_project_foremen", "set_access"} and not user_is_main_admin(viewer)
+        ):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "\u0414\u043e\u0441\u0442\u0443\u043f \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0410\u0434\u043c\u0438\u043d\u0443"})
+            return
 
         if action in {"set_project_foremen", "set_access"}:
             try:
@@ -2733,6 +2745,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def api_create_project_assignment(self, path: str) -> None:
         projects_api_create_project_assignment(self, path)
+
+    def api_claim_project_foreman(self, path: str) -> None:
+        projects_api_claim_project_foreman(self, path)
 
     def daily_task_payload(self, row: sqlite3.Row) -> dict:
         creator_role = normalize_role(row["creator_role"]) if "creator_role" in row.keys() and row["creator_role"] else ""

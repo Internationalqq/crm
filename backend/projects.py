@@ -685,3 +685,63 @@ def api_create_project_assignment(handler, path: str) -> None:
         )
         con.commit()
     handler.send_json(HTTPStatus.CREATED, {"ok": True})
+
+
+def api_claim_project_foreman(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    if not project_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+        return
+    user = handler.require_role({"foreman"})
+    if not user:
+        return
+    with db() as con:
+        project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            return
+        existing_foreman = con.execute(
+            """
+            SELECT user_id
+            FROM object_assignments
+            WHERE object_id = ? AND role_code = 'foreman'
+            ORDER BY is_primary DESC, assigned_at DESC, id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        if existing_foreman and int(existing_foreman["user_id"]) != int(user["id"]):
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "project_already_has_foreman"})
+            return
+        con.execute(
+            "UPDATE object_assignments SET is_primary = 0 WHERE object_id = ? AND role_code = 'foreman'",
+            (project_id,),
+        )
+        con.execute(
+            """
+            INSERT INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+            VALUES (?, ?, 'foreman', 'Прораб объекта', 1, ?, ?)
+            ON CONFLICT(object_id, user_id, role_code) DO UPDATE SET
+                responsibility = excluded.responsibility,
+                is_primary = 1,
+                assigned_by = excluded.assigned_by,
+                assigned_at = excluded.assigned_at
+            """,
+            (project_id, user["id"], user["id"], now_ts()),
+        )
+        con.execute(
+            "INSERT OR IGNORE INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+            (user["id"], project_id),
+        )
+        con.execute("UPDATE projects SET foreman_id = ?, updated_at = ? WHERE id = ?", (user["id"], now_ts(), project_id))
+        create_audit(
+            con,
+            user["id"],
+            "claim_project_foreman",
+            "project",
+            project_id,
+            {"foreman_id": user["id"]},
+        )
+        con.commit()
+        row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    handler.send_json(HTTPStatus.OK, {"ok": True, "project": serialize_project(row, user)})
