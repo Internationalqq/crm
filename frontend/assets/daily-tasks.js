@@ -365,18 +365,18 @@
         }).join(''));
     }
 
-    function addDailyStandupNewTask(modal) {
-        var input = qs('[data-daily-standup-new-input]', modal);
-        if (!input) return;
-        var value = String(input.value || '').trim();
+    function addDailyStandupNewTask(modal, rawText) {
+        if (!modal) return;
+        var textarea = qs('[data-daily-standup-new-textarea]', modal);
+        var value = typeof rawText === 'string' ? rawText.trim() : String(textarea && textarea.value || '').trim();
         if (!value) return;
         var tasks = dailyStandupNewTasks(modal);
-        value.split(/\n|;/).map(function (item) { return item.trim(); }).filter(Boolean).forEach(function (item) {
+        value.split(/\r?\n|;/).map(function (item) { return item.trim(); }).filter(Boolean).forEach(function (item) {
             tasks.push(item);
         });
-        input.value = '';
+        if (textarea) textarea.value = '';
         renderDailyStandupNewTasks(modal, tasks);
-        input.focus();
+        if (textarea) textarea.focus();
     }
 
     function closeDailyStandupModal(modal) {
@@ -400,20 +400,19 @@
             '<section class="daily-standup-dialog" role="dialog" aria-modal="true" aria-label="План на сегодня">' +
                 '<div class="daily-standup-head"><h3>План на сегодня 🚀</h3></div>' +
                 '<div class="daily-standup-block">' +
-                    '<strong>Перенести со вчера</strong>' +
+                    '<strong>Осталось сделать</strong>' +
                     (carryover.length ? '<div class="daily-carryover-list">' + carryover.map(function (task) {
                     return '<article class="daily-carryover-item" data-carryover-id="' + escapeHtml(task.id) + '" data-carryover-action="transfer">' +
                         '<p>' + escapeHtml(task.text) + '</p>' +
                         '<small>' + escapeHtml(formatDisplayDate(task.date)) + '</small>' +
-                        '<div><button class="ghost compact active" type="button" data-carryover-action-btn="transfer">Оставить на сегодня</button><button class="ghost compact" type="button" data-carryover-action-btn="archive">В архив</button></div>' +
                     '</article>';
-                }).join('') + '</div>' : '<div class="daily-standup-empty">Нечего переносить</div>') +
+                }).join('') + '</div>' : '<div class="daily-standup-empty">Незавершённых задач нет</div>') +
                 '</div>' +
                 '<form data-daily-standup-form>' +
                     '<div class="daily-standup-block">' +
-                        '<strong>+ Добавить новые задачи</strong>' +
+                        '<strong>Добавить новые задачи</strong>' +
                         '<div class="daily-standup-new-row">' +
-                            '<input type="text" data-daily-standup-new-input placeholder="Новая задача">' +
+                            '<textarea data-daily-standup-new-textarea rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
                             '<button class="ghost compact" type="button" data-daily-standup-new-add>Добавить</button>' +
                         '</div>' +
                         '<div class="daily-standup-new-list" data-daily-standup-new-list hidden></div>' +
@@ -422,16 +421,6 @@
                 '</form>' +
             '</section>';
         modal.addEventListener('click', function (event) {
-            var button = event.target.closest('[data-carryover-action-btn]');
-            if (button) {
-                var item = button.closest('[data-carryover-id]');
-                if (!item) return;
-                item.dataset.carryoverAction = button.dataset.carryoverActionBtn;
-                qsa('[data-carryover-action-btn]', item).forEach(function (node) {
-                    node.classList.toggle('active', node === button);
-                });
-                return;
-            }
             if (event.target.closest('[data-daily-standup-new-add]')) {
                 addDailyStandupNewTask(modal);
                 return;
@@ -444,19 +433,14 @@
                 renderDailyStandupNewTasks(modal, tasks);
             }
         });
-        modal.addEventListener('keydown', function (event) {
-            if (event.key !== 'Enter' || !event.target.closest('[data-daily-standup-new-input]')) return;
-            event.preventDefault();
-            addDailyStandupNewTask(modal);
-        });
         qs('[data-daily-standup-form]', modal).addEventListener('submit', function (event) {
             event.preventDefault();
             var form = event.currentTarget;
             var actions = qsa('[data-carryover-id]', modal).map(function (item) {
                 return { id: item.dataset.carryoverId, action: item.dataset.carryoverAction || 'transfer' };
             });
-            var input = qs('[data-daily-standup-new-input]', modal);
-            if (input && String(input.value || '').trim()) addDailyStandupNewTask(modal);
+            var textarea = qs('[data-daily-standup-new-textarea]', modal);
+            if (textarea && String(textarea.value || '').trim()) addDailyStandupNewTask(modal);
             var tasks = dailyStandupNewTasks(modal);
             withSubmitLock(form, function () {
                 return api('/api/daily-tasks/standup', {
@@ -472,8 +456,8 @@
             });
         });
         document.body.appendChild(modal);
-        var input = qs('[data-daily-standup-new-input]', modal);
-        if (input) input.focus();
+        var textarea = qs('[data-daily-standup-new-textarea]', modal);
+        if (textarea) textarea.focus();
         refreshLucideIcons(modal);
         return modal;
     }
@@ -612,7 +596,7 @@
     function dailyTaskStatusAction(task) {
         if (!dailyTaskCanComplete(task)) return null;
         if (task.status === 'planned') return { status: 'in_progress', label: 'В работу' };
-        if (task.status === 'in_progress') return { status: 'done', label: 'Готово' };
+        if (task.status === 'in_progress') return { status: 'planned', label: 'Снять с работы' };
         return null;
     }
 
@@ -1209,6 +1193,11 @@
                 if (event.target.closest('a, button, input, select, textarea, label')) return;
                 var row = event.target.closest('[data-daily-task-id]');
                 if (!row) return;
+                var taskId = row.getAttribute('data-daily-task-id');
+                var task = (state.dailyTasks || []).filter(function (item) { return String(item.id) === String(taskId); })[0] || {};
+                if (task.status === 'in_progress') {
+                    setDailyTaskDone(row, true, event);
+                }
             });
             feed.addEventListener('keydown', function (event) {
                 if (event.target.closest('a, button, input, select, textarea, label')) return;
@@ -1216,6 +1205,11 @@
                 var row = event.target.closest('[data-daily-task-id]');
                 if (!row) return;
                 event.preventDefault();
+                var taskId = row.getAttribute('data-daily-task-id');
+                var task = (state.dailyTasks || []).filter(function (item) { return String(item.id) === String(taskId); })[0] || {};
+                if (task.status === 'in_progress') {
+                    setDailyTaskDone(row, true, event);
+                }
             });
         }
     }

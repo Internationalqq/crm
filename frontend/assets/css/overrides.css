@@ -4634,23 +4634,41 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 
 .daily-standup-new-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
-    align-items: center;
+    align-items: start;
 }
 
-.daily-standup-new-row input {
+.daily-standup-new-row input,
+.daily-standup-new-row textarea {
     width: 100%;
-    min-height: 38px;
     border: 1px solid var(--line);
     border-radius: var(--base-radius);
-    padding: 0 12px;
     outline: none;
     background: #ffffff;
     color: #172033;
 }
 
-.daily-standup-new-row input:focus {
+.daily-standup-new-row input {
+    min-height: 38px;
+    padding: 0 12px;
+}
+
+.daily-standup-new-row textarea {
+    min-height: 120px;
+    resize: vertical;
+    padding: 12px 14px;
+    font: inherit;
+    line-height: 1.45;
+}
+
+.daily-standup-new-row .ghost {
+    justify-self: end;
+    font-weight: 800;
+}
+
+.daily-standup-new-row input:focus,
+.daily-standup-new-row textarea:focus {
     border-color: #93c5fd;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
 }
@@ -4686,6 +4704,10 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     margin-top: 4px;
 }
 
+[data-daily-standup-form] .daily-standup-actions {
+    justify-content: center;
+}
+
 .daily-carryover-list {
     display: grid;
     gap: 10px;
@@ -4693,7 +4715,7 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 
 .daily-carryover-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     align-items: center;
     padding: 8px 0;
@@ -4718,21 +4740,6 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 .daily-carryover-item small {
     grid-column: 1;
     color: var(--muted);
-}
-
-.daily-carryover-item div {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    display: inline-flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-
-.daily-carryover-item .ghost.active {
-    border-color: #2563eb;
-    background: #eff6ff;
-    color: #1d4ed8;
 }
 
 @media (max-width: 980px) {
@@ -4764,20 +4771,19 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
         flex: 1 1 auto;
     }
 
+    [data-daily-standup-form] .daily-standup-actions .primary {
+        flex: 0 1 auto;
+    }
+
+    .daily-standup-new-row .ghost {
+        justify-self: stretch;
+    }
+
     .daily-task-archive-row,
     .daily-carryover-item {
         grid-template-columns: 1fr;
     }
 
-    .daily-carryover-item div {
-        grid-column: 1;
-        grid-row: auto;
-        justify-content: stretch;
-    }
-
-    .daily-carryover-item div .ghost {
-        flex: 1 1 180px;
-    }
 }
 
 /* Minimal task feed overrides. Kanban styles above are legacy and not used by the routed page. */
@@ -5054,6 +5060,7 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 .daily-list-row.is-in-progress {
     background: #f8fbff;
     box-shadow: inset 3px 0 0 #2563eb;
+    cursor: pointer;
 }
 
 .daily-list-row.is-done {
