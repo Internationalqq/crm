@@ -9,7 +9,10 @@ This repository can run together with the neighboring `../code/auto_bot` project
 3. If you switch CRM auth to Clerk, also fill:
    `PMBI_PUBLIC_BASE_URL`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`,
    `CLERK_JWT_KEY`, and `CLERK_ADMIN_EMAILS`.
-4. Start both services:
+4. For local password reset emails, fill the SMTP values:
+   `PMBI_SMTP_HOST`, `PMBI_SMTP_PORT`, `PMBI_SMTP_USERNAME`,
+   `PMBI_SMTP_PASSWORD`, and `PMBI_SMTP_FROM`.
+5. Start both services:
 
 ```powershell
 docker compose up --build
@@ -24,6 +27,25 @@ With Clerk enabled, users sign in through Clerk on `/login`, while CRM roles and
 project permissions still stay in the local SQLite database.
 
 Inside Docker, AutoBot talks to CRM through `http://crm:8080`.
+
+## Password Reset Email
+
+The local CRM login can issue a temporary password from the `/login` screen.
+SMTP must be configured for this to work:
+
+```env
+PMBI_SMTP_HOST=smtp.example.com
+PMBI_SMTP_PORT=587
+PMBI_SMTP_USERNAME=robot@example.com
+PMBI_SMTP_PASSWORD=change-me
+PMBI_SMTP_FROM=robot@example.com
+PMBI_SMTP_USE_TLS=1
+PMBI_SMTP_USE_SSL=0
+```
+
+Use `PMBI_SMTP_USE_SSL=1` for providers that require implicit SSL, usually on
+port `465`. If Clerk auth is enabled, password recovery is handled by Clerk
+instead of the local CRM form.
 
 The compose file does not read `../code/auto_bot/.env` automatically. Put the
 AutoBot values you need for Docker, such as Telegram tokens, into this CRM

@@ -245,11 +245,60 @@
         });
     }
 
+    function bindPasswordResetForm() {
+        var form = qs('[data-password-reset-form]');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-password-reset-error]');
+            var success = qs('[data-password-reset-success]');
+            var button = form.querySelector('button[type="submit"]');
+            if (error) {
+                error.textContent = '';
+                error.classList.remove('active');
+            }
+            if (success) {
+                success.textContent = '';
+                success.classList.remove('active');
+            }
+            var email = String(form.email && form.email.value || '').trim();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                if (error) {
+                    error.textContent = 'Введите email, указанный в учетной записи.';
+                    error.classList.add('active');
+                }
+                return;
+            }
+            if (button) button.disabled = true;
+            api('/api/auth/request-password-reset', {
+                method: 'POST',
+                body: JSON.stringify({ email: email })
+            }).then(function (data) {
+                if (success) {
+                    success.textContent = data && data.message || 'Если такой email есть в системе, новый пароль отправлен на почту.';
+                    success.classList.add('active');
+                }
+                form.reset();
+            }).catch(function (err) {
+                if (error) {
+                    error.textContent = appErrorMessage(err, 'Не удалось отправить новый пароль. Попробуйте позже.');
+                    error.classList.add('active');
+                }
+            }).finally(function () {
+                if (button) button.disabled = false;
+            });
+        });
+    }
+
     function initLogin() {
+        bindPasswordResetForm();
         if (isClerkEnabled()) {
             var root = qs('[data-login-clerk-root]');
             var fallbackForm = qs('[data-login-form]');
+            var resetPanel = qs('[data-password-reset-panel]');
             if (fallbackForm) fallbackForm.hidden = true;
+            if (resetPanel) resetPanel.hidden = true;
             loadClerk().then(function (clerk) {
                 if (!clerk) {
                     showLoginError('Clerk не загрузился. Проверь настройки ключей.');

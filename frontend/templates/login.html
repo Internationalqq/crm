@@ -48,6 +48,18 @@
                 <div class="form-error" data-login-error>Неверный логин или пароль</div>
                 <button type="submit">Войти</button>
             </form>
+            <details class="password-reset-panel" data-password-reset-panel>
+                <summary>Забыли пароль?</summary>
+                <form data-password-reset-form>
+                    <label>
+                        <span>Email</span>
+                        <input name="email" type="email" autocomplete="email" placeholder="name@company.ru">
+                    </label>
+                    <div class="form-error" data-password-reset-error></div>
+                    <div class="form-success" data-password-reset-success></div>
+                    <button type="submit" class="ghost">Отправить новый пароль</button>
+                </form>
+            </details>
             <small>Первичный пароль после первого запуска лежит в <code>data/INITIAL_ADMIN.txt</code>.</small>
         </section>
     </main>

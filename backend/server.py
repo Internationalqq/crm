@@ -30,9 +30,11 @@ from auth import (
     display_user_name,
     api_avatar_file as auth_api_avatar_file,
     auth_config as auth_core_config,
+    api_change_password as auth_api_change_password,
     api_login as auth_api_login,
     api_logout as auth_api_logout,
     api_me as auth_api_me,
+    api_request_password_reset as auth_api_request_password_reset,
     api_update_profile as auth_api_update_profile,
     clerk_api_request,
     clerk_enabled,
@@ -1823,6 +1825,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
         try:
             if method == "POST" and path == "/api/auth/login":
                 self.api_login()
+            elif method == "POST" and path == "/api/auth/request-password-reset":
+                auth_api_request_password_reset(self)
+            elif method == "POST" and path == "/api/auth/change-password":
+                auth_api_change_password(self)
             elif method == "POST" and path == "/api/auth/logout":
                 self.api_logout()
             elif method == "GET" and path == "/api/auth/me":

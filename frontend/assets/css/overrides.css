@@ -2671,6 +2671,157 @@ button:hover svg.lucide {
     gap: 16px;
 }
 
+.profile-password-section {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.profile-password-toggle {
+    width: 100%;
+    min-height: 58px;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #dbe3ed;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #ffffff, #f8fafc);
+    color: #0f172a;
+    text-align: left;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .05);
+    transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.profile-password-toggle:hover {
+    border-color: #93c5fd;
+    background: #ffffff;
+    box-shadow: 0 12px 28px rgba(37, 99, 235, .12);
+}
+
+.profile-password-toggle-icon {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.profile-password-toggle-icon svg,
+.profile-password-toggle-chevron {
+    width: 17px;
+    height: 17px;
+}
+
+.profile-password-toggle-text {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.profile-password-toggle-text b {
+    font-size: 14px;
+    line-height: 1.25;
+}
+
+.profile-password-toggle-text small {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.profile-password-toggle-chevron {
+    color: #64748b;
+    transition: transform .16s ease;
+}
+
+.profile-password-toggle:hover .profile-password-toggle-chevron {
+    transform: translate(2px, -2px);
+}
+
+.profile-password-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10120;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, .38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease;
+}
+
+.profile-password-modal-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.profile-password-modal-card {
+    position: relative;
+    width: min(420px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+    padding: 22px;
+    border: 1px solid #dbe3ed;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, .24);
+    transform: translateY(10px) scale(.98);
+    transition: transform .2s ease;
+}
+
+.profile-password-modal-overlay.is-open .profile-password-modal-card {
+    transform: translateY(0) scale(1);
+}
+
+.profile-password-modal-head {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.profile-password-modal-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.profile-password-modal-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.profile-password-modal-head h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.profile-password-modal-head p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.profile-password-form {
+    display: grid;
+    gap: 12px;
+}
+
 .profile-avatar-block {
     display: grid;
     justify-items: center;
@@ -2779,7 +2930,25 @@ button:hover svg.lucide {
     font-weight: 800;
 }
 
+.profile-password-form label {
+    display: grid;
+    gap: 6px;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 800;
+}
+
 .profile-modal-grid input {
+    width: 100%;
+    min-height: 40px;
+    border: 1px solid #dbe3ed;
+    border-radius: 8px;
+    padding: 0 12px;
+    color: #0f172a;
+    font-size: 14px;
+}
+
+.profile-password-form input {
     width: 100%;
     min-height: 40px;
     border: 1px solid #dbe3ed;
@@ -2822,6 +2991,10 @@ button:hover svg.lucide {
 }
 
 .profile-save-button {
+    width: 100%;
+}
+
+.profile-password-button {
     width: 100%;
 }
 

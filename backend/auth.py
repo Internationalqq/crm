@@ -7,10 +7,13 @@ import json
 import os
 import re
 import secrets
+import smtplib
 import sqlite3
+import threading
 import time
 import urllib.parse
 import urllib.request
+from email.message import EmailMessage
 from http import HTTPStatus
 from pathlib import Path
 
@@ -28,6 +31,38 @@ AVATAR_EXTENSIONS = {
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
+
+
+def load_env_file(path: Path | None = None) -> None:
+    env_path = path or (PROJECT_ROOT / ".env")
+    if not env_path.is_file():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        text = line.strip()
+        if not text or text.startswith("#") or "=" not in text:
+            continue
+        key, value = text.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+load_env_file()
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
 
 
 def save_avatar_upload(handler, avatar_item, user_id: int) -> tuple[bool, str | None]:
@@ -74,9 +109,22 @@ SESSION_COOKIE = "pmbi_session"
 SESSION_TTL_SECONDS = 60 * 60 * 12
 REMEMBER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 PASSWORD_ITERATIONS = 220_000
+TEMP_PASSWORD_LENGTH = 12
+PASSWORD_RESET_EMAIL_LIMIT = 5
+PASSWORD_RESET_IP_LIMIT = 20
+PASSWORD_RESET_WINDOW_SECONDS = 60 * 60
+PASSWORD_CHANGE_BAD_ATTEMPT_LIMIT = 8
+PASSWORD_CHANGE_WINDOW_SECONDS = 15 * 60
 
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
 PMBI_FORCE_SECURE_COOKIES = (os.environ.get("PMBI_FORCE_SECURE_COOKIES", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+PMBI_SMTP_HOST = (os.environ.get("PMBI_SMTP_HOST", "") or "").strip()
+PMBI_SMTP_PORT = env_int("PMBI_SMTP_PORT", 587)
+PMBI_SMTP_USERNAME = (os.environ.get("PMBI_SMTP_USERNAME", "") or "").strip()
+PMBI_SMTP_PASSWORD = re.sub(r"\s+", "", (os.environ.get("PMBI_SMTP_PASSWORD", "") or ""))
+PMBI_SMTP_FROM = (os.environ.get("PMBI_SMTP_FROM", "") or PMBI_SMTP_USERNAME).strip()
+PMBI_SMTP_USE_SSL = (os.environ.get("PMBI_SMTP_USE_SSL", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+PMBI_SMTP_USE_TLS = (os.environ.get("PMBI_SMTP_USE_TLS", "1") or "").strip().lower() in {"1", "true", "yes", "on"}
 CLERK_PUBLISHABLE_KEY = (os.environ.get("CLERK_PUBLISHABLE_KEY", "") or "").strip()
 CLERK_SECRET_KEY = (os.environ.get("CLERK_SECRET_KEY", "") or "").strip()
 CLERK_JWT_KEY = (os.environ.get("CLERK_JWT_KEY", "") or "").replace("\\n", "\n").strip()
@@ -170,10 +218,53 @@ LEGACY_ROLE_ALIASES = {
 }
 ROLE_CODES = tuple(ROLE_LABELS.keys())
 PUBLIC_STATIC_PATHS = {"/", "/index.html", LOGIN_PATH, "/robots.txt"}
+AUTH_RATE_LIMITS: dict[str, list[int]] = {}
+AUTH_RATE_LIMIT_LOCK = threading.Lock()
 
 
 def now_ts() -> int:
     return int(time.time())
+
+
+def handler_client_ip(handler) -> str:
+    forwarded_for = str(handler.headers.get("X-Forwarded-For", "") or "").split(",", 1)[0].strip()
+    if forwarded_for:
+        return forwarded_for[:80]
+    try:
+        return str(handler.client_address[0] or "")
+    except Exception:
+        return "unknown"
+
+
+def auth_rate_limit_key(bucket: str, key: str) -> str:
+    return f"{bucket}:{str(key or '').strip().lower()}"
+
+
+def auth_rate_limited(bucket: str, key: str, limit: int, window_seconds: int) -> bool:
+    current = now_ts()
+    cutoff = current - window_seconds
+    cache_key = auth_rate_limit_key(bucket, key)
+    with AUTH_RATE_LIMIT_LOCK:
+        attempts = [timestamp for timestamp in AUTH_RATE_LIMITS.get(cache_key, []) if timestamp >= cutoff]
+        if len(attempts) >= limit:
+            AUTH_RATE_LIMITS[cache_key] = attempts
+            return True
+        attempts.append(current)
+        AUTH_RATE_LIMITS[cache_key] = attempts
+        if len(AUTH_RATE_LIMITS) > 1000:
+            stale_keys = [
+                item_key
+                for item_key, item_attempts in AUTH_RATE_LIMITS.items()
+                if not item_attempts or max(item_attempts) < cutoff
+            ]
+            for item_key in stale_keys:
+                AUTH_RATE_LIMITS.pop(item_key, None)
+        return False
+
+
+def clear_auth_rate_limit(bucket: str, key: str) -> None:
+    with AUTH_RATE_LIMIT_LOCK:
+        AUTH_RATE_LIMITS.pop(auth_rate_limit_key(bucket, key), None)
 
 
 def db() -> sqlite3.Connection:
@@ -215,6 +306,55 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(actual, expected)
     except Exception:
         return False
+
+
+def validate_new_password(password: str) -> tuple[bool, str | None]:
+    if len(password) < 8:
+        return False, "password_too_short"
+    if len(password) > 128:
+        return False, "password_too_long"
+    return True, None
+
+
+def generate_temporary_password() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(TEMP_PASSWORD_LENGTH))
+
+
+def smtp_configured() -> bool:
+    if not (PMBI_SMTP_HOST and PMBI_SMTP_FROM):
+        return False
+    return bool(PMBI_SMTP_PASSWORD) if PMBI_SMTP_USERNAME else True
+
+
+def send_password_reset_email(email: str, login: str, temporary_password: str) -> None:
+    if not smtp_configured():
+        raise RuntimeError("smtp_not_configured")
+    message = EmailMessage()
+    message["Subject"] = "PM.bi: новый пароль для входа"
+    message["From"] = PMBI_SMTP_FROM
+    message["To"] = email
+    message.set_content(
+        "\n".join(
+            [
+                "Здравствуйте.",
+                "",
+                "Для вашей учетной записи PM.bi был выпущен новый временный пароль.",
+                f"Логин: {login}",
+                f"Временный пароль: {temporary_password}",
+                "",
+                "Войдите с этим паролем и смените его в личном кабинете.",
+                "Если вы не запрашивали восстановление, сообщите администратору.",
+            ]
+        )
+    )
+    smtp_class = smtplib.SMTP_SSL if PMBI_SMTP_USE_SSL else smtplib.SMTP
+    with smtp_class(PMBI_SMTP_HOST, PMBI_SMTP_PORT, timeout=15) as smtp:
+        if PMBI_SMTP_USE_TLS and not PMBI_SMTP_USE_SSL:
+            smtp.starttls()
+        if PMBI_SMTP_USERNAME:
+            smtp.login(PMBI_SMTP_USERNAME, PMBI_SMTP_PASSWORD)
+        smtp.send_message(message)
 
 
 def token_hash(token: str) -> str:
@@ -839,6 +979,154 @@ def api_login(handler) -> None:
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def api_request_password_reset(handler) -> None:
+    if clerk_enabled():
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "clerk_enabled"})
+        return
+    payload = handler.read_json()
+    email = str(payload.get("email", payload.get("login", "")) or "").strip().lower()
+    if not email or not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "bad_email", "message": "Введите email, указанный в учетной записи."},
+        )
+        return
+    if not smtp_configured():
+        handler.send_json(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "smtp_not_configured",
+                "message": "Отправка почты не настроена. Обратитесь к администратору.",
+            },
+        )
+        return
+    if auth_rate_limited("password_reset_email", email, PASSWORD_RESET_EMAIL_LIMIT, PASSWORD_RESET_WINDOW_SECONDS) or auth_rate_limited(
+        "password_reset_ip",
+        handler_client_ip(handler),
+        PASSWORD_RESET_IP_LIMIT,
+        PASSWORD_RESET_WINDOW_SECONDS,
+    ):
+        handler.send_json(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            {
+                "error": "too_many_password_resets",
+                "message": "Слишком много запросов восстановления. Попробуйте позже.",
+            },
+        )
+        return
+
+    generic_payload = {
+        "ok": True,
+        "message": "Если такой email есть в системе, новый пароль отправлен на почту.",
+    }
+    with db() as con:
+        row = con.execute(
+            "SELECT * FROM users WHERE lower(email) = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+            (email,),
+        ).fetchone()
+        if not row:
+            handler.send_json(HTTPStatus.OK, generic_payload)
+            return
+        temporary_password = generate_temporary_password()
+        try:
+            send_password_reset_email(str(row["email"]), str(row["login"]), temporary_password)
+        except smtplib.SMTPAuthenticationError:
+            handler.send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {
+                    "error": "smtp_auth_failed",
+                    "message": "Gmail не принял SMTP-пароль. Укажите в .env пароль приложения Google, а не обычный пароль от почты.",
+                },
+            )
+            return
+        except Exception:
+            handler.send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {
+                    "error": "mail_send_failed",
+                    "message": "Не удалось отправить письмо. Попробуйте позже или обратитесь к администратору.",
+                },
+            )
+            return
+        con.execute(
+            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+            (hash_password(temporary_password), now_ts(), row["id"]),
+        )
+        con.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+        con.execute(
+            "INSERT INTO audit_log (user_id, action, entity, created_at) VALUES (?, 'password_reset', 'user', ?)",
+            (row["id"], now_ts()),
+        )
+        con.commit()
+    handler.send_json(HTTPStatus.OK, generic_payload)
+
+
+def api_change_password(handler) -> None:
+    if clerk_enabled():
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "clerk_enabled"})
+        return
+    user = require_user(handler)
+    if not user:
+        return
+    payload = handler.read_json()
+    current_password = str(payload.get("currentPassword", payload.get("current_password", "")) or "")
+    new_password = str(payload.get("newPassword", payload.get("new_password", "")) or "")
+    if not current_password:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "current_password_required", "message": "Введите текущий пароль."})
+        return
+    ok, password_error = validate_new_password(new_password)
+    if not ok:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {
+                "error": password_error,
+                "message": "Новый пароль должен быть от 8 до 128 символов.",
+            },
+        )
+        return
+    if hmac.compare_digest(current_password, new_password):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "same_password", "message": "Новый пароль должен отличаться от текущего."})
+        return
+    change_rate_key = f"{user['id']}:{handler_client_ip(handler)}"
+    if auth_rate_limited("password_change", change_rate_key, PASSWORD_CHANGE_BAD_ATTEMPT_LIMIT, PASSWORD_CHANGE_WINDOW_SECONDS):
+        handler.send_json(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            {
+                "error": "too_many_password_change_attempts",
+                "message": "Слишком много попыток смены пароля. Попробуйте позже.",
+            },
+        )
+        return
+
+    with db() as con:
+        row = con.execute(
+            "SELECT * FROM users WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+            (user["id"],),
+        ).fetchone()
+        if not row or not verify_password(current_password, row["password_hash"]):
+            handler.send_json(HTTPStatus.UNAUTHORIZED, {"error": "bad_current_password", "message": "Текущий пароль указан неверно."})
+            return
+        con.execute(
+            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+            (hash_password(new_password), now_ts(), row["id"]),
+        )
+        token = session_token(handler)
+        if token:
+            con.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?",
+                (row["id"], token_hash(token)),
+            )
+        else:
+            con.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+        con.execute(
+            "INSERT INTO audit_log (user_id, action, entity, created_at) VALUES (?, 'password_change', 'user', ?)",
+            (row["id"], now_ts()),
+        )
+        con.commit()
+    clear_auth_rate_limit("password_change", change_rate_key)
+    handler.send_json(HTTPStatus.OK, {"ok": True})
 
 
 def api_logout(handler) -> None:

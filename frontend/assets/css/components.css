@@ -288,6 +288,10 @@ body[data-page="autobot"] .autobot-embed {
 
 .form-error.active { display: block; }
 
+.form-success { display: none; border-radius: 12px; background: #edf8f1; color: #235c39; padding: 10px 12px; font-weight: 800; }
+
+.form-success.active { display: block; }
+
 .analysis-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
 
 .analysis-pill { border-radius: 14px; background: #f6faf8; border: 1px solid var(--line); padding: 12px; }
@@ -317,6 +321,12 @@ body[data-page="autobot"] .autobot-embed {
 .login-form p, .login-form small { color: var(--muted); }
 
 .login-form form { display: grid; gap: 14px; }
+
+.password-reset-panel { border-top: 1px solid var(--line); padding-top: 12px; }
+
+.password-reset-panel summary { width: fit-content; color: var(--green); font-weight: 900; cursor: pointer; }
+
+.password-reset-panel form { margin-top: 12px; }
 
 .login-form .remember-me { display: inline-flex; align-items: center; gap: 9px; width: fit-content; font-weight: 800; color: #53625d; cursor: pointer; }
 

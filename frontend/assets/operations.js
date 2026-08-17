@@ -2017,6 +2017,29 @@
                     '<div><span>Роль</span><strong>' + escapeHtml(roleLabel) + '</strong>' + (roleCode === 'admin' ? '<b class="profile-admin-badge">АДМИН</b>' : '') + '</div>' +
                 '</div>' +
                 '<button class="primary profile-save-button" type="submit">Сохранить изменения</button>' +
+            '</form>' +
+            '<section class="profile-password-section" data-profile-password-section>' +
+                '<button class="profile-password-toggle" type="button" data-profile-password-open>' +
+                    '<span class="profile-password-toggle-icon"><i data-lucide="key-round" aria-hidden="true"></i></span>' +
+                    '<span class="profile-password-toggle-text"><b>Сменить пароль</b><small>Откройте, если вошли с временным паролем или хотите обновить доступ.</small></span>' +
+                    '<i class="profile-password-toggle-chevron" data-lucide="arrow-up-right" aria-hidden="true"></i>' +
+                '</button>' +
+            '</section>';
+    }
+
+    function renderProfilePasswordModalContent() {
+        return '' +
+            '<div class="profile-password-modal-head">' +
+                '<span class="profile-password-modal-icon"><i data-lucide="key-round" aria-hidden="true"></i></span>' +
+                '<div><h3 id="profile-password-modal-title">Смена пароля</h3><p>Введите текущий пароль и задайте новый.</p></div>' +
+            '</div>' +
+            '<form class="profile-password-form" data-profile-password-form>' +
+                '<label><span>Текущий пароль</span><input name="currentPassword" type="password" autocomplete="current-password"></label>' +
+                '<label><span>Новый пароль</span><input name="newPassword" type="password" autocomplete="new-password" minlength="8"></label>' +
+                '<label><span>Повторите новый пароль</span><input name="confirmPassword" type="password" autocomplete="new-password" minlength="8"></label>' +
+                '<div class="form-error" data-profile-password-error></div>' +
+                '<div class="form-success" data-profile-password-success></div>' +
+                '<button class="primary profile-password-button" type="submit">Обновить пароль</button>' +
             '</form>';
     }
 
@@ -2057,11 +2080,128 @@
         return modal;
     }
 
+    function closeProfilePasswordModal() {
+        var modal = qs('[data-profile-password-modal]');
+        if (!modal) return;
+        modal.classList.remove('is-open');
+        window.setTimeout(function () {
+            if (!modal.classList.contains('is-open')) modal.hidden = true;
+        }, 180);
+    }
+
+    function ensureProfilePasswordModal() {
+        var modal = qs('[data-profile-password-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'profile-password-modal-overlay';
+        modal.hidden = true;
+        modal.setAttribute('data-profile-password-modal', '1');
+        modal.innerHTML =
+            '<section class="profile-password-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-password-modal-title">' +
+                '<button class="calendar-modal-close" type="button" data-profile-password-close aria-label="Закрыть">×</button>' +
+                '<div data-profile-password-content></div>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal || (event.target.closest && event.target.closest('[data-profile-password-close]'))) {
+                event.preventDefault();
+                closeProfilePasswordModal();
+            }
+        });
+        document.body.appendChild(modal);
+        if (!document.body.dataset.profilePasswordEscBound) {
+            document.body.dataset.profilePasswordEscBound = '1';
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && !qs('[data-profile-password-modal][hidden]')) closeProfilePasswordModal();
+            });
+        }
+        return modal;
+    }
+
+    function bindProfilePasswordForm(modal) {
+        var passwordForm = qs('[data-profile-password-form]', modal);
+        if (!passwordForm || passwordForm.dataset.bound === '1') return;
+        passwordForm.dataset.bound = '1';
+        passwordForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var errorNode = qs('[data-profile-password-error]', passwordForm);
+            var successNode = qs('[data-profile-password-success]', passwordForm);
+            if (errorNode) {
+                errorNode.textContent = '';
+                errorNode.classList.remove('active');
+            }
+            if (successNode) {
+                successNode.textContent = '';
+                successNode.classList.remove('active');
+            }
+            var currentPassword = String(passwordForm.elements.currentPassword.value || '');
+            var newPassword = String(passwordForm.elements.newPassword.value || '');
+            var confirmPassword = String(passwordForm.elements.confirmPassword.value || '');
+            function showPasswordError(message) {
+                if (!errorNode) return;
+                errorNode.textContent = message;
+                errorNode.classList.add('active');
+            }
+            if (!currentPassword) {
+                showPasswordError('Введите текущий пароль.');
+                return;
+            }
+            if (newPassword.length < 8) {
+                showPasswordError('Новый пароль должен быть не короче 8 символов.');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                showPasswordError('Новый пароль и повтор не совпадают.');
+                return;
+            }
+            withSubmitLock(passwordForm, function () {
+                return api('/api/auth/change-password', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        currentPassword: currentPassword,
+                        newPassword: newPassword
+                    })
+                }).then(function () {
+                    passwordForm.reset();
+                    if (successNode) {
+                        successNode.textContent = 'Пароль успешно изменен.';
+                        successNode.classList.add('active');
+                    }
+                    showAppNotice('Пароль успешно изменен', 'success');
+                    window.setTimeout(closeProfilePasswordModal, 900);
+                });
+            }).catch(function (error) {
+                showPasswordError(appErrorMessage(error, 'Не удалось обновить пароль.'));
+            });
+        });
+    }
+
+    function openProfilePasswordModal() {
+        var modal = ensureProfilePasswordModal();
+        var content = qs('[data-profile-password-content]', modal);
+        safeReplaceChildren(content, renderProfilePasswordModalContent());
+        bindProfilePasswordForm(modal);
+        modal.hidden = false;
+        window.requestAnimationFrame(function () {
+            modal.classList.add('is-open');
+        });
+        refreshLucideIcons(modal);
+        var input = qs('input', modal);
+        if (input) window.setTimeout(function () { input.focus(); }, 120);
+    }
+
     function bindProfileModal(modal) {
         var form = qs('[data-profile-form]', modal);
+        var passwordOpen = qs('[data-profile-password-open]', modal);
         var avatarFile = form ? qs('[data-profile-avatar-file]', form) : null;
         var avatarPreview = qs('[data-profile-avatar-preview]', modal);
         var avatarPick = qs('[data-profile-avatar-pick]', modal);
+        if (passwordOpen && passwordOpen.dataset.bound !== '1') {
+            passwordOpen.dataset.bound = '1';
+            passwordOpen.addEventListener('click', function (event) {
+                event.preventDefault();
+                openProfilePasswordModal();
+            });
+        }
         if (avatarPick && avatarPick.dataset.bound !== '1') {
             avatarPick.dataset.bound = '1';
             avatarPick.addEventListener('click', function () {
