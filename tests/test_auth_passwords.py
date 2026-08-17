@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+import urllib.request
 from http import HTTPStatus
 from pathlib import Path
 
@@ -47,6 +48,9 @@ class AuthPasswordTests(unittest.TestCase):
         self.old_db = auth.db
         self.old_smtp_host = auth.PMBI_SMTP_HOST
         self.old_smtp_from = auth.PMBI_SMTP_FROM
+        self.old_mail_provider = auth.PMBI_MAIL_PROVIDER
+        self.old_resend_api_key = auth.PMBI_RESEND_API_KEY
+        self.old_resend_from = auth.PMBI_RESEND_FROM
         self.old_send_password_reset_email = auth.send_password_reset_email
         auth.DATA_DIR = Path(self.tmp.name)
         auth.DB_PATH = Path(self.tmp.name) / "test.sqlite3"
@@ -60,6 +64,9 @@ class AuthPasswordTests(unittest.TestCase):
         auth.db = self.old_db
         auth.PMBI_SMTP_HOST = self.old_smtp_host
         auth.PMBI_SMTP_FROM = self.old_smtp_from
+        auth.PMBI_MAIL_PROVIDER = self.old_mail_provider
+        auth.PMBI_RESEND_API_KEY = self.old_resend_api_key
+        auth.PMBI_RESEND_FROM = self.old_resend_from
         auth.send_password_reset_email = self.old_send_password_reset_email
         auth.AUTH_RATE_LIMITS.clear()
         self.tmp.cleanup()
@@ -218,6 +225,49 @@ class AuthPasswordTests(unittest.TestCase):
         auth.api_request_password_reset(handler)
 
         self.assertEqual(handler.status, HTTPStatus.TOO_MANY_REQUESTS)
+
+    def test_resend_provider_counts_as_configured(self) -> None:
+        auth.PMBI_MAIL_PROVIDER = "resend"
+        auth.PMBI_RESEND_API_KEY = "test-key"
+        auth.PMBI_RESEND_FROM = "PM.bi <robot@example.com>"
+        auth.PMBI_SMTP_HOST = ""
+        auth.PMBI_SMTP_FROM = ""
+
+        self.assertTrue(auth.mail_configured())
+
+    def test_resend_sender_posts_email_payload(self) -> None:
+        captured = {}
+        old_urlopen = urllib.request.urlopen
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> bool:
+                return False
+
+        def fake_urlopen(request, timeout=0):
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            captured["body"] = request.data.decode("utf-8")
+            captured["auth"] = request.headers.get("Authorization")
+            return FakeResponse()
+
+        auth.PMBI_RESEND_API_KEY = "test-key"
+        auth.PMBI_RESEND_FROM = "PM.bi <robot@example.com>"
+        urllib.request.urlopen = fake_urlopen
+        try:
+            auth.send_password_reset_email_resend("worker@example.com", "worker", "TempPass123")
+        finally:
+            urllib.request.urlopen = old_urlopen
+
+        self.assertEqual(captured["url"], "https://api.resend.com/emails")
+        self.assertEqual(captured["timeout"], 20)
+        self.assertIn("Bearer test-key", captured["auth"])
+        self.assertIn("worker@example.com", captured["body"])
+        self.assertIn("TempPass123", captured["body"])
 
 
 if __name__ == "__main__":

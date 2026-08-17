@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 from email.message import EmailMessage
 from http import HTTPStatus
 from pathlib import Path
@@ -125,6 +126,9 @@ PMBI_SMTP_PASSWORD = re.sub(r"\s+", "", (os.environ.get("PMBI_SMTP_PASSWORD", ""
 PMBI_SMTP_FROM = (os.environ.get("PMBI_SMTP_FROM", "") or PMBI_SMTP_USERNAME).strip()
 PMBI_SMTP_USE_SSL = (os.environ.get("PMBI_SMTP_USE_SSL", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 PMBI_SMTP_USE_TLS = (os.environ.get("PMBI_SMTP_USE_TLS", "1") or "").strip().lower() in {"1", "true", "yes", "on"}
+PMBI_MAIL_PROVIDER = (os.environ.get("PMBI_MAIL_PROVIDER", "smtp") or "smtp").strip().lower()
+PMBI_RESEND_API_KEY = (os.environ.get("PMBI_RESEND_API_KEY", "") or "").strip()
+PMBI_RESEND_FROM = (os.environ.get("PMBI_RESEND_FROM", "") or PMBI_SMTP_FROM).strip()
 CLERK_PUBLISHABLE_KEY = (os.environ.get("CLERK_PUBLISHABLE_KEY", "") or "").strip()
 CLERK_SECRET_KEY = (os.environ.get("CLERK_SECRET_KEY", "") or "").strip()
 CLERK_JWT_KEY = (os.environ.get("CLERK_JWT_KEY", "") or "").replace("\\n", "\n").strip()
@@ -327,9 +331,62 @@ def smtp_configured() -> bool:
     return bool(PMBI_SMTP_PASSWORD) if PMBI_SMTP_USERNAME else True
 
 
+def mail_configured() -> bool:
+    if PMBI_MAIL_PROVIDER == "resend":
+        return bool(PMBI_RESEND_API_KEY and PMBI_RESEND_FROM)
+    return smtp_configured()
+
+
+def password_reset_email_text(login: str, temporary_password: str) -> str:
+    return "\n".join(
+        [
+            "Здравствуйте.",
+            "",
+            "Для вашей учетной записи PM.bi был выпущен новый временный пароль.",
+            f"Логин: {login}",
+            f"Временный пароль: {temporary_password}",
+            "",
+            "Войдите с этим паролем и смените его в личном кабинете.",
+            "Если вы не запрашивали восстановление, сообщите администратору.",
+        ]
+    )
+
+
+def send_password_reset_email_resend(email: str, login: str, temporary_password: str) -> None:
+    payload = json.dumps(
+        {
+            "from": PMBI_RESEND_FROM,
+            "to": [email],
+            "subject": "PM.bi: новый пароль для входа",
+            "text": password_reset_email_text(login, temporary_password),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {PMBI_RESEND_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "pmbi-crm/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            if response.status >= 400:
+                raise RuntimeError(f"resend_http_{response.status}")
+    except urllib.error.HTTPError as error:
+        detail = error.read(800).decode("utf-8", errors="replace")
+        raise RuntimeError(f"resend_http_{error.code}: {detail}") from error
+
+
 def send_password_reset_email(email: str, login: str, temporary_password: str) -> None:
-    if not smtp_configured():
-        raise RuntimeError("smtp_not_configured")
+    if not mail_configured():
+        raise RuntimeError("mail_not_configured")
+    if PMBI_MAIL_PROVIDER == "resend":
+        send_password_reset_email_resend(email, login, temporary_password)
+        return
     message = EmailMessage()
     message["Subject"] = "PM.bi: новый пароль для входа"
     message["From"] = PMBI_SMTP_FROM
@@ -993,11 +1050,11 @@ def api_request_password_reset(handler) -> None:
             {"error": "bad_email", "message": "Введите email, указанный в учетной записи."},
         )
         return
-    if not smtp_configured():
+    if not mail_configured():
         handler.send_json(
             HTTPStatus.SERVICE_UNAVAILABLE,
             {
-                "error": "smtp_not_configured",
+                "error": "mail_not_configured",
                 "message": "Отправка почты не настроена. Обратитесь к администратору.",
             },
         )
