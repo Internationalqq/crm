@@ -350,6 +350,7 @@
     window.getAutoBotLoaderHTML = getAutoBotLoaderHTML;
 
     function appErrorMessage(error, fallback) {
+        if (error && error.status === 413) return 'Файл слишком большой для загрузки';
         return error && error.payload && (error.payload.message || error.payload.error) ? (error.payload.message || error.payload.error) : fallback;
     }
 

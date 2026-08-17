@@ -31,6 +31,7 @@
     var personDisplayName = PMBI.personDisplayName;
     var effectiveUserRoles = PMBI.effectiveUserRoles;
     var isClerkEnabled = PMBI.isClerkEnabled;
+    var PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
     var userInitials = PMBI.userInitials;
     var safeTelHref = PMBI.safeTelHref;
     var safeAvatarUrl = PMBI.safeAvatarUrl;
@@ -2077,6 +2078,11 @@
                     showAppNotice('Выбери изображение PNG, JPG, WEBP или GIF', 'error');
                     return;
                 }
+                if (file.size > PROFILE_AVATAR_MAX_BYTES) {
+                    avatarFile.value = '';
+                    showAppNotice('\u0410\u0432\u0430\u0442\u0430\u0440\u043a\u0430 \u0434\u043e\u043b\u0436\u043d\u0430 \u0431\u044b\u0442\u044c \u043c\u0435\u043d\u044c\u0448\u0435 5 \u041c\u0411', 'error');
+                    return;
+                }
                 var previewUrl = URL.createObjectURL(file);
                 avatarPreview.classList.add('has-image');
                 safeReplaceChildren(avatarPreview, '<img src="' + escapeHtml(previewUrl) + '" alt="">');
@@ -2091,6 +2097,10 @@
                 formData.append('first_name', form.elements.first_name.value || '');
                 formData.append('last_name', form.elements.last_name.value || '');
                 if (avatarFile && avatarFile.files && avatarFile.files[0]) {
+                    if (avatarFile.files[0].size > PROFILE_AVATAR_MAX_BYTES) {
+                        showAppNotice('\u0410\u0432\u0430\u0442\u0430\u0440\u043a\u0430 \u0434\u043e\u043b\u0436\u043d\u0430 \u0431\u044b\u0442\u044c \u043c\u0435\u043d\u044c\u0448\u0435 5 \u041c\u0411', 'error');
+                        return Promise.resolve(null);
+                    }
                     formData.append('avatar', avatarFile.files[0]);
                 }
                 return apiFormData('/api/auth/update-profile', formData).then(function (data) {

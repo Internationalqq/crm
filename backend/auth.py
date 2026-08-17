@@ -29,6 +29,45 @@ AVATAR_EXTENSIONS = {
     "image/gif": ".gif",
 }
 
+
+def save_avatar_upload(handler, avatar_item, user_id: int) -> tuple[bool, str | None]:
+    if avatar_item is None or not getattr(avatar_item, "filename", ""):
+        return True, None
+
+    mime_type = str(getattr(avatar_item, "type", "") or "").split(";", 1)[0].strip().lower()
+    ext = AVATAR_EXTENSIONS.get(mime_type)
+    if not ext:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "bad_avatar_type", "message": "Загрузите PNG, JPG, WEBP или GIF"},
+        )
+        return False, None
+
+    content = avatar_item.file.read(AVATAR_MAX_BYTES + 1)
+    if len(content) > AVATAR_MAX_BYTES:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "avatar_too_large", "message": "Аватарка должна быть меньше 5 МБ"},
+        )
+        return False, None
+
+    storage_name = f"user_{user_id}_{now_ts()}_{secrets.token_hex(6)}{ext}"
+    try:
+        AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+        (AVATARS_DIR / storage_name).write_bytes(content)
+    except OSError as error:
+        handler.send_json(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "avatar_storage_unavailable",
+                "message": "Не удалось сохранить аватарку на сервере. Проверьте права на папку data/avatars.",
+                "detail": str(error),
+            },
+        )
+        return False, None
+
+    return True, f"/api/auth/avatar/{storage_name}"
+
 LOGIN_PATH = "/login"
 DEFAULT_AUTH_PATH = "/app/dashboard"
 SESSION_COOKIE = "pmbi_session"
@@ -868,20 +907,9 @@ def api_update_profile(handler) -> None:
         avatar_item = form["avatar"] if "avatar" in form else None
         if isinstance(avatar_item, list):
             avatar_item = avatar_item[0] if avatar_item else None
-        if avatar_item is not None and getattr(avatar_item, "filename", ""):
-            mime_type = str(getattr(avatar_item, "type", "") or "").split(";", 1)[0].strip().lower()
-            ext = AVATAR_EXTENSIONS.get(mime_type)
-            if not ext:
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_type", "message": "Загрузите PNG, JPG, WEBP или GIF"})
-                return
-            content = avatar_item.file.read(AVATAR_MAX_BYTES + 1)
-            if len(content) > AVATAR_MAX_BYTES:
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "avatar_too_large", "message": "Аватарка должна быть меньше 5 МБ"})
-                return
-            AVATARS_DIR.mkdir(parents=True, exist_ok=True)
-            storage_name = f"user_{user['id']}_{now_ts()}_{secrets.token_hex(6)}{ext}"
-            (AVATARS_DIR / storage_name).write_bytes(content)
-            avatar_url_from_upload = f"/api/auth/avatar/{storage_name}"
+        ok, avatar_url_from_upload = save_avatar_upload(handler, avatar_item, int(user["id"]))
+        if not ok:
+            return
     else:
         payload = handler.read_json()
 
