@@ -9,15 +9,18 @@ import re
 import secrets
 import sqlite3
 import sys
+import threading
 import time
 import traceback
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from auth import (
     DEFAULT_AUTH_PATH,
@@ -154,6 +157,19 @@ HOST = os.environ.get("PMBI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PMBI_PORT", os.environ.get("PORT", "8080")))
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
 PMBI_AUTOBOT_BASE_URL = (os.environ.get("PMBI_AUTOBOT_BASE_URL", "http://127.0.0.1:8765") or "").strip().rstrip("/")
+MARKET_ANALYSIS_CACHE_TTL = max(30, int(os.environ.get("PMBI_MARKET_ANALYSIS_TTL", "900")))
+MARKET_ANALYSIS_ERROR_TTL = max(10, int(os.environ.get("PMBI_MARKET_ANALYSIS_ERROR_TTL", "60")))
+MARKET_ANALYSIS_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, int(os.environ.get("PMBI_MARKET_ANALYSIS_WORKERS", "2"))),
+    thread_name_prefix="market-analysis",
+)
+from sqlite_config import configure_connection
+MARKET_ANALYSIS_JOBS: set[tuple[int, str]] = set()
+MARKET_ANALYSIS_JOBS_LOCK = threading.Lock()
+
+
+class AutoBotUnavailableError(RuntimeError):
+    """AutoBot could not be reached while building market analysis."""
 
 
 APP_PAGES = {
@@ -202,10 +218,24 @@ APP_TIMEZONE = timezone(timedelta(hours=int(os.environ.get("PMBI_TZ_OFFSET_HOURS
 TODAY_ISO = datetime.now(APP_TIMEZONE).date().isoformat()
 
 
+def estimate_code_text_kind(value: object) -> str | None:
+    text = str(value or "")
+    if not text:
+        return None
+    if re.search(r"(?<![\w\u0400-\u04ff])(?:\u0424\u0421\u0411\u0426|FSBC)\s*[-\d]", text, flags=re.I):
+        return "material"
+    if re.search(r"(?<![\w\u0400-\u04ff])(?:\u0413\u042D\u0421\u041D|GESN)\s*[A-Z\u0410-\u042F]?\s*\d", text, flags=re.I):
+        return "work"
+    return None
+
+
 def normalize_estimate_item_kind(value: object) -> str:
     text = str(value or "").strip().lower()
     if not text:
         return "material"
+    code_kind = estimate_code_text_kind(text)
+    if code_kind:
+        return code_kind
     work_markers = ("work", "works", "service", "services", "labor", "labour", "job", "работ", "услуг", "труд")
     material_markers = ("material", "materials", "supply", "goods", "equipment", "матер", "товар", "оборуд")
     work_markers = work_markers + (
@@ -390,9 +420,7 @@ def parse_path_int(path: str, index: int) -> int | None:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def ensure_columns(con: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
@@ -400,6 +428,44 @@ def ensure_columns(con: sqlite3.Connection, table: str, columns: dict[str, str])
     for name, definition in columns.items():
         if name not in existing:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def ensure_sqlite_indexes(con: sqlite3.Connection) -> None:
+    """Create indexes used by the frequent project-scoped API queries."""
+    con.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_user_project_access_project_user
+            ON user_project_access(project_id, user_id);
+        CREATE INDEX IF NOT EXISTS idx_object_assignments_user_role
+            ON object_assignments(user_id, role_code, object_id);
+        CREATE INDEX IF NOT EXISTS idx_estimate_items_project_stage
+            ON estimate_items(project_id, stage_id, id);
+        CREATE INDEX IF NOT EXISTS idx_stock_moves_project_item
+            ON stock_moves(project_id, estimate_item_id, id);
+        CREATE INDEX IF NOT EXISTS idx_work_stages_project_position
+            ON work_stages(project_id, position, id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_project_status_due
+            ON tasks(project_id, status, due_at, id);
+        CREATE INDEX IF NOT EXISTS idx_daily_tasks_user_status_date
+            ON daily_tasks(user_id, status, task_date, id);
+        CREATE INDEX IF NOT EXISTS idx_daily_tasks_status_updated
+            ON daily_tasks(status, updated_at, id);
+        CREATE INDEX IF NOT EXISTS idx_daily_logs_project_date
+            ON daily_logs(project_id, report_date, id);
+        CREATE INDEX IF NOT EXISTS idx_documents_project_id
+            ON documents(project_id, id);
+        CREATE INDEX IF NOT EXISTS idx_finance_entries_project_status_date
+            ON finance_entries(project_id, status, paid_date, planned_date, id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_offers_project_status
+            ON supplier_offers(project_id, status, updated_at, id);
+        CREATE INDEX IF NOT EXISTS idx_chats_project_type
+            ON chats(project_id, chat_type, id);
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id
+            ON chat_messages(chat_id, id);
+        CREATE INDEX IF NOT EXISTS idx_projects_status_id
+            ON projects(status, id);
+        """
+    )
 
 
 def create_audit(
@@ -1062,6 +1128,15 @@ def init_db() -> None:
                 payload TEXT,
                 created_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS market_analysis_cache (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL CHECK(kind IN ('material', 'work')),
+                status TEXT NOT NULL CHECK(status IN ('pending', 'ready', 'error')),
+                payload TEXT NOT NULL DEFAULT '{}',
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, kind)
+            );
             """
         )
 
@@ -1346,6 +1421,7 @@ def init_db() -> None:
                 encoding="utf-8",
             )
 
+        ensure_sqlite_indexes(con)
         con.commit()
 
 
@@ -1546,13 +1622,21 @@ def parse_market_view_html(html_text: str, market_type: str) -> list[dict]:
 def fetch_autobot_market_rows(estimate_id: str, market_type: str) -> list[dict]:
     url = f"{PMBI_AUTOBOT_BASE_URL}/estimates/{urllib.parse.quote(estimate_id)}/market-view?market_type={urllib.parse.quote(market_type)}"
     request = urllib.request.Request(url, headers={"User-Agent": "PM.bi/1.0", "Accept": "text/html"})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        html_text = response.read().decode(charset, errors="replace")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            html_text = response.read().decode(charset, errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise AutoBotUnavailableError("autobot_unavailable") from error
     return parse_market_view_html(html_text, market_type)
 
 
-def build_project_market_analysis(con: sqlite3.Connection, project_id: int, kind: str) -> dict:
+def build_project_market_analysis(
+    con: sqlite3.Connection,
+    project_id: int,
+    kind: str,
+    market_rows: list[dict] | None = None,
+) -> dict:
     project = con.execute("SELECT id, contract_no, description FROM projects WHERE id = ?", (project_id,)).fetchone()
     if not project:
         raise ValueError("project_not_found")
@@ -1561,9 +1645,10 @@ def build_project_market_analysis(con: sqlite3.Connection, project_id: int, kind
         raise LookupError("estimate_not_linked")
 
     market_types = ["work"] if kind == "work" else ["material", "product", "service", "other"]
-    market_rows: list[dict] = []
-    for market_type in market_types:
-        market_rows.extend(fetch_autobot_market_rows(estimate_id, market_type))
+    if market_rows is None:
+        market_rows = []
+        for market_type in market_types:
+            market_rows.extend(fetch_autobot_market_rows(estimate_id, market_type))
 
     items = material_summary_rows(con, project_id)
     if kind == "work":
@@ -1621,7 +1706,7 @@ def build_project_market_analysis(con: sqlite3.Connection, project_id: int, kind
         )
     )
     coverage = sum(1 for row in merged_rows if row["hasMarketData"])
-    return {
+    payload = {
         "projectId": project_id,
         "estimateId": estimate_id,
         "kind": kind,
@@ -1632,6 +1717,134 @@ def build_project_market_analysis(con: sqlite3.Connection, project_id: int, kind
             "withoutMarketData": max(0, len(merged_rows) - coverage),
         },
     }
+    # Keep the legacy rows payload and expose the stable collection names for
+    # clients that already consume the wider market-analysis contract.
+    payload["analysis"] = merged_rows
+    payload["materials"] = merged_rows if kind == "material" else []
+    payload["works"] = merged_rows if kind == "work" else []
+    return payload
+
+
+def market_empty_payload(status: str, error: str = "") -> dict:
+    payload = {
+        "status": status,
+        "analysis": [],
+        "materials": [],
+        "works": [],
+        "rows": [],
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def market_analysis_error_status(error: str) -> int:
+    if error == "autobot_unavailable":
+        return HTTPStatus.SERVICE_UNAVAILABLE
+    if error in {"project_not_found", "estimate_not_linked"}:
+        return HTTPStatus.NOT_FOUND
+    return HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+def market_analysis_project_context(project_id: int) -> str:
+    with db() as con:
+        project = con.execute(
+            "SELECT id, contract_no, description FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+    if not project:
+        raise LookupError("project_not_found")
+    estimate_id = extract_estimate_id_from_project(project)
+    if not estimate_id:
+        raise LookupError("estimate_not_linked")
+    return estimate_id
+
+
+def save_market_analysis_cache(project_id: int, kind: str, status: str, payload: dict) -> None:
+    with db() as con:
+        con.execute(
+            """
+            INSERT INTO market_analysis_cache (project_id, kind, status, payload, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, kind) DO UPDATE SET
+                status = excluded.status,
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (project_id, kind, status, json.dumps(payload, ensure_ascii=False), now_ts()),
+        )
+        con.commit()
+
+
+def market_analysis_worker(project_id: int, kind: str, estimate_id: str) -> None:
+    key = (project_id, kind)
+    try:
+        # The network call intentionally runs without an open SQLite
+        # connection. Only the short read and final merge use SQLite.
+        market_types = ["work"] if kind == "work" else ["material", "product", "service", "other"]
+        market_rows: list[dict] = []
+        for market_type in market_types:
+            market_rows.extend(fetch_autobot_market_rows(estimate_id, market_type))
+        with db() as con:
+            payload = build_project_market_analysis(con, project_id, kind, market_rows=market_rows)
+        payload["status"] = "ready"
+        save_market_analysis_cache(project_id, kind, "ready", payload)
+    except AutoBotUnavailableError:
+        save_market_analysis_cache(
+            project_id,
+            kind,
+            "error",
+            market_empty_payload("error", "autobot_unavailable"),
+        )
+    except LookupError as error:
+        save_market_analysis_cache(
+            project_id,
+            kind,
+            "error",
+            market_empty_payload("error", str(error)),
+        )
+    except Exception:
+        print("Крэш фонового market_analysis:", traceback.format_exc())
+        save_market_analysis_cache(
+            project_id,
+            kind,
+            "error",
+            market_empty_payload("error", "market_analysis_failed"),
+        )
+    finally:
+        with MARKET_ANALYSIS_JOBS_LOCK:
+            MARKET_ANALYSIS_JOBS.discard(key)
+
+
+def request_market_analysis(project_id: int, kind: str) -> tuple[int, dict]:
+    estimate_id = market_analysis_project_context(project_id)
+    key = (project_id, kind)
+    now = now_ts()
+    with db() as con:
+        cached = con.execute(
+            "SELECT status, payload, updated_at FROM market_analysis_cache WHERE project_id = ? AND kind = ?",
+            (project_id, kind),
+        ).fetchone()
+    if cached:
+        try:
+            cached_payload = json.loads(cached["payload"] or "{}")
+        except (TypeError, ValueError):
+            cached_payload = {}
+        ttl = MARKET_ANALYSIS_CACHE_TTL if cached["status"] == "ready" else MARKET_ANALYSIS_ERROR_TTL
+        if cached["status"] == "ready" and now - int(cached["updated_at"] or 0) < ttl:
+            cached_payload["status"] = "ready"
+            return HTTPStatus.OK, cached_payload
+        if cached["status"] == "error" and now - int(cached["updated_at"] or 0) < ttl:
+            error = str(cached_payload.get("error") or "market_analysis_failed")
+            return market_analysis_error_status(error), cached_payload
+
+    with MARKET_ANALYSIS_JOBS_LOCK:
+        if key in MARKET_ANALYSIS_JOBS:
+            return HTTPStatus.OK, market_empty_payload("pending")
+        MARKET_ANALYSIS_JOBS.add(key)
+    save_market_analysis_cache(project_id, kind, "pending", market_empty_payload("pending"))
+    MARKET_ANALYSIS_EXECUTOR.submit(market_analysis_worker, project_id, kind, estimate_id)
+    return HTTPStatus.OK, market_empty_payload("pending")
 
 
 
@@ -2858,7 +3071,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
         return con.execute(
             """
             SELECT
-                t.*,
+                t.id,
+                t.user_id,
+                t.text,
+                t.status,
+                t.task_date,
+                t.completed_at,
+                t.archived_at,
+                t.created_by,
+                t.created_at,
+                t.updated_at,
                 u.name AS user_name,
                 u.login AS user_login,
                 u.first_name AS user_first_name,
@@ -3011,7 +3233,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
             updated = con.execute(
                 """
                 SELECT
-                    t.*,
+                    t.id,
+                    t.user_id,
+                    t.text,
+                    t.status,
+                    t.task_date,
+                    t.completed_at,
+                    t.archived_at,
+                    t.created_by,
+                    t.created_at,
+                    t.updated_at,
                     u.name AS user_name,
                     u.login AS user_login,
                     u.first_name AS user_first_name,
@@ -3165,11 +3396,31 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
         with db() as con:
             if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
-                projects = con.execute("SELECT * FROM projects").fetchall()
+                projects = con.execute(
+                    """
+                    SELECT id, title, client_id, customer_company_id, own_legal_entity_id,
+                           address, city, region, client_name, contract_no, contract_date,
+                           director_id, foreman_id, buyer_id, client_user_id, status, progress,
+                           budget, paid, spent, started_at, deadline_at,
+                           internal_schedule_status, internal_schedule_version,
+                           internal_schedule_approved_at, customer_schedule_status,
+                           customer_schedule_version, customer_schedule_approved_at,
+                           schedule_generated_at, description, created_at, updated_at
+                    FROM projects
+                    """
+                ).fetchall()
             elif user_has_any_role(user, {"foreman"}):
                 projects = con.execute(
                     """
-                    SELECT DISTINCT p.*
+                    SELECT DISTINCT p.id, p.title, p.client_id, p.customer_company_id,
+                           p.own_legal_entity_id, p.address, p.city, p.region, p.client_name,
+                           p.contract_no, p.contract_date, p.director_id, p.foreman_id,
+                           p.buyer_id, p.client_user_id, p.status, p.progress, p.budget,
+                           p.paid, p.spent, p.started_at, p.deadline_at,
+                           p.internal_schedule_status, p.internal_schedule_version,
+                           p.internal_schedule_approved_at, p.customer_schedule_status,
+                           p.customer_schedule_version, p.customer_schedule_approved_at,
+                           p.schedule_generated_at, p.description, p.created_at, p.updated_at
                     FROM projects p
                     JOIN object_assignments oa ON oa.object_id = p.id
                     WHERE oa.user_id = ? AND oa.role_code = 'foreman'
@@ -3180,7 +3431,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
             else:
                 projects = con.execute(
                     """
-                    SELECT p.*
+                    SELECT p.id, p.title, p.client_id, p.customer_company_id,
+                           p.own_legal_entity_id, p.address, p.city, p.region, p.client_name,
+                           p.contract_no, p.contract_date, p.director_id, p.foreman_id,
+                           p.buyer_id, p.client_user_id, p.status, p.progress, p.budget,
+                           p.paid, p.spent, p.started_at, p.deadline_at,
+                           p.internal_schedule_status, p.internal_schedule_version,
+                           p.internal_schedule_approved_at, p.customer_schedule_status,
+                           p.customer_schedule_version, p.customer_schedule_approved_at,
+                           p.schedule_generated_at, p.description, p.created_at, p.updated_at
                     FROM projects p
                     LEFT JOIN user_project_access a ON a.project_id = p.id
                     LEFT JOIN object_assignments oa ON oa.object_id = p.id
@@ -3545,12 +3804,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if kind not in {"material", "work"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_kind"})
                 return
-            with db() as con:
-                payload = build_project_market_analysis(con, project_id, kind)
-            self.send_json(HTTPStatus.OK, payload)
+            status, payload = request_market_analysis(project_id, kind)
+            self.send_json(status, payload)
+        except LookupError as error:
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
         except Exception as e:
             print("Крэш в market_analysis:", e)
-            self.send_json(HTTPStatus.OK, {"analysis": [], "materials": [], "works": []})
+            self.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                market_empty_payload("error", "market_analysis_failed"),
+            )
 
 
 
@@ -3681,10 +3944,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     item.get("planned_qty", item.get("plannedQty", 0)),
                     item.get("planned_price", item.get("plannedPrice", 0)),
                 )
+                article = str(item.get("article", item.get("sku", item.get("code", item.get("basis", item.get("basis_code", item.get("basisCode", ""))))))).strip() or None
                 con.execute(
                     """
-                    INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, stage_id, item_kind, section_title, need_by_date, notes, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, stage_id, item_kind, section_title, article, need_by_date, notes, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         project_id,
@@ -3695,6 +3959,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         stage_id,
                         item_kind,
                         section_title,
+                        article,
                         str(item.get("need_by_date", item.get("needByDate", ""))).strip() or None,
                         str(item.get("notes", "")).strip() or None,
                         now_ts(),
@@ -3809,7 +4074,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 continue
             item_kind = resolved_estimate_item_kind(item)
             section_title = resolved_estimate_section_title(item)
-            normalized.append((project_id, title, unit, planned_qty, planned_price, item_kind, section_title))
+            article = str(item.get("article", item.get("sku", item.get("code", item.get("basis", item.get("basis_code", item.get("basisCode", ""))))))).strip() or None
+            normalized.append((project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article))
 
         if not normalized:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "no_valid_items"})
@@ -3820,7 +4086,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 con.execute("DELETE FROM estimate_items WHERE project_id = ?", (project_id,))
             imported = 0
             for normalized_item in normalized:
-                _, title, unit, planned_qty, planned_price, item_kind, section_title = normalized_item
+                _, title, unit, planned_qty, planned_price, item_kind, section_title, article = normalized_item
                 existing = con.execute(
                     "SELECT id FROM estimate_items WHERE project_id = ? AND lower(title) = lower(?) AND unit = ?",
                     (project_id, title, unit),
@@ -3829,16 +4095,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     con.execute(
                         """
                         UPDATE estimate_items
-                        SET planned_qty = ?, planned_price = ?, item_kind = ?, section_title = ?
+                        SET planned_qty = ?, planned_price = ?, item_kind = ?, section_title = ?, article = ?
                         WHERE id = ?
                         """,
-                        (planned_qty, planned_price, item_kind, section_title, existing["id"]),
+                        (planned_qty, planned_price, item_kind, section_title, article, existing["id"]),
                     )
                 else:
                     con.execute(
                         """
-                        INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, item_kind, section_title)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         normalized_item,
                     )
@@ -4329,6 +4595,15 @@ def main() -> None:
 
 
 def resolved_estimate_item_kind(item: dict | sqlite3.Row) -> str:
+    code_kind = estimate_code_text_kind(" ".join(
+        str(payload_get(item, key) or "")
+        for key in (
+            "article", "sku", "code", "basis", "index", "item_index", "itemIndex",
+            "source_label", "sourceLabel", "title", "name", "notes",
+        )
+    ))
+    if code_kind:
+        return code_kind
     note_value = (
         extract_labeled_note_value(payload_get(item, "notes"), ("\u0422\u0438\u043f", "Type"))
         or extract_labeled_note_value(payload_get(item, "notes"), ("Type",))

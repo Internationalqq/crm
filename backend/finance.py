@@ -10,6 +10,7 @@ import time
 from datetime import date
 from http import HTTPStatus
 from pathlib import Path
+from sqlite_config import configure_connection
 
 from auth import (
     user_can_manage_finances,
@@ -40,9 +41,7 @@ def now_ts() -> int:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def parse_path_int(path: str, index: int) -> int | None:

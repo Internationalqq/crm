@@ -4136,6 +4136,7 @@ body.reports-drawer-open {
         min-width: 0 !important;
         margin-left: 224px !important;
         box-sizing: border-box;
+        transition: width .28s cubic-bezier(.22, .61, .36, 1), margin-left .28s cubic-bezier(.22, .61, .36, 1);
     }
 
     body.sidebar-collapsed .sidebar,
@@ -4183,6 +4184,19 @@ body.reports-drawer-open {
 }
 
 /* Final sidebar collapse guard: Lucide icons only, no legacy pseudo-icons/text layers. */
+@media (max-width: 720px) {
+    .sidebar-toggle {
+        display: none !important;
+    }
+}
+
+@media (min-width: 721px) {
+    .menu-btn,
+    .menu-btn.topbar-icon-button {
+        display: none !important;
+    }
+}
+
 .nav a:before,
 .nav a::before {
     content: none !important;
@@ -6318,8 +6332,168 @@ body.cal-modal-open .profile-modal-card {
     }
 
     .finance-form-dialog .finance-income-form button,
-    .finance-form-dialog .finance-invoice-form button {
+.finance-form-dialog .finance-invoice-form button {
         width: 100%;
         min-width: 0;
+    }
+}
+
+/* Layout-stability primitives: reserve the geometry before async UI upgrades. */
+[data-lucide],
+svg.lucide {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    min-width: 1em;
+    min-height: 1em;
+    flex: 0 0 auto;
+    vertical-align: -0.125em;
+}
+
+.nav a > [data-lucide],
+.nav a > svg.lucide {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+}
+
+.topbar-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    overflow: hidden;
+    contain: layout paint;
+}
+
+.topbar-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+[data-current-user],
+[data-current-role] {
+    display: block;
+    min-height: 1.2em;
+}
+
+[data-current-user] {
+    min-width: 10ch;
+}
+
+[data-dashboard-stats] {
+    min-height: 74px;
+}
+
+[data-dashboard-projects] {
+    min-height: 68px;
+}
+
+[data-dashboard-activity],
+[data-dashboard-actions],
+[data-dashboard-critical] {
+    min-height: 56px;
+}
+
+.autobot-embed-wrap {
+    min-height: 720px;
+    contain: layout paint;
+}
+
+.autobot-embed {
+    display: block;
+    min-height: 720px;
+}
+
+/* The critical-project section is populated after the projects and dashboard
+   requests complete. Keep the section in flow while those requests run. */
+[data-project-critical-card] {
+    min-height: 132px;
+}
+
+[data-project-critical] {
+    min-height: 52px;
+}
+
+.project-critical-skeleton {
+    display: grid;
+    gap: 8px;
+    min-height: 52px;
+    align-content: center;
+}
+
+.project-critical-skeleton span {
+    display: block;
+    width: min(78%, 460px);
+    height: 14px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%);
+    background-size: 200% 100%;
+    animation: project-critical-skeleton 1.4s ease-in-out infinite;
+}
+
+.project-critical-skeleton span:last-child {
+    width: min(54%, 320px);
+}
+
+.project-critical-empty {
+    min-height: 52px;
+    display: grid;
+    align-items: center;
+    margin: 0;
+}
+
+[data-projects-list] {
+    min-height: 160px;
+}
+
+@keyframes project-critical-skeleton {
+    from { background-position: 100% 0; }
+    to { background-position: -100% 0; }
+}
+
+/* Subtle reveal: only opacity and a tiny transform change, so reserved layout
+   geometry remains stable while data-driven content appears. */
+@keyframes pmbi-fade-in {
+    from {
+        opacity: 0;
+        transform: translate3d(0, 4px, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+.pmbi-fade-in,
+main.content > :not([hidden]),
+[data-dashboard-stats] > *,
+[data-dashboard-projects] > *,
+[data-dashboard-actions] > *,
+[data-dashboard-activity] > *,
+[data-dashboard-critical] > *,
+[data-project-critical] > *,
+[data-projects-list] > * {
+    animation: pmbi-fade-in 190ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pmbi-fade-in,
+    main.content > :not([hidden]),
+    [data-dashboard-stats] > *,
+    [data-dashboard-projects] > *,
+    [data-dashboard-actions] > *,
+    [data-dashboard-activity] > *,
+    [data-dashboard-critical] > *,
+    [data-project-critical] > *,
+    [data-projects-list] > * {
+        animation: none !important;
     }
 }

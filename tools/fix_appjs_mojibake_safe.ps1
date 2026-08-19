@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$path = Join-Path $PSScriptRoot '..\frontend\assets\app.js'
+$path = Join-Path $PSScriptRoot '..\frontend\assets\js\app.js'
 $path = [IO.Path]::GetFullPath($path)
 
 $text = [IO.File]::ReadAllText($path, [Text.UTF8Encoding]::new($false))

@@ -3,6 +3,7 @@
 
     var PMBI = window.PMBI || {};
     var page = PMBI.page;
+    function currentPage() { return PMBI.page || page; }
     var APP_TODAY = PMBI.APP_TODAY;
     var state = PMBI.state;
     var qs = PMBI.qs;
@@ -17,6 +18,8 @@
     var formatRuDate = PMBI.formatRuDate;
     var api = PMBI.api;
     var apiFormData = PMBI.apiFormData;
+    var clearApiCache = PMBI.clearApiCache;
+    var debounce = PMBI.debounce;
     var money = PMBI.money;
     var percent = PMBI.percent;
     var canonicalEstimateSectionTitle = PMBI.canonicalEstimateSectionTitle;
@@ -120,7 +123,12 @@
     // company core helpers
     function loadCompanies(callback, type) {
         var path = '/api/companies' + (type ? '?type=' + encodeURIComponent(type) : '');
-        api(path).then(function (data) {
+        var cacheKey = type ? 'companies:' + type : 'companies:all';
+        api(path, {
+            cacheKey: cacheKey,
+            cacheTtl: 60 * 1000,
+            requestGroup: 'companies-directory'
+        }).then(function (data) {
             state.companies = Array.isArray(data.companies) ? data.companies : [];
             state.companiesAllLoaded = !type;
             if (callback) callback(state.companies);
@@ -960,9 +968,9 @@
         loadCompanies(renderFilteredCompaniesList);
         var search = qs('[data-company-search]');
         if (search) {
-            search.addEventListener('input', function () {
+            search.addEventListener('input', debounce(function () {
                 renderFilteredCompaniesList(state.companies || []);
-            });
+            }, 300));
         }
         var form = qs('[data-company-create-form]');
         if (!form) return;
@@ -986,6 +994,7 @@
                 if (form.phone) form.phone.focus();
                 return;
             }
+            clearApiCache('companies');
             withSubmitLock(form, function () {
                 return api('/api/companies', {
                     method: 'POST',
@@ -1967,8 +1976,8 @@
 
     function renderProjectMarketBlock(projectId, kind) {
         var cache = (state.marketAnalysisByProject[projectId] || {})[kind];
-        if (!cache || cache.loading) {
-            return '<div class="market-empty">\u0421\u043e\u0431\u0438\u0440\u0430\u0435\u043c \u0430\u043d\u0430\u043b\u0438\u0437 \u0440\u044b\u043d\u043a\u0430 \u0438\u0437 AutoBot...</div>';
+        if (!cache || cache.loading || cache.status === 'pending') {
+            return '<div class="market-empty">\u0410\u043d\u0430\u043b\u0438\u0437 \u0440\u044b\u043d\u043a\u0430 \u0438\u0437 AutoBot \u0432\u044bполняетс\u044f...</div>';
         }
         var rows = Array.isArray(cache.rows) ? cache.rows : [];
         if (cache.error && !rows.length) {
@@ -2088,7 +2097,8 @@
                 unit: form.unit.value.trim(),
                 notes: form.notes.value.trim()
             })
-        }).then(function (data) {
+                }).then(function (data) {
+                    clearApiCache('companies');
             if (data && data.company) {
                 state.companies = (state.companies || []).filter(function (company) {
                     return Number(company.id) !== Number(data.company.id);
@@ -2784,7 +2794,7 @@
     }
 
     function applyWarehouseIssueFocus() {
-        if (page !== 'warehouse') return;
+        if (currentPage() !== 'warehouse') return;
         var params = new URLSearchParams(location.search);
         var itemId = Number(params.get('issueWarehouseItem') || 0);
         var projectId = Number(params.get('projectId') || 0);

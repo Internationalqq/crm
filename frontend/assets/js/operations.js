@@ -3,6 +3,7 @@
 
     var PMBI = window.PMBI || {};
     var page = PMBI.page;
+    function currentPage() { return PMBI.page || page; }
     var APP_TODAY = PMBI.APP_TODAY;
     var state = PMBI.state;
     var qs = PMBI.qs;
@@ -16,6 +17,7 @@
     var formatDisplayDate = PMBI.formatDisplayDate;
     var formatRuDate = PMBI.formatRuDate;
     var api = PMBI.api;
+    var debounce = PMBI.debounce;
     var apiFormData = PMBI.apiFormData;
     var money = PMBI.money;
     var percent = PMBI.percent;
@@ -166,7 +168,11 @@
             if (callback) callback(state.roles);
             return;
         }
-        api('/api/roles').then(function (data) {
+        api('/api/roles', {
+            cacheKey: 'roles',
+            cacheTtl: 15 * 60 * 1000,
+            requestGroup: 'roles-directory'
+        }).then(function (data) {
             state.roles = Array.isArray(data.roles) ? data.roles : [];
             syncUserRoleOptions();
             if (callback) callback(state.roles);
@@ -687,7 +693,7 @@
     }
 
     function startTeamAutoRefresh() {
-        if (page !== 'users' || state.teamRefreshTimer) return;
+        if (currentPage() !== 'users' || state.teamRefreshTimer) return;
         state.teamRefreshTimer = setInterval(function () {
             if (document.hidden) return;
             loadProjects(function () {
@@ -1744,25 +1750,25 @@
     }
 
     function initPage() {
-        if (page === 'dashboard') initDashboardPage();
-        if (page === 'daily_tasks') initDailyTasksPage();
-        if (page === 'projects') loadProjects(function () {
+        if (currentPage() === 'dashboard') initDashboardPage();
+        if (currentPage() === 'daily_tasks') initDailyTasksPage();
+        if (currentPage() === 'projects') loadProjects(function () {
             loadDashboard(renderProjectsPage);
         });
-        if (page === 'autobot') {
+        if (currentPage() === 'autobot') {
             setAutoBotPageLoading();
             loadProjects(renderAutobotPage);
         }
-        if (page === 'warehouse') loadProjects(renderWarehousePage);
-        if (page === 'suppliers') loadProjects(initSuppliersPage);
-        if (page === 'schedule') loadProjects(renderSchedulePage);
-        if (page === 'logs') loadProjects(renderLogsPage);
-        if (page === 'users') initUsersPage();
-        if (page === 'companies') initCompaniesPage();
+        if (currentPage() === 'warehouse') loadProjects(renderWarehousePage);
+        if (currentPage() === 'suppliers') loadProjects(initSuppliersPage);
+        if (currentPage() === 'schedule') loadProjects(renderSchedulePage);
+        if (currentPage() === 'logs') loadProjects(renderLogsPage);
+        if (currentPage() === 'users') initUsersPage();
+        if (currentPage() === 'companies') initCompaniesPage();
     }
 
     function bindAutobotImmersiveMode() {
-        if (page !== 'autobot' || window.__pmbiAutobotImmersiveBound) return;
+        if (currentPage() !== 'autobot' || window.__pmbiAutobotImmersiveBound) return;
         window.__pmbiAutobotImmersiveBound = true;
         var lastScrollY = window.scrollY || 0;
         var ticking = false;

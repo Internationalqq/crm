@@ -696,6 +696,59 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     font-size: 11px;
 }
 
+.section-presence-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 26px;
+    padding: 0 9px;
+    border: 1px solid #d8e4f2;
+    border-radius: 999px;
+    background: #f7fbff;
+    color: #31577f;
+    font-size: 11px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.section-presence-badge strong,
+.section-presence-badge span {
+    font: inherit;
+}
+
+.section-presence-badge span {
+    color: #173863;
+}
+
+.section-presence-badge-material {
+    background: #f6fbf7;
+    border-color: #cfe5d6;
+    color: #277a45;
+}
+
+.section-presence-badge-work {
+    background: #f7fbff;
+    border-color: #d8e4f2;
+    color: #31577f;
+}
+
+.section-presence-badge.is-empty {
+    background: #f4f6f8;
+    border-color: #e0e5eb;
+    color: #758394;
+}
+
+.section-presence-badge.is-empty span {
+    color: #758394;
+}
+
+.section-schedule-presence {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 7px;
+}
+
 .estimate-section-head small {
     display: block;
     margin-top: 4px;

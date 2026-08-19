@@ -46,12 +46,17 @@
     </form>
 </section>
 
-<section class="card compact-alerts" data-project-critical-card data-project-overview-section hidden>
+<section class="card compact-alerts" data-project-critical-card data-project-overview-section>
     <div class="card-head">
         <h3>Что горит</h3>
         <span class="muted">Критичные нехватки по объектам</span>
     </div>
-    <div data-project-critical></div>
+    <div data-project-critical>
+        <div class="project-critical-skeleton" aria-hidden="true">
+            <span></span>
+            <span></span>
+        </div>
+    </div>
 </section>
 
 <section class="card" data-project-overview-section>

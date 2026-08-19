@@ -92,6 +92,6 @@ powershell -ExecutionPolicy Bypass -File tools\import-legacy-crm.ps1 -Source "C:
 1. создать маленький файл в `frontend/pages`;
 2. добавить маршрут в `APP_PAGES` внутри `backend/server.py`;
 3. если нужны данные — добавить API в backend;
-4. frontend забирает данные через `frontend/assets/app.js`.
+4. frontend забирает данные через `frontend/assets/js/app.js`.
 
 Никаких 30k строк HTML на страницу.

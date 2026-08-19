@@ -21,6 +21,7 @@ from schedule_tasks import (
     parse_iso_date,
 )
 from warehouse import normalize_estimate_item_kind
+from sqlite_config import configure_connection
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -37,9 +38,7 @@ def now_ts() -> int:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def parse_path_int(path: str, index: int) -> int | None:

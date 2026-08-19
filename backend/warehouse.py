@@ -10,6 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from auth import ROLE_LABELS, normalize_role, user_can_manage_suppliers
+from sqlite_config import configure_connection
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,9 +27,7 @@ def now_ts() -> int:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def create_audit(
@@ -56,10 +55,24 @@ def parse_path_int(path: str, index: int) -> int | None:
         return None
 
 
+def estimate_code_text_kind(value: object) -> str | None:
+    text = str(value or "")
+    if not text:
+        return None
+    if re.search(r"(?<![\w\u0400-\u04ff])(?:\u0424\u0421\u0411\u0426|FSBC)\s*[-\d]", text, flags=re.I):
+        return "material"
+    if re.search(r"(?<![\w\u0400-\u04ff])(?:\u0413\u042D\u0421\u041D|GESN)\s*[A-Z\u0410-\u042F]?\s*\d", text, flags=re.I):
+        return "work"
+    return None
+
+
 def normalize_estimate_item_kind(value: object) -> str:
     text = str(value or "").strip().lower()
     if not text:
         return "material"
+    code_kind = estimate_code_text_kind(text)
+    if code_kind:
+        return code_kind
     work_markers = ("work", "works", "service", "services", "labor", "labour", "job", "работ", "услуг", "труд")
     material_markers = ("material", "materials", "supply", "goods", "equipment", "матер", "товар", "оборуд")
     work_markers = work_markers + (
@@ -1463,6 +1476,15 @@ def api_update_supplier_offer(handler, path: str) -> None:
 
 
 def resolved_estimate_item_kind(item: dict | sqlite3.Row) -> str:
+    code_kind = estimate_code_text_kind(" ".join(
+        str(payload_get(item, key) or "")
+        for key in (
+            "article", "sku", "code", "basis", "index", "item_index", "itemIndex",
+            "source_label", "sourceLabel", "title", "name", "notes",
+        )
+    ))
+    if code_kind:
+        return code_kind
     note_value = (
         extract_labeled_note_value(payload_get(item, "notes"), ("\u0422\u0438\u043f", "Type"))
         or extract_labeled_note_value(payload_get(item, "notes"), ("Type",))

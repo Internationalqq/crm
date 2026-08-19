@@ -31,6 +31,7 @@
         materialsByProject: {},
         materialInsightsByProject: {},
         marketAnalysisByProject: {},
+        marketAnalysisPollTimers: {},
         materialCounterpartyFiltersByProject: {},
         notificationsByProject: {},
         materialScheduleByProject: {},
@@ -64,6 +65,9 @@
     var USER_INITIAL_CACHE_KEY = 'pmbi_current_user_initial';
     var USER_AVATAR_CACHE_KEY = 'pmbi_current_user_avatar';
     var currentUserPromise = null;
+    var apiMemoryCache = Object.create(null);
+    var apiInFlight = Object.create(null);
+    var apiRequestGroups = Object.create(null);
 
     function rememberSessionEnabled() {
         try {
@@ -112,6 +116,7 @@
         state.user = null;
         state.currentUser = null;
         currentUserPromise = null;
+        clearApiCache();
         clearSessionCookieFallback();
         return api('/api/auth/logout', {
             method: 'POST',
@@ -139,7 +144,10 @@
         if (!options.force && state.currentUser) return Promise.resolve(state.currentUser);
         if (!options.force && currentUserPromise) return currentUserPromise;
         currentUserPromise = api('/api/auth/me', {
-            silentLoader: options.silentLoader === true
+            silentLoader: options.silentLoader === true,
+            cacheKey: 'current-user',
+            cacheTtl: 5 * 60 * 1000,
+            requestGroup: 'current-user'
         }).then(function (data) {
             currentUserPromise = null;
             if (!data || !data.user) {
@@ -352,6 +360,55 @@
     function appErrorMessage(error, fallback) {
         if (error && error.status === 413) return 'Файл слишком большой для загрузки';
         return error && error.payload && (error.payload.message || error.payload.error) ? (error.payload.message || error.payload.error) : fallback;
+    }
+
+    function clearApiCache(cacheKey) {
+        if (!cacheKey) {
+            apiMemoryCache = Object.create(null);
+            return;
+        }
+        Object.keys(apiMemoryCache).forEach(function (key) {
+            if (key === cacheKey || key.indexOf(cacheKey + ':') === 0) delete apiMemoryCache[key];
+        });
+    }
+
+    function abortApiRequests(group) {
+        if (group) {
+            if (apiRequestGroups[group]) apiRequestGroups[group].abort();
+            delete apiRequestGroups[group];
+            return;
+        }
+        Object.keys(apiRequestGroups).forEach(function (key) {
+            apiRequestGroups[key].abort();
+            delete apiRequestGroups[key];
+        });
+    }
+
+    function debounce(fn, wait) {
+        var timer = null;
+        var delay = Number(wait) || 250;
+        function debounced() {
+            var context = this;
+            var args = arguments;
+            if (timer) window.clearTimeout(timer);
+            timer = window.setTimeout(function () {
+                timer = null;
+                fn.apply(context, args);
+            }, delay);
+        }
+        debounced.cancel = function () {
+            if (timer) window.clearTimeout(timer);
+            timer = null;
+        };
+        return debounced;
+    }
+
+    function cloneApiValue(value) {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (error) {
+            return value;
+        }
     }
 
     function submitLockControls(target) {
@@ -647,13 +704,50 @@
 
     function api(path, options) {
         var requestOptions = Object.assign({}, options || {});
+        var method = String(requestOptions.method || 'GET').toUpperCase();
+        var cacheKey = requestOptions.cacheKey;
+        var cacheTtl = Number(requestOptions.cacheTtl) || 0;
+        var requestGroup = requestOptions.requestGroup;
+        var requestController = null;
+        if (method !== 'GET') {
+            if (path.indexOf('/api/projects') === 0) {
+                abortApiRequests('projects-list');
+                clearApiCache('projects');
+            }
+            if (path.indexOf('/api/companies') === 0) {
+                abortApiRequests('companies-directory');
+                clearApiCache('companies');
+            }
+            if (path.indexOf('/api/users') === 0) {
+                abortApiRequests('users-directory');
+                clearApiCache('users-directory');
+            }
+            if (path.indexOf('/api/roles') === 0) {
+                abortApiRequests('roles-directory');
+                clearApiCache('roles');
+            }
+        }
+        if (method === 'GET' && cacheKey && cacheTtl > 0) {
+            var cached = apiMemoryCache[cacheKey];
+            if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cloneApiValue(cached.value));
+            if (apiInFlight[cacheKey]) return apiInFlight[cacheKey];
+        }
+        if (requestGroup) {
+            if (apiRequestGroups[requestGroup]) apiRequestGroups[requestGroup].abort();
+            requestController = new AbortController();
+            apiRequestGroups[requestGroup] = requestController;
+            requestOptions.signal = requestController.signal;
+        }
         var useLoader = requestOptions.silentLoader !== true;
         var loaderText = requestOptions.loaderText || 'Синхронизация...';
         delete requestOptions.silentLoader;
         delete requestOptions.loaderText;
+        delete requestOptions.cacheKey;
+        delete requestOptions.cacheTtl;
+        delete requestOptions.requestGroup;
         requestOptions.credentials = 'same-origin';
         if (useLoader && typeof window.showLoader === 'function') window.showLoader(loaderText);
-        return authHeaders().then(function (headers) {
+        var requestPromise = authHeaders().then(function (headers) {
             requestOptions.headers = Object.assign({ Accept: 'application/json' }, headers, requestOptions.headers || {});
             if (requestOptions.body && !requestOptions.headers['Content-Type']) requestOptions.headers['Content-Type'] = 'application/json';
             return fetch(path, requestOptions).then(function (response) {
@@ -667,12 +761,19 @@
                         }
                         throw error;
                     }
+                    if (method === 'GET' && cacheKey && cacheTtl > 0) {
+                        apiMemoryCache[cacheKey] = { value: cloneApiValue(payload), expiresAt: Date.now() + cacheTtl };
+                    }
                     return payload;
                 });
             });
         }).finally(function () {
             if (useLoader && typeof window.hideLoader === 'function') window.hideLoader();
+            if (requestGroup && apiRequestGroups[requestGroup] === requestController) delete apiRequestGroups[requestGroup];
+            if (cacheKey && apiInFlight[cacheKey] === requestPromise) delete apiInFlight[cacheKey];
         });
+        if (method === 'GET' && cacheKey && cacheTtl > 0) apiInFlight[cacheKey] = requestPromise;
+        return requestPromise;
     }
 
     function apiFormData(path, formData, options) {
@@ -971,6 +1072,81 @@
         }).join('') || '?';
     }
 
+    function isMobileSidebarViewport() {
+        return window.innerWidth <= 720;
+    }
+
+    function syncSidebarControls() {
+        var mobile = isMobileSidebarViewport();
+        var menuOpen = document.body.classList.contains('menu-open');
+        var collapsed = document.body.classList.contains('sidebar-collapsed');
+        qsa('[data-menu-toggle]').forEach(function (toggle) {
+            toggle.setAttribute('aria-expanded', mobile && menuOpen ? 'true' : 'false');
+        });
+        qsa('[data-sidebar-toggle]').forEach(function (toggle) {
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            toggle.setAttribute('aria-label', collapsed ? 'Развернуть сайдбар' : 'Свернуть сайдбар');
+            toggle.title = collapsed ? 'Развернуть сайдбар' : 'Свернуть сайдбар';
+        });
+    }
+
+    function applySidebarLayoutPreference() {
+        var collapsed = false;
+        try {
+            collapsed = window.localStorage.getItem('pmbi_sidebar_collapsed') === '1';
+        } catch (error) {}
+        document.body.classList.toggle('sidebar-collapsed', !isMobileSidebarViewport() && collapsed);
+        if (!isMobileSidebarViewport()) document.body.classList.remove('menu-open');
+        syncSidebarControls();
+    }
+
+    function toggleDesktopSidebar() {
+        if (isMobileSidebarViewport()) return;
+        var collapsed = !document.body.classList.contains('sidebar-collapsed');
+        document.body.classList.toggle('sidebar-collapsed', collapsed);
+        try {
+            window.localStorage.setItem('pmbi_sidebar_collapsed', collapsed ? '1' : '0');
+        } catch (error) {}
+        syncSidebarControls();
+    }
+
+    function bindSidebarControls() {
+        if (document.documentElement.dataset.sidebarControlsBound === '1') return;
+        document.documentElement.dataset.sidebarControlsBound = '1';
+        applySidebarLayoutPreference();
+        document.addEventListener('click', function (event) {
+            var menuToggle = event.target && event.target.closest ? event.target.closest('[data-menu-toggle]') : null;
+            var sidebarToggle = event.target && event.target.closest ? event.target.closest('[data-sidebar-toggle]') : null;
+            if (menuToggle) {
+                if (!isMobileSidebarViewport()) return;
+                event.preventDefault();
+                document.body.classList.toggle('menu-open');
+                syncSidebarControls();
+                return;
+            }
+            if (sidebarToggle) {
+                if (isMobileSidebarViewport()) return;
+                event.preventDefault();
+                toggleDesktopSidebar();
+                return;
+            }
+            if (!isMobileSidebarViewport() || !document.body.classList.contains('menu-open')) return;
+            if (event.target.closest && (event.target.closest('.sidebar') || event.target.closest('[data-menu-toggle]'))) return;
+            document.body.classList.remove('menu-open');
+            syncSidebarControls();
+        });
+        document.addEventListener('click', function (event) {
+            if (!isMobileSidebarViewport() || !event.target.closest) return;
+            if (event.target.closest('.sidebar a')) {
+                document.body.classList.remove('menu-open');
+                syncSidebarControls();
+            }
+        });
+        window.addEventListener('resize', applySidebarLayoutPreference);
+    }
+
+    bindSidebarControls();
+
 
     window.PMBI = Object.assign(window.PMBI || {}, {
         core: Object.assign(window.PMBI && window.PMBI.core || {}, {
@@ -993,6 +1169,9 @@
         readStoredJson: readStoredJson,
         writeStoredJson: writeStoredJson,
         safeReplaceChildren: safeReplaceChildren,
+        clearApiCache: clearApiCache,
+        abortApiRequests: abortApiRequests,
+        debounce: debounce,
         refreshLucideIcons: refreshLucideIcons,
         showAppNotice: showAppNotice,
         getAutoBotLoaderHTML: getAutoBotLoaderHTML,
@@ -1058,6 +1237,8 @@
         canManageDocuments: canManageDocuments,
         canManageSchedule: canManageSchedule,
         nextPath: nextPath,
-        userInitials: userInitials
+        userInitials: userInitials,
+        toggleDesktopSidebar: toggleDesktopSidebar,
+        applySidebarLayoutPreference: applySidebarLayoutPreference
     });
 })();

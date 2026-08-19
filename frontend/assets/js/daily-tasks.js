@@ -3,6 +3,7 @@
 
     var PMBI = window.PMBI || {};
     var page = PMBI.page;
+    function currentPage() { return PMBI.page || page; }
     var state = PMBI.state;
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
@@ -449,7 +450,7 @@
                 }).then(function (response) {
                     markDailyStandupDone(response && response.today ? response.today : dailyStandupDateKey());
                     closeDailyStandupModal(modal);
-                    if (page === 'daily_tasks') loadDailyTasks();
+                    if (currentPage() === 'daily_tasks') loadDailyTasks();
                 });
             }).catch(function (error) {
                 showAppNotice(appErrorMessage(error, 'Не удалось сохранить утренний стендап.'), 'error');

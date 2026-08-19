@@ -7,6 +7,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from auth import ROLE_LABELS, display_user_name, normalize_role, user_has_any_role, user_is_hidden_admin, user_is_main_admin
+from sqlite_config import configure_connection
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,9 +22,7 @@ def now_ts() -> int:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def table_exists(con: sqlite3.Connection, table: str) -> bool:
@@ -199,11 +198,32 @@ def api_projects(handler) -> None:
         return
     with db() as con:
         if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
-            rows = con.execute("SELECT * FROM projects ORDER BY id DESC").fetchall()
+            rows = con.execute(
+                """
+                SELECT id, title, client_id, customer_company_id, own_legal_entity_id,
+                       address, city, region, client_name, contract_no, contract_date,
+                       director_id, foreman_id, buyer_id, client_user_id, status, progress,
+                       budget, paid, spent, started_at, deadline_at,
+                       internal_schedule_status, internal_schedule_version,
+                       internal_schedule_approved_at, customer_schedule_status,
+                       customer_schedule_version, customer_schedule_approved_at,
+                       schedule_generated_at, description, created_at, updated_at
+                FROM projects
+                ORDER BY id DESC
+                """
+            ).fetchall()
         elif user_has_any_role(user, {"foreman"}):
             rows = con.execute(
                 """
-                SELECT DISTINCT p.*
+                SELECT DISTINCT p.id, p.title, p.client_id, p.customer_company_id,
+                       p.own_legal_entity_id, p.address, p.city, p.region, p.client_name,
+                       p.contract_no, p.contract_date, p.director_id, p.foreman_id,
+                       p.buyer_id, p.client_user_id, p.status, p.progress, p.budget,
+                       p.paid, p.spent, p.started_at, p.deadline_at,
+                       p.internal_schedule_status, p.internal_schedule_version,
+                       p.internal_schedule_approved_at, p.customer_schedule_status,
+                       p.customer_schedule_version, p.customer_schedule_approved_at,
+                       p.schedule_generated_at, p.description, p.created_at, p.updated_at
                 FROM projects p
                 LEFT JOIN object_assignments own_oa
                     ON own_oa.object_id = p.id
@@ -223,7 +243,15 @@ def api_projects(handler) -> None:
         else:
             rows = con.execute(
                 """
-                SELECT p.*
+                SELECT p.id, p.title, p.client_id, p.customer_company_id,
+                       p.own_legal_entity_id, p.address, p.city, p.region, p.client_name,
+                       p.contract_no, p.contract_date, p.director_id, p.foreman_id,
+                       p.buyer_id, p.client_user_id, p.status, p.progress, p.budget,
+                       p.paid, p.spent, p.started_at, p.deadline_at,
+                       p.internal_schedule_status, p.internal_schedule_version,
+                       p.internal_schedule_approved_at, p.customer_schedule_status,
+                       p.customer_schedule_version, p.customer_schedule_approved_at,
+                       p.schedule_generated_at, p.description, p.created_at, p.updated_at
                 FROM projects p
                 JOIN user_project_access a ON a.project_id = p.id
                 WHERE a.user_id = ?

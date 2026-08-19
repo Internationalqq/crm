@@ -19,6 +19,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 import jwt
+from sqlite_config import configure_connection
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -274,9 +275,7 @@ def clear_auth_rate_limit(bucket: str, key: str) -> None:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def b64url(data: bytes) -> str:

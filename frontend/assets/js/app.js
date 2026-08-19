@@ -2,6 +2,9 @@
     'use strict';
 
     var PMBI = window.PMBI || {};
+    if (PMBI.app && PMBI.app.__loaded) return;
+    PMBI.app = PMBI.app || {};
+    PMBI.app.__loaded = true;
     var page = PMBI.page;
     var APP_TODAY = PMBI.APP_TODAY;
     var state = PMBI.state;
@@ -39,6 +42,9 @@
     var loadClerk = PMBI.loadClerk;
     var api = PMBI.api;
     var apiFormData = PMBI.apiFormData;
+    var clearApiCache = PMBI.clearApiCache;
+    var abortApiRequests = PMBI.abortApiRequests;
+    var debounce = PMBI.debounce;
     var money = PMBI.money;
     var percent = PMBI.percent;
     var progressSectionId = PMBI.progressSectionId;
@@ -439,13 +445,6 @@
 
         bindLogoutButtons();
 
-        var menuToggle = qs('[data-menu-toggle]');
-        if (menuToggle) {
-            menuToggle.addEventListener('click', function () {
-                document.body.classList.toggle('menu-open');
-            });
-        }
-
         initAiAssistant();
 
         qsa('[data-placeholder-form]').forEach(function (form) {
@@ -634,7 +633,7 @@
         qsa('[data-nav]').forEach(function (link) {
             var visible = allowed.indexOf(link.dataset.nav) !== -1;
             link.classList.toggle('hidden', !visible);
-            if (visible && link.dataset.nav === page) link.classList.add('active');
+            link.classList.toggle('active', visible && link.dataset.nav === page);
         });
     };
 
@@ -667,7 +666,11 @@
                 }
             }
         }
-        return api('/api/projects').then(function (data) {
+        return api('/api/projects', {
+            cacheKey: 'projects',
+            cacheTtl: 60 * 1000,
+            requestGroup: 'projects-list'
+        }).then(function (data) {
             state.projects = Array.isArray(data && data.projects) ? data.projects : [];
             if (listRoot) {
                 try {
@@ -693,7 +696,7 @@
 
 
     function loadDashboard(callback) {
-        api('/api/dashboard').then(function (data) {
+        api('/api/dashboard', { requestGroup: 'dashboard' }).then(function (data) {
             state.dashboard = data;
             callback();
         }).catch(function () {
@@ -1013,6 +1016,7 @@
                     description: form.description ? form.description.value.trim() : ''
                 })
             }).then(function (data) {
+                clearApiCache('projects');
                 form.reset();
                 if (card) card.hidden = true;
                 state.projects.unshift(data.project);
@@ -1061,6 +1065,7 @@
                 method: 'POST',
                 body: JSON.stringify(payload)
             }).then(function (data) {
+                clearApiCache('projects');
                 var updated = data.project;
                 state.projects = state.projects.map(function (project) {
                     return Number(project.id) === Number(updated.id) ? updated : project;
@@ -1179,7 +1184,8 @@
             return !completedById[item.projectId];
         }) : [];
         if (!items.length) {
-            card.hidden = true;
+            card.hidden = false;
+            root.innerHTML = '<p class="muted project-critical-empty">Критичных нехваток пока нет.</p>';
             return;
         }
         card.hidden = false;
@@ -1374,7 +1380,11 @@
             callback(state.users);
             return;
         }
-        api('/api/users').then(function (data) {
+        api('/api/users', {
+            cacheKey: 'users-directory',
+            cacheTtl: 5 * 60 * 1000,
+            requestGroup: 'users-directory'
+        }).then(function (data) {
             state.users = Array.isArray(data.users) ? data.users : [];
             callback(state.users);
         }).catch(function () {
@@ -1559,33 +1569,56 @@
         kind = kind === 'work' ? 'work' : 'material';
         if (!state.marketAnalysisByProject[projectId]) state.marketAnalysisByProject[projectId] = {};
         var cache = state.marketAnalysisByProject[projectId][kind];
-        if (!force && cache && !cache.error && Array.isArray(cache.rows)) {
+        var pollKey = String(projectId) + ':' + kind;
+        var isReady = cache && cache.status === 'ready';
+        if (force && state.marketAnalysisPollTimers[pollKey]) {
+            clearTimeout(state.marketAnalysisPollTimers[pollKey]);
+            delete state.marketAnalysisPollTimers[pollKey];
+        }
+        if (!force && isReady) {
             callback(cache);
             return;
         }
         if (cache && cache.loading) return;
-        state.marketAnalysisByProject[projectId][kind] = { loading: true, rows: [] };
-        api('/api/projects/' + projectId + '/market-analysis?kind=' + kind).then(function (data) {
+        function apply(data) {
             var rows = Array.isArray(data && data.rows) ? data.rows : [];
+            var status = String(data && data.status || (rows.length ? 'ready' : 'error'));
             state.marketAnalysisByProject[projectId][kind] = {
-                loading: false,
-                error: rows.length ? '' : String(data && data.error || ''),
+                loading: status === 'pending',
+                status: status,
+                error: status === 'error' ? String(data && data.error || 'market_analysis_failed') : '',
                 rows: rows,
                 summary: data && data.summary || {},
                 estimateId: data && data.estimateId || ''
             };
             callback(state.marketAnalysisByProject[projectId][kind]);
-        }).catch(function (error) {
-            var payload = error && error.payload || {};
-            var rows = Array.isArray(payload.rows) ? payload.rows : [];
-            state.marketAnalysisByProject[projectId][kind] = {
-                loading: false,
-                error: rows.length ? '' : (payload.error || 'market_analysis_failed'),
-                rows: rows,
-                summary: payload.summary || {}
-            };
-            callback(state.marketAnalysisByProject[projectId][kind]);
-        });
+            return status;
+        }
+        function poll() {
+            api('/api/projects/' + projectId + '/market-analysis?kind=' + kind, { silentLoader: true }).then(function (data) {
+                var status = apply(data);
+                if (status === 'pending') {
+                    state.marketAnalysisPollTimers[pollKey] = setTimeout(poll, 2500);
+                } else {
+                    delete state.marketAnalysisPollTimers[pollKey];
+                }
+            }).catch(function (error) {
+                var payload = error && error.payload || {};
+                var rows = Array.isArray(payload.rows) ? payload.rows : [];
+                state.marketAnalysisByProject[projectId][kind] = {
+                    loading: false,
+                    status: 'error',
+                    error: rows.length ? '' : (payload.error || 'market_analysis_failed'),
+                    rows: rows,
+                    summary: payload.summary || {}
+                };
+                callback(state.marketAnalysisByProject[projectId][kind]);
+                delete state.marketAnalysisPollTimers[pollKey];
+            });
+        }
+        state.marketAnalysisByProject[projectId][kind] = { loading: true, status: 'pending', rows: [] };
+        callback(state.marketAnalysisByProject[projectId][kind]);
+        poll();
     }
 
     function renderMaterialsLegacy(items, projectId, insights) {
@@ -4152,7 +4185,7 @@ function renderLogsDayView(project, logs) {
             var search = qs('[data-project-search]');
             if (search && search.dataset.bound !== '1') {
                 search.dataset.bound = '1';
-                search.addEventListener('input', function () {
+                var applyProjectSearch = debounce(function () {
                     try {
                         var query = search.value.toLocaleLowerCase('ru');
                         renderProjectList((state.projects || []).filter(function (project) {
@@ -4165,7 +4198,8 @@ function renderLogsDayView(project, logs) {
                         console.error('Project search render failed', error);
                         renderProjectList(state.projects || []);
                     }
-                });
+                }, 300);
+                search.addEventListener('input', applyProjectSearch);
             }
             bindProjectBackButton();
             syncProjectTabVisibility(qs('[data-project-detail]') || document);
@@ -4259,6 +4293,9 @@ function renderLogsDayView(project, logs) {
         var estimateWorks = rawEstimateWorks.filter(function (item) {
             return item && !item.is_deleted && !item.isDeleted && String(item.title || '').trim();
         });
+        var estimateMaterials = (items || []).filter(function (item) {
+            return item && !item.is_deleted && !item.isDeleted && String(item.title || '').trim() && String(item.itemKind || 'material').toLowerCase() !== 'work';
+        });
         if (rawEstimateWorks.length !== estimateWorks.length && window.console) {
             console.log('Бэкенд прислал работ всего:', rawEstimateWorks.length);
             rawEstimateWorks.forEach(function (item) {
@@ -4275,13 +4312,14 @@ function renderLogsDayView(project, logs) {
         function ensureGroup(title) {
             var sectionTitle = canonicalEstimateSectionTitle(title);
             if (!groups[sectionTitle]) {
-                groups[sectionTitle] = { stageRows: [], estimateRows: [] };
+                groups[sectionTitle] = { stageRows: [], estimateRows: [], materialRows: [] };
                 order.push(sectionTitle);
             }
             return groups[sectionTitle];
         }
         visibleWorkStages.forEach(function (stage) { ensureGroup(rootSectionTitleForStage(stage, stageMap)).stageRows.push(stage); });
         visibleEstimateWorks.forEach(function (item) { ensureGroup(item.sectionTitle || item.section_title || item.stageTitle || item.sectionId).estimateRows.push(item); });
+        estimateMaterials.forEach(function (item) { ensureGroup(item.sectionTitle || item.section_title || item.stageTitle || item.sectionId).materialRows.push(item); });
         var originalSectionOrder = order.slice();
         var sectionNumbers = buildEstimateSectionNumberMap(originalSectionOrder);
         var scheduleOrder = workScheduleSections(projectId).map(function (section) { return canonicalEstimateSectionTitle(section && (section.title || section.sectionId)); }).filter(Boolean);
@@ -4312,29 +4350,37 @@ function renderLogsDayView(project, logs) {
             stat('\u0420\u0430\u0431\u043e\u0442 \u0433\u043e\u0442\u043e\u0432\u043e', String(doneWorkPositions) + ' \u0438\u0437 ' + String(totalWorkPositions), totalWorkPositions && doneWorkPositions >= totalWorkPositions ? 'success' : '') +
         '</div>' +
         renderCounterpartyFilter(projectId, 'contractor', estimateWorks, state.materialInsightsByProject[projectId] || {}) +
-        (visibleEstimateWorks.length || visibleWorkStages.length ? '<div class="estimate-section-list">' + order.map(function (title, index) {
+        (order.length ? '<div class="estimate-section-list">' + order.map(function (title, index) {
             var group = groups[title];
             var workProgress = workProgressForRows(projectId, title, group.estimateRows);
+            var materialProgressValue = materialProgress(projectId, group.materialRows);
             var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
             var open = isEstimateSectionOpen(projectId, 'works', title, index);
+            var workRowsHtml = group.stageRows.map(function (stage) {
+                var meta = [stagePathLabel(stage, stageMap), stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' \u2022 ');
+                return '<div class="material-row work-row"><div class="work-row-main"><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' \u2022 ' + percent(stage.progress) + '%</span></div></div>';
+            }).join('') +
+            group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('');
+            var materialsHtml = group.materialRows.map(function (item) {
+                return renderMaterialManualCheck(item, title, projectId);
+            }).join('');
             var head = renderEstimateAccordionHead(
                 projectId,
                 'works',
                 title,
                 index,
-                renderBulkSectionCheckbox(projectId, title, 'works', workProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + (workProgress.total ? sectionProgressBadge('works', workProgress, '') : ''),
-                scheduleMeta.html + renderInlineMarketButton(projectId, 'works', 'inline-market-section') + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length) + ' \u043f\u043e\u0437.') + '</span>',
+                renderBulkSectionCheckbox(projectId, title, 'works', workProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
+                scheduleMeta.html + renderInlineMarketButton(projectId, 'works', 'inline-market-section') + sectionPresenceBadge('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress) + sectionPresenceBadge('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue) + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length + group.materialRows.length) + ' \u043f\u043e\u0437.') + '</span>',
                 '',
-                sectionProgressStrip(workProgress, { total: 0, done: 0, percent: 0 }, title)
+                sectionProgressStrip(workProgress, materialProgressValue, title)
             );
             return '<section class="estimate-section estimate-section-card estimate-section-collapsible work-section-card' + scheduleMeta.className + (open ? ' is-open' : '') + '">' +
                 head +
                 renderEstimateSectionBody(open,
-                    group.stageRows.map(function (stage) {
-                        var meta = [stagePathLabel(stage, stageMap), stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' \u2022 ');
-                        return '<div class="material-row work-row"><div class="work-row-main"><b>' + escapeHtml(stage.title) + '</b><small>' + escapeHtml(meta || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' \u2022 ' + percent(stage.progress) + '%</span></div></div>';
-                    }).join('') +
-                    group.estimateRows.map(function (item) { return renderEstimateWorkItem(item, title, projectId, scheduleMeta.kind); }).join('')
+                    '<div class="section-schedule-detail-grid">' +
+                        '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u0420\u0430\u0431\u043e\u0442\u044b</strong><span>' + escapeHtml(String(workProgress.done) + ' \u0438\u0437 ' + String(workProgress.total)) + '</span></div><div class="section-schedule-detail-list">' + (workRowsHtml || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043d\u0435\u0442 \u0440\u0430\u0431\u043e\u0442 \u043f\u043e \u0441\u043c\u0435\u0442\u0435.</div>') + '</div></section>' +
+                        '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</strong><span>' + escapeHtml(String(materialProgressValue.done) + ' \u0438\u0437 ' + String(materialProgressValue.total)) + '</span></div><div class="section-schedule-detail-list">' + (materialsHtml || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043d\u0435\u0442 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u043e\u0432 \u043f\u043e \u0441\u043c\u0435\u0442\u0435.</div>') + '</div></section>' +
+                    '</div>'
                 ) +
             '</section>';
         }).join('') + '</div>' : '<div class="market-empty">\u041f\u043e \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u043e\u043c\u0443 \u0444\u0438\u043b\u044c\u0442\u0440\u0443 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442.</div>');
@@ -4378,6 +4424,7 @@ function renderLogsDayView(project, logs) {
             bindAutoScheduleForm(project.id);
             bindScheduleStatusActions(project.id);
             bindSectionScheduleRefresh(project.id);
+            bindSectionScheduleInteractions(project.id);
             loadSelectedProjectMaterialSchedule(false);
         }
         function queueScheduleRender(stages) {
@@ -4408,6 +4455,7 @@ function renderLogsDayView(project, logs) {
             if (!isCurrentProject(project.id, loadingToken)) return;
             if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null));
             if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items));
+            queueScheduleRender(state.stagesByProject[project.id] || []);
             bindProjectMarketToggles(project.id);
             bindProjectChainActions();
             bindMaterialManualChecks(project.id);
@@ -4936,6 +4984,16 @@ function renderLogsDayView(project, logs) {
         '</span>';
     }
 
+    function sectionPresenceBadge(kind, label, progress) {
+        progress = progress || { total: 0, done: 0 };
+        var total = Number(progress.total || 0);
+        var done = Number(progress.done || 0);
+        var text = total ? (String(done) + ' \u0438\u0437 ' + String(total)) : '\u043d\u0435\u0442';
+        return '<span class="section-presence-badge section-presence-badge-' + escapeHtml(kind) + (total ? '' : ' is-empty') + '">' +
+            '<strong>' + escapeHtml(label) + '</strong><span>' + escapeHtml(text) + '</span>' +
+        '</span>';
+    }
+
     function sectionProgressLine(kind, label, progress, sectionId) {
         progress = progress || { total: 0, done: 0, percent: 0 };
         var total = Number(progress.total || 0);
@@ -4943,18 +5001,16 @@ function renderLogsDayView(project, logs) {
         var percentValue = total ? percent(progress.percent != null ? progress.percent : Math.round((done / total) * 100)) : 0;
         return '<div class="estimate-section-progress-line estimate-section-progress-line-' + escapeHtml(kind) + '" data-progress-section-id="' + escapeHtml(canonicalEstimateSectionId(sectionId)) + '" data-section-progress="' + escapeHtml(canonicalEstimateSectionId(sectionId)) + '" data-section-progress-kind="' + escapeHtml(kind) + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percentValue + '">' +
             '<div class="estimate-section-progress-line-head"><strong>' + escapeHtml(label) + '</strong><span data-progress-count>' + escapeHtml(total ? (String(done) + '\u0020\u0438\u0437\u0020' + String(total)) : '\u041f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442') + '</span></div>' +
-            '<div class="section-schedule-progress-bar"><span style="width:' + percentValue + '%"></span><b class="section-schedule-progress-value" data-progress-text>' + escapeHtml(String(percentValue)) + '%</b></div>' +
+            '<div class="section-schedule-progress-bar"><span style="width:' + percentValue + '%"></span>' + (total ? '<b class="section-schedule-progress-value" data-progress-text>' + escapeHtml(String(percentValue)) + '%</b>' : '') + '</div>' +
         '</div>';
     }
 
     function sectionProgressStrip(workProgress, materialProgressValue, sectionId) {
         workProgress = workProgress || { total: 0, done: 0, percent: 0 };
         materialProgressValue = materialProgressValue || { total: 0, done: 0, percent: 0 };
-        var lines = [];
-        if (materialProgressValue.total || !workProgress.total) lines.push(sectionProgressLine('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue, sectionId));
-        if (workProgress.total || !materialProgressValue.total) lines.push(sectionProgressLine('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress, sectionId));
         return '<div class="estimate-section-progress-strip estimate-section-progress-split" data-progress-split-section="' + escapeHtml(canonicalEstimateSectionId(sectionId)) + '">' +
-            lines.join('') +
+            sectionProgressLine('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue, sectionId) +
+            sectionProgressLine('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress, sectionId) +
         '</div>';
     }
 
@@ -5899,12 +5955,12 @@ function renderLogsDayView(project, logs) {
         applyRoleVisibility(root);
         var financeSearch = qs('[data-finance-search]', root);
         if (financeSearch) {
-            financeSearch.addEventListener('input', function () {
+            financeSearch.addEventListener('input', debounce(function () {
                 var query = financeSearch.value.toLocaleLowerCase('ru').trim();
                 qsa('.finance-history-card [data-finance-edit-form]', root).forEach(function (form) {
                     form.hidden = query && form.textContent.toLocaleLowerCase('ru').indexOf(query) === -1;
                 });
-            });
+            }, 300));
         }
         if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
     }
@@ -6983,7 +7039,7 @@ function renderLogsDayView(project, logs) {
             updateProgressNode(node, kindPercent, kindPercent + '%');
             node.setAttribute('aria-valuenow', String(kindPercent));
             var count = qs('[data-progress-count]', node);
-            if (count) count.textContent = group.length ? (String(kindDone) + '\u0020\u0438\u0437\u0020' + String(group.length)) : 'РџРѕР·РёС†РёР№ РЅРµС‚';
+            if (count) count.textContent = group.length ? (String(kindDone) + '\u0020\u0438\u0437\u0020' + String(group.length)) : '\u041f\u043e\u0437\u0438\u0446\u0438\u0439\u0020\u043d\u0435\u0442';
         });
         var total = children.length;
         var done = children.filter(function (input) { return input.checked; }).length;
@@ -8330,6 +8386,7 @@ function renderLogsDayView(project, logs) {
     if (typeof toggleEstimateSectionFromHead === 'function') PMBI.app.toggleEstimateSectionFromHead = toggleEstimateSectionFromHead;
     if (typeof materialSectionLabel === 'function') PMBI.app.materialSectionLabel = materialSectionLabel;
     if (typeof sectionProgressBadge === 'function') PMBI.app.sectionProgressBadge = sectionProgressBadge;
+    if (typeof sectionPresenceBadge === 'function') PMBI.app.sectionPresenceBadge = sectionPresenceBadge;
     if (typeof buildEstimateSectionNumberMap === 'function') PMBI.app.buildEstimateSectionNumberMap = buildEstimateSectionNumberMap;
     if (typeof estimateDisplaySectionTitleWithNumber === 'function') PMBI.app.estimateDisplaySectionTitleWithNumber = estimateDisplaySectionTitleWithNumber;
     if (typeof bindEstimateSectionToggles === 'function') PMBI.app.bindEstimateSectionToggles = bindEstimateSectionToggles;
@@ -8425,6 +8482,51 @@ function renderLogsDayView(project, logs) {
     if (typeof updateProjectCache === 'function') PMBI.app.updateProjectCache = updateProjectCache;
     if (typeof renderProjectHub === 'function') PMBI.app.renderProjectHub = renderProjectHub;
     if (typeof renderProjectOverviewHero === 'function') PMBI.app.renderProjectOverviewHero = renderProjectOverviewHero;
+    var appStarted = false;
+
+    function cleanupBeforeRouteChange() {
+        if (abortApiRequests) {
+            abortApiRequests('projects-list');
+            abortApiRequests('dashboard');
+            abortApiRequests('users-directory');
+            abortApiRequests('roles-directory');
+            abortApiRequests('companies-directory');
+        }
+        if (state.teamRefreshTimer) {
+            clearInterval(state.teamRefreshTimer);
+            state.teamRefreshTimer = null;
+        }
+        Object.keys(state.dailyCompletionTimers || {}).forEach(function (taskId) {
+            var timer = state.dailyCompletionTimers[taskId];
+            if (timer && timer.timerId) clearInterval(timer.timerId);
+        });
+        state.dailyCompletionTimers = {};
+        Object.keys(state.marketAnalysisPollTimers || {}).forEach(function (pollKey) {
+            clearTimeout(state.marketAnalysisPollTimers[pollKey]);
+        });
+        state.marketAnalysisPollTimers = {};
+        document.body.classList.remove('menu-open', 'ai-open', 'cal-modal-open', 'project-edit-open');
+    }
+
+    function setPage(nextPage) {
+        page = nextPage;
+        PMBI.page = nextPage;
+        cleanupBeforeRouteChange();
+        applyRole();
+        initPage();
+        checkDailyStandup();
+    }
+
+    function bootApp() {
+        if (appStarted) return;
+        appStarted = true;
+        if (page === 'login') initLogin();
+        else initShell();
+    }
+
+    PMBI.app.setPage = setPage;
+    PMBI.app.cleanupBeforeRouteChange = cleanupBeforeRouteChange;
+    PMBI.appBoot = bootApp;
     window.PMBI = PMBI;
 
     if (PMBI.planning && typeof PMBI.planning.bindMaterialScheduleTimeline === 'function') {
@@ -8482,6 +8584,9 @@ function renderLogsDayView(project, logs) {
         }
     }, true);
 
-    if (page === 'login') initLogin();
-    else initShell();
+    if (PMBI.router && PMBI.router.deferAppBoot && typeof PMBI.router.registerApp === 'function') {
+        PMBI.router.registerApp(bootApp);
+    } else {
+        bootApp();
+    }
 })();

@@ -68,6 +68,7 @@
     function renderWorkManualCheck() { return appCall('renderWorkManualCheck', arguments); }
     function renderBulkSectionCheckbox() { return appCall('renderBulkSectionCheckbox', arguments); }
     function sectionProgressStrip() { return appCall('sectionProgressStrip', arguments); }
+    function sectionPresenceBadge() { return appCall('sectionPresenceBadge', arguments); }
     function finalSectionWorkDigest() { return appCall('finalSectionWorkDigest', arguments); }
     function finalGraphDate() { return appCall('finalGraphDate', arguments); }
     function finalSectionSummaryNumber(value) {
@@ -308,6 +309,7 @@
                     '<div class="section-schedule-summary-head">' +
                         '<div class="section-schedule-summary-copy">' +
                             '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, sectionTitle, 'schedule', workProgress) + '<div class="section-schedule-title"><h4>' + escapeHtml(sectionTitle) + '</h4></div></div>' +
+                            '<div class="section-schedule-presence">' + sectionPresenceBadge('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress) + sectionPresenceBadge('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue) + '</div>' +
                         '</div>' +
                         '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
                     '</div>' +

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from auth import display_user_name, user_can_manage_documents, user_can_manage_schedule, user_has_any_role
 from projects import serialize_project
+from sqlite_config import configure_connection
 from warehouse import (
     canonical_estimate_section_title,
     normalize_estimate_item_kind,
@@ -34,9 +35,7 @@ def now_iso() -> str:
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return configure_connection(connection)
 
 
 def parse_path_int(path: str, index: int) -> int | None:
