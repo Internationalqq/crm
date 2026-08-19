@@ -1,3 +1,10 @@
 PyJWT[crypto]>=2.9,<3
 openpyxl>=3.1,<4
 xlrd>=2.0,<3
+pandas>=2.2,<3
+numpy>=1.26,<3
+pdfplumber>=0.11,<1
+PyMuPDF>=1.24,<2
+opencv-python-headless>=4.10,<5
+Pillow>=10,<13
+pytesseract>=0.3.13,<1

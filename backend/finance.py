@@ -118,7 +118,8 @@ def parse_excel_amount(value: object) -> float:
 
 
 def normalize_excel_label(value: object) -> str:
-    return re.sub(r"[^a-zа-яё0-9]+", "", clean_excel_value(value).lower())
+    """Normalize labels without dropping Cyrillic characters."""
+    return "".join(char for char in clean_excel_value(value).lower() if char.isalnum())
 
 
 def labeled_excel_value(rows: list[list[object]], labels: set[str]) -> object:
@@ -136,6 +137,44 @@ def labeled_excel_value(rows: list[list[object]], labels: set[str]) -> object:
                 if clean_excel_value(below):
                     return below
     return None
+
+
+def _parse_finance_rows_for_pdf(rows: list[list[object]]) -> dict[str, object]:
+    """Apply the same label/value rules to rows returned by the PDF adapter."""
+    category = clean_excel_value(
+        labeled_excel_value(
+            rows,
+            {
+                "\u043d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435",
+                "\u043d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435",
+                "\u0441\u0447\u0435\u0442",
+                "\u0441\u0447\u0451\u0442",
+            },
+        )
+    )
+    counterparty = clean_excel_value(
+        labeled_excel_value(
+            rows,
+            {
+                "\u043a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442",
+                "\u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a",
+                "\u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a",
+            },
+        )
+    )
+    amount_value = labeled_excel_value(
+        rows,
+        {
+            "\u0438\u0442\u043e\u0433\u043e\u0432\u0430\u044f \u0441\u0443\u043c\u043c\u0430",
+            "\u0438\u0442\u043e\u0433\u043e",
+            "\u0441\u0443\u043c\u043c\u0430 \u043a \u043e\u043f\u043b\u0430\u0442\u0435",
+            "\u0432\u0441\u0435\u0433\u043e",
+        },
+    )
+    amount = parse_excel_amount(amount_value)
+    if not category or not counterparty or amount <= 0:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR)
+    return {"category": category, "counterparty_name": counterparty, "amount": amount}
 
 
 def parse_finance_excel_invoice(raw: bytes, file_ext: str) -> dict[str, object]:
@@ -189,6 +228,17 @@ def parse_finance_excel_invoice(raw: bytes, file_ext: str) -> dict[str, object]:
     if not category or not counterparty or amount <= 0:
         raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR)
     return {"category": category, "counterparty_name": counterparty, "amount": amount}
+
+
+def parse_finance_pdf_invoice(raw: bytes) -> dict[str, object]:
+    """Recognize a PDF invoice/table and return the same result as Excel parsing."""
+    try:
+        from pdf_excel_adapter import PdfExcelAdapter, PdfExcelAdapterError
+
+        rows = PdfExcelAdapter().extract(raw).rows
+        return _parse_finance_rows_for_pdf(rows)
+    except (PdfExcelAdapterError, FinanceExcelParseError, ImportError) as error:
+        raise FinanceExcelParseError(FINANCE_EXCEL_PARSE_ERROR) from error
 
 
 def recalc_project_finance_totals(handler, con: sqlite3.Connection, project_id: int) -> None:
@@ -400,12 +450,22 @@ def api_upload_finance_invoice(handler, path: str) -> None:
         return
 
     parsed_invoice: dict[str, object] | None = None
-    if file_ext in {".xlsx", ".xls"}:
+    if file_ext in {".xlsx", ".xls", ".pdf"}:
         try:
-            parsed_invoice = parse_finance_excel_invoice(raw, file_ext)
+            if file_ext == ".pdf":
+                parsed_invoice = parse_finance_pdf_invoice(raw)
+            else:
+                parsed_invoice = parse_finance_excel_invoice(raw, file_ext)
         except FinanceExcelParseError:
-            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": FINANCE_EXCEL_PARSE_ERROR})
-            return
+            # PDF remains uploadable with manually supplied form fields.  If
+            # no fields were supplied, report the same clear parse error as
+            # for a malformed Excel file.
+            if file_ext != ".pdf" or not any(
+                str(form.getfirst(name, "")).strip()
+                for name in ("category", "counterparty_name", "amount")
+            ):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": FINANCE_EXCEL_PARSE_ERROR})
+                return
 
     category = str((parsed_invoice or {}).get("category") or form.getfirst("category", "")).strip()
     counterparty_name = str((parsed_invoice or {}).get("counterparty_name") or form.getfirst("counterparty_name", "")).strip()

@@ -267,7 +267,7 @@ def api_create_project(handler) -> None:
     user = handler.require_user()
     if not user:
         return
-    if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})):
+    if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman", "purchaser", "financier", "accountant"})):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()

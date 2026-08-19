@@ -74,6 +74,17 @@ html {
     scrollbar-gutter: stable;
 }
 
+/* Keep the team page height stable while /api/users is loading. */
+[data-users-list] {
+    min-height: 360px;
+}
+
+@media (max-width: 720px) {
+    [data-users-list] {
+        min-height: 280px;
+    }
+}
+
 /* Final UI refresh: July 27, 2026 */
 body {
     background:

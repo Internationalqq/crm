@@ -2321,7 +2321,7 @@
             safeReplaceChildren(node, topbarAvatarInner(user));
         });
         forceTopbarAvatar(user);
-        refreshLucideIcons(document);
+        refreshLucideIcons(qs('.topbar') || document);
     }
 
     function applyProfileUser(user) {
@@ -3533,6 +3533,7 @@
         if (typeof canCreateProjectReport === 'function') PMBI.operations.canCreateProjectReport = canCreateProjectReport;
         if (typeof bindProjectReportAssistantActions === 'function') PMBI.operations.bindProjectReportAssistantActions = bindProjectReportAssistantActions;
         if (typeof bindProjectOverviewActions === 'function') PMBI.operations.bindProjectOverviewActions = bindProjectOverviewActions;
+        if (typeof bindProjectCreate === 'function') PMBI.operations.bindProjectCreate = bindProjectCreate;
         if (typeof ensureProjectEditCard === 'function') PMBI.operations.ensureProjectEditCard = ensureProjectEditCard;
         if (typeof openProjectEdit === 'function') PMBI.operations.openProjectEdit = openProjectEdit;
         if (typeof bindProjectEditForm === 'function') PMBI.operations.bindProjectEditForm = bindProjectEditForm;

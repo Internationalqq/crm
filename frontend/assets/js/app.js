@@ -986,6 +986,10 @@
     }
 
     function bindProjectCreate() {
+        if (PMBI.operations && typeof PMBI.operations.bindProjectCreate === 'function') {
+            PMBI.operations.bindProjectCreate();
+            return;
+        }
         var open = qs('[data-open-project-create]');
         var close = qs('[data-close-project-create]');
         var card = qs('[data-project-create-card]');

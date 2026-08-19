@@ -1359,6 +1359,23 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     pointer-events: auto;
 }
 
+/* The object creation form is a centered modal, not a right-side drawer. */
+.side-drawer[data-drawer-id="project-create"] .side-drawer-panel {
+    top: 50%;
+    right: auto;
+    left: 50%;
+    width: min(680px, calc(100vw - 32px));
+    height: auto;
+    max-height: calc(100vh - 32px);
+    border: 1px solid #c8daee;
+    border-radius: 18px;
+    transform: translate(-50%, -46%);
+}
+
+.side-drawer[data-drawer-id="project-create"][data-open="1"] .side-drawer-panel {
+    transform: translate(-50%, -50%);
+}
+
 .project-edit-head {
     align-items: flex-start;
     margin-bottom: 10px;
@@ -1391,6 +1408,11 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     .project-edit-actions .danger,
     .project-edit-actions .primary {
         width: 100%;
+    }
+
+    .side-drawer[data-drawer-id="project-create"] .side-drawer-panel {
+        width: calc(100vw - 20px);
+        max-height: calc(100vh - 20px);
     }
 }
 
