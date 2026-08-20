@@ -907,6 +907,9 @@
         if (tabName === 'schedule' && PMBI.planning && typeof PMBI.planning.loadSelectedProjectMaterialSchedule === 'function') {
             PMBI.planning.loadSelectedProjectMaterialSchedule(false);
         }
+        if (tabName === 'production-schedule' && PMBI.planning && typeof PMBI.planning.loadSelectedProjectProductionSchedule === 'function') {
+            PMBI.planning.loadSelectedProjectProductionSchedule(false);
+        }
     }
 
     function isProjectTabHidden(tabName) {
@@ -4414,6 +4417,7 @@ function renderLogsDayView(project, logs) {
         var materialsPanel = panel('materials');
         var worksPanel = panel('works');
         var schedulePanel = panel('schedule');
+        var productionSchedulePanel = panel('production-schedule');
         var reportsPanel = panel('reports');
         var tasksPanel = panel('tasks');
         var financePanel = panel('finance');
@@ -4446,6 +4450,7 @@ function renderLogsDayView(project, logs) {
         if (materialsPanel) safeReplaceChildren(materialsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b...</p>');
         if (worksPanel) safeReplaceChildren(worksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0440\u0430\u0431\u043e\u0442\u044b...</p>');
         renderScheduleNow(state.stagesByProject[project.id] || []);
+        if (productionSchedulePanel) safeReplaceChildren(productionSchedulePanel, '<p class="muted">График производства загрузится при открытии вкладки.</p>');
         if (reportsPanel) safeReplaceChildren(reportsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043e\u0442\u0447\u0435\u0442\u044b...</p>');
         if (tasksPanel) safeReplaceChildren(tasksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0437\u0430\u0434\u0430\u0447\u0438...</p>');
         if (financePanel) safeReplaceChildren(financePanel, '');

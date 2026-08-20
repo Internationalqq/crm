@@ -109,12 +109,15 @@ from schedule_tasks import (
     api_project_section_bulk_complete as schedule_api_project_section_bulk_complete,
     api_update_estimate_item_completion as schedule_api_update_estimate_item_completion,
     api_project_auto_schedule as schedule_api_project_auto_schedule,
+    api_production_schedule as schedule_api_production_schedule,
     api_project_schedule_status as schedule_api_project_schedule_status,
     api_project_section_schedule_forecast as schedule_api_project_section_schedule_forecast,
     api_project_stages as schedule_api_project_stages,
     api_project_tasks as schedule_api_project_tasks,
     api_save_material_schedule as schedule_api_save_material_schedule,
+    api_update_production_schedule as schedule_api_update_production_schedule,
     api_update_project_schedule_status as schedule_api_update_project_schedule_status,
+    api_update_section_schedule_override as schedule_api_update_section_schedule_override,
     api_update_stage as schedule_api_update_stage,
     api_update_task as schedule_api_update_task,
     build_material_schedule_payload,
@@ -990,6 +993,29 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS work_schedule_overrides (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE CASCADE,
+                schedule_context TEXT NOT NULL CHECK(schedule_context IN ('graph', 'production')),
+                duration_days INTEGER,
+                crew_size INTEGER,
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, estimate_item_id, schedule_context)
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_cell_overrides (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE CASCADE,
+                day_number INTEGER NOT NULL CHECK(day_number > 0),
+                is_filled INTEGER NOT NULL DEFAULT 0 CHECK(is_filled IN (0, 1)),
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, estimate_item_id, day_number)
+            );
+
             CREATE TABLE IF NOT EXISTS work_stages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1259,6 +1285,8 @@ def init_db() -> None:
                 "notes": "TEXT",
                 "is_completed": "INTEGER NOT NULL DEFAULT 0",
                 "actual_qty": "REAL NOT NULL DEFAULT 0",
+                "labor_hours_total": "REAL",
+                "default_crew_size": "INTEGER",
                 "updated_at": "INTEGER",
             },
         )
@@ -2148,6 +2176,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_auto_schedule(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/section-schedule-forecast"):
                 self.api_project_section_schedule_forecast(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/section-schedule-override"):
+                schedule_api_update_section_schedule_override(self, path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/production-schedule"):
+                schedule_api_production_schedule(self, path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/production-schedule"):
+                schedule_api_update_production_schedule(self, path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/progress-item"):
                 schedule_api_update_estimate_item_completion(self, path)
             elif method == "POST" and path.startswith("/api/projects/") and "bulk-complete" in path:
@@ -3945,10 +3979,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     item.get("planned_price", item.get("plannedPrice", 0)),
                 )
                 article = str(item.get("article", item.get("sku", item.get("code", item.get("basis", item.get("basis_code", item.get("basisCode", ""))))))).strip() or None
+                try:
+                    labor_hours_total = float(item.get("labor_hours_total", item.get("laborHoursTotal")))
+                    labor_hours_total = labor_hours_total if labor_hours_total > 0 else None
+                except (TypeError, ValueError):
+                    labor_hours_total = None
+                try:
+                    default_crew_size = int(item.get("default_crew_size", item.get("defaultCrewSize", item.get("crew_size", item.get("crewSize")))))
+                    default_crew_size = default_crew_size if default_crew_size > 0 else None
+                except (TypeError, ValueError):
+                    default_crew_size = None
                 con.execute(
                     """
-                    INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, stage_id, item_kind, section_title, article, need_by_date, notes, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price, stage_id, item_kind,
+                        section_title, article, need_by_date, notes, labor_hours_total,
+                        default_crew_size, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         project_id,
@@ -3962,6 +4010,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         article,
                         str(item.get("need_by_date", item.get("needByDate", ""))).strip() or None,
                         str(item.get("notes", "")).strip() or None,
+                        labor_hours_total,
+                        default_crew_size,
                         now_ts(),
                     ),
                 )
@@ -4075,7 +4125,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
             item_kind = resolved_estimate_item_kind(item)
             section_title = resolved_estimate_section_title(item)
             article = str(item.get("article", item.get("sku", item.get("code", item.get("basis", item.get("basis_code", item.get("basisCode", ""))))))).strip() or None
-            normalized.append((project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article))
+            try:
+                labor_hours_total = float(item.get("labor_hours_total", item.get("laborHoursTotal")))
+                labor_hours_total = labor_hours_total if labor_hours_total > 0 else None
+            except (TypeError, ValueError):
+                labor_hours_total = None
+            try:
+                default_crew_size = int(item.get("default_crew_size", item.get("defaultCrewSize", item.get("crew_size", item.get("crewSize")))))
+                default_crew_size = default_crew_size if default_crew_size > 0 else None
+            except (TypeError, ValueError):
+                default_crew_size = None
+            normalized.append((project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article, labor_hours_total, default_crew_size))
 
         if not normalized:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "no_valid_items"})
@@ -4086,7 +4146,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 con.execute("DELETE FROM estimate_items WHERE project_id = ?", (project_id,))
             imported = 0
             for normalized_item in normalized:
-                _, title, unit, planned_qty, planned_price, item_kind, section_title, article = normalized_item
+                _, title, unit, planned_qty, planned_price, item_kind, section_title, article, labor_hours_total, default_crew_size = normalized_item
                 existing = con.execute(
                     "SELECT id FROM estimate_items WHERE project_id = ? AND lower(title) = lower(?) AND unit = ?",
                     (project_id, title, unit),
@@ -4095,16 +4155,20 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     con.execute(
                         """
                         UPDATE estimate_items
-                        SET planned_qty = ?, planned_price = ?, item_kind = ?, section_title = ?, article = ?
+                        SET planned_qty = ?, planned_price = ?, item_kind = ?, section_title = ?, article = ?,
+                            labor_hours_total = ?, default_crew_size = ?
                         WHERE id = ?
                         """,
-                        (planned_qty, planned_price, item_kind, section_title, article, existing["id"]),
+                        (planned_qty, planned_price, item_kind, section_title, article, labor_hours_total, default_crew_size, existing["id"]),
                     )
                 else:
                     con.execute(
                         """
-                        INSERT INTO estimate_items (project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO estimate_items (
+                            project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article,
+                            labor_hours_total, default_crew_size
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         normalized_item,
                     )

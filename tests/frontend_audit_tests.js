@@ -13,6 +13,8 @@ const frontendJs = [coreJs, dailyTasksJs, planningJs, procurementJs, operationsJ
 const authPy = fs.readFileSync(path.join(root, 'backend/auth.py'), 'utf8');
 const serverPy = fs.readFileSync(path.join(root, 'backend/server.py'), 'utf8');
 const projectsPy = fs.readFileSync(path.join(root, 'backend/projects.py'), 'utf8');
+const projectsHtml = fs.readFileSync(path.join(root, 'frontend/pages/projects.html'), 'utf8');
+const planningCss = fs.readFileSync(path.join(root, 'frontend/assets/css/planning.css'), 'utf8');
 
 function test(name, fn) {
   try {
@@ -171,6 +173,27 @@ test('Employee contacts are visible while team mutations are admin-only', () => 
   assert.doesNotMatch(serverPy, /viewer_roles & \{"admin", "director", "main_admin"\}/);
   assert.match(operationsJs, /var avatarUrl = safeAvatarUrl\(user\.avatarUrl \|\| user\.avatar_url \|\| user\.avatar \|\| ''\);/);
   assert.match(operationsJs, /'<div class="employee-profile-avatar" aria-hidden="true">' \+ avatar \+ '<\/div>'/);
+});
+
+test('Production schedule has a project tab, editable cells, and a sticky day table', () => {
+  assert.match(projectsHtml, /data-tab="production-schedule"/);
+  assert.match(projectsHtml, /data-panel="production-schedule"/);
+  assert.match(coreJs, /productionScheduleByProject/);
+  assert.match(appJs, /loadSelectedProjectProductionSchedule/);
+  assert.match(planningJs, /data-production-cell/);
+  assert.match(planningJs, /action: 'set_cell'/);
+  assert.match(planningJs, /action: 'recalculate'/);
+  assert.match(planningJs, /9 часов \/ человеко-день/);
+  assert.match(planningCss, /\.production-schedule-table/);
+  assert.match(planningCss, /position: sticky/);
+});
+
+test('Existing graph exposes shared work durations and an automatic reset', () => {
+  assert.match(planningJs, /data-graph-duration-input/);
+  assert.match(planningJs, /section-schedule-override/);
+  assert.match(planningJs, /data-graph-duration-reset/);
+  assert.match(planningJs, /item\.laborHours/);
+  assert.match(planningJs, /item\.crewSize/);
 });
 
 if (process.exitCode) process.exit(process.exitCode);

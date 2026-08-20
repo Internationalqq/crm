@@ -514,6 +514,8 @@ def api_delete_project(handler, path: str) -> None:
             "documents",
             "daily_logs",
             "tasks",
+            "production_schedule_cell_overrides",
+            "work_schedule_overrides",
             "material_schedule_snapshots",
             "supplier_offers",
             "warehouse_transfers",

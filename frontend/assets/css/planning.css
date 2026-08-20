@@ -5,6 +5,304 @@ body.cal-modal-open .calendar-modal-overlay {
     pointer-events: auto;
 }
 
+.section-work-check.schedule-work-duration-row {
+    align-items: center;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(280px, 1fr) auto;
+}
+
+.schedule-work-check-main {
+    align-items: flex-start;
+    cursor: pointer;
+    display: flex;
+    gap: 10px;
+    min-width: 0;
+}
+
+.schedule-work-duration-metrics {
+    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.schedule-work-duration-metrics > span,
+.schedule-work-duration-metrics > label {
+    align-items: center;
+    background: var(--surface-soft, #f6f7f8);
+    border: 1px solid var(--line, #dfe3e6);
+    border-radius: 8px;
+    display: grid;
+    gap: 1px;
+    min-height: 44px;
+    min-width: 70px;
+    padding: 5px 8px;
+    text-align: center;
+}
+
+.schedule-work-duration-metrics small {
+    color: var(--muted, #687078);
+    font-size: 10px;
+    line-height: 1.1;
+}
+
+.schedule-work-duration-metrics input {
+    background: #fff;
+    border: 1px solid var(--line, #dfe3e6);
+    border-radius: 5px;
+    font: inherit;
+    font-weight: 700;
+    max-width: 58px;
+    padding: 3px 5px;
+    text-align: center;
+}
+
+.schedule-work-duration-metrics .schedule-work-confidence {
+    color: #267043;
+    font-size: 11px;
+    min-width: 92px;
+}
+
+.schedule-work-duration-metrics .schedule-work-confidence.is-assumption {
+    color: #946200;
+}
+
+.production-schedule-card {
+    overflow: hidden;
+    padding: 0;
+}
+
+.production-schedule-head {
+    align-items: flex-start;
+    display: flex;
+    gap: 20px;
+    justify-content: space-between;
+    padding: 20px;
+}
+
+.production-schedule-head h3 {
+    margin: 2px 0 6px;
+}
+
+.production-schedule-head p {
+    color: var(--muted, #687078);
+    margin: 0;
+    max-width: 760px;
+}
+
+.production-schedule-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.production-table-scroll {
+    border-top: 1px solid #20252a;
+    max-width: 100%;
+    overflow: auto;
+    position: relative;
+}
+
+.production-schedule-table {
+    background: #fff;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 12px;
+    min-width: max-content;
+    table-layout: fixed;
+}
+
+.production-schedule-table th,
+.production-schedule-table td {
+    border-bottom: 1px solid #3f4448;
+    border-right: 1px solid #3f4448;
+    box-sizing: border-box;
+    height: 34px;
+    margin: 0;
+    padding: 0;
+}
+
+.production-schedule-table thead th {
+    background: #f7f7f6;
+    border-top: 0;
+    font-size: 11px;
+    font-weight: 800;
+    height: 64px;
+    line-height: 1.25;
+    position: sticky;
+    text-align: center;
+    top: 0;
+    z-index: 5;
+}
+
+.production-schedule-table .production-work-title {
+    background: #fff;
+    left: 0;
+    min-width: 360px;
+    padding: 7px 10px;
+    position: sticky;
+    text-align: left;
+    width: 360px;
+    z-index: 3;
+}
+
+.production-schedule-table thead .production-work-title {
+    background: #f7f7f6;
+    text-align: center;
+    z-index: 8;
+}
+
+.production-schedule-table .production-work-title b,
+.production-schedule-table .production-work-title small {
+    display: block;
+}
+
+.production-schedule-table .production-work-title small {
+    color: #70777d;
+    font-weight: 500;
+    margin-top: 2px;
+}
+
+.production-schedule-table .production-hours-cell,
+.production-schedule-table .production-crew-cell,
+.production-schedule-table .production-duration-cell {
+    background: #fff;
+    position: sticky;
+    text-align: center;
+    z-index: 3;
+}
+
+.production-schedule-table .production-hours-cell {
+    left: 360px;
+    min-width: 88px;
+    width: 88px;
+}
+
+.production-schedule-table .production-crew-cell {
+    left: 448px;
+    min-width: 104px;
+    width: 104px;
+}
+
+.production-schedule-table .production-duration-cell {
+    left: 552px;
+    min-width: 110px;
+    width: 110px;
+}
+
+.production-schedule-table thead .production-hours-cell,
+.production-schedule-table thead .production-crew-cell,
+.production-schedule-table thead .production-duration-cell {
+    background: #f7f7f6;
+    z-index: 8;
+}
+
+.production-duration-cell input {
+    border: 1px solid #cbd1d5;
+    border-radius: 5px;
+    font: inherit;
+    font-weight: 800;
+    max-width: 56px;
+    padding: 3px 4px;
+    text-align: center;
+}
+
+.production-duration-cell small {
+    color: #946200;
+    display: block;
+    font-size: 9px;
+    line-height: 1;
+    margin-top: 2px;
+}
+
+.production-day-head,
+.production-day-cell {
+    min-width: 32px;
+    width: 32px;
+}
+
+.production-cell-toggle {
+    background: #fff;
+    border: 0;
+    cursor: pointer;
+    display: block;
+    height: 33px;
+    margin: 0;
+    padding: 0;
+    width: 31px;
+}
+
+.production-cell-toggle.is-filled {
+    background: #a9abad;
+}
+
+.production-cell-toggle.is-filled.is-overridden {
+    background: #7f858a;
+    box-shadow: inset 0 0 0 2px #4e555b;
+}
+
+.production-cell-toggle.is-overridden:not(.is-filled) {
+    background: #fff;
+    box-shadow: inset 0 0 0 2px #d59a58;
+}
+
+.production-cell-toggle:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 2px #1d6adf;
+}
+
+.production-section-row th {
+    background: #f1e33b;
+    color: #24282b;
+    font-weight: 800;
+    height: 30px;
+    left: 0;
+    padding: 5px 10px;
+    position: sticky;
+    text-align: left;
+    z-index: 4;
+}
+
+@media (max-width: 900px) {
+    .production-schedule-head {
+        display: grid;
+    }
+
+    .production-schedule-actions {
+        justify-content: flex-start;
+    }
+
+    .production-schedule-table .production-work-title {
+        min-width: 250px;
+        width: 250px;
+    }
+
+    .production-schedule-table .production-hours-cell {
+        left: 250px;
+    }
+
+    .production-schedule-table .production-crew-cell {
+        left: 338px;
+    }
+
+    .production-schedule-table .production-duration-cell {
+        left: 442px;
+    }
+}
+
+@media (max-width: 900px) {
+    .section-work-check.schedule-work-duration-row {
+        grid-template-columns: 1fr;
+    }
+
+    .schedule-work-duration-metrics {
+        justify-content: flex-start;
+    }
+}
+
 body.cal-modal-open .calendar-modal-card {
     transform: scale(1);
 }
