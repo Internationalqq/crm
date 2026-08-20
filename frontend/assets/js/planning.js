@@ -51,6 +51,7 @@
     function normalizeTaskTitle() { return appCall('normalizeTaskTitle', arguments); }
     function loadProjectNotifications() { return appCall('loadProjectNotifications', arguments); }
     function loadMaterials() { return appCall('loadMaterials', arguments); }
+    function loadWarehouseMatches() { return appCall('loadWarehouseMatches', arguments); }
     function loadMaterialInsights() { return appCall('loadMaterialInsights', arguments); }
     function loadTasks() { return appCall('loadTasks', arguments); }
     function loadStages() { return appCall('loadStages', arguments); }
@@ -62,6 +63,16 @@
     function refreshCounterpartyProjectViews() { return appCall('refreshCounterpartyProjectViews', arguments); }
     function bindProjectMarketToggles() { return appCall('bindProjectMarketToggles', arguments); }
     function bindCounterpartyFilters() { return appCall('bindCounterpartyFilters', arguments); }
+    function renderCounterpartyFilter() { return appCall('renderCounterpartyFilter', arguments); }
+    function filterItemsByCounterparty() { return appCall('filterItemsByCounterparty', arguments); }
+    function renderCounterpartyPicker() { return appCall('renderCounterpartyPicker', arguments); }
+    function materialRow() { return appCall('materialRow', arguments); }
+    function getProjectTabMode() { return appCall('getProjectTabMode', arguments); }
+    function setProjectTabMode() { return appCall('setProjectTabMode', arguments); }
+    function loadProjectMarketAnalysis() { return appCall('loadProjectMarketAnalysis', arguments); }
+    function renderProjectMarketBlock() { return appCall('renderProjectMarketBlock', arguments); }
+    function buildStageLookup() { return appCall('buildStageLookup', arguments); }
+    function rootSectionTitleForStage() { return appCall('rootSectionTitleForStage', arguments); }
     function bindActualQuantityInputs() { return appCall('bindActualQuantityInputs', arguments); }
     function installActualQuantityDelegates() { return appCall('installActualQuantityDelegates', arguments); }
     function renderMaterialManualCheck() { return appCall('renderMaterialManualCheck', arguments); }
@@ -265,21 +276,24 @@
         section = section || {};
         var sectionTitle = canonicalEstimateSectionTitle(section.title || '');
         var items = Array.isArray(section.items) ? section.items : [];
-        var visibleItems = liveScheduleSectionItems(section);
-        if (items.length !== visibleItems.length && window.console) {
+        var allWorkItems = liveScheduleSectionItems(section);
+        if (items.length !== allWorkItems.length && window.console) {
             console.log('Бэкенд прислал для раздела всего позиций:', items.length, section.title || '');
             items.forEach(function (item) {
                 if (!item || !String(item.title || '').trim()) console.warn('Элемент пропущен: нет названия', item);
                 if (item && (item.is_deleted || item.isDeleted)) console.warn('Элемент пропущен: удален', item);
             });
-            console.log('Физически будет отрисовано позиций:', visibleItems.length, section.title || '');
+            console.log('Физически будет отрисовано позиций:', allWorkItems.length, section.title || '');
         }
-        var sectionMaterials = (state.materialsByProject && state.materialsByProject[project.id] || []).filter(function (item) {
+        var allSectionMaterials = (state.materialsByProject && state.materialsByProject[project.id] || []).filter(function (item) {
             var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
             return kind !== 'work' && canonicalEstimateSectionId(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId)) === canonicalEstimateSectionId(section.sectionId || sectionTitle);
         });
-        var workProgress = workProgressForRows(project.id, sectionTitle, visibleItems);
-        var materialProgressValue = materialProgress(project.id, sectionMaterials);
+        var insights = state.materialInsightsByProject[project.id] || {};
+        var visibleItems = filterItemsByCounterparty(project.id, allWorkItems, 'contractor', insights);
+        var sectionMaterials = filterItemsByCounterparty(project.id, allSectionMaterials, 'supplier', insights);
+        var workProgress = workProgressForRows(project.id, sectionTitle, allWorkItems);
+        var materialProgressValue = materialProgress(project.id, allSectionMaterials);
         var totalProgressItems = workProgress.total + materialProgressValue.total;
         var doneProgressItems = workProgress.done + materialProgressValue.done;
         var progress = {
@@ -289,11 +303,21 @@
         };
         var isOpen = isScheduleSectionOpen(project.id, section, false);
         var digest = finalSectionWorkDigest(section);
-        var workDetails = visibleItems.map(function (item) {
+        var allStages = state.stagesByProject[project.id] || [];
+        var stageMap = buildStageLookup(allStages);
+        var stageDetails = allStages.filter(function (stage) {
+            if (String(stage && stage.stage_kind || '') === 'section') return false;
+            return canonicalEstimateSectionTitle(rootSectionTitleForStage(stage, stageMap)) === sectionTitle;
+        }).map(function (stage) {
+            var meta = [stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' • ');
+            return '<div class="material-row work-row schedule-stage-row"><div class="work-row-main"><b>' + escapeHtml(stage.title || 'Этап') + '</b><small>' + escapeHtml(meta || 'Этап работ') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+        }).join('');
+        var estimateWorkDetails = visibleItems.map(function (item) {
             var workDone = isScheduleWorkDone(project.id, sectionTitle, item);
             var durationDays = Number(item.durationDays || item.autoDays || 1);
             var laborHours = Number(item.laborHours != null ? item.laborHours : item.estimated_hours || 0);
             var crewSize = Number(item.crewSize || 1);
+            var insight = insights[Number(item.id)] || null;
             var confidenceLabel = item.confidence === 'assumption' ? 'Укрупнённо' : (item.confidence === 'source' ? 'Из сметы' : 'По нормативу');
             return '<div class="section-work-check schedule-work-duration-row' + (workDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
                 '<label class="schedule-work-check-main"><input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(sectionTitle) + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
@@ -304,12 +328,15 @@
                     '<label><small>Дней</small><input type="number" min="1" max="3650" step="1" value="' + escapeHtml(String(durationDays)) + '" data-graph-duration-input data-project-id="' + escapeHtml(project.id) + '" data-item-id="' + escapeHtml(item.id || '') + '"' + (canManageSchedule() ? '' : ' disabled') + '></label>' +
                     '<span class="schedule-work-confidence' + (item.confidence === 'assumption' ? ' is-assumption' : '') + '">' + escapeHtml(confidenceLabel) + '</span>' +
                     (item.isDurationOverridden && canManageSchedule() ? '<button class="ghost compact" type="button" data-graph-duration-reset data-project-id="' + escapeHtml(project.id) + '" data-item-id="' + escapeHtml(item.id || '') + '">Авто</button>' : '') +
+                    renderCounterpartyPicker(project.id, item, insight, { empty: 'Подрядчик', selected: insight && insight.selectedName ? insight.selectedName : 'Подрядчик', none: 'Нет подрядчиков' }, 'contractor') +
                 '</div>' +
             '</div>';
-        }).join('') || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0440\u0430\u0431\u043e\u0442.</div>';
+        }).join('');
+        var workDetails = stageDetails + estimateWorkDetails;
+        if (!workDetails) workDetails = '<div class="section-schedule-empty inline">По выбранному фильтру работ нет.</div>';
         var materialDetails = sectionMaterials.map(function (item) {
-            return renderMaterialManualCheck(item, sectionTitle || item.sectionTitle || item.stageTitle || '', project.id);
-        }).join('') || '<div class="section-schedule-empty inline">\u0412 \u044d\u0442\u043e\u043c \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u043e\u0432.</div>';
+            return materialRow(item, project.id, insights[Number(item.id)] || null);
+        }).join('') || '<div class="section-schedule-empty inline">По выбранному фильтру материалов нет.</div>';
         var details = '<div class="section-schedule-detail-grid">' +
             '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u0420\u0430\u0431\u043e\u0442\u044b</strong><span>' + escapeHtml(String(workProgress.done) + ' из ' + String(workProgress.total)) + '</span></div><div class="section-schedule-detail-list">' + workDetails + '</div></section>' +
             '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</strong><span>' + escapeHtml(String(materialProgressValue.done) + ' из ' + String(materialProgressValue.total)) + '</span></div><div class="section-schedule-detail-list">' + materialDetails + '</div></section>' +
@@ -368,20 +395,80 @@
                 loadSectionScheduleForecast(projectId, requestedStart, function () {
                     button.disabled = false;
                     if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
-                    var stages = state.stagesByProject[projectId] || [];
-                    var panel = qs('[data-panel="schedule"]');
-                    if (panel) safeReplaceChildren(panel, renderSchedulePanel(stages, state.selectedProject));
-                    bindAutoScheduleForm(projectId);
-                    bindScheduleStatusActions(projectId);
-                    bindSectionScheduleRefresh(projectId);
-                    bindSectionScheduleInteractions(projectId);
-                    bindActualQuantityInputs(projectId);
-                    loadSelectedProjectMaterialSchedule(true);
+                    rerenderSelectedProjectSchedulePanel(projectId, false);
+                    refreshMaterialScheduleProject(projectId, true);
                 }, true);
             });
         });
         bindSectionScheduleInteractions(projectId);
         bindActualQuantityInputs(projectId);
+    }
+
+    function projectScheduleViewMode(projectId) {
+        return getProjectTabMode(projectId, 'schedule') === 'market' ? 'market' : 'list';
+    }
+
+    function renderProjectScheduleViewSwitcher(project) {
+        var mode = projectScheduleViewMode(project.id);
+        return '<div class="project-schedule-view-switcher market-toolbar">' +
+            '<div><h3>Материалы и Работы</h3><p>Смета, факт, контрагенты и рыночные цены в одном разделе.</p></div>' +
+            '<div class="segmented compact" data-project-schedule-switcher>' +
+                '<button type="button" class="' + (mode === 'list' ? 'active' : '') + '" data-project-schedule-mode="list">По разделам</button>' +
+                '<button type="button" class="' + (mode === 'market' ? 'active' : '') + '" data-project-schedule-mode="market">Анализ рынка</button>' +
+            '</div>' +
+        '</div>';
+    }
+
+    function renderProjectScheduleMarketAnalysis(project) {
+        return '<div class="project-market-analysis-grid">' +
+            '<section class="project-market-analysis-section"><div class="card-head"><div><span class="section-label">Материалы</span><h3>Рыночные цены материалов</h3></div></div>' + renderProjectMarketBlock(project.id, 'material') + '</section>' +
+            '<section class="project-market-analysis-section"><div class="card-head"><div><span class="section-label">Работы</span><h3>Рыночные цены работ</h3></div></div>' + renderProjectMarketBlock(project.id, 'work') + '</section>' +
+        '</div>';
+    }
+
+    function renderScheduleCounterpartyFilters(project) {
+        var items = state.materialsByProject[project.id] || [];
+        var insights = state.materialInsightsByProject[project.id] || {};
+        var materials = items.filter(function (item) {
+            return String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase() !== 'work';
+        });
+        var works = items.filter(function (item) {
+            return String(item && (item.itemKind || item.item_kind || '')).toLowerCase() === 'work';
+        });
+        return '<div class="project-schedule-counterparty-filters">' +
+            renderCounterpartyFilter(project.id, 'supplier', materials, insights) +
+            renderCounterpartyFilter(project.id, 'contractor', works, insights) +
+        '</div>';
+    }
+
+    function renderAdditionalProjectStages(stages, project) {
+        var summary = project && state.sectionScheduleByProject ? state.sectionScheduleByProject[project.id] : null;
+        var scheduled = {};
+        (Array.isArray(summary && summary.sections) ? summary.sections : []).forEach(function (section) {
+            scheduled[canonicalEstimateSectionTitle(section && (section.title || section.sectionId))] = true;
+        });
+        var stageMap = buildStageLookup(stages || []);
+        var groups = {};
+        var order = [];
+        (stages || []).filter(function (stage) {
+            return String(stage && stage.stage_kind || '') !== 'section';
+        }).forEach(function (stage) {
+            var title = canonicalEstimateSectionTitle(rootSectionTitleForStage(stage, stageMap));
+            if (scheduled[title]) return;
+            if (!groups[title]) {
+                groups[title] = [];
+                order.push(title);
+            }
+            groups[title].push(stage);
+        });
+        if (!order.length) return '';
+        return '<section class="card section-schedule-board additional-project-stages"><div class="card-head"><div><h3>Дополнительные этапы работ</h3><span class="muted">Этапы объекта, которых пока нет в расчёте по смете.</span></div></div><div class="estimate-section-list">' + order.map(function (title) {
+            var rows = groups[title].map(function (stage) {
+                var meta = [stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' • ');
+                return '<div class="material-row work-row schedule-stage-row"><div class="work-row-main"><b>' + escapeHtml(stage.title || 'Этап') + '</b><small>' + escapeHtml(meta || 'Этап работ') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+            }).join('');
+            return '<section class="estimate-section estimate-section-card"><div class="card-head"><h3>' + escapeHtml(title || 'Работы без раздела') + '</h3></div><div class="materials-list">' + rows + '</div></section>';
+        }).join('') + '</div></section>';
     }
 
     function renderSchedulePanel(stages, project) {
@@ -391,9 +478,73 @@
             '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
             (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '">⚙️ Автоплан графика</button>' : '') +
         '</section>' : '';
+        var switcher = project ? renderProjectScheduleViewSwitcher(project) : '';
+        if (project && projectScheduleViewMode(project.id) === 'market') {
+            return drawer + topBar + switcher + renderProjectScheduleMarketAnalysis(project);
+        }
         var forecast = renderSectionScheduleForecast(project);
-        var materialCalendar = project && !hasRole('customer') ? renderMaterialScheduleContainer(project.id) : '';
-        return drawer + topBar + materialCalendar + forecast;
+        var filters = project ? renderScheduleCounterpartyFilters(project) : '';
+        return drawer + topBar + switcher + filters + forecast + renderAdditionalProjectStages(stages, project);
+    }
+
+    function renderProjectCalendarPanel(project) {
+        if (!project || hasRole('customer')) return '';
+        return renderMaterialScheduleContainer(project.id);
+    }
+
+    function ensureProjectScheduleMarketAnalysis(projectId, force) {
+        ['material', 'work'].forEach(function (kind) {
+            var cache = state.marketAnalysisByProject && state.marketAnalysisByProject[projectId]
+                ? state.marketAnalysisByProject[projectId][kind]
+                : null;
+            if (!force && cache && (cache.loading || cache.status === 'pending' || cache.status === 'ready' || cache.status === 'error')) return;
+            loadProjectMarketAnalysis(projectId, kind, function () {
+                if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+                if (projectScheduleViewMode(projectId) !== 'market') return;
+                rerenderSelectedProjectSchedulePanel(projectId, false);
+            }, !!force);
+        });
+    }
+
+    function rerenderSelectedProjectSchedulePanel(projectId, loadMarket) {
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.selectedProject;
+        var panel = qs('[data-panel="schedule"]');
+        if (!project || !panel || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
+        safeReplaceChildren(panel, renderSchedulePanel(state.stagesByProject[projectId] || [], project));
+        bindAutoScheduleForm(projectId);
+        bindScheduleStatusActions(projectId);
+        bindSectionScheduleRefresh(projectId);
+        bindSectionScheduleInteractions(projectId);
+        bindActualQuantityInputs(projectId);
+        bindProjectMarketToggles(projectId);
+        bindProjectChainActions();
+        bindProjectScheduleViews(projectId);
+        if (loadMarket !== false && projectScheduleViewMode(projectId) === 'market') ensureProjectScheduleMarketAnalysis(projectId, false);
+    }
+
+    function bindProjectScheduleViews(projectId) {
+        var panel = qs('[data-panel="schedule"]');
+        if (!panel) return;
+        qsa('[data-project-schedule-mode]', panel).forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var mode = button.getAttribute('data-project-schedule-mode') === 'market' ? 'market' : 'list';
+                setProjectTabMode(projectId, 'schedule', mode);
+                rerenderSelectedProjectSchedulePanel(projectId, mode === 'market');
+            });
+        });
+        if (projectScheduleViewMode(projectId) === 'market') ensureProjectScheduleMarketAnalysis(projectId, false);
+    }
+
+    function storeMaterialsWithWarehouseMatches(projectId, items, callback) {
+        loadWarehouseMatches(projectId, function (matches) {
+            state.materialsByProject[projectId] = (items || []).map(function (item) {
+                var match = matches && matches[String(item.id)];
+                return match ? Object.assign({}, item, { warehouseMatch: match }) : item;
+            });
+            if (typeof callback === 'function') callback(state.materialsByProject[projectId]);
+        });
     }
 
     function buildScheduleStageSummary(stage, today) {
@@ -1598,16 +1749,15 @@
         }) || state.selectedProject;
         if (!project || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
         var stages = state.stagesByProject[projectId] || [];
-        var items = state.materialsByProject[projectId] || [];
         safeReplaceChildren(qs('[data-panel="schedule"]'), renderSchedulePanel(stages, project));
-        if (qs('[data-panel="works"]')) {
-            safeReplaceChildren(qs('[data-panel="works"]'), renderWorksPanel(stages, items));
-        }
         bindAutoScheduleForm(projectId);
         bindScheduleStatusActions(projectId);
         bindSectionScheduleRefresh(projectId);
         bindSectionScheduleInteractions(projectId);
         bindActualQuantityInputs(projectId);
+        bindProjectMarketToggles(projectId);
+        bindProjectChainActions();
+        bindProjectScheduleViews(projectId);
     }
 
     function reloadGraphScheduleAfterOverride(projectId) {
@@ -1735,6 +1885,9 @@
             bindSectionScheduleRefresh(projectId);
             bindSectionScheduleInteractions(projectId);
             bindActualQuantityInputs(projectId);
+            bindProjectMarketToggles(projectId);
+            bindProjectChainActions();
+            bindProjectScheduleViews(projectId);
         }
     }
 
@@ -2127,7 +2280,7 @@
                     endDate: item.stageEndDate
                 },
                 supplier: null,
-                materialUrl: '/app/projects?openProject=' + projectId + '&tab=materials&materialId=' + item.id
+                materialUrl: '/app/projects?openProject=' + projectId + '&tab=schedule&materialId=' + item.id
             };
         }).sort(function (a, b) {
             return String(a.deadlineDate || '9999-12-31').localeCompare(String(b.deadlineDate || '9999-12-31')) || String(a.purchaseStartDate || '9999-12-31').localeCompare(String(b.purchaseStartDate || '9999-12-31')) || String(a.title).localeCompare(String(b.title));
@@ -2912,7 +3065,7 @@
     }
 
     function ensureMaterialScheduleContainer(projectId) {
-        var panel = qs('[data-panel="schedule"]');
+        var panel = qs('[data-panel="calendar"]');
         if (!panel) return null;
         var container = panel.querySelector('#material-calendar-target') || panel.querySelector('.material-schedule-container');
         if (container) {
@@ -2980,7 +3133,7 @@
     }
 
     function isSelectedProjectScheduleTabActive() {
-        var panel = qs('[data-panel="schedule"]');
+        var panel = qs('[data-panel="calendar"]');
         return !!(panel && panel.classList.contains('active'));
     }
 
@@ -3112,9 +3265,11 @@
                     method: 'POST',
                     body: JSON.stringify({ delivery_days: input ? Number(input.value || 0) : 0 })
                 }).then(function (data) {
-                    if (data && Array.isArray(data.items)) state.materialsByProject[saveProjectId] = data.items;
                     closeMaterialScheduleDrawer();
-                    refreshMaterialScheduleProject(saveProjectId, true);
+                    storeMaterialsWithWarehouseMatches(saveProjectId, data && Array.isArray(data.items) ? data.items : (state.materialsByProject[saveProjectId] || []), function () {
+                        rerenderProjectMaterialAndWorkViews(saveProjectId);
+                        refreshMaterialScheduleProject(saveProjectId, true);
+                    });
                 }).finally(function () {
                     saveDelivery.disabled = false;
                 });
@@ -3139,8 +3294,11 @@
                     })
                 }).then(function () {
                     closeMaterialScheduleDrawer();
-                    loadMaterials(purchaseProjectId, function () {
-                        refreshMaterialScheduleProject(purchaseProjectId, true);
+                    loadMaterials(purchaseProjectId, function (items) {
+                        storeMaterialsWithWarehouseMatches(purchaseProjectId, items, function () {
+                            rerenderProjectMaterialAndWorkViews(purchaseProjectId);
+                            refreshMaterialScheduleProject(purchaseProjectId, true);
+                        });
                     });
                 }).finally(function () {
                     markPurchased.disabled = false;
@@ -3153,17 +3311,17 @@
                 var gotoMaterialId = goto.getAttribute('data-material-id') || '';
                 closeMaterialScheduleDrawer();
                 if (!state.selectedProject || Number(state.selectedProject.id) !== gotoProjectId) {
-                    location.href = '/app/projects?openProject=' + gotoProjectId + '&tab=materials&materialId=' + encodeURIComponent(gotoMaterialId);
+                    location.href = '/app/projects?openProject=' + gotoProjectId + '&tab=schedule&materialId=' + encodeURIComponent(gotoMaterialId);
                     return;
                 }
-                activateProjectTab('materials');
+                activateProjectTab('schedule');
                 setTimeout(function () { focusProjectMaterialRow(gotoMaterialId); }, 80);
                 return;
             }
             var work = event.target && event.target.closest ? event.target.closest('[data-material-schedule-work]') : null;
             if (work) {
                 closeMaterialScheduleDrawer();
-                activateProjectTab('works');
+                activateProjectTab('schedule');
             }
         });
     }
@@ -3196,7 +3354,7 @@
     var baseActivateProjectTabForMaterialSchedule = activateProjectTab;
     activateProjectTab = function (tabName) {
         baseActivateProjectTabForMaterialSchedule(tabName);
-        if (tabName !== 'schedule') return;
+        if (tabName !== 'calendar') return;
         loadSelectedProjectMaterialSchedule(false);
     };
 
@@ -3397,6 +3555,8 @@
         if (typeof renderSectionScheduleForecast === 'function') PMBI.planning.renderSectionScheduleForecast = renderSectionScheduleForecast;
         if (typeof bindSectionScheduleRefresh === 'function') PMBI.planning.bindSectionScheduleRefresh = bindSectionScheduleRefresh;
         if (typeof renderSchedulePanel === 'function') PMBI.planning.renderSchedulePanel = renderSchedulePanel;
+        if (typeof renderProjectCalendarPanel === 'function') PMBI.planning.renderProjectCalendarPanel = renderProjectCalendarPanel;
+        if (typeof bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews = bindProjectScheduleViews;
         if (typeof buildScheduleStageSummary === 'function') PMBI.planning.buildScheduleStageSummary = buildScheduleStageSummary;
         if (typeof scheduleTimelineClass === 'function') PMBI.planning.scheduleTimelineClass = scheduleTimelineClass;
         if (typeof finalSectionSummaryNumber === 'function') PMBI.planning.finalSectionSummaryNumber = finalSectionSummaryNumber;

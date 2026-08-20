@@ -14,11 +14,11 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        app: '/assets/js/app.js?v=20260819-production-schedule-1',
+        app: '/assets/js/app.js?v=20260820-project-navigation-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260817-standup-inline-1',
-        planning: '/assets/js/planning.js?v=20260819-production-schedule-1',
-        procurement: '/assets/js/procurement.js?v=20260814-operations-4',
-        operations: '/assets/js/operations.js?v=20260819-project-create-drawer-1'
+        planning: '/assets/js/planning.js?v=20260820-project-navigation-1',
+        procurement: '/assets/js/procurement.js?v=20260820-project-navigation-1',
+        operations: '/assets/js/operations.js?v=20260820-project-navigation-1'
     };
 
     var PAGE_MODULES = {

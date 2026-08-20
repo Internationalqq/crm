@@ -1697,7 +1697,7 @@
             }).then(function (data) {
                 var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || { id: projectId, title: 'Объект CRM' };
                 state.materialsByProject[projectId] = data.items || [];
-                renderAutobotResult(result, project, 'Смета добавлена в материалы объекта.', autobotProjectHref(projectId, 'materials'), 'Открыть объект', autobotProjectHref(projectId, 'materials'));
+                renderAutobotResult(result, project, 'Смета добавлена в материалы объекта.', autobotProjectHref(projectId, 'schedule'), 'Открыть объект', autobotProjectHref(projectId, 'schedule'));
             }).catch(function (err) {
                 if (result) {
                     result.hidden = true;
@@ -2710,27 +2710,6 @@
                     closeProjectEditCard();
                 }
             });
-        }
-    }
-
-    function ensureProjectWorksSurface() {
-        var tabsRoot = qs('.tabs', qs('[data-project-detail]') || document);
-        if (tabsRoot && !qs('[data-tab="works"]', tabsRoot)) {
-            var materialsTab = qs('[data-tab="materials"]', tabsRoot);
-            if (materialsTab) {
-                materialsTab.insertAdjacentHTML('afterend', '<button class="tab" data-tab="works">Работы</button>');
-            } else {
-                tabsRoot.insertAdjacentHTML('beforeend', '<button class="tab" data-tab="works">Работы</button>');
-            }
-        }
-        var detail = qs('[data-project-detail]');
-        if (detail && !qs('[data-panel="works"]', detail)) {
-            var materialsPanel = qs('[data-panel="materials"]', detail);
-            if (materialsPanel) {
-                materialsPanel.insertAdjacentHTML('afterend', '<div class="tab-panel" data-panel="works"></div>');
-            } else {
-                detail.insertAdjacentHTML('beforeend', '<div class="tab-panel" data-panel="works"></div>');
-            }
         }
     }
 

@@ -170,6 +170,7 @@
     function bindProjectMarketToggles() { return procurementCall('bindProjectMarketToggles', arguments); }
     function renderCounterpartyPicker() { return procurementCall('renderCounterpartyPicker', arguments); }
     function renderCounterpartyFilter() { return procurementCall('renderCounterpartyFilter', arguments); }
+    function filterItemsByCounterparty() { return procurementCall('filterItemsByCounterparty', arguments); }
     function bindCounterpartyFilters() { return procurementCall('bindCounterpartyFilters', arguments); }
     function renderGroupedMaterials() { return procurementCall('renderGroupedMaterials', arguments); }
     function renderEstimateWorkItem() { return procurementCall('renderEstimateWorkItem', arguments); }
@@ -887,6 +888,7 @@
     }
 
     function activateProjectTab(tabName) {
+        if (tabName === 'materials' || tabName === 'works') tabName = 'schedule';
         var root = qs('[data-project-detail]') || document;
         syncProjectTabVisibility(root);
         if (isProjectTabHidden(tabName)) tabName = 'overview';
@@ -904,7 +906,7 @@
         if (tabName === 'finance' && canSeeFinances() && state.selectedProject) {
             loadProjectFinances(state.selectedProject.id, state.projectLoadingToken);
         }
-        if (tabName === 'schedule' && PMBI.planning && typeof PMBI.planning.loadSelectedProjectMaterialSchedule === 'function') {
+        if (tabName === 'calendar' && PMBI.planning && typeof PMBI.planning.loadSelectedProjectMaterialSchedule === 'function') {
             PMBI.planning.loadSelectedProjectMaterialSchedule(false);
         }
         if (tabName === 'production-schedule' && PMBI.planning && typeof PMBI.planning.loadSelectedProjectProductionSchedule === 'function') {
@@ -913,6 +915,7 @@
     }
 
     function isProjectTabHidden(tabName) {
+        if (tabName === 'calendar' && hasRole('customer')) return true;
         if (hasRole('admin') || hasRole('director')) return false;
         return false;
     }
@@ -920,6 +923,7 @@
     function syncProjectTabVisibility(root) {
         root = root || qs('[data-project-detail]') || document;
         var roleHiddenTabs = {
+            calendar: hasRole('customer'),
             reports: false,
             finance: false
         };
@@ -1686,9 +1690,9 @@
             }
             if (state.materialsByProject[projectId]) {
                 var materialsHtml = renderMaterials(state.materialsByProject[projectId], projectId, insights || {});
-                var materialsPanel = qs('[data-panel="materials"]');
-                if (materialsPanel && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                    safeReplaceChildren(materialsPanel, materialsHtml);
+                var schedulePanel = qs('[data-panel="schedule"]');
+                if (schedulePanel && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                    safeReplaceChildren(schedulePanel, renderSchedulePanel(state.stagesByProject[projectId] || [], state.selectedProject));
                 }
                 var overviewMaterials = qs('[data-project-overview-materials]');
                 if (overviewMaterials && state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
@@ -2028,6 +2032,11 @@
                     bindStageCreateForm(projectId);
                     bindStageEditors(projectId);
                     bindScheduleStatusActions(projectId);
+                    bindSectionScheduleRefresh(projectId);
+                    bindSectionScheduleInteractions(projectId);
+                    bindProjectMarketToggles(projectId);
+                    bindProjectChainActions();
+                    if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(projectId);
                     loadExecutionInsights(projectId, stages);
                 });
             }).catch(function (err) {
@@ -2068,6 +2077,11 @@
                         bindStageCreateForm(projectId);
                         bindStageEditors(projectId);
                         bindScheduleStatusActions(projectId);
+                        bindSectionScheduleRefresh(projectId);
+                        bindSectionScheduleInteractions(projectId);
+                        bindProjectMarketToggles(projectId);
+                        bindProjectChainActions();
+                        if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(projectId);
                         loadExecutionInsights(projectId, stages);
                     });
                 });
@@ -3825,19 +3839,18 @@ function renderLogsDayView(project, logs) {
         var project = state.selectedProject;
         var materials = state.materialsByProject[projectId] || [];
         var insights = state.materialInsightsByProject[projectId] || {};
-        var materialsPanel = qs('[data-panel="materials"]');
-        var worksPanel = qs('[data-panel="works"]');
         var schedulePanel = qs('[data-panel="schedule"]');
         var overviewMaterials = qs('[data-project-overview-materials]');
-        if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, materials, insights));
         if (overviewMaterials) safeReplaceChildren(overviewMaterials, renderMaterials(materials, project.id, insights));
-        if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[projectId] || [], materials));
         if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(state.stagesByProject[projectId] || [], project));
         bindProjectChainActions();
         bindProjectMarketToggles(projectId);
         bindAutoScheduleForm(projectId);
         bindScheduleStatusActions(projectId);
         bindSectionScheduleRefresh(projectId);
+        bindSectionScheduleInteractions(projectId);
+        bindActualQuantityInputs(projectId);
+        if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(projectId);
     }
 
     var baseLoadProjectLogs = loadProjectLogs;
@@ -4083,7 +4096,7 @@ function renderLogsDayView(project, logs) {
                             '<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:' + progress + '%"></span></div>' +
                         '</div>' +
                         '<div class="project-card-actions">' +
-                            '<button class="project-quick-action" type="button" data-project-quick-tab="materials" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Материалы"><i data-lucide="boxes"></i></button>' +
+                            '<button class="project-quick-action" type="button" data-project-quick-tab="schedule" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Материалы и Работы"><i data-lucide="boxes"></i></button>' +
                             '<button class="project-quick-action" type="button" data-project-quick-tab="tasks" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Задачи"><i data-lucide="kanban-square"></i></button>' +
                             financeQuickAction +
                         '</div>' +
@@ -4400,8 +4413,10 @@ function renderLogsDayView(project, logs) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         if (!project) return;
         var loadingToken = beginProjectLoading(project.id);
+        var requestedMaterialId = '';
         try {
             var params = new URLSearchParams(location.search);
+            requestedMaterialId = params.get('materialId') || '';
             params.set('openProject', String(projectId));
             history.replaceState(null, '', location.pathname + '?' + params.toString());
         } catch (historyError) {}
@@ -4409,14 +4424,12 @@ function renderLogsDayView(project, logs) {
         state.selectedProject = project;
         root.hidden = false;
         setProjectFocusMode(true);
-        ensureProjectWorksTab();
         bindProjectTabClicks();
         document.documentElement.classList.remove('projects-booting');
         document.documentElement.classList.remove('project-route-loading');
         var overviewPanel = panel('overview');
-        var materialsPanel = panel('materials');
-        var worksPanel = panel('works');
         var schedulePanel = panel('schedule');
+        var calendarPanel = panel('calendar');
         var productionSchedulePanel = panel('production-schedule');
         var reportsPanel = panel('reports');
         var tasksPanel = panel('tasks');
@@ -4433,7 +4446,10 @@ function renderLogsDayView(project, logs) {
             bindScheduleStatusActions(project.id);
             bindSectionScheduleRefresh(project.id);
             bindSectionScheduleInteractions(project.id);
-            loadSelectedProjectMaterialSchedule(false);
+            bindActualQuantityInputs(project.id);
+            bindProjectMarketToggles(project.id);
+            bindProjectChainActions();
+            if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(project.id);
         }
         function queueScheduleRender(stages) {
             if (scheduleRenderTimer) clearTimeout(scheduleRenderTimer);
@@ -4447,9 +4463,10 @@ function renderLogsDayView(project, logs) {
             safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
             refreshLucideIcons(overviewPanel);
         }
-        if (materialsPanel) safeReplaceChildren(materialsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b...</p>');
-        if (worksPanel) safeReplaceChildren(worksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0440\u0430\u0431\u043e\u0442\u044b...</p>');
         renderScheduleNow(state.stagesByProject[project.id] || []);
+        if (calendarPanel && PMBI.planning && typeof PMBI.planning.renderProjectCalendarPanel === 'function') {
+            safeReplaceChildren(calendarPanel, PMBI.planning.renderProjectCalendarPanel(project));
+        }
         if (productionSchedulePanel) safeReplaceChildren(productionSchedulePanel, '<p class="muted">График производства загрузится при открытии вкладки.</p>');
         if (reportsPanel) safeReplaceChildren(reportsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043e\u0442\u0447\u0435\u0442\u044b...</p>');
         if (tasksPanel) safeReplaceChildren(tasksPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0437\u0430\u0434\u0430\u0447\u0438...</p>');
@@ -4462,18 +4479,23 @@ function renderLogsDayView(project, logs) {
         activateProjectTab('overview');
         loadMaterials(project.id, function (items) {
             if (!isCurrentProject(project.id, loadingToken)) return;
-            if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, items, state.materialInsightsByProject[project.id] || null));
-            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, state.stagesByProject[project.id] || [], items));
             queueScheduleRender(state.stagesByProject[project.id] || []);
-            bindProjectMarketToggles(project.id);
-            bindProjectChainActions();
             bindMaterialManualChecks(project.id);
+            loadWarehouseMatches(project.id, function (matches) {
+                if (!isCurrentProject(project.id, loadingToken)) return;
+                state.materialsByProject[project.id] = (state.materialsByProject[project.id] || items || []).map(function (item) {
+                    var match = matches && matches[String(item.id)];
+                    return match ? Object.assign({}, item, { warehouseMatch: match }) : item;
+                });
+                queueScheduleRender(state.stagesByProject[project.id] || []);
+                if (requestedMaterialId) setTimeout(function () {
+                    if (isCurrentProject(project.id, loadingToken)) focusProjectMaterialRow(requestedMaterialId, project.id);
+                }, 180);
+            });
         });
         loadMaterialInsights(project.id, function (insights) {
             if (!isCurrentProject(project.id, loadingToken)) return;
-            if (materialsPanel && state.materialsByProject[project.id]) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, state.materialsByProject[project.id] || [], insights || {}));
-            bindProjectMarketToggles(project.id);
-            bindProjectChainActions();
+            queueScheduleRender(state.stagesByProject[project.id] || []);
         });
         loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
             if (!isCurrentProject(project.id, loadingToken)) return;
@@ -4495,7 +4517,6 @@ function renderLogsDayView(project, logs) {
         loadStages(project.id, function (stages) {
             if (!isCurrentProject(project.id, loadingToken)) return;
             queueScheduleRender(stages);
-            if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, stages, state.materialsByProject[project.id] || []));
             bindStageCreateForm(project.id);
             bindStageEditors(project.id);
             bindMaterialManualChecks(project.id);
@@ -4508,20 +4529,6 @@ function renderLogsDayView(project, logs) {
         loadProjectAssignments(project.id, loadingToken);
         bindProjectChainActions();
     }
-
-    function ensureProjectWorksTab() {
-        var tabsRoot = qs('[data-project-detail] .tabs');
-        if (tabsRoot && !qs('[data-tab="works"]', tabsRoot)) {
-            var materialsTab = qs('[data-tab="materials"]', tabsRoot);
-            if (materialsTab) materialsTab.insertAdjacentHTML('afterend', '<button class="tab" data-tab="works">\u0420\u0430\u0431\u043e\u0442\u044b</button>');
-        }
-        var detail = qs('[data-project-detail]');
-        if (detail && !qs('[data-panel="works"]', detail)) {
-            var materialsPanel = qs('[data-panel="materials"]', detail);
-            if (materialsPanel) materialsPanel.insertAdjacentHTML('afterend', '<div class="tab-panel" data-panel="works"></div>');
-        }
-    }
-
 
     var PROJECT_STATUS_OPTIONS = ['Подготовка', 'В работе', 'На паузе', 'Завершен'];
 
@@ -5142,16 +5149,17 @@ function renderLogsDayView(project, logs) {
         if (!project || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
         var stages = state.stagesByProject[projectId] || [];
         var materials = state.materialsByProject[projectId] || [];
-        var insights = state.materialInsightsByProject[projectId] || {};
-        var materialsPanel = qs('[data-panel="materials"]');
-        var worksPanel = qs('[data-panel="works"]');
         var overviewMaterials = qs('[data-project-overview-materials]');
-        if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(project, materials, insights));
+        var insights = state.materialInsightsByProject[projectId] || {};
         if (overviewMaterials) safeReplaceChildren(overviewMaterials, renderMaterials(materials, project.id, insights));
-        if (worksPanel) safeReplaceChildren(worksPanel, renderProjectWorksTab(project, stages, materials));
+        var schedulePanel = qs('[data-panel="schedule"]');
+        if (schedulePanel) safeReplaceChildren(schedulePanel, renderSchedulePanel(stages, project));
         bindProjectMarketToggles(projectId);
         bindProjectChainActions();
         bindSectionScheduleRefresh(projectId);
+        bindSectionScheduleInteractions(projectId);
+        bindActualQuantityInputs(projectId);
+        if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(projectId);
         syncBulkSectionChecks();
     }
 
@@ -5166,7 +5174,9 @@ function renderLogsDayView(project, logs) {
             bindSectionScheduleRefresh(projectId);
             bindSectionScheduleInteractions(projectId);
             bindActualQuantityInputs(projectId);
-            loadSelectedProjectMaterialSchedule(false);
+            bindProjectMarketToggles(projectId);
+            bindProjectChainActions();
+            if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(projectId);
         }
     }
 
@@ -8418,6 +8428,7 @@ function renderLogsDayView(project, logs) {
     if (typeof bindProjectMarketToggles === 'function') PMBI.app.bindProjectMarketToggles = bindProjectMarketToggles;
     if (typeof renderCounterpartyPicker === 'function') PMBI.app.renderCounterpartyPicker = renderCounterpartyPicker;
     if (typeof renderCounterpartyFilter === 'function') PMBI.app.renderCounterpartyFilter = renderCounterpartyFilter;
+    if (typeof filterItemsByCounterparty === 'function') PMBI.app.filterItemsByCounterparty = filterItemsByCounterparty;
     if (typeof bindCounterpartyFilters === 'function') PMBI.app.bindCounterpartyFilters = bindCounterpartyFilters;
     if (typeof renderGroupedMaterials === 'function') PMBI.app.renderGroupedMaterials = renderGroupedMaterials;
     if (typeof renderEstimateWorkItem === 'function') PMBI.app.renderEstimateWorkItem = renderEstimateWorkItem;
@@ -8448,6 +8459,8 @@ function renderLogsDayView(project, logs) {
     if (typeof finalSectionWorkDigest === 'function') PMBI.app.finalSectionWorkDigest = finalSectionWorkDigest;
     if (typeof finalGraphDate === 'function') PMBI.app.finalGraphDate = finalGraphDate;
     if (typeof finalSectionSummaryNumber === 'function') PMBI.app.finalSectionSummaryNumber = finalSectionSummaryNumber;
+    if (typeof buildStageLookup === 'function') PMBI.app.buildStageLookup = buildStageLookup;
+    if (typeof rootSectionTitleForStage === 'function') PMBI.app.rootSectionTitleForStage = rootSectionTitleForStage;
     if (typeof quantityPlanInfo === 'function') PMBI.app.quantityPlanInfo = quantityPlanInfo;
     if (typeof quantityText === 'function') PMBI.app.quantityText = quantityText;
     if (typeof isMaterialDone === 'function') PMBI.app.isMaterialDone = isMaterialDone;

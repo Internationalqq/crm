@@ -1622,28 +1622,7 @@
     function rerenderProjectMarketTab(projectId, tab) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         if (!project) return;
-        if (tab === 'materials') {
-            var materialsPanel = qs('[data-panel="materials"]');
-            if (materialsPanel) {
-                safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(
-                    project,
-                    state.materialsByProject[projectId] || [],
-                    state.materialInsightsByProject[projectId] || {}
-                ));
-            }
-        }
-        if (tab === 'works') {
-            var worksPanel = qs('[data-panel="works"]');
-            if (worksPanel) {
-                safeReplaceChildren(worksPanel, renderProjectWorksTab(
-                    project,
-                    state.stagesByProject[projectId] || [],
-                    state.materialsByProject[projectId] || []
-                ));
-            }
-        }
-        bindProjectMarketToggles(projectId);
-        bindProjectChainActions();
+        rerenderProjectMaterialAndWorkViews(projectId);
     }
 
     function bindProjectMarketToggles(projectId) {
@@ -2904,13 +2883,17 @@
                 method: 'POST',
                 body: JSON.stringify({ delivery_days: Number(input.value || 0) })
             }).then(function (data) {
-                if (data && Array.isArray(data.items)) state.materialsByProject[projectId] = data.items;
+                var nextItems = data && Array.isArray(data.items) ? data.items : (state.materialsByProject[projectId] || []);
                 if (state.materialScheduleByProject) delete state.materialScheduleByProject[String(projectId)];
                 if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                    var materialsPanel = qs('[data-panel="materials"]');
-                    if (materialsPanel) safeReplaceChildren(materialsPanel, renderProjectMaterialsTab(state.selectedProject, state.materialsByProject[projectId] || [], state.materialInsightsByProject[projectId] || {}));
-                    var schedulePanel = qs('[data-panel="schedule"]');
-                    if (schedulePanel) refreshMaterialScheduleProject(projectId, true);
+                    loadWarehouseMatches(projectId, function (matches) {
+                        state.materialsByProject[projectId] = nextItems.map(function (item) {
+                            var match = matches && matches[String(item.id)];
+                            return match ? Object.assign({}, item, { warehouseMatch: match }) : item;
+                        });
+                        rerenderProjectMaterialAndWorkViews(projectId);
+                        refreshMaterialScheduleProject(projectId, true);
+                    });
                 }
             }).finally(function () {
                 input.disabled = false;
@@ -2953,6 +2936,7 @@
         if (typeof renderProjectTabViewSwitcher === 'function') PMBI.procurement.renderProjectTabViewSwitcher = renderProjectTabViewSwitcher;
         if (typeof renderCounterpartyPicker === 'function') PMBI.procurement.renderCounterpartyPicker = renderCounterpartyPicker;
         if (typeof renderCounterpartyFilter === 'function') PMBI.procurement.renderCounterpartyFilter = renderCounterpartyFilter;
+        if (typeof filterItemsByCounterparty === 'function') PMBI.procurement.filterItemsByCounterparty = filterItemsByCounterparty;
         if (typeof bindCounterpartyFilters === 'function') PMBI.procurement.bindCounterpartyFilters = bindCounterpartyFilters;
         if (typeof renderGroupedMaterials === 'function') PMBI.procurement.renderGroupedMaterials = renderGroupedMaterials;
         if (typeof renderEstimateWorkItem === 'function') PMBI.procurement.renderEstimateWorkItem = renderEstimateWorkItem;

@@ -69,6 +69,40 @@ body.cal-modal-open .calendar-modal-overlay {
     color: #946200;
 }
 
+.project-schedule-view-switcher {
+    margin-bottom: 14px;
+}
+
+.project-schedule-counterparty-filters {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 14px;
+}
+
+.project-schedule-counterparty-filters .counterparty-filter-bar {
+    margin: 0;
+}
+
+.project-market-analysis-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.project-market-analysis-section {
+    border: 1px solid var(--line, #dfe3e6);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.schedule-work-duration-metrics .material-supplier-picker {
+    min-width: 132px;
+}
+
+[data-panel="calendar"] .material-schedule-container {
+    min-width: 0;
+}
+
 .production-schedule-card {
     overflow: hidden;
     padding: 0;
@@ -300,6 +334,10 @@ body.cal-modal-open .calendar-modal-overlay {
 
     .schedule-work-duration-metrics {
         justify-content: flex-start;
+    }
+
+    .project-schedule-counterparty-filters {
+        grid-template-columns: 1fr;
     }
 }
 
