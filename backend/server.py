@@ -246,6 +246,14 @@ HOST = os.environ.get("PMBI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PMBI_PORT", os.environ.get("PORT", "8080")))
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
 PMBI_AUTOBOT_BASE_URL = (os.environ.get("PMBI_AUTOBOT_BASE_URL", "http://127.0.0.1:8765") or "").strip().rstrip("/")
+PMBI_AUTOBOT_INTERNAL_URL = (
+    os.environ.get("PMBI_AUTOBOT_INTERNAL_URL", "http://autobot:8765") or ""
+).strip().rstrip("/")
+AGENT_MARKET_STATUS_PATH = "/api/agent-market/v1/status"
+AGENT_MARKET_CLAIM_PATH = "/api/agent-market/v1/claim"
+AGENT_MARKET_JOB_PATH_RE = re.compile(
+    r"/api/agent-market/v1/jobs/[0-9a-f]{32}/(?:heartbeat|complete|fail)"
+)
 MARKET_ANALYSIS_CACHE_TTL = max(30, int(os.environ.get("PMBI_MARKET_ANALYSIS_TTL", "900")))
 MARKET_ANALYSIS_ERROR_TTL = max(10, int(os.environ.get("PMBI_MARKET_ANALYSIS_ERROR_TTL", "60")))
 MARKET_ANALYSIS_EXECUTOR = ThreadPoolExecutor(
@@ -259,6 +267,14 @@ MARKET_ANALYSIS_JOBS_LOCK = threading.Lock()
 
 class AutoBotUnavailableError(RuntimeError):
     """AutoBot could not be reached while building market analysis."""
+
+
+def is_agent_market_proxy_route(method: str, path: str) -> bool:
+    if method == "GET":
+        return path == AGENT_MARKET_STATUS_PATH
+    if method != "POST":
+        return False
+    return path == AGENT_MARKET_CLAIM_PATH or bool(AGENT_MARKET_JOB_PATH_RE.fullmatch(path))
 
 
 APP_PAGES = {
@@ -4740,7 +4756,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def handle_api(self, method: str, path: str) -> None:
         try:
-            if method == "POST" and path == "/api/auth/login":
+            if is_agent_market_proxy_route(method, path):
+                self.proxy_agent_market_request(method, path)
+            elif method == "POST" and path == "/api/auth/login":
                 self.api_login()
             elif method == "POST" and path == "/api/auth/request-password-reset":
                 auth_api_request_password_reset(self)
@@ -5024,6 +5042,55 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 {"error": "server_error", "message": str(error) or error.__class__.__name__},
             )
+
+    def proxy_agent_market_request(self, method: str, path: str) -> None:
+        """Expose only the token-protected Hermes worker API through the public CRM domain."""
+        if not PMBI_AUTOBOT_INTERNAL_URL:
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "autobot_not_configured"})
+            return
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length < 0 or length > 1024 * 1024:
+            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "payload_too_large"})
+            return
+        body = self.rfile.read(length) if method == "POST" and length else None
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": self.headers.get("Content-Type", "application/json"),
+            "User-Agent": "PM.bi Hermes proxy/1.0",
+        }
+        for name in ("Authorization", "X-AutoBot-Agent-Token"):
+            value = str(self.headers.get(name) or "").strip()
+            if value:
+                headers[name] = value
+        upstream = urllib.request.Request(
+            PMBI_AUTOBOT_INTERNAL_URL + path,
+            data=body,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(upstream, timeout=35) as response:
+                status = int(response.status)
+                response_body = response.read(2 * 1024 * 1024)
+                content_type = response.headers.get("Content-Type", "application/json; charset=utf-8")
+        except urllib.error.HTTPError as error:
+            status = int(error.code)
+            response_body = error.read(2 * 1024 * 1024)
+            content_type = error.headers.get("Content-Type", "application/json; charset=utf-8")
+        except (OSError, urllib.error.URLError, TimeoutError) as error:
+            response_body = json.dumps(
+                {"ok": False, "message": "AutoBot временно недоступен", "error": error.__class__.__name__},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            status = int(HTTPStatus.SERVICE_UNAVAILABLE)
+            content_type = "application/json; charset=utf-8"
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(response_body)))
+        self.end_headers()
+        self.wfile.write(response_body)
 
     def api_login(self) -> None:
         auth_api_login(self)
