@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import tempfile
 import unittest
 from http import HTTPStatus
@@ -48,6 +49,7 @@ class MarketAnalysisAsyncTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         server.MARKET_ANALYSIS_JOBS.clear()
+        gc.collect()
         self.temp_dir.cleanup()
 
     def test_pending_is_deduplicated_then_ready_is_cached(self) -> None:

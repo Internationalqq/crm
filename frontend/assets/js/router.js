@@ -14,18 +14,22 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        app: '/assets/js/app.js?v=20260820-project-navigation-1',
+        app: '/assets/js/app.js?v=20260821-quantity-normalization-1-bulk-section-completion-1-crm-skeletons-1',
+        autobot: '/assets/js/autobot.js?v=20260821-autobot-workspace-1-crm-skeletons-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260817-standup-inline-1',
-        planning: '/assets/js/planning.js?v=20260820-project-navigation-1',
-        procurement: '/assets/js/procurement.js?v=20260820-project-navigation-1',
-        operations: '/assets/js/operations.js?v=20260820-project-navigation-1'
+        planning: '/assets/js/planning.js?v=20260821-multi-estimate-files-1-production-halfday-1-price-table-4-sticky-viewport-1-bulk-section-completion-1-crm-skeletons-1',
+        procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1',
+        estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260821-estimate-reconciliation-1-crm-skeletons-1',
+        warehouse_control: '/assets/js/warehouse-control.js?v=20260822-object-inventory-ledger-1-crm-skeletons-1',
+        economics_management: '/assets/js/economics-management.js?v=20260821-economics-workspace-1-crm-skeletons-1',
+        operations: '/assets/js/operations.js?v=20260820-project-navigation-1-price-table-1-crm-skeletons-1'
     };
 
     var PAGE_MODULES = {
         dashboard: [],
         daily_tasks: ['daily_tasks'],
-        projects: ['planning', 'procurement', 'operations'],
-        autobot: [],
+        projects: ['planning', 'procurement', 'estimate_reconciliation', 'warehouse_control', 'economics_management', 'operations'],
+        autobot: ['autobot'],
         schedule: ['planning', 'procurement'],
         logs: ['planning', 'operations'],
         warehouse: ['procurement'],

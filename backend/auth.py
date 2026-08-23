@@ -19,7 +19,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 import jwt
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -157,11 +157,11 @@ ROLE_ALLOWED_PREFIXES = {
     "main_admin": ["*"],
     "admin": ["*"],
     "director": ["*"],
-    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers"],
-    "buyer": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers"],
-    "purchaser": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/logs", "/app/warehouse", "/app/suppliers"],
-    "financier": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot"],
-    "accountant": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot"],
+    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "buyer": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "purchaser": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "financier": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects"],
+    "accountant": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects"],
     "client": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs"],
     "customer": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs"],
 }
@@ -208,11 +208,11 @@ DEFAULT_ROLE_PERMISSIONS = {
     "main_admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
     "admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
     "director": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
-    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "schedule", "logs", "warehouse", "suppliers", "users"], "projects": "edit", "dailyTasks": "own"},
-    "purchaser": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
-    "buyer": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
-    "financier": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "users"], "projects": "view", "dailyTasks": "own"},
-    "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "users"], "projects": "view", "dailyTasks": "own"},
+    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "schedule", "logs", "warehouse", "suppliers", "users"], "projects": "edit", "dailyTasks": "own"},
+    "purchaser": {"modules": ["dashboard", "daily_tasks", "projects", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
+    "buyer": {"modules": ["dashboard", "daily_tasks", "projects", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
+    "financier": {"modules": ["dashboard", "daily_tasks", "projects", "users"], "projects": "view", "dailyTasks": "own"},
+    "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "users"], "projects": "view", "dailyTasks": "own"},
     "customer": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
     "client": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
 }
@@ -224,6 +224,58 @@ LEGACY_ROLE_ALIASES = {
 ROLE_CODES = tuple(ROLE_LABELS.keys())
 PUBLIC_STATIC_PATHS = {"/", "/index.html", LOGIN_PATH, "/robots.txt"}
 AUTH_RATE_LIMITS: dict[str, list[int]] = {}
+
+PROCUREMENT_PRICE_ROLES = {"main_admin", "admin", "director"}
+PROJECT_ECONOMICS_ROLES = {"main_admin", "admin", "director"}
+PROCUREMENT_PRICE_FIELDS = {
+    "plannedPrice",
+    "planned_price",
+    "estimateUnitPrice",
+    "estimate_unit_price",
+    "estimateTotal",
+    "estimate_total",
+    "marketPrice",
+    "market_price",
+    "marketPriceText",
+    "market_price_text",
+    "marketSource",
+    "market_source",
+    "marketAnalyzedAt",
+    "market_analyzed_at",
+    "marketEstimateVersion",
+    "market_estimate_version",
+    "marketPriceIsFresh",
+    "market_price_is_fresh",
+    "marketPriceIsStale",
+    "market_price_is_stale",
+    "sources",
+    "sourceCount",
+    "source_count",
+    "enteredPrice",
+    "entered_price",
+    "marginPercent",
+    "margin_percent",
+    "activeOffer",
+    "active_offer",
+    "procurementLimit",
+    "procurement_limit",
+    "limitCheck",
+    "limit_check",
+    "estimateVersion",
+    "estimate_version",
+    "analyzedAt",
+    "analyzed_at",
+    "deltaPerUnit",
+    "delta_per_unit",
+    "deltaTotal",
+    "delta_total",
+    "compareToEstimate",
+    "compare_to_estimate",
+    "priceChanged",
+    "price_changed",
+    "priceDelta",
+    "price_delta",
+}
 AUTH_RATE_LIMIT_LOCK = threading.Lock()
 
 
@@ -274,8 +326,7 @@ def clear_auth_rate_limit(bucket: str, key: str) -> None:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def b64url(data: bytes) -> str:
@@ -582,6 +633,13 @@ def user_payload(row: sqlite3.Row) -> dict:
     if role == "admin":
         roles = ["admin"]
         permissions = normalize_permissions({"fullAccess": True}, "admin")
+    can_view_procurement_prices = bool(set(roles) & PROCUREMENT_PRICE_ROLES)
+    permissions["canViewProcurementPrices"] = can_view_procurement_prices
+    if not can_view_procurement_prices:
+        permissions["modules"] = [
+            module for module in permissions.get("modules", [])
+            if module != "autobot"
+        ]
     legacy_name = row["name"] if "name" in keys else ""
     first_name_value = row["first_name"] if "first_name" in keys else ""
     last_name_value = row["last_name"] if "last_name" in keys else ""
@@ -708,9 +766,60 @@ def user_is_main_admin(user: dict) -> bool:
     return user_is_main_admin_account(user) or user_is_hidden_admin(user)
 
 
+def user_can_view_procurement_prices(user: dict | None) -> bool:
+    if not user:
+        return False
+    return user_is_main_admin(user) or user_has_any_role(user, PROCUREMENT_PRICE_ROLES)
+
+
+def user_can_view_project_economics(user: dict | None) -> bool:
+    if not user:
+        return False
+    return user_is_main_admin(user) or user_has_any_role(user, PROJECT_ECONOMICS_ROLES)
+
+
+def user_can_manage_project_economics(user: dict | None) -> bool:
+    return user_can_view_project_economics(user)
+
+
+def user_can_submit_procurement_price(user: dict | None) -> bool:
+    if not user:
+        return False
+    return user_can_view_procurement_prices(user) or not user_has_any_role(user, {"customer", "client"})
+
+
+def payload_has_procurement_prices(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            str(key) in PROCUREMENT_PRICE_FIELDS or payload_has_procurement_prices(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(payload_has_procurement_prices(item) for item in value)
+    return False
+
+
+def redact_procurement_prices(value: object, user: dict | None) -> object:
+    if user_can_view_procurement_prices(user):
+        return value
+    if isinstance(value, dict):
+        return {
+            key: redact_procurement_prices(item, user)
+            for key, item in value.items()
+            if str(key) not in PROCUREMENT_PRICE_FIELDS
+        }
+    if isinstance(value, list):
+        return [redact_procurement_prices(item, user) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact_procurement_prices(item, user) for item in value)
+    return value
+
+
 def user_can_open(user: dict, path: str) -> bool:
     if path in PUBLIC_STATIC_PATHS:
         return True
+    if path == "/app/autobot" and not user_can_view_procurement_prices(user):
+        return False
     if path == "/app":
         return True
     if path == "/app/users":
@@ -745,11 +854,11 @@ def user_can_manage_suppliers(user: dict) -> bool:
 
 
 def user_can_manage_finances(user: dict) -> bool:
-    return bool(user_permissions(user).get("fullAccess")) or user_has_any_role(user, {"admin", "director", "financier", "accountant"})
+    return user_can_view_procurement_prices(user)
 
 
 def user_can_view_finances(user: dict) -> bool:
-    return user_can_manage_finances(user) or user_has_any_role(user, {"foreman"})
+    return user_can_view_procurement_prices(user)
 
 
 def can_see_finances(user: dict) -> bool:

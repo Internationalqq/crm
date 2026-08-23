@@ -1,0 +1,1135 @@
+/* Unified project economics: approved baseline, actuals, forecast and cash flow. */
+
+.project-economics {
+    display: grid;
+    gap: 18px;
+    margin-bottom: 18px;
+    padding: 20px;
+    border: 1px solid #cfdef2;
+    background: linear-gradient(145deg, #fff 0%, #f7faff 100%);
+}
+
+.economics-head,
+.economics-group-head,
+.finance-cash-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.economics-head h3,
+.economics-group-head h4,
+.finance-cash-heading h3 {
+    margin: 3px 0 0;
+}
+
+.economics-head p,
+.economics-group-head p,
+.finance-cash-heading p {
+    max-width: 720px;
+    margin: 5px 0 0;
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+.economics-head-badges {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.economics-mode-badge,
+.economics-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--badge-neutral-bg);
+    color: var(--badge-neutral-text);
+    font-size: 11px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.economics-status.is-success {
+    background: var(--badge-success-bg);
+    color: var(--badge-success-text);
+}
+
+.economics-status.is-warning {
+    background: var(--badge-warn-bg);
+    color: var(--badge-warn-text);
+}
+
+.economics-status.is-danger {
+    background: var(--badge-danger-bg);
+    color: var(--badge-danger-text);
+}
+
+.economics-group {
+    display: grid;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+
+.economics-metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.economics-forecast-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.economics-cash-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.economics-metric {
+    position: relative;
+    min-width: 0;
+    padding: 14px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--ui-radius-md);
+    background: #fff;
+}
+
+.economics-metric > span,
+.economics-metric > strong,
+.economics-metric > small {
+    display: block;
+    padding-right: 28px;
+}
+
+.economics-metric > span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+
+.economics-metric > strong {
+    margin-top: 8px;
+    color: var(--ink);
+    font-size: clamp(18px, 1.8vw, 25px);
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
+.economics-metric > small {
+    margin-top: 7px;
+    color: var(--muted);
+    line-height: 1.35;
+}
+
+.economics-metric-icon {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    color: #8aa4c7;
+}
+
+.economics-metric-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.economics-metric.is-positive {
+    border-color: #bddfca;
+    background: #f5fbf7;
+}
+
+.economics-metric.is-positive > strong,
+.economics-metric.is-positive .economics-metric-icon {
+    color: var(--badge-success-text);
+}
+
+.economics-metric.is-negative {
+    border-color: #edc5c1;
+    background: #fff8f7;
+}
+
+.economics-metric.is-negative > strong,
+.economics-metric.is-negative .economics-metric-icon {
+    color: var(--badge-danger-text);
+}
+
+.economics-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 13px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--ui-radius-md);
+    background: var(--surface-muted);
+}
+
+.economics-notice svg {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+}
+
+.economics-notice b,
+.economics-notice span {
+    display: block;
+}
+
+.economics-notice span {
+    margin-top: 3px;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+.economics-notice.is-warning {
+    border-color: #efdaa8;
+    background: #fffaf0;
+    color: var(--badge-warn-text);
+}
+
+.economics-notice.is-danger {
+    border-color: #edc5c1;
+    background: #fff8f7;
+    color: var(--badge-danger-text);
+}
+
+.economics-notice.is-success {
+    border-color: color-mix(in srgb, var(--badge-success-text) 24%, var(--line));
+    background: color-mix(in srgb, var(--badge-success-bg) 72%, var(--surface));
+}
+
+.economics-components {
+    border: 1px solid var(--line);
+    border-radius: var(--ui-radius-md);
+    background: #fff;
+    overflow: hidden;
+}
+
+.economics-components summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 14px;
+    cursor: pointer;
+    font-weight: 850;
+    list-style: none;
+}
+
+.economics-components summary::-webkit-details-marker {
+    display: none;
+}
+
+.economics-components summary b {
+    display: inline-grid;
+    min-width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--green-soft);
+    color: var(--green);
+    font-size: 12px;
+}
+
+.economics-components-head,
+.economics-component-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.3fr) minmax(220px, 1fr) minmax(100px, .55fr) minmax(140px, .65fr);
+    gap: 12px;
+    align-items: center;
+    padding: 11px 14px;
+    border-top: 1px solid var(--line);
+}
+
+.economics-components-head {
+    background: var(--surface-muted);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.economics-component-row b,
+.economics-component-row span,
+.economics-component-row small {
+    display: block;
+}
+
+.economics-component-row small {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.economics-component-row > strong {
+    text-align: right;
+}
+
+.economics-component-row > strong.is-negative {
+    color: var(--badge-success-text);
+}
+
+.finance-cash-heading {
+    margin-bottom: 12px;
+    padding: 16px 18px;
+}
+
+@media (max-width: 1180px) {
+    .economics-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .economics-forecast-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .project-economics {
+        padding: 15px;
+    }
+
+    .economics-head,
+    .economics-group-head,
+    .finance-cash-heading {
+        display: grid;
+    }
+
+    .economics-head-badges {
+        justify-content: flex-start;
+    }
+
+    .economics-metrics,
+    .economics-forecast-metrics,
+    .economics-cash-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .economics-components-head {
+        display: none;
+    }
+
+    .economics-component-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .economics-component-row > strong {
+        text-align: left;
+    }
+}
+
+/* Управление новой экономической моделью. Модуль намеренно изолирован от
+   legacy-финансов, чтобы оба контура могли жить параллельно до переключения. */
+.economics-management {
+    margin-top: 18px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--surface);
+}
+
+.econ-management-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--line);
+}
+
+.econ-management-head h3,
+.econ-management-head p,
+.econ-entity-head h4,
+.econ-entity-head p,
+.econ-subhead h4,
+.econ-subhead p {
+    margin: 0;
+}
+
+.econ-management-head p,
+.econ-entity-head p,
+.econ-subhead p {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.econ-management-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-muted);
+    scrollbar-width: thin;
+}
+
+.econ-management-tabs button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.econ-management-tabs button:hover,
+.econ-management-tabs button.active {
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.econ-management-tabs button.active {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.econ-management-tabs svg,
+.econ-management-head svg,
+.econ-empty svg,
+.economics-notice svg {
+    width: 17px;
+    height: 17px;
+}
+
+.econ-management-body {
+    min-height: 220px;
+    padding: 20px 22px 24px;
+}
+
+.econ-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 180px;
+    color: var(--muted);
+}
+
+.econ-loading > span {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--line);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: economics-management-spin 0.8s linear infinite;
+}
+
+@keyframes economics-management-spin {
+    to { transform: rotate(360deg); }
+}
+
+.econ-inline-totals {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.econ-management-metric {
+    min-width: 0;
+    padding: 13px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-muted);
+}
+
+.econ-management-metric span,
+.econ-management-metric small,
+.econ-management-metric strong {
+    display: block;
+}
+
+.econ-management-metric span {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.045em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.econ-management-metric strong {
+    margin-top: 6px;
+    font-size: 17px;
+    line-height: 1.2;
+}
+
+.econ-management-metric small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.econ-management-metric.is-success {
+    border-color: color-mix(in srgb, var(--badge-success-text) 25%, var(--line));
+    background: color-mix(in srgb, var(--badge-success-bg) 70%, var(--surface));
+}
+
+.econ-management-metric.is-danger {
+    border-color: color-mix(in srgb, var(--danger) 25%, var(--line));
+    background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+
+.econ-management-metric.is-warning {
+    border-color: color-mix(in srgb, #b7791f 28%, var(--line));
+    background: color-mix(in srgb, #f6ad55 10%, var(--surface));
+}
+
+.econ-create-box,
+.econ-entity-card,
+.econ-entity-detail,
+.econ-empty,
+.econ-legacy-placeholder {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+}
+
+.econ-legacy-head {
+    margin-bottom: 14px;
+}
+
+.econ-legacy-review-form {
+    display: grid;
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.econ-legacy-classification {
+    padding: 15px;
+}
+
+.econ-legacy-decision {
+    margin: 0;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-muted);
+}
+
+.econ-legacy-decision + .econ-legacy-decision {
+    margin-top: 10px;
+}
+
+.econ-legacy-decision legend {
+    max-width: 100%;
+    padding: 0 6px;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.econ-legacy-source-readonly {
+    margin-bottom: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.econ-legacy-source-readonly b,
+.econ-legacy-source-readonly small {
+    display: block;
+}
+
+.econ-legacy-source-readonly small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.econ-legacy-anomalies {
+    display: grid;
+    gap: 9px;
+}
+
+.econ-legacy-anomaly {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, #b7791f 28%, var(--line));
+    border-radius: 11px;
+    background: color-mix(in srgb, #f6ad55 8%, var(--surface));
+}
+
+.econ-legacy-anomaly.is-blocking {
+    border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+    background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+
+.econ-legacy-anomaly b,
+.econ-legacy-anomaly small {
+    display: block;
+}
+
+.econ-legacy-anomaly small,
+.econ-legacy-anomaly p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.econ-legacy-terminal-actions {
+    display: grid;
+    grid-template-columns: minmax(210px, auto) minmax(320px, 1fr);
+    align-items: end;
+    gap: 12px;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--line);
+}
+
+.econ-legacy-terminal-actions form:last-child {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 8px;
+}
+
+.econ-create-box {
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.econ-create-box > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 15px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+    list-style: none;
+}
+
+.econ-create-box > summary::-webkit-details-marker,
+.econ-input-subdetails > summary::-webkit-details-marker {
+    display: none;
+}
+
+.econ-create-box[open] > summary {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-muted);
+}
+
+.econ-create-box > form,
+.econ-entity-card > form,
+.econ-entity-detail > form {
+    padding: 15px;
+}
+
+.econ-create-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.econ-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.econ-form-grid > .wide {
+    grid-column: 1 / -1;
+}
+
+.econ-form-grid label,
+.econ-normalization-row,
+.econ-manual-price-row {
+    min-width: 0;
+}
+
+.econ-successor-editor > form {
+    padding: 15px;
+}
+
+.econ-mapping-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.25fr) auto minmax(180px, 1.25fr) minmax(150px, 0.8fr) minmax(130px, 0.6fr);
+    align-items: end;
+    gap: 10px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-muted);
+}
+
+.econ-mapping-row + .econ-mapping-row {
+    margin-top: 9px;
+}
+
+.econ-mapping-row legend {
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.econ-mapping-row.is-unmapped {
+    opacity: 0.72;
+}
+
+.econ-mapping-source b,
+.econ-mapping-source small {
+    display: block;
+}
+
+.econ-mapping-source small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.econ-mapping-arrow {
+    align-self: center;
+    color: var(--muted);
+    font-size: 20px;
+}
+
+.econ-mapping-row > label > span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+}
+
+.econ-mapping-reason {
+    grid-column: 3 / -1;
+}
+
+.econ-form-grid label > span,
+.econ-normalization-row label > span,
+.econ-manual-price-row label > span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+}
+
+.economics-management input,
+.economics-management select,
+.economics-management textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    outline: none;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.economics-management textarea {
+    min-height: 76px;
+    resize: vertical;
+}
+
+.economics-management input:focus,
+.economics-management select:focus,
+.economics-management textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.econ-subhead,
+.econ-entity-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.econ-subhead {
+    margin: 18px 0 10px;
+}
+
+.econ-lines-group {
+    display: grid;
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.econ-line-editor {
+    position: relative;
+    margin: 0;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-muted);
+}
+
+.econ-line-editor legend {
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.econ-line-editor > [data-econ-remove-line],
+.econ-normalization-row > [data-econ-remove-line] {
+    margin-top: 9px;
+}
+
+.econ-form-actions,
+.econ-workflow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.econ-form-error {
+    display: none;
+    margin-top: 10px;
+    padding: 9px 11px;
+    border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--line));
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+    color: var(--danger);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.econ-form-error.active,
+.econ-form-error.is-active {
+    display: block;
+}
+
+.economics-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 13px;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-muted);
+}
+
+.economics-notice b,
+.economics-notice span {
+    display: block;
+}
+
+.economics-notice span {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.economics-notice.is-danger {
+    border-color: color-mix(in srgb, var(--danger) 25%, var(--line));
+    background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+
+.econ-master-detail {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.34fr) minmax(0, 1fr);
+    gap: 14px;
+}
+
+.econ-version-list,
+.econ-entity-list {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+}
+
+.econ-version-button {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.econ-version-button:hover,
+.econ-version-button.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+.econ-version-button b,
+.econ-version-button span,
+.econ-version-button small {
+    display: block;
+}
+
+.econ-version-button span,
+.econ-version-button small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.econ-entity-card,
+.econ-entity-detail {
+    padding: 15px;
+}
+
+.econ-entity-card + .econ-entity-card {
+    margin-top: 0;
+}
+
+.econ-table-wrap {
+    width: 100%;
+    margin-top: 13px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
+.econ-table {
+    width: 100%;
+    min-width: 680px;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.econ-table th,
+.econ-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+}
+
+.econ-table th {
+    background: var(--surface-muted);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+}
+
+.econ-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.econ-table td.is-money,
+.econ-table th.is-money {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.econ-table td small,
+.econ-entity-card small {
+    color: var(--muted);
+}
+
+.econ-history,
+.econ-input-subdetails,
+.econ-return-form {
+    margin-top: 13px;
+    border-top: 1px solid var(--line);
+    padding-top: 11px;
+}
+
+.econ-history > summary,
+.econ-input-subdetails > summary {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.econ-event-list {
+    display: grid;
+    gap: 7px;
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.econ-event-list li {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.34fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--surface-muted);
+    font-size: 11px;
+}
+
+.econ-event-list time {
+    color: var(--muted);
+}
+
+.econ-return-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.econ-return-form label {
+    flex: 1 1 240px;
+}
+
+.econ-normalization-row,
+.econ-manual-price-row {
+    display: grid;
+    grid-template-columns: 1.1fr 0.8fr 0.8fr 0.7fr auto;
+    align-items: end;
+    gap: 8px;
+    margin-top: 9px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface-muted);
+}
+
+.econ-manual-price-row {
+    grid-template-columns: minmax(170px, 1.4fr) minmax(120px, 0.7fr) minmax(180px, 1fr);
+}
+
+.econ-empty {
+    display: flex;
+    min-height: 140px;
+    padding: 24px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.econ-empty b {
+    color: var(--text);
+}
+
+.econ-empty span {
+    max-width: 680px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.econ-legacy-placeholder {
+    background: repeating-linear-gradient(
+        -45deg,
+        var(--surface),
+        var(--surface) 10px,
+        var(--surface-muted) 10px,
+        var(--surface-muted) 20px
+    );
+}
+
+.economics-management button[disabled],
+.economics-management input[disabled],
+.economics-management select[disabled] {
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+@media (max-width: 1000px) {
+    .econ-inline-totals {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .econ-master-detail,
+    .econ-create-columns {
+        grid-template-columns: 1fr;
+    }
+
+    .econ-form-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .econ-mapping-row {
+        grid-template-columns: minmax(160px, 1fr) auto minmax(180px, 1fr);
+    }
+
+    .econ-mapping-reason {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 700px) {
+    .econ-management-head {
+        display: grid;
+        padding: 16px;
+    }
+
+    .econ-management-body {
+        padding: 15px;
+    }
+
+    .econ-inline-totals,
+    .econ-form-grid,
+    .econ-normalization-row,
+    .econ-manual-price-row,
+    .econ-mapping-row {
+        grid-template-columns: 1fr;
+    }
+
+    .econ-form-grid > .wide {
+        grid-column: auto;
+    }
+
+    .econ-return-form {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .econ-event-list li {
+        grid-template-columns: 1fr;
+    }
+
+    .econ-legacy-anomaly,
+    .econ-legacy-terminal-actions,
+    .econ-legacy-terminal-actions form:last-child {
+        grid-template-columns: 1fr;
+    }
+
+    .econ-mapping-arrow {
+        display: none;
+    }
+
+    .econ-mapping-reason {
+        grid-column: auto;
+    }
+}

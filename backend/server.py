@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import cgi
+import hashlib
 import html
 import json
+import math
 import mimetypes
 import os
 import re
@@ -47,6 +49,8 @@ from auth import (
     hash_password,
     normalize_role,
     normalize_permissions,
+    payload_has_procurement_prices,
+    redact_procurement_prices,
     require_role as auth_require_role,
     require_user as auth_require_user,
     split_person_name,
@@ -54,6 +58,9 @@ from auth import (
     user_can_open,
     user_can_manage_roles,
     user_can_manage_users,
+    user_can_submit_procurement_price,
+    user_can_view_project_economics,
+    user_can_view_procurement_prices,
     user_has_any_role,
     user_is_hidden_admin,
     user_is_main_admin,
@@ -77,6 +84,22 @@ from projects import (
     serialize_project,
     set_project_foremen as projects_set_project_foremen,
 )
+from project_estimates import (
+    ensure_project_estimates_schema,
+    estimate_source_descriptor,
+    list_project_estimates,
+    serialize_project_estimate,
+    source_item_key,
+    upsert_project_estimate,
+)
+from estimate_reconciliation import (
+    build_reconciliation,
+    capture_live_snapshot,
+    capture_snapshot,
+    ensure_estimate_reconciliation_schema,
+    save_review as save_estimate_reconciliation_review,
+)
+from procurement_limits import approved_procurement_limit_map, evaluate_procurement_limit
 from warehouse import (
     api_clear_supplier_selection as warehouse_api_clear_supplier_selection,
     api_companies as warehouse_api_companies,
@@ -92,6 +115,13 @@ from warehouse import (
     api_warehouse_receipt as warehouse_api_warehouse_receipt,
     api_warehouse_transfer as warehouse_api_warehouse_transfer,
 )
+from warehouse_control import (
+    build_warehouse_control,
+    create_work_fact,
+    ensure_warehouse_control_schema,
+    reverse_work_fact,
+    upsert_work_material_norm,
+)
 
 from finance import (
     api_create_finance_entry as finance_api_create_finance_entry,
@@ -100,6 +130,61 @@ from finance import (
     api_update_finance_entry as finance_api_update_finance_entry,
     api_upload_finance_invoice as finance_api_upload_finance_invoice,
     recalc_project_finance_totals as finance_recalc_project_finance_totals,
+)
+
+from economics import (
+    api_approve_financial_baseline as economics_api_approve_financial_baseline,
+    api_approve_actual_cost as economics_api_approve_actual_cost,
+    api_approve_commitment as economics_api_approve_commitment,
+    api_approve_payment_allocation as economics_api_approve_payment_allocation,
+    api_approve_project_forecast as economics_api_approve_project_forecast,
+    api_calculate_project_forecast as economics_api_calculate_project_forecast,
+    api_cancel_commitment as economics_api_cancel_commitment,
+    api_create_actual_cost as economics_api_create_actual_cost,
+    api_create_actual_cost_from_stock_move as economics_api_create_actual_cost_from_stock_move,
+    api_create_actual_cost_from_warehouse_transfer as economics_api_create_actual_cost_from_warehouse_transfer,
+    api_create_commitment as economics_api_create_commitment,
+    api_create_commitment_from_offer as economics_api_create_commitment_from_offer,
+    api_create_financial_baseline as economics_api_create_financial_baseline,
+    api_create_payment_allocation as economics_api_create_payment_allocation,
+    api_project_cash_flow as economics_api_project_cash_flow,
+    api_project_economics as economics_api_project_economics,
+    api_project_actual_costs as economics_api_project_actual_costs,
+    api_project_commitments as economics_api_project_commitments,
+    api_project_financial_baselines as economics_api_project_financial_baselines,
+    api_reverse_actual_cost as economics_api_reverse_actual_cost,
+    api_reverse_payment_allocation as economics_api_reverse_payment_allocation,
+    api_return_financial_baseline as economics_api_return_financial_baseline,
+    api_submit_actual_cost as economics_api_submit_actual_cost,
+    api_submit_commitment as economics_api_submit_commitment,
+    api_submit_financial_baseline as economics_api_submit_financial_baseline,
+    api_submit_payment_allocation as economics_api_submit_payment_allocation,
+    api_submit_project_forecast as economics_api_submit_project_forecast,
+    api_update_actual_cost as economics_api_update_actual_cost,
+    api_update_commitment as economics_api_update_commitment,
+    api_update_financial_baseline as economics_api_update_financial_baseline,
+    api_update_financial_baseline_successors as economics_api_update_financial_baseline_successors,
+    api_update_payment_allocation as economics_api_update_payment_allocation,
+    forecast_source_state_hash as economics_forecast_source_state_hash,
+)
+
+from economics_workflow import (
+    api_project_forecast_price_sources as economics_workflow_api_project_forecast_price_sources,
+    api_project_forecasts as economics_workflow_api_project_forecasts,
+    api_replace_commitment_lines as economics_workflow_api_replace_commitment_lines,
+    api_return_actual_cost as economics_workflow_api_return_actual_cost,
+    api_return_commitment as economics_workflow_api_return_commitment,
+    api_return_payment_allocation as economics_workflow_api_return_payment_allocation,
+    api_return_project_forecast as economics_workflow_api_return_project_forecast,
+)
+
+from legacy_economics import (
+    api_confirm_project_legacy_economics_review as legacy_api_confirm_project_legacy_economics_review,
+    api_ignore_project_legacy_economics_review as legacy_api_ignore_project_legacy_economics_review,
+    api_project_legacy_economics_migration as legacy_api_project_legacy_economics_migration,
+    api_scan_project_legacy_economics as legacy_api_scan_project_legacy_economics,
+    api_update_project_legacy_economics_review as legacy_api_update_project_legacy_economics_review,
+    ensure_legacy_economics_schema,
 )
 
 from schedule_tasks import (
@@ -126,6 +211,7 @@ from schedule_tasks import (
     material_summary_rows,
     mark_project_schedule_draft,
     parse_iso_date,
+    recalc_project_progress,
 )
 
 from communications_docs import (
@@ -166,7 +252,7 @@ MARKET_ANALYSIS_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, int(os.environ.get("PMBI_MARKET_ANALYSIS_WORKERS", "2"))),
     thread_name_prefix="market-analysis",
 )
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 MARKET_ANALYSIS_JOBS: set[tuple[int, str]] = set()
 MARKET_ANALYSIS_JOBS_LOCK = threading.Lock()
 
@@ -269,11 +355,38 @@ def estimate_unit_multiplier(unit: object) -> float:
     return multiplier if multiplier > 1 else 1.0
 
 
-def normalize_estimate_planned_qty(unit: object, qty: object) -> float:
-    try:
-        value = float(qty or 0)
-    except (TypeError, ValueError):
+def parse_estimate_number(value: object) -> float:
+    """Parse estimate numbers without silently losing Russian-formatted values."""
+    if value is None or value == "":
         return 0.0
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+        return number if math.isfinite(number) else 0.0
+
+    text = str(value).strip().replace("\xa0", "").replace("\u202f", "").replace(" ", "")
+    text = re.sub(r"[^0-9,.+\-]", "", text)
+    text = text.rstrip(".,")
+    if not text or text in {"+", "-", ".", ","}:
+        return 0.0
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        text = text.replace(",", ".")
+    if text.count(".") > 1:
+        parts = text.split(".")
+        text = "".join(parts[:-1]) + "." + parts[-1]
+    try:
+        number = float(text)
+    except ValueError:
+        return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
+def normalize_estimate_planned_qty(unit: object, qty: object) -> float:
+    value = parse_estimate_number(qty)
     multiplier = estimate_unit_multiplier(unit)
     if multiplier >= 100 and value >= multiplier:
         return value / multiplier
@@ -281,18 +394,53 @@ def normalize_estimate_planned_qty(unit: object, qty: object) -> float:
 
 
 def normalize_estimate_planned_values(unit: object, qty: object, price: object) -> tuple[float, float]:
-    try:
-        raw_qty = float(qty or 0)
-    except (TypeError, ValueError):
-        raw_qty = 0.0
-    try:
-        raw_price = float(price or 0)
-    except (TypeError, ValueError):
-        raw_price = 0.0
+    raw_qty = parse_estimate_number(qty)
+    raw_price = parse_estimate_number(price)
     planned_qty = normalize_estimate_planned_qty(unit, raw_qty)
     if raw_qty > 0 and planned_qty > 0 and planned_qty != raw_qty:
         raw_price *= raw_qty / planned_qty
     return planned_qty, raw_price
+
+
+def normalize_estimate_item_values(item: dict, unit: object) -> tuple[float, float]:
+    """Resolve common parser aliases and recover a missing unit price from total."""
+    def first_positive_number(*keys: str) -> float:
+        fallback = 0.0
+        for key in keys:
+            if key in item and item.get(key) not in (None, ""):
+                number = parse_estimate_number(item.get(key))
+                if number > 0:
+                    return number
+                fallback = number
+        return fallback
+
+    raw_qty = first_positive_number("planned_qty", "plannedQty", "qty", "quantity", "volume")
+    raw_price = first_positive_number(
+        "planned_price",
+        "plannedPrice",
+        "unit_price",
+        "unitPrice",
+        "unit_price_rub",
+        "price_per_unit",
+        "pricePerUnit",
+        "current_unit_price",
+        "currentUnitPrice",
+        "price",
+    )
+    raw_total = first_positive_number(
+        "planned_total",
+        "plannedTotal",
+        "total",
+        "total_price",
+        "totalPrice",
+        "estimate_total",
+        "estimateTotal",
+        "price_from_estimate_rub",
+        "amount",
+    )
+    if raw_price <= 0 and raw_total > 0 and raw_qty > 0:
+        raw_price = raw_total / raw_qty
+    return normalize_estimate_planned_values(unit, raw_qty, raw_price)
 
 
 FUZZY_MATCH_THRESHOLD = 0.70
@@ -422,8 +570,7 @@ def parse_path_int(path: str, index: int) -> int | None:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def ensure_columns(con: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
@@ -431,6 +578,72 @@ def ensure_columns(con: sqlite3.Connection, table: str, columns: dict[str, str])
     for name, definition in columns.items():
         if name not in existing:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def migrate_supplier_offer_tracking(con: sqlite3.Connection) -> None:
+    """Bring legacy supplier offers into the single-active audited workflow."""
+    ensure_columns(
+        con,
+        "supplier_offers",
+        {
+            "activated_by": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
+            "activated_at": "INTEGER",
+        },
+    )
+
+    # Older data could contain a selected supplier and a selected contractor for
+    # the same estimate item. Preserve the newest choice before the unique index
+    # is created.
+    con.execute(
+        """
+        UPDATE supplier_offers
+        SET status = 'quoted'
+        WHERE status = 'selected'
+          AND estimate_item_id IS NOT NULL
+          AND id NOT IN (
+              SELECT MAX(id)
+              FROM supplier_offers
+              WHERE status = 'selected' AND estimate_item_id IS NOT NULL
+              GROUP BY estimate_item_id
+          )
+        """
+    )
+    con.execute(
+        """
+        UPDATE supplier_offers
+        SET activated_by = COALESCE(activated_by, created_by),
+            activated_at = COALESCE(activated_at, updated_at, created_at)
+        WHERE status = 'selected'
+        """
+    )
+    con.execute(
+        """
+        INSERT INTO supplier_offer_events (
+            supplier_offer_id, project_id, estimate_item_id, action, actor_id, details, created_at
+        )
+        SELECT so.id, so.project_id, so.estimate_item_id, 'created', so.created_by, '{}', so.created_at
+        FROM supplier_offers so
+        WHERE NOT EXISTS (
+            SELECT 1 FROM supplier_offer_events event
+            WHERE event.supplier_offer_id = so.id AND event.action = 'created'
+        )
+        """
+    )
+    con.execute(
+        """
+        INSERT INTO supplier_offer_events (
+            supplier_offer_id, project_id, estimate_item_id, action, actor_id, details, created_at
+        )
+        SELECT so.id, so.project_id, so.estimate_item_id, 'activated', so.activated_by, '{}', so.activated_at
+        FROM supplier_offers so
+        WHERE so.status = 'selected'
+          AND so.activated_at IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM supplier_offer_events event
+              WHERE event.supplier_offer_id = so.id AND event.action = 'activated'
+          )
+        """
+    )
 
 
 def ensure_sqlite_indexes(con: sqlite3.Connection) -> None:
@@ -459,8 +672,79 @@ def ensure_sqlite_indexes(con: sqlite3.Connection) -> None:
             ON documents(project_id, id);
         CREATE INDEX IF NOT EXISTS idx_finance_entries_project_status_date
             ON finance_entries(project_id, status, paid_date, planned_date, id);
+        CREATE INDEX IF NOT EXISTS idx_project_financial_baselines_project_status_version
+            ON project_financial_baselines(project_id, status, version_no);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_project_financial_baselines_one_approved
+            ON project_financial_baselines(project_id)
+            WHERE status = 'approved';
+        CREATE INDEX IF NOT EXISTS idx_project_revenue_lines_baseline_position
+            ON project_revenue_lines(baseline_id, position, id);
+        CREATE INDEX IF NOT EXISTS idx_project_revenue_lines_estimate_item
+            ON project_revenue_lines(estimate_item_id, baseline_id);
+        CREATE INDEX IF NOT EXISTS idx_project_budget_lines_baseline_position
+            ON project_budget_lines(baseline_id, position, id);
+        CREATE INDEX IF NOT EXISTS idx_project_budget_lines_estimate_item
+            ON project_budget_lines(estimate_item_id, baseline_id);
+        CREATE INDEX IF NOT EXISTS idx_project_budget_line_successors_target
+            ON project_budget_line_successors(to_baseline_id, target_budget_line_id);
+        CREATE INDEX IF NOT EXISTS idx_project_revenue_line_successors_target
+            ON project_revenue_line_successors(to_baseline_id, target_revenue_line_id);
+        CREATE INDEX IF NOT EXISTS idx_project_commitments_project_status
+            ON project_commitments(project_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_commitments_baseline_status
+            ON project_commitments(baseline_id, status, id);
+        DROP INDEX IF EXISTS idx_project_commitments_one_open_per_offer;
+        CREATE INDEX idx_project_commitments_one_open_per_offer
+            ON project_commitments(source_supplier_offer_id)
+            WHERE source_supplier_offer_id IS NOT NULL AND status <> 'cancelled';
+        CREATE INDEX IF NOT EXISTS idx_project_commitment_lines_commitment_position
+            ON project_commitment_lines(commitment_id, position, id);
+        CREATE INDEX IF NOT EXISTS idx_project_commitment_lines_budget
+            ON project_commitment_lines(budget_line_id, commitment_id);
+        CREATE INDEX IF NOT EXISTS idx_project_commitment_lines_estimate_item
+            ON project_commitment_lines(estimate_item_id, commitment_id);
+        CREATE INDEX IF NOT EXISTS idx_project_commitment_events_commitment_time
+            ON project_commitment_events(commitment_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS idx_project_actual_cost_entries_project_status_date
+            ON project_actual_cost_entries(project_id, status, recognition_date, id);
+        CREATE INDEX IF NOT EXISTS idx_project_actual_cost_entries_budget
+            ON project_actual_cost_entries(budget_line_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_actual_cost_entries_commitment_line
+            ON project_actual_cost_entries(commitment_line_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_actual_cost_events_entry_time
+            ON project_actual_cost_events(actual_cost_entry_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS idx_project_payment_allocations_project_status
+            ON project_payment_allocations(project_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_payment_allocations_finance_status
+            ON project_payment_allocations(finance_entry_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_payment_allocations_commitment
+            ON project_payment_allocations(target_commitment_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_payment_allocations_actual_cost
+            ON project_payment_allocations(target_actual_cost_entry_id, status, id);
+        CREATE INDEX IF NOT EXISTS idx_project_payment_allocation_events_time
+            ON project_payment_allocation_events(payment_allocation_id, created_at, id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_project_payment_allocations_one_reversal
+            ON project_payment_allocations(reverses_allocation_id)
+            WHERE reverses_allocation_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_project_forecasts_project_status_version
+            ON project_forecasts(project_id, status, version_no);
+        CREATE INDEX IF NOT EXISTS idx_project_forecasts_baseline_status
+            ON project_forecasts(baseline_id, status, version_no);
+        CREATE INDEX IF NOT EXISTS idx_project_forecast_components_forecast_position
+            ON project_forecast_components(forecast_id, position, id);
+        CREATE INDEX IF NOT EXISTS idx_project_forecast_components_budget
+            ON project_forecast_components(budget_line_id, forecast_id);
+        CREATE INDEX IF NOT EXISTS idx_project_forecast_events_time
+            ON project_forecast_events(forecast_id, created_at, id);
         CREATE INDEX IF NOT EXISTS idx_supplier_offers_project_status
             ON supplier_offers(project_id, status, updated_at, id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_offers_one_active_per_item
+            ON supplier_offers(estimate_item_id)
+            WHERE status = 'selected' AND estimate_item_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_supplier_offer_events_offer_time
+            ON supplier_offer_events(supplier_offer_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS idx_market_price_snapshots_project_item_time
+            ON market_price_snapshots(project_id, estimate_item_id, analyzed_at, id);
         CREATE INDEX IF NOT EXISTS idx_chats_project_type
             ON chats(project_id, chat_type, id);
         CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id
@@ -981,8 +1265,21 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'new',
                 notes TEXT,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                activated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                activated_at INTEGER,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS supplier_offer_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                supplier_offer_id INTEGER REFERENCES supplier_offers(id) ON DELETE SET NULL,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                action TEXT NOT NULL,
+                actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS material_schedule_snapshots (
@@ -997,7 +1294,7 @@ def init_db() -> None:
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE CASCADE,
                 schedule_context TEXT NOT NULL CHECK(schedule_context IN ('graph', 'production')),
-                duration_days INTEGER,
+                duration_days REAL,
                 crew_size INTEGER,
                 updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL,
@@ -1014,6 +1311,17 @@ def init_db() -> None:
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY (project_id, estimate_item_id, day_number)
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_slot_overrides (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE CASCADE,
+                slot_number INTEGER NOT NULL CHECK(slot_number > 0),
+                is_filled INTEGER NOT NULL DEFAULT 0 CHECK(is_filled IN (0, 1)),
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, estimate_item_id, slot_number)
             );
 
             CREATE TABLE IF NOT EXISTS work_stages (
@@ -1127,6 +1435,2069 @@ def init_db() -> None:
                 updated_at INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS project_financial_baselines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                version_no INTEGER NOT NULL CHECK(version_no > 0),
+                status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved','superseded')),
+                currency_code TEXT NOT NULL DEFAULT 'RUB' CHECK(currency_code = 'RUB'),
+                source_snapshot_hash TEXT NOT NULL CHECK(length(trim(source_snapshot_hash)) > 0),
+                source_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+                effective_from TEXT,
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_at INTEGER,
+                approved_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                approved_at INTEGER,
+                superseded_by_baseline_id INTEGER REFERENCES project_financial_baselines(id) ON DELETE RESTRICT,
+                superseded_at INTEGER,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+                UNIQUE(project_id, version_no),
+                CHECK(superseded_by_baseline_id IS NULL OR superseded_by_baseline_id <> id),
+                CHECK(submitted_at IS NULL OR submitted_at >= created_at),
+                CHECK(approved_at IS NULL OR (submitted_at IS NOT NULL AND approved_at >= submitted_at)),
+                CHECK(superseded_at IS NULL OR (approved_at IS NOT NULL AND superseded_at >= approved_at)),
+                CHECK(
+                    (status = 'draft'
+                        AND submitted_by IS NULL AND submitted_at IS NULL
+                        AND approved_by IS NULL AND approved_at IS NULL
+                        AND superseded_by_baseline_id IS NULL AND superseded_at IS NULL)
+                    OR
+                    (status = 'pending_approval'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NULL AND approved_at IS NULL
+                        AND superseded_by_baseline_id IS NULL AND superseded_at IS NULL)
+                    OR
+                    (status = 'approved'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL
+                        AND effective_from IS NOT NULL AND length(trim(effective_from)) > 0
+                        AND superseded_by_baseline_id IS NULL AND superseded_at IS NULL)
+                    OR
+                    (status = 'superseded'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL
+                        AND effective_from IS NOT NULL AND length(trim(effective_from)) > 0
+                        AND superseded_by_baseline_id IS NOT NULL AND superseded_at IS NOT NULL)
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS project_revenue_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                baseline_id INTEGER NOT NULL REFERENCES project_financial_baselines(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK(position > 0),
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                section_title TEXT,
+                unit TEXT,
+                quantity REAL CHECK(quantity IS NULL OR quantity >= 0),
+                unit_price_net_kopecks INTEGER CHECK(unit_price_net_kopecks IS NULL OR unit_price_net_kopecks >= 0),
+                net_amount_kopecks INTEGER NOT NULL CHECK(net_amount_kopecks >= 0),
+                vat_rate_basis_points INTEGER NOT NULL DEFAULT 0 CHECK(vat_rate_basis_points BETWEEN 0 AND 10000),
+                vat_amount_kopecks INTEGER NOT NULL DEFAULT 0 CHECK(vat_amount_kopecks >= 0),
+                gross_amount_kopecks INTEGER NOT NULL CHECK(gross_amount_kopecks = net_amount_kopecks + vat_amount_kopecks),
+                source_vat_mode TEXT NOT NULL CHECK(source_vat_mode IN ('net','gross','no_vat')),
+                source_type TEXT NOT NULL CHECK(source_type IN ('estimate','contract','manual')),
+                source_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+                source_reference TEXT NOT NULL CHECK(length(trim(source_reference)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                UNIQUE(baseline_id, position),
+                CHECK(source_vat_mode <> 'no_vat' OR (vat_rate_basis_points = 0 AND vat_amount_kopecks = 0)),
+                CHECK(vat_rate_basis_points <> 0 OR vat_amount_kopecks = 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_budget_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                baseline_id INTEGER NOT NULL REFERENCES project_financial_baselines(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK(position > 0),
+                line_type TEXT NOT NULL CHECK(line_type IN ('direct_cost','management_reserve')),
+                cost_code TEXT,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                section_title TEXT,
+                unit TEXT,
+                quantity REAL CHECK(quantity IS NULL OR quantity >= 0),
+                unit_cost_net_kopecks INTEGER CHECK(unit_cost_net_kopecks IS NULL OR unit_cost_net_kopecks >= 0),
+                net_amount_kopecks INTEGER NOT NULL CHECK(net_amount_kopecks >= 0),
+                vat_rate_basis_points INTEGER NOT NULL DEFAULT 0 CHECK(vat_rate_basis_points BETWEEN 0 AND 10000),
+                vat_amount_kopecks INTEGER NOT NULL DEFAULT 0 CHECK(vat_amount_kopecks >= 0),
+                gross_amount_kopecks INTEGER NOT NULL CHECK(gross_amount_kopecks = net_amount_kopecks + vat_amount_kopecks),
+                source_vat_mode TEXT NOT NULL CHECK(source_vat_mode IN ('net','gross','no_vat')),
+                source_type TEXT NOT NULL CHECK(source_type IN ('estimate','policy','manual')),
+                source_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+                source_reference TEXT NOT NULL CHECK(length(trim(source_reference)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                UNIQUE(baseline_id, position),
+                CHECK(source_vat_mode <> 'no_vat' OR (vat_rate_basis_points = 0 AND vat_amount_kopecks = 0)),
+                CHECK(vat_rate_basis_points <> 0 OR vat_amount_kopecks = 0),
+                CHECK(line_type <> 'management_reserve' OR estimate_item_id IS NULL)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_budget_line_successors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                from_baseline_id INTEGER NOT NULL,
+                to_baseline_id INTEGER NOT NULL,
+                source_budget_line_id INTEGER NOT NULL,
+                target_budget_line_id INTEGER NOT NULL,
+                mapping_kind TEXT NOT NULL
+                    CHECK(mapping_kind IN ('carry_forward','merge','reclassified')),
+                quantity_factor REAL NOT NULL DEFAULT 1
+                    CHECK(quantity_factor > 0),
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                UNIQUE(to_baseline_id, source_budget_line_id),
+                CHECK(from_baseline_id <> to_baseline_id),
+                CHECK(source_budget_line_id <> target_budget_line_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_revenue_line_successors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                from_baseline_id INTEGER NOT NULL,
+                to_baseline_id INTEGER NOT NULL,
+                source_revenue_line_id INTEGER NOT NULL,
+                target_revenue_line_id INTEGER NOT NULL,
+                mapping_kind TEXT NOT NULL
+                    CHECK(mapping_kind IN ('carry_forward','merge','reclassified')),
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                UNIQUE(to_baseline_id, source_revenue_line_id),
+                CHECK(from_baseline_id <> to_baseline_id),
+                CHECK(source_revenue_line_id <> target_revenue_line_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_commitments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                baseline_id INTEGER REFERENCES project_financial_baselines(id) ON DELETE RESTRICT,
+                source_supplier_offer_id INTEGER REFERENCES supplier_offers(id) ON DELETE RESTRICT,
+                commitment_type TEXT NOT NULL CHECK(commitment_type IN ('purchase_order','subcontract','other')),
+                commitment_no TEXT,
+                status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved','cancelled')),
+                currency_code TEXT NOT NULL DEFAULT 'RUB' CHECK(currency_code = 'RUB'),
+                company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+                counterparty_name TEXT NOT NULL CHECK(length(trim(counterparty_name)) > 0),
+                document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+                expected_date TEXT,
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_at INTEGER,
+                approved_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                approved_at INTEGER,
+                cancelled_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                cancelled_at INTEGER,
+                cancellation_reason TEXT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+                UNIQUE(project_id, commitment_no),
+                CHECK(submitted_at IS NULL OR submitted_at >= created_at),
+                CHECK(approved_at IS NULL OR (submitted_at IS NOT NULL AND approved_at >= submitted_at)),
+                CHECK(cancelled_at IS NULL OR (approved_at IS NOT NULL AND cancelled_at >= approved_at)),
+                CHECK(
+                    (status = 'draft'
+                        AND submitted_by IS NULL AND submitted_at IS NULL
+                        AND approved_by IS NULL AND approved_at IS NULL
+                        AND cancelled_by IS NULL AND cancelled_at IS NULL AND cancellation_reason IS NULL)
+                    OR
+                    (status = 'pending_approval'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NULL AND approved_at IS NULL
+                        AND cancelled_by IS NULL AND cancelled_at IS NULL AND cancellation_reason IS NULL)
+                    OR
+                    (status = 'approved'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL
+                        AND cancelled_by IS NULL AND cancelled_at IS NULL AND cancellation_reason IS NULL)
+                    OR
+                    (status = 'cancelled'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL
+                        AND cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL
+                        AND cancellation_reason IS NOT NULL AND length(trim(cancellation_reason)) > 0)
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS project_commitment_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                commitment_id INTEGER NOT NULL REFERENCES project_commitments(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK(position > 0),
+                budget_line_id INTEGER REFERENCES project_budget_lines(id) ON DELETE RESTRICT,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                supplier_offer_id INTEGER REFERENCES supplier_offers(id) ON DELETE RESTRICT,
+                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                unit TEXT,
+                quantity REAL NOT NULL CHECK(quantity > 0),
+                source_unit_price_kopecks INTEGER NOT NULL CHECK(source_unit_price_kopecks > 0),
+                unit_cost_net_kopecks INTEGER NOT NULL CHECK(unit_cost_net_kopecks > 0),
+                net_amount_kopecks INTEGER NOT NULL CHECK(net_amount_kopecks > 0),
+                vat_rate_basis_points INTEGER NOT NULL DEFAULT 0 CHECK(vat_rate_basis_points BETWEEN 0 AND 10000),
+                vat_amount_kopecks INTEGER NOT NULL DEFAULT 0 CHECK(vat_amount_kopecks >= 0),
+                gross_amount_kopecks INTEGER NOT NULL CHECK(gross_amount_kopecks = net_amount_kopecks + vat_amount_kopecks),
+                source_vat_mode TEXT NOT NULL CHECK(source_vat_mode IN ('net','gross','no_vat')),
+                source_reference TEXT NOT NULL CHECK(length(trim(source_reference)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                UNIQUE(commitment_id, position),
+                CHECK(source_vat_mode <> 'no_vat' OR (vat_rate_basis_points = 0 AND vat_amount_kopecks = 0)),
+                CHECK(vat_rate_basis_points <> 0 OR vat_amount_kopecks = 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_commitment_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                commitment_id INTEGER NOT NULL REFERENCES project_commitments(id) ON DELETE CASCADE,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK(action IN ('created','updated','submitted','approved','cancelled')),
+                actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL CHECK(created_at > 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_actual_cost_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                baseline_id INTEGER NOT NULL REFERENCES project_financial_baselines(id) ON DELETE RESTRICT,
+                budget_line_id INTEGER NOT NULL REFERENCES project_budget_lines(id) ON DELETE RESTRICT,
+                commitment_id INTEGER REFERENCES project_commitments(id) ON DELETE RESTRICT,
+                commitment_line_id INTEGER REFERENCES project_commitment_lines(id) ON DELETE RESTRICT,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                cost_category TEXT NOT NULL CHECK(cost_category IN (
+                    'material','subcontract','labor','equipment','service','logistics','overhead','other'
+                )),
+                entry_kind TEXT NOT NULL DEFAULT 'cost' CHECK(entry_kind IN ('cost','return','reversal')),
+                source_type TEXT NOT NULL CHECK(source_type IN (
+                    'material_receipt','warehouse_issue','subcontract_act','service_act',
+                    'labor_timesheet','equipment_log','manual_expense','return','reversal'
+                )),
+                source_event_key TEXT NOT NULL CHECK(length(trim(source_event_key)) > 0),
+                stock_move_id INTEGER REFERENCES stock_moves(id) ON DELETE RESTRICT,
+                warehouse_transfer_id INTEGER REFERENCES warehouse_transfers(id) ON DELETE RESTRICT,
+                document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT,
+                reverses_entry_id INTEGER REFERENCES project_actual_cost_entries(id) ON DELETE RESTRICT,
+                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                recognition_date TEXT,
+                unit TEXT,
+                quantity REAL NOT NULL CHECK(quantity > 0),
+                source_unit_price_kopecks INTEGER NOT NULL CHECK(source_unit_price_kopecks > 0),
+                unit_cost_net_kopecks INTEGER NOT NULL CHECK(unit_cost_net_kopecks > 0),
+                net_amount_kopecks INTEGER NOT NULL CHECK(net_amount_kopecks > 0),
+                vat_rate_basis_points INTEGER NOT NULL DEFAULT 0 CHECK(vat_rate_basis_points BETWEEN 0 AND 10000),
+                vat_amount_kopecks INTEGER NOT NULL DEFAULT 0 CHECK(vat_amount_kopecks >= 0),
+                gross_amount_kopecks INTEGER NOT NULL CHECK(gross_amount_kopecks = net_amount_kopecks + vat_amount_kopecks),
+                source_vat_mode TEXT NOT NULL CHECK(source_vat_mode IN ('net','gross','no_vat')),
+                valuation_method TEXT NOT NULL CHECK(valuation_method IN (
+                    'source_document','lot','moving_weighted_average','approved_rate','original_snapshot'
+                )),
+                source_reference TEXT NOT NULL CHECK(length(trim(source_reference)) > 0),
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved')),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_at INTEGER,
+                approved_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                approved_at INTEGER,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+                UNIQUE(project_id, source_type, source_event_key),
+                CHECK(source_vat_mode <> 'no_vat' OR (vat_rate_basis_points = 0 AND vat_amount_kopecks = 0)),
+                CHECK(vat_rate_basis_points <> 0 OR vat_amount_kopecks = 0),
+                CHECK((commitment_id IS NULL AND commitment_line_id IS NULL)
+                   OR (commitment_id IS NOT NULL AND commitment_line_id IS NOT NULL)),
+                CHECK(
+                    (entry_kind = 'cost' AND source_type NOT IN ('return','reversal') AND reverses_entry_id IS NULL)
+                    OR (entry_kind = 'return' AND source_type = 'return' AND reverses_entry_id IS NOT NULL)
+                    OR (entry_kind = 'reversal' AND source_type = 'reversal' AND reverses_entry_id IS NOT NULL)
+                ),
+                CHECK(
+                    (status = 'draft'
+                        AND submitted_by IS NULL AND submitted_at IS NULL
+                        AND approved_by IS NULL AND approved_at IS NULL)
+                    OR
+                    (status = 'pending_approval'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NULL AND approved_at IS NULL)
+                    OR
+                    (status = 'approved'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL)
+                ),
+                CHECK(submitted_at IS NULL OR submitted_at >= created_at),
+                CHECK(approved_at IS NULL OR (submitted_at IS NOT NULL AND approved_at >= submitted_at))
+            );
+
+            CREATE TABLE IF NOT EXISTS project_actual_cost_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actual_cost_entry_id INTEGER NOT NULL REFERENCES project_actual_cost_entries(id) ON DELETE CASCADE,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK(action IN (
+                    'created','updated','submitted','approved','reversal_created'
+                )),
+                actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL CHECK(created_at > 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_payment_allocations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                finance_entry_id INTEGER NOT NULL REFERENCES finance_entries(id) ON DELETE RESTRICT,
+                allocation_key TEXT NOT NULL CHECK(length(trim(allocation_key)) > 0),
+                direction TEXT NOT NULL CHECK(direction IN ('income','expense')),
+                allocation_purpose TEXT NOT NULL CHECK(allocation_purpose IN ('customer_receipt','supplier_payment')),
+                target_type TEXT NOT NULL CHECK(target_type IN ('revenue_line','commitment','actual_cost')),
+                target_revenue_line_id INTEGER REFERENCES project_revenue_lines(id) ON DELETE RESTRICT,
+                target_commitment_id INTEGER REFERENCES project_commitments(id) ON DELETE RESTRICT,
+                target_actual_cost_entry_id INTEGER REFERENCES project_actual_cost_entries(id) ON DELETE RESTRICT,
+                entry_kind TEXT NOT NULL DEFAULT 'allocation' CHECK(entry_kind IN ('allocation','reversal')),
+                reverses_allocation_id INTEGER REFERENCES project_payment_allocations(id) ON DELETE RESTRICT,
+                source_payment_gross_kopecks INTEGER NOT NULL CHECK(source_payment_gross_kopecks > 0),
+                net_amount_kopecks INTEGER NOT NULL CHECK(net_amount_kopecks > 0),
+                vat_rate_basis_points INTEGER NOT NULL DEFAULT 0 CHECK(vat_rate_basis_points BETWEEN 0 AND 10000),
+                vat_amount_kopecks INTEGER NOT NULL DEFAULT 0 CHECK(vat_amount_kopecks >= 0),
+                gross_amount_kopecks INTEGER NOT NULL CHECK(gross_amount_kopecks = net_amount_kopecks + vat_amount_kopecks),
+                source_vat_mode TEXT NOT NULL CHECK(source_vat_mode IN ('gross','no_vat')),
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved')),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_at INTEGER,
+                approved_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                approved_at INTEGER,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+                UNIQUE(finance_entry_id, allocation_key),
+                CHECK(source_vat_mode <> 'no_vat' OR (vat_rate_basis_points = 0 AND vat_amount_kopecks = 0)),
+                CHECK(vat_rate_basis_points <> 0 OR vat_amount_kopecks = 0),
+                CHECK(
+                    (target_type = 'revenue_line' AND target_revenue_line_id IS NOT NULL
+                        AND target_commitment_id IS NULL AND target_actual_cost_entry_id IS NULL)
+                    OR
+                    (target_type = 'commitment' AND target_revenue_line_id IS NULL
+                        AND target_commitment_id IS NOT NULL AND target_actual_cost_entry_id IS NULL)
+                    OR
+                    (target_type = 'actual_cost' AND target_revenue_line_id IS NULL
+                        AND target_commitment_id IS NULL AND target_actual_cost_entry_id IS NOT NULL)
+                ),
+                CHECK(
+                    (direction = 'income' AND allocation_purpose = 'customer_receipt' AND target_type = 'revenue_line')
+                    OR
+                    (direction = 'expense' AND allocation_purpose = 'supplier_payment'
+                        AND target_type IN ('commitment','actual_cost'))
+                ),
+                CHECK(
+                    (entry_kind = 'allocation' AND reverses_allocation_id IS NULL)
+                    OR (entry_kind = 'reversal' AND reverses_allocation_id IS NOT NULL)
+                ),
+                CHECK(
+                    (status = 'draft'
+                        AND submitted_by IS NULL AND submitted_at IS NULL
+                        AND approved_by IS NULL AND approved_at IS NULL)
+                    OR
+                    (status = 'pending_approval'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NULL AND approved_at IS NULL)
+                    OR
+                    (status = 'approved'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL)
+                ),
+                CHECK(submitted_at IS NULL OR submitted_at >= created_at),
+                CHECK(approved_at IS NULL OR (submitted_at IS NOT NULL AND approved_at >= submitted_at))
+            );
+
+            CREATE TABLE IF NOT EXISTS project_payment_allocation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payment_allocation_id INTEGER NOT NULL REFERENCES project_payment_allocations(id) ON DELETE CASCADE,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK(action IN ('created','updated','submitted','approved','reversal_created')),
+                actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL CHECK(created_at > 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_forecasts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                baseline_id INTEGER NOT NULL REFERENCES project_financial_baselines(id) ON DELETE RESTRICT,
+                version_no INTEGER NOT NULL CHECK(version_no > 0),
+                status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved')),
+                currency_code TEXT NOT NULL DEFAULT 'RUB' CHECK(currency_code = 'RUB'),
+                calculation_date TEXT NOT NULL CHECK(length(trim(calculation_date)) > 0),
+                source_state_hash TEXT NOT NULL CHECK(length(trim(source_state_hash)) > 0),
+                contract_revenue_net_kopecks INTEGER NOT NULL CHECK(contract_revenue_net_kopecks >= 0),
+                target_cost_net_kopecks INTEGER NOT NULL CHECK(target_cost_net_kopecks >= 0),
+                committed_total_net_kopecks INTEGER NOT NULL CHECK(committed_total_net_kopecks >= 0),
+                actual_cost_net_kopecks INTEGER NOT NULL CHECK(actual_cost_net_kopecks >= 0),
+                etc_net_kopecks INTEGER NOT NULL CHECK(etc_net_kopecks >= 0),
+                eac_net_kopecks INTEGER NOT NULL,
+                forecast_margin_net_kopecks INTEGER NOT NULL,
+                budget_variance_net_kopecks INTEGER NOT NULL,
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                submitted_at INTEGER,
+                approved_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                approved_at INTEGER,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+                UNIQUE(project_id, version_no),
+                CHECK(eac_net_kopecks = actual_cost_net_kopecks + etc_net_kopecks),
+                CHECK(forecast_margin_net_kopecks = contract_revenue_net_kopecks - eac_net_kopecks),
+                CHECK(budget_variance_net_kopecks = target_cost_net_kopecks - eac_net_kopecks),
+                CHECK(
+                    (status = 'draft'
+                        AND submitted_by IS NULL AND submitted_at IS NULL
+                        AND approved_by IS NULL AND approved_at IS NULL)
+                    OR
+                    (status = 'pending_approval'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NULL AND approved_at IS NULL)
+                    OR
+                    (status = 'approved'
+                        AND submitted_by IS NOT NULL AND submitted_at IS NOT NULL
+                        AND approved_by IS NOT NULL AND approved_at IS NOT NULL)
+                ),
+                CHECK(submitted_at IS NULL OR submitted_at >= created_at),
+                CHECK(approved_at IS NULL OR (submitted_at IS NOT NULL AND approved_at >= submitted_at))
+            );
+
+            CREATE TABLE IF NOT EXISTS project_forecast_components (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                forecast_id INTEGER NOT NULL REFERENCES project_forecasts(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK(position > 0),
+                budget_line_id INTEGER REFERENCES project_budget_lines(id) ON DELETE RESTRICT,
+                commitment_line_id INTEGER REFERENCES project_commitment_lines(id) ON DELETE RESTRICT,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                component_type TEXT NOT NULL CHECK(component_type IN (
+                    'remaining_commitment','uncontracted','adjustment','risk'
+                )),
+                source_type TEXT NOT NULL CHECK(source_type IN (
+                    'approved_commitment','active_supplier_offer','autobot_snapshot',
+                    'target_budget','manual_unit_price','manual_adjustment','manual_risk'
+                )),
+                supplier_offer_id INTEGER REFERENCES supplier_offers(id) ON DELETE RESTRICT,
+                market_snapshot_id INTEGER REFERENCES market_price_snapshots(id) ON DELETE RESTRICT,
+                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                unit TEXT,
+                quantity REAL CHECK(quantity IS NULL OR quantity > 0),
+                raw_unit_price_kopecks INTEGER CHECK(raw_unit_price_kopecks IS NULL OR raw_unit_price_kopecks > 0),
+                unit_cost_net_kopecks INTEGER CHECK(unit_cost_net_kopecks IS NULL OR unit_cost_net_kopecks > 0),
+                amount_sign INTEGER NOT NULL DEFAULT 1 CHECK(amount_sign IN (-1,1)),
+                net_amount_kopecks INTEGER NOT NULL CHECK(net_amount_kopecks > 0),
+                source_vat_mode TEXT CHECK(source_vat_mode IS NULL OR source_vat_mode IN ('net','gross','no_vat')),
+                vat_rate_basis_points INTEGER CHECK(vat_rate_basis_points IS NULL OR vat_rate_basis_points BETWEEN 0 AND 10000),
+                source_snapshot_at INTEGER NOT NULL CHECK(source_snapshot_at > 0),
+                source_version TEXT NOT NULL CHECK(length(trim(source_version)) > 0),
+                source_reference TEXT NOT NULL CHECK(length(trim(source_reference)) > 0),
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL CHECK(created_at > 0),
+                UNIQUE(forecast_id, position),
+                CHECK(component_type <> 'remaining_commitment' OR (
+                    source_type = 'approved_commitment' AND commitment_line_id IS NOT NULL
+                )),
+                CHECK(component_type <> 'risk' OR (source_type = 'manual_risk' AND amount_sign = 1)),
+                CHECK(component_type <> 'adjustment' OR source_type = 'manual_adjustment'),
+                CHECK(source_type <> 'active_supplier_offer' OR supplier_offer_id IS NOT NULL),
+                CHECK(source_type <> 'autobot_snapshot' OR market_snapshot_id IS NOT NULL)
+            );
+
+            CREATE TABLE IF NOT EXISTS project_forecast_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                forecast_id INTEGER NOT NULL REFERENCES project_forecasts(id) ON DELETE CASCADE,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK(action IN ('calculated','submitted','approved')),
+                actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL CHECK(created_at > 0)
+            );
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_insert_draft_only
+            BEFORE INSERT ON project_forecasts
+            WHEN NEW.status <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_must_start_as_draft');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_relation_insert_guard
+            BEFORE INSERT ON project_forecasts
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_financial_baselines baseline
+                WHERE baseline.id = NEW.baseline_id
+                  AND baseline.project_id = NEW.project_id
+                  AND baseline.status = 'approved'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'approved_financial_baseline_required');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_identity_immutable
+            BEFORE UPDATE OF project_id, baseline_id, version_no, source_state_hash
+            ON project_forecasts
+            WHEN NEW.project_id <> OLD.project_id
+              OR NEW.baseline_id <> OLD.baseline_id
+              OR NEW.version_no <> OLD.version_no
+              OR NEW.source_state_hash <> OLD.source_state_hash
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_identity_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_status_transition
+            BEFORE UPDATE OF status ON project_forecasts
+            WHEN OLD.status <> NEW.status AND NOT (
+                (OLD.status = 'draft' AND NEW.status = 'pending_approval')
+                OR (OLD.status = 'pending_approval' AND NEW.status IN ('draft','approved'))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid_project_forecast_status_transition');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_approval_requirements
+            BEFORE UPDATE OF status ON project_forecasts
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id
+                      AND baseline.project_id = NEW.project_id
+                      AND baseline.status = 'approved'
+                ) THEN RAISE(ABORT, 'approved_financial_baseline_required') END;
+                SELECT CASE WHEN NEW.etc_net_kopecks <> COALESCE((
+                    SELECT SUM(component.amount_sign * component.net_amount_kopecks)
+                    FROM project_forecast_components component
+                    WHERE component.forecast_id = NEW.id
+                ), 0) THEN RAISE(ABORT, 'project_forecast_component_total_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_snapshot_immutable
+            BEFORE UPDATE OF currency_code, calculation_date,
+                contract_revenue_net_kopecks, target_cost_net_kopecks,
+                committed_total_net_kopecks, actual_cost_net_kopecks,
+                etc_net_kopecks, eac_net_kopecks, forecast_margin_net_kopecks,
+                budget_variance_net_kopecks, reason, created_by, created_at
+            ON project_forecasts
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_snapshot_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_approved_immutable
+            BEFORE UPDATE ON project_forecasts
+            WHEN OLD.status = 'approved'
+            BEGIN
+                SELECT RAISE(ABORT, 'approved_project_forecast_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_delete_guard
+            BEFORE DELETE ON project_forecasts
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_cannot_be_deleted');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_component_insert_guard
+            BEFORE INSERT ON project_forecast_components
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_forecasts WHERE id = NEW.forecast_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'project_forecast_components_are_not_editable') END;
+                SELECT CASE WHEN NEW.budget_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_budget_lines line
+                    JOIN project_forecasts forecast ON forecast.id = NEW.forecast_id
+                    WHERE line.id = NEW.budget_line_id AND line.baseline_id = forecast.baseline_id
+                ) THEN RAISE(ABORT, 'project_forecast_budget_line_mismatch') END;
+                SELECT CASE WHEN NEW.commitment_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_commitment_lines line
+                    JOIN project_commitments commitment ON commitment.id = line.commitment_id
+                    JOIN project_forecasts forecast ON forecast.id = NEW.forecast_id
+                    WHERE line.id = NEW.commitment_line_id
+                      AND commitment.project_id = forecast.project_id
+                ) THEN RAISE(ABORT, 'project_forecast_commitment_line_mismatch') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_forecasts forecast ON forecast.id = NEW.forecast_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = forecast.project_id
+                ) THEN RAISE(ABORT, 'project_forecast_estimate_item_mismatch') END;
+                SELECT CASE WHEN NEW.supplier_offer_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM supplier_offers offer
+                    JOIN project_forecasts forecast ON forecast.id = NEW.forecast_id
+                    WHERE offer.id = NEW.supplier_offer_id AND offer.project_id = forecast.project_id
+                ) THEN RAISE(ABORT, 'project_forecast_supplier_offer_mismatch') END;
+                SELECT CASE WHEN NEW.market_snapshot_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM market_price_snapshots snapshot
+                    JOIN project_forecasts forecast ON forecast.id = NEW.forecast_id
+                    WHERE snapshot.id = NEW.market_snapshot_id AND snapshot.project_id = forecast.project_id
+                ) THEN RAISE(ABORT, 'project_forecast_market_snapshot_mismatch') END;
+                SELECT CASE WHEN NOT (
+                    (NEW.component_type = 'remaining_commitment'
+                        AND NEW.source_type = 'approved_commitment')
+                    OR (NEW.component_type = 'uncontracted' AND NEW.source_type IN (
+                        'active_supplier_offer','autobot_snapshot',
+                        'target_budget','manual_unit_price'
+                    ))
+                    OR (NEW.component_type = 'adjustment'
+                        AND NEW.source_type = 'manual_adjustment')
+                    OR (NEW.component_type = 'risk'
+                        AND NEW.source_type = 'manual_risk')
+                ) THEN RAISE(ABORT, 'project_forecast_component_source_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_component_update_immutable
+            BEFORE UPDATE ON project_forecast_components
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_component_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_component_delete_immutable
+            BEFORE DELETE ON project_forecast_components
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_component_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_component_update_guard
+            BEFORE UPDATE ON project_forecast_components
+            WHEN COALESCE((SELECT status FROM project_forecasts WHERE id = OLD.forecast_id), '') <> 'draft'
+              OR COALESCE((SELECT status FROM project_forecasts WHERE id = NEW.forecast_id), '') <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_components_are_not_editable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_component_delete_guard
+            BEFORE DELETE ON project_forecast_components
+            WHEN COALESCE((SELECT status FROM project_forecasts WHERE id = OLD.forecast_id), '') <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_components_are_not_editable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_event_insert_guard
+            BEFORE INSERT ON project_forecast_events
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_forecasts forecast
+                WHERE forecast.id = NEW.forecast_id AND forecast.project_id = NEW.project_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_event_project_mismatch');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_event_update_guard
+            BEFORE UPDATE ON project_forecast_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_forecast_event_delete_guard
+            BEFORE DELETE ON project_forecast_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_forecast_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_insert_draft_only
+            BEFORE INSERT ON project_payment_allocations
+            WHEN NEW.status <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_payment_allocation_must_start_as_draft');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_relation_insert_guard
+            BEFORE INSERT ON project_payment_allocations
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM finance_entries payment
+                    WHERE payment.id = NEW.finance_entry_id
+                      AND payment.project_id = NEW.project_id
+                      AND payment.direction = NEW.direction
+                ) THEN RAISE(ABORT, 'project_payment_allocation_payment_mismatch') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'revenue_line' AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_revenue_lines line
+                    JOIN project_financial_baselines baseline ON baseline.id = line.baseline_id
+                    WHERE line.id = NEW.target_revenue_line_id
+                      AND baseline.project_id = NEW.project_id
+                      AND baseline.status = 'approved'
+                ) THEN RAISE(ABORT, 'approved_project_revenue_line_required') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'commitment' AND NOT EXISTS (
+                    SELECT 1 FROM project_commitments commitment
+                    WHERE commitment.id = NEW.target_commitment_id
+                      AND commitment.project_id = NEW.project_id
+                      AND commitment.status = 'approved'
+                ) THEN RAISE(ABORT, 'approved_project_commitment_required') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'actual_cost' AND NOT EXISTS (
+                    SELECT 1 FROM project_actual_cost_entries actual
+                    WHERE actual.id = NEW.target_actual_cost_entry_id
+                      AND actual.project_id = NEW.project_id
+                      AND actual.status = 'approved'
+                      AND actual.entry_kind = 'cost'
+                ) THEN RAISE(ABORT, 'approved_project_actual_cost_required') END;
+                SELECT CASE WHEN NEW.reverses_allocation_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM project_payment_allocations original
+                    WHERE original.id = NEW.reverses_allocation_id
+                      AND original.project_id = NEW.project_id
+                      AND original.finance_entry_id = NEW.finance_entry_id
+                      AND original.status = 'approved'
+                      AND original.entry_kind = 'allocation'
+                      AND original.direction = NEW.direction
+                      AND original.allocation_purpose = NEW.allocation_purpose
+                      AND original.target_type = NEW.target_type
+                      AND original.target_revenue_line_id IS NEW.target_revenue_line_id
+                      AND original.target_commitment_id IS NEW.target_commitment_id
+                      AND original.target_actual_cost_entry_id IS NEW.target_actual_cost_entry_id
+                ) THEN RAISE(ABORT, 'project_payment_allocation_reversal_target_invalid') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_relation_update_guard
+            BEFORE UPDATE ON project_payment_allocations
+            WHEN OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NEW.project_id <> OLD.project_id
+                    OR NEW.finance_entry_id <> OLD.finance_entry_id
+                    OR NEW.allocation_key <> OLD.allocation_key
+                    OR NEW.direction <> OLD.direction
+                    OR NEW.allocation_purpose <> OLD.allocation_purpose
+                    OR NEW.entry_kind <> OLD.entry_kind
+                    OR NEW.reverses_allocation_id IS NOT OLD.reverses_allocation_id
+                    THEN RAISE(ABORT, 'project_payment_allocation_source_is_immutable') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'revenue_line' AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_revenue_lines line
+                    JOIN project_financial_baselines baseline ON baseline.id = line.baseline_id
+                    WHERE line.id = NEW.target_revenue_line_id
+                      AND baseline.project_id = NEW.project_id AND baseline.status = 'approved'
+                ) THEN RAISE(ABORT, 'approved_project_revenue_line_required') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'commitment' AND NOT EXISTS (
+                    SELECT 1 FROM project_commitments commitment
+                    WHERE commitment.id = NEW.target_commitment_id
+                      AND commitment.project_id = NEW.project_id AND commitment.status = 'approved'
+                ) THEN RAISE(ABORT, 'approved_project_commitment_required') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'actual_cost' AND NOT EXISTS (
+                    SELECT 1 FROM project_actual_cost_entries actual
+                    WHERE actual.id = NEW.target_actual_cost_entry_id
+                      AND actual.project_id = NEW.project_id
+                      AND actual.status = 'approved' AND actual.entry_kind = 'cost'
+                ) THEN RAISE(ABORT, 'approved_project_actual_cost_required') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_status_transition
+            BEFORE UPDATE OF status ON project_payment_allocations
+            WHEN OLD.status <> NEW.status AND NOT (
+                (OLD.status = 'draft' AND NEW.status = 'pending_approval')
+                OR (OLD.status = 'pending_approval' AND NEW.status IN ('draft','approved'))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid_project_payment_allocation_status_transition');
+            END;
+
+            -- A submitted allocation is a review snapshot.  Approval/return may
+            -- only alter lifecycle metadata, never the payment, target or money.
+            DROP TRIGGER IF EXISTS trg_project_payment_allocation_pending_snapshot_guard_v1;
+            CREATE TRIGGER trg_project_payment_allocation_pending_snapshot_guard_v1
+            BEFORE UPDATE ON project_payment_allocations
+            WHEN OLD.status = 'pending_approval' AND (
+                NEW.id IS NOT OLD.id
+                OR NEW.project_id IS NOT OLD.project_id
+                OR NEW.finance_entry_id IS NOT OLD.finance_entry_id
+                OR NEW.allocation_key IS NOT OLD.allocation_key
+                OR NEW.direction IS NOT OLD.direction
+                OR NEW.allocation_purpose IS NOT OLD.allocation_purpose
+                OR NEW.target_type IS NOT OLD.target_type
+                OR NEW.target_revenue_line_id IS NOT OLD.target_revenue_line_id
+                OR NEW.target_commitment_id IS NOT OLD.target_commitment_id
+                OR NEW.target_actual_cost_entry_id IS NOT OLD.target_actual_cost_entry_id
+                OR NEW.entry_kind IS NOT OLD.entry_kind
+                OR NEW.reverses_allocation_id IS NOT OLD.reverses_allocation_id
+                OR NEW.source_payment_gross_kopecks IS NOT OLD.source_payment_gross_kopecks
+                OR NEW.net_amount_kopecks IS NOT OLD.net_amount_kopecks
+                OR NEW.vat_rate_basis_points IS NOT OLD.vat_rate_basis_points
+                OR NEW.vat_amount_kopecks IS NOT OLD.vat_amount_kopecks
+                OR NEW.gross_amount_kopecks IS NOT OLD.gross_amount_kopecks
+                OR NEW.source_vat_mode IS NOT OLD.source_vat_mode
+                OR NEW.reason IS NOT OLD.reason
+                OR NEW.created_by IS NOT OLD.created_by
+                OR NEW.created_at IS NOT OLD.created_at
+                OR NOT (
+                    (
+                        NEW.status = 'draft'
+                        AND NEW.submitted_by IS NULL
+                        AND NEW.submitted_at IS NULL
+                        AND NEW.approved_by IS NULL
+                        AND NEW.approved_at IS NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                    OR (
+                        NEW.status = 'approved'
+                        AND NEW.submitted_by IS OLD.submitted_by
+                        AND NEW.submitted_at IS OLD.submitted_at
+                        AND NEW.approved_by IS NOT NULL
+                        AND NEW.approved_at IS NOT NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'pending_project_payment_allocation_snapshot_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_approval_requirements
+            BEFORE UPDATE OF status ON project_payment_allocations
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM finance_entries payment
+                    WHERE payment.id = NEW.finance_entry_id
+                      AND payment.project_id = NEW.project_id
+                      AND payment.direction = NEW.direction
+                      AND payment.status = 'paid'
+                      AND payment.paid_date IS NOT NULL
+                      AND length(trim(payment.paid_date)) > 0
+                      AND date(payment.paid_date) IS NOT NULL
+                      AND CAST(ROUND(ROUND(payment.amount, 2) * 100) AS INTEGER) = NEW.source_payment_gross_kopecks
+                      AND NEW.vat_rate_basis_points = CASE
+                          WHEN payment.payment_kind = 'bank_vat' AND payment.vat_percent > 0
+                          THEN CAST(ROUND(payment.vat_percent * 100) AS INTEGER)
+                          ELSE 0 END
+                      AND NEW.source_vat_mode = CASE
+                          WHEN payment.payment_kind = 'bank_vat' AND payment.vat_percent > 0
+                          THEN 'gross' ELSE 'no_vat' END
+                ) THEN RAISE(ABORT, 'paid_dated_unchanged_finance_entry_required') END;
+                SELECT CASE WHEN NEW.entry_kind = 'reversal' AND NOT EXISTS (
+                    SELECT 1 FROM project_payment_allocations original
+                    WHERE original.id = NEW.reverses_allocation_id
+                      AND original.status = 'approved'
+                      AND original.entry_kind = 'allocation'
+                      AND original.net_amount_kopecks = NEW.net_amount_kopecks
+                      AND original.vat_amount_kopecks = NEW.vat_amount_kopecks
+                      AND original.gross_amount_kopecks = NEW.gross_amount_kopecks
+                ) THEN RAISE(ABORT, 'project_payment_allocation_reversal_must_match_original') END;
+                SELECT CASE WHEN (
+                    COALESCE((
+                        SELECT SUM(CASE WHEN allocation.entry_kind = 'allocation'
+                                        THEN allocation.gross_amount_kopecks
+                                        ELSE -allocation.gross_amount_kopecks END)
+                        FROM project_payment_allocations allocation
+                        WHERE allocation.finance_entry_id = NEW.finance_entry_id
+                          AND allocation.status = 'approved'
+                    ), 0)
+                    + CASE WHEN NEW.entry_kind = 'allocation'
+                           THEN NEW.gross_amount_kopecks ELSE -NEW.gross_amount_kopecks END
+                ) NOT BETWEEN 0 AND NEW.source_payment_gross_kopecks
+                THEN RAISE(ABORT, 'project_payment_allocation_exceeds_payment') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'revenue_line' AND (
+                    COALESCE((
+                        SELECT SUM(CASE WHEN allocation.entry_kind = 'allocation'
+                                        THEN allocation.gross_amount_kopecks
+                                        ELSE -allocation.gross_amount_kopecks END)
+                        FROM project_payment_allocations allocation
+                        WHERE allocation.target_revenue_line_id = NEW.target_revenue_line_id
+                          AND allocation.status = 'approved'
+                    ), 0) + NEW.gross_amount_kopecks
+                ) > (SELECT gross_amount_kopecks FROM project_revenue_lines WHERE id = NEW.target_revenue_line_id)
+                THEN RAISE(ABORT, 'project_payment_allocation_exceeds_revenue_line') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'commitment' AND (
+                    COALESCE((
+                        SELECT SUM(CASE WHEN allocation.entry_kind = 'allocation'
+                                        THEN allocation.gross_amount_kopecks
+                                        ELSE -allocation.gross_amount_kopecks END)
+                        FROM project_payment_allocations allocation
+                        WHERE allocation.target_commitment_id = NEW.target_commitment_id
+                          AND allocation.status = 'approved'
+                    ), 0) + NEW.gross_amount_kopecks
+                ) > (
+                    SELECT COALESCE(SUM(line.gross_amount_kopecks), 0)
+                    FROM project_commitment_lines line WHERE line.commitment_id = NEW.target_commitment_id
+                ) THEN RAISE(ABORT, 'project_payment_allocation_exceeds_commitment') END;
+                SELECT CASE WHEN NEW.entry_kind = 'allocation' AND NEW.target_type = 'actual_cost' AND (
+                    COALESCE((
+                        SELECT SUM(CASE WHEN allocation.entry_kind = 'allocation'
+                                        THEN allocation.gross_amount_kopecks
+                                        ELSE -allocation.gross_amount_kopecks END)
+                        FROM project_payment_allocations allocation
+                        WHERE allocation.target_actual_cost_entry_id = NEW.target_actual_cost_entry_id
+                          AND allocation.status = 'approved'
+                    ), 0) + NEW.gross_amount_kopecks
+                ) > (
+                    SELECT gross_amount_kopecks FROM project_actual_cost_entries
+                    WHERE id = NEW.target_actual_cost_entry_id
+                ) THEN RAISE(ABORT, 'project_payment_allocation_exceeds_actual_cost') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_approved_immutable
+            BEFORE UPDATE ON project_payment_allocations
+            WHEN OLD.status = 'approved'
+            BEGIN
+                SELECT RAISE(ABORT, 'approved_project_payment_allocation_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_delete_guard
+            BEFORE DELETE ON project_payment_allocations
+            BEGIN
+                SELECT RAISE(ABORT, 'project_payment_allocation_cannot_be_deleted');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_event_insert_guard
+            BEFORE INSERT ON project_payment_allocation_events
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_payment_allocations allocation
+                WHERE allocation.id = NEW.payment_allocation_id
+                  AND allocation.project_id = NEW.project_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_payment_allocation_event_project_mismatch');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_event_update_guard
+            BEFORE UPDATE ON project_payment_allocation_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_payment_allocation_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_payment_allocation_event_delete_guard
+            BEFORE DELETE ON project_payment_allocation_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_payment_allocation_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_allocated_finance_entry_identity_immutable
+            BEFORE UPDATE OF project_id, direction, payment_kind, vat_percent, amount, paid_date, status
+            ON finance_entries
+            WHEN EXISTS (
+                SELECT 1 FROM project_payment_allocations allocation
+                WHERE allocation.finance_entry_id = OLD.id
+            ) AND (
+                NEW.project_id <> OLD.project_id
+                OR NEW.direction <> OLD.direction
+                OR NEW.payment_kind <> OLD.payment_kind
+                OR NEW.vat_percent <> OLD.vat_percent
+                OR NEW.amount <> OLD.amount
+                OR NEW.paid_date IS NOT OLD.paid_date
+                OR NEW.status <> OLD.status
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'allocated_finance_entry_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_allocated_finance_entry_delete_guard
+            BEFORE DELETE ON finance_entries
+            WHEN EXISTS (
+                SELECT 1 FROM project_payment_allocations allocation
+                WHERE allocation.finance_entry_id = OLD.id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'allocated_finance_entry_cannot_be_deleted');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_insert_draft_only
+            BEFORE INSERT ON project_actual_cost_entries
+            WHEN NEW.status <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_must_start_as_draft');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_relation_insert_guard
+            BEFORE INSERT ON project_actual_cost_entries
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id AND baseline.project_id = NEW.project_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_baseline_project_mismatch') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines budget_line
+                    WHERE budget_line.id = NEW.budget_line_id AND budget_line.baseline_id = NEW.baseline_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_budget_line_mismatch') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM estimate_items item
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = NEW.project_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_estimate_item_project_mismatch') END;
+                SELECT CASE WHEN NEW.commitment_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_commitment_lines line
+                    JOIN project_commitments commitment ON commitment.id = line.commitment_id
+                    WHERE line.id = NEW.commitment_line_id
+                      AND commitment.id = NEW.commitment_id
+                      AND commitment.project_id = NEW.project_id
+                      AND line.budget_line_id = NEW.budget_line_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_commitment_line_mismatch') END;
+                SELECT CASE WHEN NEW.stock_move_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM stock_moves move
+                    WHERE move.id = NEW.stock_move_id AND move.project_id = NEW.project_id
+                      AND (NEW.estimate_item_id IS NULL OR move.estimate_item_id = NEW.estimate_item_id)
+                ) THEN RAISE(ABORT, 'project_actual_cost_stock_move_mismatch') END;
+                SELECT CASE WHEN NEW.warehouse_transfer_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM warehouse_transfers transfer
+                    WHERE transfer.id = NEW.warehouse_transfer_id AND transfer.project_id = NEW.project_id
+                      AND (NEW.estimate_item_id IS NULL OR transfer.estimate_item_id = NEW.estimate_item_id)
+                ) THEN RAISE(ABORT, 'project_actual_cost_warehouse_transfer_mismatch') END;
+                SELECT CASE WHEN NEW.document_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM documents document
+                    WHERE document.id = NEW.document_id AND document.project_id = NEW.project_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_document_project_mismatch') END;
+                SELECT CASE WHEN NEW.reverses_entry_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM project_actual_cost_entries original
+                    WHERE original.id = NEW.reverses_entry_id
+                      AND original.project_id = NEW.project_id
+                      AND original.status = 'approved'
+                      AND original.entry_kind = 'cost'
+                ) THEN RAISE(ABORT, 'project_actual_cost_reversal_target_invalid') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_relation_update_guard
+            BEFORE UPDATE ON project_actual_cost_entries
+            WHEN OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NEW.project_id <> OLD.project_id
+                    OR NEW.source_type <> OLD.source_type
+                    OR NEW.source_event_key <> OLD.source_event_key
+                    OR NEW.stock_move_id IS NOT OLD.stock_move_id
+                    OR NEW.warehouse_transfer_id IS NOT OLD.warehouse_transfer_id
+                    OR NEW.document_id IS NOT OLD.document_id
+                    OR NEW.reverses_entry_id IS NOT OLD.reverses_entry_id
+                    THEN RAISE(ABORT, 'project_actual_cost_source_is_immutable') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id AND baseline.project_id = NEW.project_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_baseline_project_mismatch') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines budget_line
+                    WHERE budget_line.id = NEW.budget_line_id AND budget_line.baseline_id = NEW.baseline_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_budget_line_mismatch') END;
+                SELECT CASE WHEN NEW.commitment_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_commitment_lines line
+                    JOIN project_commitments commitment ON commitment.id = line.commitment_id
+                    WHERE line.id = NEW.commitment_line_id
+                      AND commitment.id = NEW.commitment_id
+                      AND commitment.project_id = NEW.project_id
+                      AND line.budget_line_id = NEW.budget_line_id
+                ) THEN RAISE(ABORT, 'project_actual_cost_commitment_line_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_direct_budget_insert_guard
+            BEFORE INSERT ON project_actual_cost_entries
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.baseline_id = NEW.baseline_id
+                  AND budget_line.line_type = 'direct_cost'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_direct_budget_required');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_direct_budget_update_guard
+            BEFORE UPDATE OF baseline_id, budget_line_id ON project_actual_cost_entries
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.baseline_id = NEW.baseline_id
+                  AND budget_line.line_type = 'direct_cost'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_direct_budget_required');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_direct_budget_approval_guard
+            BEFORE UPDATE OF status ON project_actual_cost_entries
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved' AND NOT EXISTS (
+                SELECT 1 FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.baseline_id = NEW.baseline_id
+                  AND budget_line.line_type = 'direct_cost'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_direct_budget_required');
+            END;
+
+            -- Quantity comparisons are only meaningful when both sides use the
+            -- operational unit fixed by the approved budget line.  Keep these
+            -- guards at the database boundary as well as in the API.
+            DROP TRIGGER IF EXISTS trg_project_actual_cost_unit_insert_guard_v1;
+            CREATE TRIGGER trg_project_actual_cost_unit_insert_guard_v1
+            BEFORE INSERT ON project_actual_cost_entries
+            WHEN NEW.status = 'draft' AND NEW.entry_kind = 'cost' AND EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.quantity IS NOT NULL
+                  AND budget_line.quantity > 0
+                  AND lower(trim(COALESCE(NEW.unit, '')))
+                      <> lower(trim(COALESCE(budget_line.unit, '')))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_operational_unit_mismatch');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_project_actual_cost_unit_update_guard_v1;
+            CREATE TRIGGER trg_project_actual_cost_unit_update_guard_v1
+            BEFORE UPDATE OF entry_kind, budget_line_id, unit ON project_actual_cost_entries
+            WHEN NEW.entry_kind = 'cost' AND EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.quantity IS NOT NULL
+                  AND budget_line.quantity > 0
+                  AND lower(trim(COALESCE(NEW.unit, '')))
+                      <> lower(trim(COALESCE(budget_line.unit, '')))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_operational_unit_mismatch');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_project_actual_cost_unit_approval_guard_v1;
+            CREATE TRIGGER trg_project_actual_cost_unit_approval_guard_v1
+            BEFORE UPDATE OF status ON project_actual_cost_entries
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved'
+              AND NEW.entry_kind = 'cost' AND EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.quantity IS NOT NULL
+                  AND budget_line.quantity > 0
+                  AND lower(trim(COALESCE(NEW.unit, '')))
+                      <> lower(trim(COALESCE(budget_line.unit, '')))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_operational_unit_mismatch');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_status_transition
+            BEFORE UPDATE OF status ON project_actual_cost_entries
+            WHEN OLD.status <> NEW.status AND NOT (
+                (OLD.status = 'draft' AND NEW.status = 'pending_approval')
+                OR (OLD.status = 'pending_approval' AND NEW.status IN ('draft','approved'))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid_project_actual_cost_status_transition');
+            END;
+
+            -- Submission freezes every recognition/source/value field.  A
+            -- reviewer can only approve or return the exact submitted snapshot.
+            DROP TRIGGER IF EXISTS trg_project_actual_cost_pending_snapshot_guard_v1;
+            CREATE TRIGGER trg_project_actual_cost_pending_snapshot_guard_v1
+            BEFORE UPDATE ON project_actual_cost_entries
+            WHEN OLD.status = 'pending_approval' AND (
+                NEW.id IS NOT OLD.id
+                OR NEW.project_id IS NOT OLD.project_id
+                OR NEW.baseline_id IS NOT OLD.baseline_id
+                OR NEW.budget_line_id IS NOT OLD.budget_line_id
+                OR NEW.commitment_id IS NOT OLD.commitment_id
+                OR NEW.commitment_line_id IS NOT OLD.commitment_line_id
+                OR NEW.estimate_item_id IS NOT OLD.estimate_item_id
+                OR NEW.cost_category IS NOT OLD.cost_category
+                OR NEW.entry_kind IS NOT OLD.entry_kind
+                OR NEW.source_type IS NOT OLD.source_type
+                OR NEW.source_event_key IS NOT OLD.source_event_key
+                OR NEW.stock_move_id IS NOT OLD.stock_move_id
+                OR NEW.warehouse_transfer_id IS NOT OLD.warehouse_transfer_id
+                OR NEW.document_id IS NOT OLD.document_id
+                OR NEW.reverses_entry_id IS NOT OLD.reverses_entry_id
+                OR NEW.title IS NOT OLD.title
+                OR NEW.recognition_date IS NOT OLD.recognition_date
+                OR NEW.unit IS NOT OLD.unit
+                OR NEW.quantity IS NOT OLD.quantity
+                OR NEW.source_unit_price_kopecks IS NOT OLD.source_unit_price_kopecks
+                OR NEW.unit_cost_net_kopecks IS NOT OLD.unit_cost_net_kopecks
+                OR NEW.net_amount_kopecks IS NOT OLD.net_amount_kopecks
+                OR NEW.vat_rate_basis_points IS NOT OLD.vat_rate_basis_points
+                OR NEW.vat_amount_kopecks IS NOT OLD.vat_amount_kopecks
+                OR NEW.gross_amount_kopecks IS NOT OLD.gross_amount_kopecks
+                OR NEW.source_vat_mode IS NOT OLD.source_vat_mode
+                OR NEW.valuation_method IS NOT OLD.valuation_method
+                OR NEW.source_reference IS NOT OLD.source_reference
+                OR NEW.reason IS NOT OLD.reason
+                OR NEW.created_by IS NOT OLD.created_by
+                OR NEW.created_at IS NOT OLD.created_at
+                OR NOT (
+                    (
+                        NEW.status = 'draft'
+                        AND NEW.submitted_by IS NULL
+                        AND NEW.submitted_at IS NULL
+                        AND NEW.approved_by IS NULL
+                        AND NEW.approved_at IS NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                    OR (
+                        NEW.status = 'approved'
+                        AND NEW.submitted_by IS OLD.submitted_by
+                        AND NEW.submitted_at IS OLD.submitted_at
+                        AND NEW.approved_by IS NOT NULL
+                        AND NEW.approved_at IS NOT NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'pending_project_actual_cost_snapshot_is_immutable');
+            END;
+
+            -- Recreate this guard because successor mapping permits narrowly scoped
+            -- recognition against an immutable, superseded commitment baseline.
+            DROP TRIGGER IF EXISTS trg_project_actual_cost_approval_requirements;
+            CREATE TRIGGER trg_project_actual_cost_approval_requirements
+            BEFORE UPDATE OF status ON project_actual_cost_entries
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NEW.recognition_date IS NULL OR length(trim(NEW.recognition_date)) = 0
+                    THEN RAISE(ABORT, 'project_actual_cost_recognition_date_required') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id
+                      AND baseline.project_id = NEW.project_id
+                      AND (
+                          baseline.status = 'approved'
+                          OR (
+                              baseline.status = 'superseded'
+                              AND (
+                                  NEW.commitment_line_id IS NOT NULL
+                                  OR NEW.entry_kind IN ('return','reversal')
+                              )
+                          )
+                      )
+                ) THEN RAISE(ABORT, 'approved_financial_baseline_required') END;
+                SELECT CASE WHEN NEW.commitment_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_commitment_lines line
+                    JOIN project_commitments commitment ON commitment.id = line.commitment_id
+                    WHERE line.id = NEW.commitment_line_id
+                      AND commitment.id = NEW.commitment_id
+                      AND (
+                          (NEW.entry_kind = 'cost' AND commitment.status = 'approved')
+                          OR (
+                              NEW.entry_kind IN ('return','reversal')
+                              AND commitment.status IN ('approved','cancelled')
+                          )
+                      )
+                      AND commitment.project_id = NEW.project_id
+                      AND line.budget_line_id = NEW.budget_line_id
+                ) THEN RAISE(ABORT, 'approved_project_commitment_required') END;
+                SELECT CASE WHEN NEW.source_type = 'material_receipt' AND (
+                    NEW.stock_move_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM stock_moves move
+                        WHERE move.id = NEW.stock_move_id AND move.project_id = NEW.project_id
+                          AND move.move_type IN ('purchase','receipt') AND move.price > 0
+                    )
+                ) THEN RAISE(ABORT, 'accepted_priced_material_receipt_required') END;
+                SELECT CASE WHEN NEW.source_type = 'warehouse_issue' AND (
+                    NEW.warehouse_transfer_id IS NULL
+                    OR NEW.valuation_method NOT IN ('lot','moving_weighted_average')
+                ) THEN RAISE(ABORT, 'valued_warehouse_issue_required') END;
+                SELECT CASE WHEN NEW.source_type IN ('subcontract_act','service_act','manual_expense') AND (
+                    NEW.document_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM documents document
+                        WHERE document.id = NEW.document_id AND document.project_id = NEW.project_id
+                          AND lower(document.doc_type) <> 'invoice'
+                          AND lower(document.status) IN ('reviewed','approved','signed','ready','accepted')
+                    )
+                ) THEN RAISE(ABORT, 'accepted_non_invoice_document_required') END;
+                SELECT CASE WHEN NEW.source_type = 'labor_timesheet'
+                    AND NEW.valuation_method <> 'approved_rate'
+                    THEN RAISE(ABORT, 'approved_labor_rate_required') END;
+                SELECT CASE WHEN NEW.source_type = 'equipment_log'
+                    AND NEW.valuation_method <> 'approved_rate'
+                    THEN RAISE(ABORT, 'approved_equipment_rate_required') END;
+                SELECT CASE WHEN NEW.entry_kind IN ('return','reversal') AND (
+                    NEW.valuation_method <> 'original_snapshot'
+                    OR NOT EXISTS (
+                        SELECT 1 FROM project_actual_cost_entries original
+                        WHERE original.id = NEW.reverses_entry_id
+                          AND original.project_id = NEW.project_id
+                          AND original.status = 'approved'
+                          AND original.entry_kind = 'cost'
+                    )
+                ) THEN RAISE(ABORT, 'project_actual_cost_reversal_target_invalid') END;
+                SELECT CASE WHEN NEW.entry_kind IN ('return','reversal') AND NEW.net_amount_kopecks > (
+                    SELECT original.net_amount_kopecks - COALESCE(SUM(
+                        CASE WHEN correction.status = 'approved' THEN correction.net_amount_kopecks ELSE 0 END
+                    ), 0)
+                    FROM project_actual_cost_entries original
+                    LEFT JOIN project_actual_cost_entries correction
+                      ON correction.reverses_entry_id = original.id
+                     AND correction.id <> NEW.id
+                    WHERE original.id = NEW.reverses_entry_id
+                    GROUP BY original.net_amount_kopecks
+                ) THEN RAISE(ABORT, 'project_actual_cost_reversal_exceeds_original') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_approved_immutable
+            BEFORE UPDATE ON project_actual_cost_entries
+            WHEN OLD.status = 'approved'
+            BEGIN
+                SELECT RAISE(ABORT, 'approved_project_actual_cost_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_delete_guard
+            BEFORE DELETE ON project_actual_cost_entries
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_cannot_be_deleted');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_event_insert_guard
+            BEFORE INSERT ON project_actual_cost_events
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_actual_cost_entries entry
+                WHERE entry.id = NEW.actual_cost_entry_id AND entry.project_id = NEW.project_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_event_project_mismatch');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_event_update_guard
+            BEFORE UPDATE ON project_actual_cost_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_actual_cost_event_delete_guard
+            BEFORE DELETE ON project_actual_cost_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_actual_cost_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_insert_draft_only
+            BEFORE INSERT ON project_commitments
+            WHEN NEW.status <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_must_start_as_draft');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_relation_guard
+            BEFORE INSERT ON project_commitments
+            BEGIN
+                SELECT CASE WHEN NEW.baseline_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id AND baseline.project_id = NEW.project_id
+                ) THEN RAISE(ABORT, 'project_commitment_baseline_project_mismatch') END;
+                SELECT CASE WHEN NEW.source_supplier_offer_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM supplier_offers offer
+                    WHERE offer.id = NEW.source_supplier_offer_id
+                      AND offer.project_id = NEW.project_id
+                      AND offer.status = 'selected'
+                ) THEN RAISE(ABORT, 'project_commitment_requires_selected_project_offer') END;
+            END;
+
+            -- Keep legacy duplicate rows readable, but reject every new open
+            -- duplicate at write time.  Unlike a UNIQUE-index migration this is
+            -- safe to install on databases that already contain duplicates.
+            DROP TRIGGER IF EXISTS trg_project_commitment_open_offer_insert_guard_v1;
+            CREATE TRIGGER trg_project_commitment_open_offer_insert_guard_v1
+            BEFORE INSERT ON project_commitments
+            WHEN NEW.source_supplier_offer_id IS NOT NULL
+              AND NEW.status <> 'cancelled'
+              AND EXISTS (
+                  SELECT 1
+                  FROM project_commitments existing
+                  WHERE existing.source_supplier_offer_id = NEW.source_supplier_offer_id
+                    AND existing.status <> 'cancelled'
+              )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_offer_already_linked');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_project_commitment_open_offer_update_guard_v1;
+            CREATE TRIGGER trg_project_commitment_open_offer_update_guard_v1
+            BEFORE UPDATE OF source_supplier_offer_id, status ON project_commitments
+            WHEN NEW.source_supplier_offer_id IS NOT NULL
+              AND NEW.status <> 'cancelled'
+              AND EXISTS (
+                  SELECT 1
+                  FROM project_commitments existing
+                  WHERE existing.source_supplier_offer_id = NEW.source_supplier_offer_id
+                    AND existing.status <> 'cancelled'
+                    AND existing.id <> NEW.id
+              )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_offer_already_linked');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_identity_immutable
+            BEFORE UPDATE OF project_id, source_supplier_offer_id ON project_commitments
+            WHEN NEW.project_id IS NOT OLD.project_id
+              OR NEW.source_supplier_offer_id IS NOT OLD.source_supplier_offer_id
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_identity_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_baseline_guard
+            BEFORE UPDATE OF baseline_id ON project_commitments
+            WHEN NEW.baseline_id IS NOT OLD.baseline_id AND NEW.baseline_id IS NOT NULL
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id AND baseline.project_id = OLD.project_id
+                ) THEN RAISE(ABORT, 'project_commitment_baseline_project_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_status_transition
+            BEFORE UPDATE OF status ON project_commitments
+            WHEN OLD.status <> NEW.status AND NOT (
+                (OLD.status = 'draft' AND NEW.status = 'pending_approval')
+                OR (OLD.status = 'pending_approval' AND NEW.status IN ('draft','approved'))
+                OR (OLD.status = 'approved' AND NEW.status = 'cancelled')
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid_project_commitment_status_transition');
+            END;
+
+            -- Submission freezes the commercial snapshot.  Approval/return is
+            -- allowed to change lifecycle metadata only.
+            DROP TRIGGER IF EXISTS trg_project_commitment_pending_snapshot_guard_v1;
+            CREATE TRIGGER trg_project_commitment_pending_snapshot_guard_v1
+            BEFORE UPDATE ON project_commitments
+            WHEN OLD.status = 'pending_approval' AND (
+                NEW.id IS NOT OLD.id
+                OR NEW.project_id IS NOT OLD.project_id
+                OR NEW.baseline_id IS NOT OLD.baseline_id
+                OR NEW.source_supplier_offer_id IS NOT OLD.source_supplier_offer_id
+                OR NEW.commitment_type IS NOT OLD.commitment_type
+                OR NEW.commitment_no IS NOT OLD.commitment_no
+                OR NEW.currency_code IS NOT OLD.currency_code
+                OR NEW.company_id IS NOT OLD.company_id
+                OR NEW.counterparty_name IS NOT OLD.counterparty_name
+                OR NEW.document_id IS NOT OLD.document_id
+                OR NEW.expected_date IS NOT OLD.expected_date
+                OR NEW.reason IS NOT OLD.reason
+                OR NEW.created_by IS NOT OLD.created_by
+                OR NEW.created_at IS NOT OLD.created_at
+                OR NOT (
+                    (
+                        NEW.status = 'draft'
+                        AND NEW.submitted_by IS NULL
+                        AND NEW.submitted_at IS NULL
+                        AND NEW.approved_by IS NULL
+                        AND NEW.approved_at IS NULL
+                        AND NEW.cancelled_by IS NULL
+                        AND NEW.cancelled_at IS NULL
+                        AND NEW.cancellation_reason IS NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                    OR (
+                        NEW.status = 'approved'
+                        AND NEW.submitted_by IS OLD.submitted_by
+                        AND NEW.submitted_at IS OLD.submitted_at
+                        AND NEW.approved_by IS NOT NULL
+                        AND NEW.approved_at IS NOT NULL
+                        AND NEW.cancelled_by IS NULL
+                        AND NEW.cancelled_at IS NULL
+                        AND NEW.cancellation_reason IS NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'pending_project_commitment_snapshot_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_approval_requirements
+            BEFORE UPDATE OF status ON project_commitments
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NEW.commitment_no IS NULL OR length(trim(NEW.commitment_no)) = 0
+                    THEN RAISE(ABORT, 'project_commitment_number_required') END;
+                SELECT CASE WHEN NEW.baseline_id IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines baseline
+                    WHERE baseline.id = NEW.baseline_id
+                      AND baseline.project_id = NEW.project_id
+                      AND baseline.status = 'approved'
+                ) THEN RAISE(ABORT, 'approved_financial_baseline_required') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_commitment_lines line WHERE line.commitment_id = NEW.id
+                ) THEN RAISE(ABORT, 'project_commitment_lines_required') END;
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM project_commitment_lines line
+                    LEFT JOIN project_budget_lines budget_line ON budget_line.id = line.budget_line_id
+                    WHERE line.commitment_id = NEW.id
+                      AND (line.budget_line_id IS NULL OR budget_line.baseline_id <> NEW.baseline_id)
+                ) THEN RAISE(ABORT, 'project_commitment_budget_mapping_required') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_approved_immutable
+            BEFORE UPDATE ON project_commitments
+            WHEN OLD.status IN ('approved','cancelled') AND NOT (
+                OLD.status = 'approved' AND NEW.status = 'cancelled'
+                AND NEW.id IS OLD.id
+                AND NEW.project_id IS OLD.project_id
+                AND NEW.baseline_id IS OLD.baseline_id
+                AND NEW.source_supplier_offer_id IS OLD.source_supplier_offer_id
+                AND NEW.commitment_type IS OLD.commitment_type
+                AND NEW.commitment_no IS OLD.commitment_no
+                AND NEW.currency_code IS OLD.currency_code
+                AND NEW.company_id IS OLD.company_id
+                AND NEW.counterparty_name IS OLD.counterparty_name
+                AND NEW.document_id IS OLD.document_id
+                AND NEW.expected_date IS OLD.expected_date
+                AND NEW.reason IS OLD.reason
+                AND NEW.created_by IS OLD.created_by
+                AND NEW.submitted_by IS OLD.submitted_by
+                AND NEW.submitted_at IS OLD.submitted_at
+                AND NEW.approved_by IS OLD.approved_by
+                AND NEW.approved_at IS OLD.approved_at
+                AND NEW.created_at IS OLD.created_at
+                AND NEW.updated_at >= OLD.updated_at
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'approved_project_commitment_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_delete_guard
+            BEFORE DELETE ON project_commitments
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_cannot_be_deleted');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_line_insert_guard
+            BEFORE INSERT ON project_commitment_lines
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_commitments WHERE id = NEW.commitment_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'project_commitment_lines_are_not_editable') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = commitment.project_id
+                ) THEN RAISE(ABORT, 'project_commitment_estimate_item_project_mismatch') END;
+                SELECT CASE WHEN NEW.supplier_offer_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM supplier_offers offer
+                    JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                    WHERE offer.id = NEW.supplier_offer_id AND offer.project_id = commitment.project_id
+                      AND (NEW.estimate_item_id IS NULL OR offer.estimate_item_id = NEW.estimate_item_id)
+                ) THEN RAISE(ABORT, 'project_commitment_supplier_offer_mismatch') END;
+                SELECT CASE WHEN NEW.budget_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_budget_lines budget_line
+                    JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                    WHERE budget_line.id = NEW.budget_line_id
+                      AND budget_line.baseline_id = commitment.baseline_id
+                ) THEN RAISE(ABORT, 'project_commitment_budget_line_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_line_update_guard
+            BEFORE UPDATE ON project_commitment_lines
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_commitments WHERE id = OLD.commitment_id
+                ), '') <> 'draft' OR COALESCE((
+                    SELECT status FROM project_commitments WHERE id = NEW.commitment_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'project_commitment_lines_are_not_editable') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = commitment.project_id
+                ) THEN RAISE(ABORT, 'project_commitment_estimate_item_project_mismatch') END;
+                SELECT CASE WHEN NEW.supplier_offer_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM supplier_offers offer
+                    JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                    WHERE offer.id = NEW.supplier_offer_id AND offer.project_id = commitment.project_id
+                      AND (NEW.estimate_item_id IS NULL OR offer.estimate_item_id = NEW.estimate_item_id)
+                ) THEN RAISE(ABORT, 'project_commitment_supplier_offer_mismatch') END;
+                SELECT CASE WHEN NEW.budget_line_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM project_budget_lines budget_line
+                    JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                    WHERE budget_line.id = NEW.budget_line_id
+                      AND budget_line.baseline_id = commitment.baseline_id
+                ) THEN RAISE(ABORT, 'project_commitment_budget_line_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_line_delete_guard
+            BEFORE DELETE ON project_commitment_lines
+            WHEN COALESCE((SELECT status FROM project_commitments WHERE id = OLD.commitment_id), '') <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_lines_are_not_editable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_line_direct_budget_insert_guard
+            BEFORE INSERT ON project_commitment_lines
+            WHEN NEW.budget_line_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.baseline_id = commitment.baseline_id
+                  AND budget_line.line_type = 'direct_cost'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_direct_budget_required');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_line_direct_budget_update_guard
+            BEFORE UPDATE OF commitment_id, budget_line_id ON project_commitment_lines
+            WHEN NEW.budget_line_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                JOIN project_commitments commitment ON commitment.id = NEW.commitment_id
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.baseline_id = commitment.baseline_id
+                  AND budget_line.line_type = 'direct_cost'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_direct_budget_required');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_project_commitment_line_unit_insert_guard_v1;
+            CREATE TRIGGER trg_project_commitment_line_unit_insert_guard_v1
+            BEFORE INSERT ON project_commitment_lines
+            WHEN NEW.budget_line_id IS NOT NULL AND EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.quantity IS NOT NULL
+                  AND budget_line.quantity > 0
+                  AND lower(trim(COALESCE(NEW.unit, '')))
+                      <> lower(trim(COALESCE(budget_line.unit, '')))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_operational_unit_mismatch');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_project_commitment_line_unit_update_guard_v1;
+            CREATE TRIGGER trg_project_commitment_line_unit_update_guard_v1
+            BEFORE UPDATE OF commitment_id, budget_line_id, unit ON project_commitment_lines
+            WHEN NEW.budget_line_id IS NOT NULL AND EXISTS (
+                SELECT 1
+                FROM project_budget_lines budget_line
+                WHERE budget_line.id = NEW.budget_line_id
+                  AND budget_line.quantity IS NOT NULL
+                  AND budget_line.quantity > 0
+                  AND lower(trim(COALESCE(NEW.unit, '')))
+                      <> lower(trim(COALESCE(budget_line.unit, '')))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_operational_unit_mismatch');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_project_commitment_unit_approval_guard_v1;
+            CREATE TRIGGER trg_project_commitment_unit_approval_guard_v1
+            BEFORE UPDATE OF status ON project_commitments
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved' AND EXISTS (
+                SELECT 1
+                FROM project_commitment_lines line
+                JOIN project_budget_lines budget_line ON budget_line.id = line.budget_line_id
+                WHERE line.commitment_id = NEW.id
+                  AND budget_line.quantity IS NOT NULL
+                  AND budget_line.quantity > 0
+                  AND lower(trim(COALESCE(line.unit, '')))
+                      <> lower(trim(COALESCE(budget_line.unit, '')))
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_operational_unit_mismatch');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_direct_budget_approval_guard
+            BEFORE UPDATE OF status ON project_commitments
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved' AND EXISTS (
+                SELECT 1
+                FROM project_commitment_lines line
+                LEFT JOIN project_budget_lines budget_line ON budget_line.id = line.budget_line_id
+                WHERE line.commitment_id = NEW.id
+                  AND (budget_line.id IS NULL OR budget_line.line_type <> 'direct_cost')
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_direct_budget_required');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_event_insert_guard
+            BEFORE INSERT ON project_commitment_events
+            WHEN NOT EXISTS (
+                SELECT 1 FROM project_commitments commitment
+                WHERE commitment.id = NEW.commitment_id AND commitment.project_id = NEW.project_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_event_project_mismatch');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_event_update_guard
+            BEFORE UPDATE ON project_commitment_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_project_commitment_event_delete_guard
+            BEFORE DELETE ON project_commitment_events
+            BEGIN
+                SELECT RAISE(ABORT, 'project_commitment_event_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_insert_draft_only
+            BEFORE INSERT ON project_financial_baselines
+            WHEN NEW.status <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'financial_baseline_must_start_as_draft');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_identity_immutable
+            BEFORE UPDATE OF project_id, version_no ON project_financial_baselines
+            WHEN NEW.project_id IS NOT OLD.project_id OR NEW.version_no IS NOT OLD.version_no
+            BEGIN
+                SELECT RAISE(ABORT, 'financial_baseline_identity_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_status_transition
+            BEFORE UPDATE OF status ON project_financial_baselines
+            WHEN OLD.status <> NEW.status AND NOT (
+                (OLD.status = 'draft' AND NEW.status = 'pending_approval')
+                OR (OLD.status = 'pending_approval' AND NEW.status IN ('draft','approved'))
+                OR (OLD.status = 'approved' AND NEW.status = 'superseded')
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid_financial_baseline_status_transition');
+            END;
+
+            -- Freeze the submitted baseline header along with its already
+            -- protected lines.  effective_from may only be filled (not changed)
+            -- by the approval transition for compatibility with legacy drafts.
+            DROP TRIGGER IF EXISTS trg_financial_baseline_pending_snapshot_guard_v1;
+            CREATE TRIGGER trg_financial_baseline_pending_snapshot_guard_v1
+            BEFORE UPDATE ON project_financial_baselines
+            WHEN OLD.status = 'pending_approval' AND (
+                NEW.id IS NOT OLD.id
+                OR NEW.project_id IS NOT OLD.project_id
+                OR NEW.version_no IS NOT OLD.version_no
+                OR NEW.currency_code IS NOT OLD.currency_code
+                OR NEW.source_snapshot_hash IS NOT OLD.source_snapshot_hash
+                OR NEW.source_document_id IS NOT OLD.source_document_id
+                OR (
+                    NEW.effective_from IS NOT OLD.effective_from
+                    AND NOT (
+                        NEW.status = 'approved'
+                        AND OLD.effective_from IS NULL
+                        AND NEW.effective_from IS NOT NULL
+                        AND length(trim(NEW.effective_from)) > 0
+                    )
+                )
+                OR NEW.reason IS NOT OLD.reason
+                OR NEW.created_by IS NOT OLD.created_by
+                OR NEW.created_at IS NOT OLD.created_at
+                OR NOT (
+                    (
+                        NEW.status = 'draft'
+                        AND NEW.submitted_by IS NULL
+                        AND NEW.submitted_at IS NULL
+                        AND NEW.approved_by IS NULL
+                        AND NEW.approved_at IS NULL
+                        AND NEW.superseded_by_baseline_id IS NULL
+                        AND NEW.superseded_at IS NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                    OR (
+                        NEW.status = 'approved'
+                        AND NEW.submitted_by IS OLD.submitted_by
+                        AND NEW.submitted_at IS OLD.submitted_at
+                        AND NEW.approved_by IS NOT NULL
+                        AND NEW.approved_at IS NOT NULL
+                        AND NEW.superseded_by_baseline_id IS NULL
+                        AND NEW.superseded_at IS NULL
+                        AND NEW.updated_at >= OLD.updated_at
+                    )
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'pending_financial_baseline_snapshot_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_approval_requires_lines
+            BEFORE UPDATE OF status ON project_financial_baselines
+            WHEN NEW.status = 'approved' AND OLD.status <> 'approved'
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_revenue_lines WHERE baseline_id = NEW.id
+                ) THEN RAISE(ABORT, 'financial_baseline_revenue_lines_required') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines WHERE baseline_id = NEW.id
+                ) THEN RAISE(ABORT, 'financial_baseline_budget_lines_required') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_supersession_target
+            BEFORE UPDATE OF status ON project_financial_baselines
+            WHEN NEW.status = 'superseded' AND OLD.status <> 'superseded'
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM project_financial_baselines replacement
+                    WHERE replacement.id = NEW.superseded_by_baseline_id
+                      AND replacement.project_id = OLD.project_id
+                      AND replacement.version_no > OLD.version_no
+                ) THEN RAISE(ABORT, 'invalid_financial_baseline_supersession_target') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_approved_immutable
+            BEFORE UPDATE ON project_financial_baselines
+            WHEN OLD.status IN ('approved','superseded') AND NOT (
+                OLD.status = 'approved' AND NEW.status = 'superseded'
+                AND NEW.id IS OLD.id
+                AND NEW.project_id IS OLD.project_id
+                AND NEW.version_no IS OLD.version_no
+                AND NEW.currency_code IS OLD.currency_code
+                AND NEW.source_snapshot_hash IS OLD.source_snapshot_hash
+                AND NEW.source_document_id IS OLD.source_document_id
+                AND NEW.effective_from IS OLD.effective_from
+                AND NEW.reason IS OLD.reason
+                AND NEW.created_by IS OLD.created_by
+                AND NEW.submitted_by IS OLD.submitted_by
+                AND NEW.submitted_at IS OLD.submitted_at
+                AND NEW.approved_by IS OLD.approved_by
+                AND NEW.approved_at IS OLD.approved_at
+                AND NEW.created_at IS OLD.created_at
+                AND NEW.updated_at >= OLD.updated_at
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'approved_financial_baseline_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_delete_guard
+            BEFORE DELETE ON project_financial_baselines
+            WHEN OLD.status <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'non_draft_financial_baseline_cannot_be_deleted');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_financial_baseline_delete_successor_cleanup
+            BEFORE DELETE ON project_financial_baselines
+            WHEN OLD.status = 'draft'
+            BEGIN
+                DELETE FROM project_budget_line_successors WHERE to_baseline_id = OLD.id;
+                DELETE FROM project_revenue_line_successors WHERE to_baseline_id = OLD.id;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_insert_guard
+            BEFORE INSERT ON project_revenue_lines
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_financial_baselines WHERE id = NEW.baseline_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'financial_baseline_lines_are_not_editable') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_financial_baselines baseline ON baseline.id = NEW.baseline_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = baseline.project_id
+                ) THEN RAISE(ABORT, 'financial_baseline_estimate_item_project_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_update_guard
+            BEFORE UPDATE ON project_revenue_lines
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_financial_baselines WHERE id = OLD.baseline_id
+                ), '') <> 'draft' OR COALESCE((
+                    SELECT status FROM project_financial_baselines WHERE id = NEW.baseline_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'financial_baseline_lines_are_not_editable') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_financial_baselines baseline ON baseline.id = NEW.baseline_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = baseline.project_id
+                ) THEN RAISE(ABORT, 'financial_baseline_estimate_item_project_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_delete_guard
+            BEFORE DELETE ON project_revenue_lines
+            WHEN COALESCE((SELECT status FROM project_financial_baselines WHERE id = OLD.baseline_id), '') <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'financial_baseline_lines_are_not_editable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_delete_successor_cleanup
+            AFTER DELETE ON project_revenue_lines
+            BEGIN
+                DELETE FROM project_revenue_line_successors
+                WHERE source_revenue_line_id = OLD.id OR target_revenue_line_id = OLD.id;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_insert_guard
+            BEFORE INSERT ON project_budget_lines
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_financial_baselines WHERE id = NEW.baseline_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'financial_baseline_lines_are_not_editable') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_financial_baselines baseline ON baseline.id = NEW.baseline_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = baseline.project_id
+                ) THEN RAISE(ABORT, 'financial_baseline_estimate_item_project_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_update_guard
+            BEFORE UPDATE ON project_budget_lines
+            BEGIN
+                SELECT CASE WHEN COALESCE((
+                    SELECT status FROM project_financial_baselines WHERE id = OLD.baseline_id
+                ), '') <> 'draft' OR COALESCE((
+                    SELECT status FROM project_financial_baselines WHERE id = NEW.baseline_id
+                ), '') <> 'draft' THEN RAISE(ABORT, 'financial_baseline_lines_are_not_editable') END;
+                SELECT CASE WHEN NEW.estimate_item_id IS NOT NULL AND NOT EXISTS (
+                    SELECT 1
+                    FROM estimate_items item
+                    JOIN project_financial_baselines baseline ON baseline.id = NEW.baseline_id
+                    WHERE item.id = NEW.estimate_item_id AND item.project_id = baseline.project_id
+                ) THEN RAISE(ABORT, 'financial_baseline_estimate_item_project_mismatch') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_delete_guard
+            BEFORE DELETE ON project_budget_lines
+            WHEN COALESCE((SELECT status FROM project_financial_baselines WHERE id = OLD.baseline_id), '') <> 'draft'
+            BEGIN
+                SELECT RAISE(ABORT, 'financial_baseline_lines_are_not_editable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_delete_successor_cleanup
+            AFTER DELETE ON project_budget_lines
+            BEGIN
+                DELETE FROM project_budget_line_successors
+                WHERE source_budget_line_id = OLD.id OR target_budget_line_id = OLD.id;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_successor_insert_guard
+            BEFORE INSERT ON project_budget_line_successors
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM project_financial_baselines source
+                    JOIN project_financial_baselines target
+                      ON target.id = NEW.to_baseline_id
+                    WHERE source.id = NEW.from_baseline_id
+                      AND source.project_id = NEW.project_id
+                      AND target.project_id = NEW.project_id
+                      AND source.status = 'approved'
+                      AND target.status = 'draft'
+                      AND target.version_no > source.version_no
+                ) THEN RAISE(ABORT, 'invalid_budget_successor_baselines') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines source
+                    WHERE source.id = NEW.source_budget_line_id
+                      AND source.baseline_id = NEW.from_baseline_id
+                      AND source.line_type = 'direct_cost'
+                ) THEN RAISE(ABORT, 'invalid_source_budget_line') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines target
+                    WHERE target.id = NEW.target_budget_line_id
+                      AND target.baseline_id = NEW.to_baseline_id
+                      AND target.line_type = 'direct_cost'
+                ) THEN RAISE(ABORT, 'invalid_target_budget_line') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_successor_update_guard
+            BEFORE UPDATE ON project_budget_line_successors
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines
+                    WHERE id = OLD.to_baseline_id AND status = 'draft'
+                ) THEN RAISE(ABORT, 'baseline_successor_mapping_is_immutable') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM project_financial_baselines source
+                    JOIN project_financial_baselines target
+                      ON target.id = NEW.to_baseline_id
+                    WHERE source.id = NEW.from_baseline_id
+                      AND source.project_id = NEW.project_id
+                      AND target.project_id = NEW.project_id
+                      AND source.status = 'approved'
+                      AND target.status = 'draft'
+                      AND target.version_no > source.version_no
+                ) THEN RAISE(ABORT, 'invalid_budget_successor_baselines') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines source
+                    WHERE source.id = NEW.source_budget_line_id
+                      AND source.baseline_id = NEW.from_baseline_id
+                      AND source.line_type = 'direct_cost'
+                ) THEN RAISE(ABORT, 'invalid_source_budget_line') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_budget_lines target
+                    WHERE target.id = NEW.target_budget_line_id
+                      AND target.baseline_id = NEW.to_baseline_id
+                      AND target.line_type = 'direct_cost'
+                ) THEN RAISE(ABORT, 'invalid_target_budget_line') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_budget_line_successor_delete_guard
+            BEFORE DELETE ON project_budget_line_successors
+            WHEN EXISTS (
+                SELECT 1 FROM project_financial_baselines
+                WHERE id = OLD.to_baseline_id AND status <> 'draft'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'baseline_successor_mapping_is_immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_successor_insert_guard
+            BEFORE INSERT ON project_revenue_line_successors
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM project_financial_baselines source
+                    JOIN project_financial_baselines target
+                      ON target.id = NEW.to_baseline_id
+                    WHERE source.id = NEW.from_baseline_id
+                      AND source.project_id = NEW.project_id
+                      AND target.project_id = NEW.project_id
+                      AND source.status = 'approved'
+                      AND target.status = 'draft'
+                      AND target.version_no > source.version_no
+                ) THEN RAISE(ABORT, 'invalid_revenue_successor_baselines') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_revenue_lines source
+                    WHERE source.id = NEW.source_revenue_line_id
+                      AND source.baseline_id = NEW.from_baseline_id
+                ) THEN RAISE(ABORT, 'invalid_source_revenue_line') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_revenue_lines target
+                    WHERE target.id = NEW.target_revenue_line_id
+                      AND target.baseline_id = NEW.to_baseline_id
+                ) THEN RAISE(ABORT, 'invalid_target_revenue_line') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_successor_update_guard
+            BEFORE UPDATE ON project_revenue_line_successors
+            BEGIN
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_financial_baselines
+                    WHERE id = OLD.to_baseline_id AND status = 'draft'
+                ) THEN RAISE(ABORT, 'baseline_successor_mapping_is_immutable') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM project_financial_baselines source
+                    JOIN project_financial_baselines target
+                      ON target.id = NEW.to_baseline_id
+                    WHERE source.id = NEW.from_baseline_id
+                      AND source.project_id = NEW.project_id
+                      AND target.project_id = NEW.project_id
+                      AND source.status = 'approved'
+                      AND target.status = 'draft'
+                      AND target.version_no > source.version_no
+                ) THEN RAISE(ABORT, 'invalid_revenue_successor_baselines') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_revenue_lines source
+                    WHERE source.id = NEW.source_revenue_line_id
+                      AND source.baseline_id = NEW.from_baseline_id
+                ) THEN RAISE(ABORT, 'invalid_source_revenue_line') END;
+                SELECT CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM project_revenue_lines target
+                    WHERE target.id = NEW.target_revenue_line_id
+                      AND target.baseline_id = NEW.to_baseline_id
+                ) THEN RAISE(ABORT, 'invalid_target_revenue_line') END;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_revenue_line_successor_delete_guard
+            BEFORE DELETE ON project_revenue_line_successors
+            WHEN EXISTS (
+                SELECT 1 FROM project_financial_baselines
+                WHERE id = OLD.to_baseline_id AND status <> 'draft'
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'baseline_successor_mapping_is_immutable');
+            END;
+
             CREATE TABLE IF NOT EXISTS daily_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1162,6 +3533,22 @@ def init_db() -> None:
                 payload TEXT NOT NULL DEFAULT '{}',
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY (project_id, kind)
+            );
+
+            CREATE TABLE IF NOT EXISTS market_price_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
+                estimate_item_title TEXT NOT NULL,
+                item_kind TEXT NOT NULL CHECK(item_kind IN ('material', 'work')),
+                estimate_version TEXT NOT NULL,
+                source_estimate_id TEXT NOT NULL,
+                price REAL NOT NULL,
+                source_name TEXT,
+                source_url TEXT,
+                source_payload TEXT NOT NULL DEFAULT '[]',
+                analyzed_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
             );
             """
         )
@@ -1289,6 +3676,26 @@ def init_db() -> None:
                 "default_crew_size": "INTEGER",
                 "updated_at": "INTEGER",
             },
+        )
+        ensure_project_estimates_schema(con)
+
+        con.execute(
+            """
+            INSERT OR IGNORE INTO production_schedule_slot_overrides (
+                project_id, estimate_item_id, slot_number, is_filled, updated_by, created_at, updated_at
+            )
+            SELECT project_id, estimate_item_id, day_number * 2 - 1, is_filled, updated_by, created_at, updated_at
+            FROM production_schedule_cell_overrides
+            """
+        )
+        con.execute(
+            """
+            INSERT OR IGNORE INTO production_schedule_slot_overrides (
+                project_id, estimate_item_id, slot_number, is_filled, updated_by, created_at, updated_at
+            )
+            SELECT project_id, estimate_item_id, day_number * 2, is_filled, updated_by, created_at, updated_at
+            FROM production_schedule_cell_overrides
+            """
         )
 
         ensure_columns(
@@ -1449,6 +3856,10 @@ def init_db() -> None:
                 encoding="utf-8",
             )
 
+        migrate_supplier_offer_tracking(con)
+        ensure_legacy_economics_schema(con)
+        ensure_estimate_reconciliation_schema(con)
+        ensure_warehouse_control_schema(con)
         ensure_sqlite_indexes(con)
         con.commit()
 
@@ -1507,6 +3918,188 @@ def normalize_market_title_key(value: str | None) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"[^0-9a-zа-я]+", " ", text, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def calculate_margin_percent(estimate_price: object, entered_price: object | None) -> float | None:
+    """Return the unit-price margin percentage used by the price table."""
+    if entered_price is None:
+        return None
+    try:
+        estimate_value = float(estimate_price or 0)
+        entered_value = float(entered_price)
+    except (TypeError, ValueError):
+        return None
+    if estimate_value == 0:
+        return None
+    return round(((estimate_value - entered_value) / estimate_value) * 100, 2)
+
+
+def estimate_source_version(con: sqlite3.Connection, project_id: int) -> str:
+    """Content fingerprint of the estimate revision used for market analysis."""
+    rows = con.execute(
+        """
+        SELECT title, unit, planned_qty, planned_price, item_kind, section_title, article
+        FROM estimate_items
+        WHERE project_id = ?
+        ORDER BY id
+        """,
+        (project_id,),
+    ).fetchall()
+    normalized = [
+        [
+            str(row["title"] or ""),
+            str(row["unit"] or ""),
+            float(row["planned_qty"] or 0),
+            float(row["planned_price"] or 0),
+            normalize_estimate_item_kind(row["item_kind"]),
+            str(row["section_title"] or ""),
+            str(row["article"] or ""),
+        ]
+        for row in rows
+    ]
+    source = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(source.encode('utf-8')).hexdigest()[:16]}"
+
+
+def market_source_from_offers(offers: list[dict], market_price: object) -> dict:
+    if not offers:
+        return {}
+    chosen = None
+    try:
+        price_value = float(market_price)
+    except (TypeError, ValueError):
+        price_value = None
+    if price_value is not None:
+        for offer in offers:
+            try:
+                if offer.get("price") is not None and float(offer["price"]) == price_value:
+                    chosen = offer
+                    break
+            except (TypeError, ValueError):
+                continue
+    chosen = chosen or offers[0]
+    return {
+        "name": str(chosen.get("domain") or chosen.get("title") or "AutoBot").strip() or "AutoBot",
+        "url": str(chosen.get("url") or "").strip(),
+    }
+
+
+def latest_market_price_snapshots(
+    con: sqlite3.Connection,
+    project_id: int,
+    kind: str,
+) -> dict[int, dict]:
+    rows = con.execute(
+        """
+        SELECT snapshot.*
+        FROM market_price_snapshots snapshot
+        JOIN (
+            SELECT estimate_item_id, MAX(id) AS latest_id
+            FROM market_price_snapshots
+            WHERE project_id = ? AND item_kind = ? AND estimate_item_id IS NOT NULL
+            GROUP BY estimate_item_id
+        ) latest ON latest.latest_id = snapshot.id
+        """,
+        (project_id, kind),
+    ).fetchall()
+    return {int(row["estimate_item_id"]): dict(row) for row in rows}
+
+
+def active_supplier_offer_map(con: sqlite3.Connection, project_id: int) -> dict[int, dict]:
+    rows = con.execute(
+        """
+        SELECT so.*, creator.name AS entered_by_name, activator.name AS activated_by_name
+        FROM supplier_offers so
+        LEFT JOIN users creator ON creator.id = so.created_by
+        LEFT JOIN users activator ON activator.id = so.activated_by
+        WHERE so.project_id = ?
+          AND so.estimate_item_id IS NOT NULL
+          AND so.status = 'selected'
+        ORDER BY COALESCE(so.activated_at, so.updated_at, so.created_at) DESC, so.id DESC
+        """,
+        (project_id,),
+    ).fetchall()
+    result: dict[int, dict] = {}
+    for row in rows:
+        item_id = int(row["estimate_item_id"])
+        if item_id not in result:
+            result[item_id] = dict(row)
+    return result
+
+
+def enrich_market_rows_with_active_offers(
+    con: sqlite3.Connection,
+    project_id: int,
+    rows: list[dict],
+) -> list[dict]:
+    active_offers = active_supplier_offer_map(con, project_id)
+    procurement_limits = approved_procurement_limit_map(con, project_id)
+    for row in rows:
+        item_id = int(row.get("estimateItemId") or 0)
+        offer = active_offers.get(item_id)
+        entered_price = float(offer["price"] or 0) if offer else None
+        offer_quantity = (
+            float(offer["qty"] or row.get("plannedQty") or 0)
+            if offer
+            else None
+        )
+        row["enteredPrice"] = entered_price
+        row["marginPercent"] = calculate_margin_percent(row.get("estimateUnitPrice"), entered_price)
+        row["procurementLimit"] = evaluate_procurement_limit(
+            procurement_limits.get(item_id),
+            entered_price,
+            offer_quantity,
+        )
+        row["activeOffer"] = (
+            {
+                "id": int(offer["id"]),
+                "candidateName": str(offer.get("candidate_name") or ""),
+                "sourceType": str(offer.get("source_type") or ""),
+                "sourceUrl": str(offer.get("source_url") or ""),
+                "enteredBy": str(offer.get("entered_by_name") or ""),
+                "enteredAt": offer.get("created_at"),
+                "activatedBy": str(offer.get("activated_by_name") or ""),
+                "activatedAt": offer.get("activated_at"),
+                "quantity": offer_quantity,
+            }
+            if offer
+            else None
+        )
+    return rows
+
+
+def save_market_price_snapshots(con: sqlite3.Connection, payload: dict) -> int:
+    saved = 0
+    for row in payload.get("rows") or []:
+        if not row.get("marketPriceIsFresh") or row.get("marketPrice") is None:
+            continue
+        source = row.get("marketSource") or {}
+        con.execute(
+            """
+            INSERT INTO market_price_snapshots (
+                project_id, estimate_item_id, estimate_item_title, item_kind,
+                estimate_version, source_estimate_id, price, source_name, source_url,
+                source_payload, analyzed_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(payload["projectId"]),
+                int(row["estimateItemId"]),
+                str(row.get("title") or ""),
+                str(payload.get("kind") or "material"),
+                str(row.get("marketEstimateVersion") or payload.get("estimateVersion") or ""),
+                str(payload.get("estimateId") or ""),
+                float(row["marketPrice"]),
+                str(source.get("name") or "AutoBot"),
+                str(source.get("url") or "") or None,
+                json.dumps(row.get("sources") or [], ensure_ascii=False),
+                int(row.get("marketAnalyzedAt") or payload.get("analyzedAt") or now_ts()),
+                now_ts(),
+            ),
+        )
+        saved += 1
+    return saved
 
 
 def extract_estimate_id_from_project(project: sqlite3.Row | dict) -> str | None:
@@ -1672,6 +4265,9 @@ def build_project_market_analysis(
     if not estimate_id:
         raise LookupError("estimate_not_linked")
 
+    analyzed_at = now_ts()
+    estimate_version = estimate_source_version(con, project_id)
+
     market_types = ["work"] if kind == "work" else ["material", "product", "service", "other"]
     if market_rows is None:
         market_rows = []
@@ -1691,6 +4287,7 @@ def build_project_market_analysis(
             market_by_index[int(row["positionIndex"])] = row
         market_by_title[row["titleKey"]] = row
 
+    stored_snapshots = latest_market_price_snapshots(con, project_id, kind)
     merged_rows: list[dict] = []
     for item in items:
         position_index = estimate_position_from_notes(str(item.get("notes") or ""), estimate_id)
@@ -1701,7 +4298,26 @@ def build_project_market_analysis(
         if not market_row and title_key and title_key in market_by_title:
             market_row = market_by_title[title_key]
         offers = list((market_row or {}).get("offers") or [])
-        market_price = (market_row or {}).get("marketPrice")
+        fresh_market_price = (market_row or {}).get("marketPrice")
+        stored_snapshot = stored_snapshots.get(int(item.get("id") or 0))
+        market_price = fresh_market_price
+        market_source = market_source_from_offers(offers, fresh_market_price)
+        market_analyzed_at = analyzed_at if fresh_market_price is not None else None
+        market_estimate_version = estimate_version if fresh_market_price is not None else None
+        market_price_is_stale = False
+        if market_price is None and stored_snapshot:
+            market_price = float(stored_snapshot["price"])
+            market_source = {
+                "name": str(stored_snapshot.get("source_name") or "AutoBot"),
+                "url": str(stored_snapshot.get("source_url") or ""),
+            }
+            market_analyzed_at = int(stored_snapshot["analyzed_at"])
+            market_estimate_version = str(stored_snapshot["estimate_version"] or "")
+            market_price_is_stale = True
+            try:
+                offers = json.loads(stored_snapshot.get("source_payload") or "[]")
+            except (TypeError, ValueError):
+                offers = []
         estimate_unit_price = float(item.get("plannedPrice") or 0)
         merged_rows.append(
             {
@@ -1719,10 +4335,15 @@ def build_project_market_analysis(
                 "marketPriceText": (market_row or {}).get("marketPriceText") or "",
                 "marketType": (market_row or {}).get("marketType") or "",
                 "statusNote": (market_row or {}).get("statusNote") or "",
+                "marketSource": market_source,
+                "marketAnalyzedAt": market_analyzed_at,
+                "marketEstimateVersion": market_estimate_version,
+                "marketPriceIsFresh": fresh_market_price is not None,
+                "marketPriceIsStale": market_price_is_stale,
                 "sources": offers[:3],
                 "sourceCount": len(offers),
                 "deltaPerUnit": round(market_price - estimate_unit_price, 2) if market_price is not None and estimate_unit_price else None,
-                "hasMarketData": market_row is not None,
+                "hasMarketData": market_price is not None,
             }
         )
 
@@ -1733,16 +4354,23 @@ def build_project_market_analysis(
             str(row.get("title") or ""),
         )
     )
+    enrich_market_rows_with_active_offers(con, project_id, merged_rows)
     coverage = sum(1 for row in merged_rows if row["hasMarketData"])
+    fresh_coverage = sum(1 for row in merged_rows if row["marketPriceIsFresh"])
+    stale_coverage = sum(1 for row in merged_rows if row["marketPriceIsStale"])
     payload = {
         "projectId": project_id,
         "estimateId": estimate_id,
+        "estimateVersion": estimate_version,
+        "analyzedAt": analyzed_at,
         "kind": kind,
         "rows": merged_rows,
         "summary": {
             "total": len(merged_rows),
             "withMarketData": coverage,
             "withoutMarketData": max(0, len(merged_rows) - coverage),
+            "freshMarketData": fresh_coverage,
+            "staleMarketData": stale_coverage,
         },
     }
     # Keep the legacy rows payload and expose the stable collection names for
@@ -1763,6 +4391,49 @@ def market_empty_payload(status: str, error: str = "") -> dict:
     }
     if error:
         payload["error"] = error
+    return payload
+
+
+def restricted_market_analysis_payload(
+    con: sqlite3.Connection,
+    project_id: int,
+    kind: str,
+    can_submit_price: bool,
+) -> dict:
+    items = material_summary_rows(con, project_id)
+    if kind == "work":
+        items = [item for item in items if normalize_estimate_item_kind(item.get("itemKind")) == "work"]
+    else:
+        items = [item for item in items if normalize_estimate_item_kind(item.get("itemKind")) != "work"]
+    rows = [
+        {
+            "estimateItemId": int(item.get("id") or 0),
+            "title": str(item.get("title") or ""),
+        }
+        for item in items
+    ]
+    return {
+        "status": "restricted",
+        "canViewProcurementPrices": False,
+        "canSubmitPrice": bool(can_submit_price),
+        "projectId": project_id,
+        "kind": kind,
+        "rows": rows,
+        "analysis": rows,
+        "materials": rows if kind == "material" else [],
+        "works": rows if kind == "work" else [],
+        "summary": {"total": len(rows)},
+    }
+
+
+def refresh_cached_market_commercial_fields(payload: dict, project_id: int, kind: str) -> dict:
+    rows = list(payload.get("rows") or [])
+    with db() as con:
+        enrich_market_rows_with_active_offers(con, project_id, rows)
+    payload["rows"] = rows
+    payload["analysis"] = rows
+    payload["materials"] = rows if kind == "material" else []
+    payload["works"] = rows if kind == "work" else []
     return payload
 
 
@@ -1815,6 +4486,8 @@ def market_analysis_worker(project_id: int, kind: str, estimate_id: str) -> None
             market_rows.extend(fetch_autobot_market_rows(estimate_id, market_type))
         with db() as con:
             payload = build_project_market_analysis(con, project_id, kind, market_rows=market_rows)
+            save_market_price_snapshots(con, payload)
+            con.commit()
         payload["status"] = "ready"
         save_market_analysis_cache(project_id, kind, "ready", payload)
     except AutoBotUnavailableError:
@@ -1861,6 +4534,7 @@ def request_market_analysis(project_id: int, kind: str) -> tuple[int, dict]:
         ttl = MARKET_ANALYSIS_CACHE_TTL if cached["status"] == "ready" else MARKET_ANALYSIS_ERROR_TTL
         if cached["status"] == "ready" and now - int(cached["updated_at"] or 0) < ttl:
             cached_payload["status"] = "ready"
+            refresh_cached_market_commercial_fields(cached_payload, project_id, kind)
             return HTTPStatus.OK, cached_payload
         if cached["status"] == "error" and now - int(cached["updated_at"] or 0) < ttl:
             error = str(cached_payload.get("error") or "market_analysis_failed")
@@ -1990,6 +4664,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
         )
 
     def send_json(self, status: int, payload: dict) -> None:
+        if payload_has_procurement_prices(payload):
+            payload = redact_procurement_prices(payload, self.current_user())
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2102,9 +4778,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_projects()
             elif method == "POST" and path == "/api/projects":
                 self.api_create_project()
-            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/update"):
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/update", path):
                 self.api_update_project(path)
-            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/delete"):
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/delete", path):
                 self.api_delete_project(path)
             elif method == "GET" and path == "/api/dashboard":
                 self.api_dashboard()
@@ -2138,6 +4814,22 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_claim_project_foreman(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/materials-summary"):
                 self.api_materials_summary(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/estimates"):
+                self.api_project_estimates(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/estimate-reconciliation"):
+                self.api_estimate_reconciliation(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/estimate-reconciliation/snapshots"):
+                self.api_capture_estimate_reconciliation_snapshot(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/estimate-reconciliation/review"):
+                self.api_review_estimate_reconciliation(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/warehouse-control"):
+                self.api_project_warehouse_control(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/warehouse-control/norms"):
+                self.api_upsert_work_material_norm(path)
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/warehouse-control/facts/\d+/reverse", path):
+                self.api_reverse_project_work_fact(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/warehouse-control/facts"):
+                self.api_create_project_work_fact(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/warehouse-matches"):
                 self.api_project_warehouse_matches(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/material-schedule"):
@@ -2162,6 +4854,94 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_clear_supplier_selection(path)
             elif method == "POST" and path.startswith("/api/supplier-offers/") and path.endswith("/update"):
                 self.api_update_supplier_offer(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/legacy-economics-migration"):
+                self.api_project_legacy_economics_migration(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/legacy-economics-migration/scan"):
+                self.api_scan_project_legacy_economics(path)
+            elif method == "POST" and path.startswith("/api/legacy-economics-migrations/") and path.endswith("/update"):
+                self.api_update_project_legacy_economics_review(path)
+            elif method == "POST" and path.startswith("/api/legacy-economics-migrations/") and path.endswith("/ignore"):
+                self.api_ignore_project_legacy_economics_review(path)
+            elif method == "POST" and path.startswith("/api/legacy-economics-migrations/") and path.endswith("/confirm"):
+                self.api_confirm_project_legacy_economics_review(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/financial-baselines"):
+                self.api_project_financial_baselines(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/financial-baselines"):
+                self.api_create_financial_baseline(path)
+            elif method == "POST" and path.startswith("/api/financial-baselines/") and path.endswith("/update"):
+                self.api_update_financial_baseline(path)
+            elif method == "POST" and path.startswith("/api/financial-baselines/") and path.endswith("/successors"):
+                self.api_update_financial_baseline_successors(path)
+            elif method == "POST" and path.startswith("/api/financial-baselines/") and path.endswith("/submit"):
+                self.api_submit_financial_baseline(path)
+            elif method == "POST" and path.startswith("/api/financial-baselines/") and path.endswith("/return"):
+                self.api_return_financial_baseline(path)
+            elif method == "POST" and path.startswith("/api/financial-baselines/") and path.endswith("/approve"):
+                self.api_approve_financial_baseline(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/commitments"):
+                self.api_project_commitments(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/commitments"):
+                self.api_create_commitment(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/commitments/from-offer"):
+                self.api_create_commitment_from_offer(path)
+            elif method == "POST" and path.startswith("/api/commitments/") and path.endswith("/update"):
+                self.api_update_commitment(path)
+            elif method == "POST" and path.startswith("/api/commitments/") and path.endswith("/replace-lines"):
+                self.api_replace_commitment_lines(path)
+            elif method == "POST" and path.startswith("/api/commitments/") and path.endswith("/submit"):
+                self.api_submit_commitment(path)
+            elif method == "POST" and path.startswith("/api/commitments/") and path.endswith("/return"):
+                self.api_return_commitment(path)
+            elif method == "POST" and path.startswith("/api/commitments/") and path.endswith("/approve"):
+                self.api_approve_commitment(path)
+            elif method == "POST" and path.startswith("/api/commitments/") and path.endswith("/cancel"):
+                self.api_cancel_commitment(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/actual-costs"):
+                self.api_project_actual_costs(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/actual-costs/from-stock-move"):
+                self.api_create_actual_cost_from_stock_move(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/actual-costs/from-warehouse-transfer"):
+                self.api_create_actual_cost_from_warehouse_transfer(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/actual-costs"):
+                self.api_create_actual_cost(path)
+            elif method == "POST" and path.startswith("/api/actual-costs/") and path.endswith("/update"):
+                self.api_update_actual_cost(path)
+            elif method == "POST" and path.startswith("/api/actual-costs/") and path.endswith("/submit"):
+                self.api_submit_actual_cost(path)
+            elif method == "POST" and path.startswith("/api/actual-costs/") and path.endswith("/return"):
+                self.api_return_actual_cost(path)
+            elif method == "POST" and path.startswith("/api/actual-costs/") and path.endswith("/approve"):
+                self.api_approve_actual_cost(path)
+            elif method == "POST" and path.startswith("/api/actual-costs/") and path.endswith("/reverse"):
+                self.api_reverse_actual_cost(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/cash-flow"):
+                self.api_project_cash_flow(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/payment-allocations"):
+                self.api_create_payment_allocation(path)
+            elif method == "POST" and path.startswith("/api/payment-allocations/") and path.endswith("/update"):
+                self.api_update_payment_allocation(path)
+            elif method == "POST" and path.startswith("/api/payment-allocations/") and path.endswith("/submit"):
+                self.api_submit_payment_allocation(path)
+            elif method == "POST" and path.startswith("/api/payment-allocations/") and path.endswith("/return"):
+                self.api_return_payment_allocation(path)
+            elif method == "POST" and path.startswith("/api/payment-allocations/") and path.endswith("/approve"):
+                self.api_approve_payment_allocation(path)
+            elif method == "POST" and path.startswith("/api/payment-allocations/") and path.endswith("/reverse"):
+                self.api_reverse_payment_allocation(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/economics"):
+                self.api_project_economics(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/forecasts"):
+                self.api_project_forecasts(path)
+            elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/forecast-price-sources"):
+                self.api_project_forecast_price_sources(path)
+            elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/forecasts/calculate"):
+                self.api_calculate_project_forecast(path)
+            elif method == "POST" and path.startswith("/api/forecasts/") and path.endswith("/submit"):
+                self.api_submit_project_forecast(path)
+            elif method == "POST" and path.startswith("/api/forecasts/") and path.endswith("/return"):
+                self.api_return_project_forecast(path)
+            elif method == "POST" and path.startswith("/api/forecasts/") and path.endswith("/approve"):
+                self.api_approve_project_forecast(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/finances"):
                 self.api_project_finances(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/finances"):
@@ -2963,6 +5743,138 @@ class PMBIHandler(BaseHTTPRequestHandler):
     def api_update_supplier_offer(self, path: str) -> None:
         warehouse_api_update_supplier_offer(self, path)
 
+    def api_project_legacy_economics_migration(self, path: str) -> None:
+        legacy_api_project_legacy_economics_migration(self, path)
+
+    def api_scan_project_legacy_economics(self, path: str) -> None:
+        legacy_api_scan_project_legacy_economics(self, path)
+
+    def api_update_project_legacy_economics_review(self, path: str) -> None:
+        legacy_api_update_project_legacy_economics_review(self, path)
+
+    def api_ignore_project_legacy_economics_review(self, path: str) -> None:
+        legacy_api_ignore_project_legacy_economics_review(self, path)
+
+    def api_confirm_project_legacy_economics_review(self, path: str) -> None:
+        legacy_api_confirm_project_legacy_economics_review(self, path)
+
+    def api_project_financial_baselines(self, path: str) -> None:
+        economics_api_project_financial_baselines(self, path)
+
+    def api_create_financial_baseline(self, path: str) -> None:
+        economics_api_create_financial_baseline(self, path)
+
+    def api_update_financial_baseline(self, path: str) -> None:
+        economics_api_update_financial_baseline(self, path)
+
+    def api_update_financial_baseline_successors(self, path: str) -> None:
+        economics_api_update_financial_baseline_successors(self, path)
+
+    def api_submit_financial_baseline(self, path: str) -> None:
+        economics_api_submit_financial_baseline(self, path)
+
+    def api_return_financial_baseline(self, path: str) -> None:
+        economics_api_return_financial_baseline(self, path)
+
+    def api_approve_financial_baseline(self, path: str) -> None:
+        economics_api_approve_financial_baseline(self, path)
+
+    def api_project_commitments(self, path: str) -> None:
+        economics_api_project_commitments(self, path)
+
+    def api_create_commitment(self, path: str) -> None:
+        economics_api_create_commitment(self, path)
+
+    def api_create_commitment_from_offer(self, path: str) -> None:
+        economics_api_create_commitment_from_offer(self, path)
+
+    def api_update_commitment(self, path: str) -> None:
+        economics_api_update_commitment(self, path)
+
+    def api_replace_commitment_lines(self, path: str) -> None:
+        economics_workflow_api_replace_commitment_lines(self, path)
+
+    def api_submit_commitment(self, path: str) -> None:
+        economics_api_submit_commitment(self, path)
+
+    def api_return_commitment(self, path: str) -> None:
+        economics_workflow_api_return_commitment(self, path)
+
+    def api_approve_commitment(self, path: str) -> None:
+        economics_api_approve_commitment(self, path)
+
+    def api_cancel_commitment(self, path: str) -> None:
+        economics_api_cancel_commitment(self, path)
+
+    def api_project_actual_costs(self, path: str) -> None:
+        economics_api_project_actual_costs(self, path)
+
+    def api_create_actual_cost(self, path: str) -> None:
+        economics_api_create_actual_cost(self, path)
+
+    def api_create_actual_cost_from_stock_move(self, path: str) -> None:
+        economics_api_create_actual_cost_from_stock_move(self, path)
+
+    def api_create_actual_cost_from_warehouse_transfer(self, path: str) -> None:
+        economics_api_create_actual_cost_from_warehouse_transfer(self, path)
+
+    def api_update_actual_cost(self, path: str) -> None:
+        economics_api_update_actual_cost(self, path)
+
+    def api_submit_actual_cost(self, path: str) -> None:
+        economics_api_submit_actual_cost(self, path)
+
+    def api_return_actual_cost(self, path: str) -> None:
+        economics_workflow_api_return_actual_cost(self, path)
+
+    def api_approve_actual_cost(self, path: str) -> None:
+        economics_api_approve_actual_cost(self, path)
+
+    def api_reverse_actual_cost(self, path: str) -> None:
+        economics_api_reverse_actual_cost(self, path)
+
+    def api_project_cash_flow(self, path: str) -> None:
+        economics_api_project_cash_flow(self, path)
+
+    def api_create_payment_allocation(self, path: str) -> None:
+        economics_api_create_payment_allocation(self, path)
+
+    def api_update_payment_allocation(self, path: str) -> None:
+        economics_api_update_payment_allocation(self, path)
+
+    def api_submit_payment_allocation(self, path: str) -> None:
+        economics_api_submit_payment_allocation(self, path)
+
+    def api_return_payment_allocation(self, path: str) -> None:
+        economics_workflow_api_return_payment_allocation(self, path)
+
+    def api_approve_payment_allocation(self, path: str) -> None:
+        economics_api_approve_payment_allocation(self, path)
+
+    def api_reverse_payment_allocation(self, path: str) -> None:
+        economics_api_reverse_payment_allocation(self, path)
+
+    def api_project_economics(self, path: str) -> None:
+        economics_api_project_economics(self, path)
+
+    def api_project_forecasts(self, path: str) -> None:
+        economics_workflow_api_project_forecasts(self, path)
+
+    def api_project_forecast_price_sources(self, path: str) -> None:
+        economics_workflow_api_project_forecast_price_sources(self, path)
+
+    def api_calculate_project_forecast(self, path: str) -> None:
+        economics_api_calculate_project_forecast(self, path)
+
+    def api_submit_project_forecast(self, path: str) -> None:
+        economics_api_submit_project_forecast(self, path)
+
+    def api_return_project_forecast(self, path: str) -> None:
+        economics_workflow_api_return_project_forecast(self, path)
+
+    def api_approve_project_forecast(self, path: str) -> None:
+        economics_api_approve_project_forecast(self, path)
+
     def set_project_foremen(
         self,
         con: sqlite3.Connection,
@@ -3232,11 +6144,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if not row:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "task_not_found"})
                 return
+            is_manager = self.daily_task_manager(user)
+            is_assignee = int(row["user_id"]) == int(user["id"])
+            if not is_manager and not is_assignee:
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "not_task_owner"})
+                return
             status = str(payload.get("status", row["status"]) or row["status"]).strip()
             if status not in {"planned", "in_progress", "done", "archived"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
                 return
-            if status == "done" and int(row["user_id"]) != int(user["id"]):
+            if status == "done" and not is_assignee:
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "not_task_assignee"})
                 return
             text = str(payload.get("text", row["text"]) or "").strip()
@@ -3244,6 +6161,32 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_task"})
                 return
             task_date = str(payload.get("date", row["task_date"]) or TODAY_ISO).strip() or TODAY_ISO
+            target_user_id = int(row["user_id"])
+            raw_target_user_id = payload.get("userId", payload.get("user_id"))
+            if raw_target_user_id is not None and str(raw_target_user_id).strip():
+                try:
+                    requested_user_id = int(raw_target_user_id)
+                except (TypeError, ValueError):
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
+                    return
+                if requested_user_id != target_user_id and not is_manager:
+                    self.send_json(HTTPStatus.FORBIDDEN, {"error": "cannot_reassign_task"})
+                    return
+                target_user_id = requested_user_id
+            target_user = con.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE id = ?
+                  AND is_active = 1
+                  AND COALESCE(is_deleted, 0) = 0
+                  AND role NOT IN ('customer', 'client')
+                """,
+                (target_user_id,),
+            ).fetchone()
+            if not target_user:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "user_not_found"})
+                return
             completed_at = row["completed_at"]
             archived_at = row["archived_at"]
             timestamp = self.daily_task_now()
@@ -3258,10 +6201,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
             con.execute(
                 """
                 UPDATE daily_tasks
-                SET text = ?, status = ?, task_date = ?, completed_at = ?, archived_at = ?, updated_at = ?
+                SET user_id = ?, text = ?, status = ?, task_date = ?, completed_at = ?, archived_at = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (text, status, task_date, completed_at, archived_at, now_ts(), task_id),
+                (target_user_id, text, status, task_date, completed_at, archived_at, now_ts(), task_id),
             )
             con.commit()
             updated = con.execute(
@@ -3306,9 +6249,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_task_id"})
             return
         with db() as con:
-            row = con.execute("SELECT id FROM daily_tasks WHERE id = ?", (task_id,)).fetchone()
+            row = con.execute("SELECT id, user_id FROM daily_tasks WHERE id = ?", (task_id,)).fetchone()
             if not row:
                 self.send_json(HTTPStatus.OK, {"ok": True, "id": task_id, "alreadyDeleted": True})
+                return
+            if not self.daily_task_manager(user) and int(row["user_id"]) != int(user["id"]):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "not_task_owner"})
                 return
             con.execute("DELETE FROM daily_tasks WHERE id = ?", (task_id,))
             con.commit()
@@ -3483,14 +6429,145 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     (user["id"], user["id"]),
                 ).fetchall()
             project_ids = [row["id"] for row in projects]
-            total_budget = sum(float(row["budget"] or 0) for row in projects)
-            total_paid = sum(float(row["paid"] or 0) for row in projects)
-            total_spent = sum(float(row["spent"] or 0) for row in projects)
+            total_paid = 0.0
+            total_spent = 0.0
+            portfolio_economics = None
+            if project_ids and user_can_view_project_economics(user):
+                placeholders = ",".join("?" for _ in project_ids)
+                cash_rows = con.execute(
+                    f"""
+                    SELECT direction, COALESCE(SUM(amount), 0) AS amount
+                    FROM finance_entries
+                    WHERE project_id IN ({placeholders})
+                      AND status = 'paid'
+                      AND paid_date IS NOT NULL AND length(trim(paid_date)) > 0
+                    GROUP BY direction
+                    """,
+                    project_ids,
+                ).fetchall()
+                for cash_row in cash_rows:
+                    if cash_row["direction"] == "income":
+                        total_paid = float(cash_row["amount"] or 0)
+                    elif cash_row["direction"] == "expense":
+                        total_spent = float(cash_row["amount"] or 0)
+
+                baseline_rows = con.execute(
+                    f"""
+                    SELECT baseline.id, baseline.project_id,
+                           COALESCE((
+                               SELECT SUM(line.net_amount_kopecks)
+                               FROM project_revenue_lines line
+                               WHERE line.baseline_id = baseline.id
+                           ), 0) AS revenue_net_kopecks,
+                           COALESCE((
+                               SELECT SUM(line.net_amount_kopecks)
+                               FROM project_budget_lines line
+                               WHERE line.baseline_id = baseline.id
+                           ), 0) AS target_cost_net_kopecks
+                    FROM project_financial_baselines baseline
+                    WHERE baseline.project_id IN ({placeholders})
+                      AND baseline.status = 'approved'
+                    """,
+                    project_ids,
+                ).fetchall()
+                configured_ids = {int(row["project_id"]) for row in baseline_rows}
+                commitment_total = int(con.execute(
+                    f"""
+                    SELECT COALESCE(SUM(line.net_amount_kopecks), 0)
+                    FROM project_commitment_lines line
+                    JOIN project_commitments commitment ON commitment.id = line.commitment_id
+                    WHERE commitment.project_id IN ({placeholders})
+                      AND commitment.status = 'approved'
+                    """,
+                    project_ids,
+                ).fetchone()[0])
+                actual_total = int(con.execute(
+                    f"""
+                    SELECT COALESCE(SUM(
+                        CASE WHEN entry.entry_kind = 'cost'
+                             THEN entry.net_amount_kopecks
+                             ELSE -entry.net_amount_kopecks END
+                    ), 0)
+                    FROM project_actual_cost_entries entry
+                    WHERE entry.project_id IN ({placeholders})
+                      AND entry.status = 'approved'
+                    """,
+                    project_ids,
+                ).fetchone()[0])
+                forecast_rows = con.execute(
+                    f"""
+                    SELECT forecast.project_id, forecast.baseline_id,
+                           forecast.source_state_hash, forecast.eac_net_kopecks,
+                           forecast.forecast_margin_net_kopecks
+                    FROM project_forecasts forecast
+                    JOIN project_financial_baselines baseline
+                      ON baseline.id = forecast.baseline_id
+                     AND baseline.project_id = forecast.project_id
+                     AND baseline.status = 'approved'
+                    JOIN (
+                        SELECT candidate.project_id, MAX(candidate.version_no) AS version_no
+                        FROM project_forecasts candidate
+                        JOIN project_financial_baselines current_baseline
+                          ON current_baseline.id = candidate.baseline_id
+                         AND current_baseline.project_id = candidate.project_id
+                         AND current_baseline.status = 'approved'
+                        WHERE candidate.project_id IN ({placeholders})
+                          AND candidate.status = 'approved'
+                        GROUP BY candidate.project_id
+                    ) latest
+                      ON latest.project_id = forecast.project_id
+                     AND latest.version_no = forecast.version_no
+                    WHERE forecast.status = 'approved'
+                    """,
+                    project_ids,
+                ).fetchall()
+                fresh_forecast_rows = []
+                stale_forecast_projects = 0
+                for forecast_row in forecast_rows:
+                    current_source_hash = economics_forecast_source_state_hash(
+                        con,
+                        int(forecast_row["project_id"]),
+                        int(forecast_row["baseline_id"]),
+                    )
+                    if current_source_hash == str(forecast_row["source_state_hash"]):
+                        fresh_forecast_rows.append(forecast_row)
+                    else:
+                        stale_forecast_projects += 1
+                portfolio_economics = {
+                    "configuredProjects": len(configured_ids),
+                    "unconfiguredProjects": max(len(project_ids) - len(configured_ids), 0),
+                    "forecastProjects": len(fresh_forecast_rows),
+                    "staleForecastProjects": stale_forecast_projects,
+                    "missingForecastProjects": max(
+                        len(configured_ids) - len(forecast_rows), 0
+                    ),
+                    "forecastAttentionProjects": max(
+                        len(configured_ids) - len(fresh_forecast_rows), 0
+                    ),
+                    "contractRevenueNetKopecks": sum(
+                        int(row["revenue_net_kopecks"]) for row in baseline_rows
+                    ),
+                    "targetCostNetKopecks": sum(
+                        int(row["target_cost_net_kopecks"]) for row in baseline_rows
+                    ),
+                    "committedTotalNetKopecks": commitment_total,
+                    "actualCostNetKopecks": actual_total,
+                    "eacNetKopecks": (
+                        sum(int(row["eac_net_kopecks"]) for row in fresh_forecast_rows)
+                        if fresh_forecast_rows else None
+                    ),
+                    "forecastMarginNetKopecks": (
+                        sum(int(row["forecast_margin_net_kopecks"]) for row in fresh_forecast_rows)
+                        if fresh_forecast_rows else None
+                    ),
+                }
             active = sum(1 for row in projects if "работ" in str(row["status"]).lower())
             shortages = 0
             critical_items = []
             for project in projects:
                 for item in material_summary_rows(con, int(project["id"])):
+                    if normalize_estimate_item_kind(item.get("itemKind")) == "work":
+                        continue
                     if item["missingQty"] > 0:
                         work_date = item.get("stageStartDate") or item.get("needByDate") or item.get("stageEndDate") or ""
                         parsed_work_date = parse_iso_date(str(work_date or ""))
@@ -3643,7 +6720,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 today_actions.append(f"Закрыть нехватку: {first['title']} — нужно ещё {first['missingQty']} {first['unit']}.")
             if open_tasks:
                 today_actions.append(f"Разобрать открытые задачи: {open_tasks} шт. по активным объектам.")
-            if user_has_any_role(user, {"admin", "director"}) and total_paid - total_spent < 0:
+            if user_can_view_project_economics(user) and total_paid - total_spent < 0:
                 today_actions.append("Проверить кассовый разрыв: расходы сейчас выше оплат.")
             if user["role"] == "purchaser":
                 today_actions.append("Обновить поступления и списания на складе, чтобы смета показывала реальные остатки.")
@@ -3662,12 +6739,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
             "recentActivity": recent_activity,
             "projects": [serialize_project(row, user) for row in projects[:6]],
         }
-        if user_has_any_role(user, {"admin", "director"}):
+        if user_can_view_project_economics(user):
             data.update({
-                "totalBudget": total_budget,
-                "totalPaid": total_paid,
-                "totalSpent": total_spent,
-                "profitNow": total_paid - total_spent,
+                "portfolioEconomics": portfolio_economics or {
+                    "configuredProjects": 0,
+                    "unconfiguredProjects": len(projects),
+                    "forecastProjects": 0,
+                    "missingForecastProjects": 0,
+                    "contractRevenueNetKopecks": 0,
+                    "targetCostNetKopecks": 0,
+                    "committedTotalNetKopecks": 0,
+                    "actualCostNetKopecks": 0,
+                    "eacNetKopecks": None,
+                    "forecastMarginNetKopecks": None,
+                },
+                "cashBalance": total_paid - total_spent,
             })
         self.send_json(HTTPStatus.OK, data)
 
@@ -3686,13 +6772,390 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
         with db() as con:
             items = material_summary_rows(con, project_id)
-        self.send_json(HTTPStatus.OK, {"items": items})
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "items": items,
+                "canViewProcurementPrices": user_can_view_procurement_prices(user),
+            },
+        )
 
+    def api_estimate_reconciliation(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        can_manage_snapshots = user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})
+        with db() as con:
+            payload = build_reconciliation(con, project_id, user_can_view_procurement_prices(user))
+            payload["liveItemCount"] = int(
+                con.execute("SELECT COUNT(*) FROM estimate_items WHERE project_id = ?", (project_id,)).fetchone()[0]
+            )
+        payload.update(
+            {
+                "canManageSnapshots": can_manage_snapshots,
+                "canReview": True,
+                "canViewProcurementPrices": user_can_view_procurement_prices(user),
+            }
+        )
+        self.send_json(HTTPStatus.OK, payload)
 
+    def api_capture_estimate_reconciliation_snapshot(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        source_kind = str(payload.get("sourceKind", payload.get("source_kind", ""))).strip().lower()
+        source_label = str(payload.get("sourceLabel", payload.get("source_label", ""))).strip()
+        source_reference = str(payload.get("sourceReference", payload.get("source_reference", ""))).strip()
+        use_current = bool(payload.get("useCurrent", payload.get("use_current", False)))
+        items = payload.get("items")
+        if not use_current and not isinstance(items, list):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "snapshot_items_required"})
+            return
+        try:
+            with db() as con:
+                if use_current:
+                    snapshot, created = capture_live_snapshot(
+                        con,
+                        project_id,
+                        source_kind,
+                        user["id"],
+                        now_ts(),
+                        source_label or ("Текущая смета" if source_kind == "original" else "Текущая выгрузка ИИ"),
+                        source_reference,
+                    )
+                else:
+                    snapshot, created = capture_snapshot(
+                        con,
+                        project_id,
+                        source_kind,
+                        items,
+                        user["id"],
+                        now_ts(),
+                        source_label,
+                        source_reference,
+                    )
+                create_audit(
+                    con,
+                    user["id"],
+                    "capture_estimate_reconciliation_snapshot",
+                    "project",
+                    project_id,
+                    {
+                        "snapshot_id": int(snapshot["id"]),
+                        "source_kind": source_kind,
+                        "version_no": int(snapshot["version_no"]),
+                        "created": created,
+                    },
+                )
+                con.commit()
+                result = build_reconciliation(con, project_id, user_can_view_procurement_prices(user))
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        result.update(
+            {
+                "created": created,
+                "canManageSnapshots": True,
+                "canReview": True,
+                "canViewProcurementPrices": user_can_view_procurement_prices(user),
+            }
+        )
+        self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
 
+    def api_review_estimate_reconciliation(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        try:
+            original_snapshot_id = int(payload.get("originalSnapshotId", payload.get("original_snapshot_id", 0)))
+            ai_snapshot_id = int(payload.get("aiSnapshotId", payload.get("ai_snapshot_id", 0)))
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_snapshot_id"})
+            return
+        row_key = str(payload.get("rowKey", payload.get("row_key", ""))).strip()
+        status = str(payload.get("status", "")).strip()
+        comment = str(payload.get("comment", "")).strip()
+        try:
+            with db() as con:
+                current = build_reconciliation(con, project_id, False)
+                current_original = current.get("originalSnapshot") or {}
+                current_ai = current.get("aiSnapshot") or {}
+                if (
+                    not current.get("ready")
+                    or int(current_original.get("id") or 0) != original_snapshot_id
+                    or int(current_ai.get("id") or 0) != ai_snapshot_id
+                ):
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "estimate_reconciliation_version_changed"})
+                    return
+                if row_key not in {str(row.get("rowKey")) for row in current.get("rows", [])}:
+                    self.send_json(HTTPStatus.NOT_FOUND, {"error": "reconciliation_row_not_found"})
+                    return
+                review = save_estimate_reconciliation_review(
+                    con,
+                    project_id,
+                    original_snapshot_id,
+                    ai_snapshot_id,
+                    row_key,
+                    status,
+                    comment,
+                    user["id"],
+                    now_ts(),
+                )
+                create_audit(
+                    con,
+                    user["id"],
+                    "review_estimate_reconciliation_row",
+                    "estimate_reconciliation_review",
+                    int(review["id"]),
+                    {
+                        "project_id": project_id,
+                        "original_snapshot_id": original_snapshot_id,
+                        "ai_snapshot_id": ai_snapshot_id,
+                        "row_key": row_key,
+                        "status": status,
+                    },
+                )
+                con.commit()
+                result = build_reconciliation(con, project_id, user_can_view_procurement_prices(user))
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        result.update(
+            {
+                "canManageSnapshots": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
+                "canReview": True,
+                "canViewProcurementPrices": user_can_view_procurement_prices(user),
+            }
+        )
+        self.send_json(HTTPStatus.OK, result)
 
+    def api_project_warehouse_control(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        with db() as con:
+            payload = build_warehouse_control(con, project_id)
+        payload.update(
+            {
+                "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
+                "canRecordFacts": True,
+                "canReverseFacts": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"}),
+            }
+        )
+        self.send_json(HTTPStatus.OK, payload)
 
+    def api_upsert_work_material_norm(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        try:
+            work_item_id = int(payload.get("workItemId", payload.get("work_item_id", 0)))
+            material_item_id = int(payload.get("materialItemId", payload.get("material_item_id", 0)))
+            qty_per_work_unit = float(payload.get("qtyPerWorkUnit", payload.get("qty_per_work_unit", 0)))
+            waste_percent = float(payload.get("wastePercent", payload.get("waste_percent", 0)) or 0)
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_material_norm"})
+            return
+        try:
+            with db() as con:
+                con.execute("BEGIN IMMEDIATE")
+                norm, created = upsert_work_material_norm(
+                    con,
+                    project_id,
+                    work_item_id,
+                    material_item_id,
+                    qty_per_work_unit,
+                    waste_percent,
+                    bool(payload.get("isActive", payload.get("is_active", True))),
+                    user["id"],
+                    now_ts(),
+                )
+                create_audit(
+                    con,
+                    user["id"],
+                    "upsert_work_material_norm",
+                    "work_material_norm",
+                    int(norm["id"]),
+                    {
+                        "project_id": project_id,
+                        "work_item_id": work_item_id,
+                        "material_item_id": material_item_id,
+                        "qty_per_work_unit": qty_per_work_unit,
+                        "waste_percent": waste_percent,
+                        "is_active": bool(norm["is_active"]),
+                    },
+                )
+                con.commit()
+                result = build_warehouse_control(con, project_id)
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        result.update({"created": created, "canManageNorms": True, "canRecordFacts": True, "canReverseFacts": True})
+        self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
 
+    def api_create_project_work_fact(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        try:
+            work_item_id = int(payload.get("workItemId", payload.get("work_item_id", 0)))
+            quantity = float(payload.get("quantity", payload.get("qty", 0)))
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_work_fact"})
+            return
+        report_date = str(payload.get("reportDate", payload.get("report_date", ""))).strip() or TODAY_ISO
+        idempotency_key = str(payload.get("idempotencyKey", payload.get("idempotency_key", ""))).strip() or f"work-fact-{secrets.token_hex(16)}"
+        try:
+            with db() as con:
+                con.execute("BEGIN IMMEDIATE")
+                fact, created = create_work_fact(
+                    con,
+                    project_id,
+                    work_item_id,
+                    report_date,
+                    quantity,
+                    str(payload.get("comment", "")).strip(),
+                    idempotency_key,
+                    user["id"],
+                    now_ts(),
+                )
+                recalc_project_progress(con, project_id)
+                create_audit(
+                    con,
+                    user["id"],
+                    "create_project_work_fact",
+                    "project_work_fact",
+                    int(fact["id"]),
+                    {
+                        "project_id": project_id,
+                        "work_item_id": work_item_id,
+                        "quantity": quantity,
+                        "report_date": report_date,
+                        "created": created,
+                    },
+                )
+                con.commit()
+                result = build_warehouse_control(con, project_id)
+        except ValueError as error:
+            status = HTTPStatus.CONFLICT if str(error) in {
+                "work_material_norms_required",
+                "work_fact_idempotency_conflict",
+            } else HTTPStatus.BAD_REQUEST
+            self.send_json(status, {"error": str(error)})
+            return
+        result.update(
+            {
+                "created": created,
+                "factId": int(fact["id"]),
+                "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
+                "canRecordFacts": True,
+                "canReverseFacts": True,
+            }
+        )
+        self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
+
+    def api_reverse_project_work_fact(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        fact_id = parse_path_int(path, 5)
+        if not project_id or not fact_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_work_fact_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"})):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        idempotency_key = str(payload.get("idempotencyKey", payload.get("idempotency_key", ""))).strip() or f"work-fact-reversal-{secrets.token_hex(16)}"
+        try:
+            with db() as con:
+                con.execute("BEGIN IMMEDIATE")
+                reversal, created = reverse_work_fact(
+                    con,
+                    project_id,
+                    fact_id,
+                    str(payload.get("reason", payload.get("comment", ""))).strip(),
+                    idempotency_key,
+                    user["id"],
+                    now_ts(),
+                )
+                recalc_project_progress(con, project_id)
+                create_audit(
+                    con,
+                    user["id"],
+                    "reverse_project_work_fact",
+                    "project_work_fact",
+                    int(reversal["id"]),
+                    {"project_id": project_id, "reverses_fact_id": fact_id, "created": created},
+                )
+                con.commit()
+                result = build_warehouse_control(con, project_id)
+        except ValueError as error:
+            if str(error) == "work_fact_not_found":
+                status = HTTPStatus.NOT_FOUND
+            elif str(error) == "work_fact_idempotency_conflict":
+                status = HTTPStatus.CONFLICT
+            else:
+                status = HTTPStatus.BAD_REQUEST
+            self.send_json(status, {"error": str(error)})
+            return
+        result.update(
+            {
+                "created": created,
+                "reversalId": int(reversal["id"]),
+                "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
+                "canRecordFacts": True,
+                "canReverseFacts": True,
+            }
+        )
+        self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
 
     def api_create_material(self, path: str) -> None:
         project_id = parse_path_int(path, 2)
@@ -3708,11 +7171,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         payload = self.read_json()
         title = str(payload.get("title", "")).strip()
         unit = str(payload.get("unit", "")).strip() or "шт"
-        planned_qty, planned_price = normalize_estimate_planned_values(
-            unit,
-            payload.get("planned_qty", payload.get("plannedQty", 0)),
-            payload.get("planned_price", payload.get("plannedPrice", 0)),
-        )
+        planned_qty, planned_price = normalize_estimate_item_values(payload, unit)
         if not title or planned_qty <= 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_and_qty_required"})
             return
@@ -3758,6 +7217,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 return
             if user["role"] == "customer":
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            if not user_can_view_procurement_prices(user) and any(
+                key in payload for key in ("planned_price", "plannedPrice")
+            ):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "price_fields_forbidden"})
                 return
             stage_id = payload.get("stage_id", payload.get("stageId", material["stage_id"]))
             try:
@@ -3838,7 +7302,18 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if kind not in {"material", "work"}:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_kind"})
                 return
+            if not user_can_view_procurement_prices(user):
+                with db() as con:
+                    payload = restricted_market_analysis_payload(
+                        con,
+                        project_id,
+                        kind,
+                        user_can_submit_procurement_price(user),
+                    )
+                self.send_json(HTTPStatus.OK, payload)
+                return
             status, payload = request_market_analysis(project_id, kind)
+            payload["canViewProcurementPrices"] = True
             self.send_json(status, payload)
         except LookupError as error:
             self.send_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
@@ -3852,6 +7327,32 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
 
 
+
+    def api_project_estimates(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        if not project_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        with db() as con:
+            project = con.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if not project:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+                return
+            estimates = list_project_estimates(con, project_id)
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "projectId": project_id,
+                "estimates": estimates,
+                "summary": {
+                    "estimateCount": len(estimates),
+                    "itemCount": sum(int(item.get("itemCount") or 0) for item in estimates),
+                },
+            },
+        )
 
     def api_project_bootstrap(self, path: str) -> None:
         project_id = parse_path_int(path, 2)
@@ -3869,6 +7370,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
         stages_payload = payload.get("stages") if isinstance(payload.get("stages"), list) else []
         materials_payload = payload.get("materials") if isinstance(payload.get("materials"), list) else []
         tasks_payload = payload.get("tasks") if isinstance(payload.get("tasks"), list) else []
+        default_estimate_source = payload.get("estimate_source", payload.get("estimateSource", payload.get("source")))
+        if not isinstance(default_estimate_source, dict):
+            default_estimate_source = {
+                "sourceType": "manual",
+                "sourceKey": str(payload.get("sourceReference", payload.get("source_reference", ""))).strip() or f"bootstrap:{project_id}",
+                "title": str(payload.get("sourceLabel", payload.get("source_label", "Пакет AutoBot"))).strip() or "Пакет AutoBot",
+                "sourceReference": str(payload.get("sourceReference", payload.get("source_reference", ""))).strip(),
+            }
         replace_existing = bool(payload.get("replace_existing", payload.get("replaceExisting", True)))
         if not stages_payload and not materials_payload and not tasks_payload and not project_payload:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bootstrap_payload_empty"})
@@ -3910,6 +7419,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if replace_existing:
                 con.execute("DELETE FROM work_stages WHERE project_id = ?", (project_id,))
                 con.execute("DELETE FROM estimate_items WHERE project_id = ?", (project_id,))
+                con.execute("DELETE FROM project_estimates WHERE project_id = ?", (project_id,))
                 con.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
 
             stage_map: dict[str, int] = {}
@@ -3962,7 +7472,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
             insert_stage_nodes(stages_payload)
 
-            for item in materials_payload:
+            imported_estimate_source_ids: set[int] = set()
+            for item_index, item in enumerate(materials_payload, start=1):
                 if not isinstance(item, dict):
                     continue
                 title = str(item.get("title", "")).strip()
@@ -3973,11 +7484,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 item_kind = resolved_estimate_item_kind(item)
                 section_title = resolved_estimate_section_title(item)
                 unit = str(item.get("unit", "шт")).strip() or "шт"
-                planned_qty, planned_price = normalize_estimate_planned_values(
-                    unit,
-                    item.get("planned_qty", item.get("plannedQty", 0)),
-                    item.get("planned_price", item.get("plannedPrice", 0)),
-                )
+                planned_qty, planned_price = normalize_estimate_item_values(item, unit)
                 article = str(item.get("article", item.get("sku", item.get("code", item.get("basis", item.get("basis_code", item.get("basisCode", ""))))))).strip() or None
                 try:
                     labor_hours_total = float(item.get("labor_hours_total", item.get("laborHoursTotal")))
@@ -3989,31 +7496,72 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     default_crew_size = default_crew_size if default_crew_size > 0 else None
                 except (TypeError, ValueError):
                     default_crew_size = None
-                con.execute(
+                descriptor = estimate_source_descriptor(
+                    default_estimate_source,
+                    item,
+                    project_id=project_id,
+                )
+                estimate_source = upsert_project_estimate(con, project_id, descriptor, user["id"])
+                estimate_source_id = int(estimate_source["id"])
+                imported_estimate_source_ids.add(estimate_source_id)
+                item_source_key = source_item_key(item, item_index)
+                existing_item = con.execute(
                     """
-                    INSERT INTO estimate_items (
-                        project_id, title, unit, planned_qty, planned_price, stage_id, item_kind,
-                        section_title, article, need_by_date, notes, labor_hours_total,
-                        default_crew_size, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    SELECT id FROM estimate_items
+                    WHERE project_id = ? AND estimate_source_id = ? AND source_item_key = ?
                     """,
-                    (
-                        project_id,
-                        title,
-                        unit,
-                        max(0.01, planned_qty),
-                        max(0.0, planned_price),
-                        stage_id,
-                        item_kind,
-                        section_title,
-                        article,
-                        str(item.get("need_by_date", item.get("needByDate", ""))).strip() or None,
-                        str(item.get("notes", "")).strip() or None,
-                        labor_hours_total,
-                        default_crew_size,
-                        now_ts(),
-                    ),
+                    (project_id, estimate_source_id, item_source_key),
+                ).fetchone()
+                item_values = (
+                    title,
+                    unit,
+                    max(0.000001, planned_qty),
+                    max(0.0, planned_price),
+                    stage_id,
+                    item_kind,
+                    section_title,
+                    article,
+                    str(item.get("need_by_date", item.get("needByDate", ""))).strip() or None,
+                    str(item.get("notes", "")).strip() or None,
+                    labor_hours_total,
+                    default_crew_size,
+                    now_ts(),
+                )
+                if existing_item:
+                    con.execute(
+                        """
+                        UPDATE estimate_items
+                        SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, stage_id = ?,
+                            item_kind = ?, section_title = ?, article = ?, need_by_date = ?, notes = ?,
+                            labor_hours_total = ?, default_crew_size = ?, updated_at = ?, is_deleted = 0
+                        WHERE id = ?
+                        """,
+                        (*item_values, existing_item["id"]),
+                    )
+                else:
+                    con.execute(
+                        """
+                        INSERT INTO estimate_items (
+                            project_id, estimate_source_id, source_item_key,
+                            title, unit, planned_qty, planned_price, stage_id, item_kind,
+                            section_title, article, need_by_date, notes, labor_hours_total,
+                            default_crew_size, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (project_id, estimate_source_id, item_source_key, *item_values),
+                    )
+
+            ai_snapshot = None
+            if materials_payload:
+                ai_snapshot, _ = capture_live_snapshot(
+                    con,
+                    project_id,
+                    "ai",
+                    user["id"],
+                    now_ts(),
+                    str(payload.get("sourceLabel", payload.get("source_label", "Пакет AutoBot"))).strip() or "Пакет AutoBot",
+                    str(payload.get("sourceReference", payload.get("source_reference", ""))).strip(),
                 )
 
             for item in tasks_payload:
@@ -4075,6 +7623,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     "stages": len(stages_payload),
                     "materials": len(materials_payload),
                     "tasks": len(tasks_payload),
+                    "estimate_sources": len(imported_estimate_source_ids),
+                    "ai_snapshot_id": int(ai_snapshot["id"]) if ai_snapshot else None,
                 },
             )
             mark_project_schedule_draft(con, project_id)
@@ -4083,12 +7633,19 @@ class PMBIHandler(BaseHTTPRequestHandler):
             stages = con.execute("SELECT COUNT(*) FROM work_stages WHERE project_id = ?", (project_id,)).fetchone()[0]
             materials = con.execute("SELECT COUNT(*) FROM estimate_items WHERE project_id = ?", (project_id,)).fetchone()[0]
             tasks = con.execute("SELECT COUNT(*) FROM tasks WHERE project_id = ?", (project_id,)).fetchone()[0]
+            project_estimates = list_project_estimates(con, project_id)
 
         self.send_json(
             HTTPStatus.OK,
             {
                 "project": serialize_project(project_row, user),
-                "summary": {"stages": stages, "materials": materials, "tasks": tasks},
+                "summary": {
+                    "stages": stages,
+                    "materials": materials,
+                    "tasks": tasks,
+                    "estimates": len(imported_estimate_source_ids),
+                },
+                "estimates": project_estimates,
             },
         )
 
@@ -4107,19 +7664,26 @@ class PMBIHandler(BaseHTTPRequestHandler):
         payload = self.read_json()
         items = payload.get("items")
         replace = bool(payload.get("replace", False))
+        replace_source = bool(payload.get("replace_source", payload.get("replaceSource", False)))
+        default_estimate_source = payload.get("estimate_source", payload.get("estimateSource", payload.get("source")))
+        if not isinstance(default_estimate_source, dict):
+            default_estimate_source = {
+                "sourceType": "manual",
+                "sourceKey": str(payload.get("sourceReference", payload.get("source_reference", ""))).strip() or f"manual:{project_id}",
+                "title": str(payload.get("sourceLabel", payload.get("source_label", "Ручной импорт"))).strip() or "Ручной импорт",
+                "sourceReference": str(payload.get("sourceReference", payload.get("source_reference", ""))).strip(),
+            }
         if not isinstance(items, list) or not items:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "items_required"})
             return
 
         normalized = []
-        for item in items:
+        for item_index, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                continue
             title = str(item.get("title", "")).strip()
             unit = str(item.get("unit", "")).strip() or "шт"
-            planned_qty, planned_price = normalize_estimate_planned_values(
-                unit,
-                item.get("planned_qty", item.get("plannedQty", 0)),
-                item.get("planned_price", item.get("plannedPrice", 0)),
-            )
+            planned_qty, planned_price = normalize_estimate_item_values(item, unit)
             if not title or planned_qty <= 0:
                 continue
             item_kind = resolved_estimate_item_kind(item)
@@ -4135,7 +7699,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 default_crew_size = default_crew_size if default_crew_size > 0 else None
             except (TypeError, ValueError):
                 default_crew_size = None
-            normalized.append((project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article, labor_hours_total, default_crew_size))
+            normalized.append(
+                {
+                    "raw": item,
+                    "position": item_index,
+                    "title": title,
+                    "unit": unit,
+                    "planned_qty": planned_qty,
+                    "planned_price": planned_price,
+                    "item_kind": item_kind,
+                    "section_title": section_title,
+                    "article": article,
+                    "labor_hours_total": labor_hours_total,
+                    "default_crew_size": default_crew_size,
+                }
+            )
 
         if not normalized:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "no_valid_items"})
@@ -4144,35 +7722,89 @@ class PMBIHandler(BaseHTTPRequestHandler):
         with db() as con:
             if replace:
                 con.execute("DELETE FROM estimate_items WHERE project_id = ?", (project_id,))
+                con.execute("DELETE FROM project_estimates WHERE project_id = ?", (project_id,))
             imported = 0
+            imported_source_ids: set[int] = set()
+            seen_source_item_keys: dict[int, set[str]] = {}
             for normalized_item in normalized:
-                _, title, unit, planned_qty, planned_price, item_kind, section_title, article, labor_hours_total, default_crew_size = normalized_item
+                raw_item = normalized_item["raw"]
+                descriptor = estimate_source_descriptor(
+                    default_estimate_source,
+                    raw_item,
+                    project_id=project_id,
+                )
+                estimate_source = upsert_project_estimate(con, project_id, descriptor, user["id"])
+                estimate_source_id = int(estimate_source["id"])
+                item_source_key = source_item_key(raw_item, int(normalized_item["position"]))
+                imported_source_ids.add(estimate_source_id)
+                seen_source_item_keys.setdefault(estimate_source_id, set()).add(item_source_key)
                 existing = con.execute(
-                    "SELECT id FROM estimate_items WHERE project_id = ? AND lower(title) = lower(?) AND unit = ?",
-                    (project_id, title, unit),
+                    """
+                    SELECT id FROM estimate_items
+                    WHERE project_id = ? AND estimate_source_id = ? AND source_item_key = ?
+                    """,
+                    (project_id, estimate_source_id, item_source_key),
                 ).fetchone()
+                item_values = (
+                    normalized_item["title"],
+                    normalized_item["unit"],
+                    normalized_item["planned_qty"],
+                    normalized_item["planned_price"],
+                    normalized_item["item_kind"],
+                    normalized_item["section_title"],
+                    normalized_item["article"],
+                    normalized_item["labor_hours_total"],
+                    normalized_item["default_crew_size"],
+                    str(raw_item.get("need_by_date", raw_item.get("needByDate", ""))).strip() or None,
+                    str(raw_item.get("notes", "")).strip() or None,
+                    now_ts(),
+                )
                 if existing:
                     con.execute(
                         """
                         UPDATE estimate_items
-                        SET planned_qty = ?, planned_price = ?, item_kind = ?, section_title = ?, article = ?,
-                            labor_hours_total = ?, default_crew_size = ?
+                        SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, item_kind = ?,
+                            section_title = ?, article = ?, labor_hours_total = ?, default_crew_size = ?,
+                            need_by_date = ?, notes = ?, updated_at = ?, is_deleted = 0
                         WHERE id = ?
                         """,
-                        (planned_qty, planned_price, item_kind, section_title, article, labor_hours_total, default_crew_size, existing["id"]),
+                        (*item_values, existing["id"]),
                     )
                 else:
                     con.execute(
                         """
                         INSERT INTO estimate_items (
-                            project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article,
-                            labor_hours_total, default_crew_size
+                            project_id, estimate_source_id, source_item_key,
+                            title, unit, planned_qty, planned_price, item_kind, section_title, article,
+                            labor_hours_total, default_crew_size, need_by_date, notes, updated_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        normalized_item,
+                        (project_id, estimate_source_id, item_source_key, *item_values),
                     )
                 imported += 1
+            if replace_source:
+                for estimate_source_id, seen_keys in seen_source_item_keys.items():
+                    placeholders = ",".join("?" for _ in seen_keys)
+                    con.execute(
+                        f"""
+                        UPDATE estimate_items
+                        SET is_deleted = 1, updated_at = ?
+                        WHERE project_id = ? AND estimate_source_id = ?
+                          AND source_item_key IS NOT NULL
+                          AND source_item_key NOT IN ({placeholders})
+                        """,
+                        (now_ts(), project_id, estimate_source_id, *sorted(seen_keys)),
+                    )
+            ai_snapshot, _ = capture_live_snapshot(
+                con,
+                project_id,
+                "ai",
+                user["id"],
+                now_ts(),
+                str(payload.get("sourceLabel", payload.get("source_label", "Импорт AutoBot"))).strip() or "Импорт AutoBot",
+                str(payload.get("sourceReference", payload.get("source_reference", ""))).strip(),
+            )
             con.execute(
                 """
                 INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
@@ -4181,14 +7813,33 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 (
                     user["id"],
                     project_id,
-                    json.dumps({"count": imported, "replace": replace}, ensure_ascii=False),
+                    json.dumps(
+                        {
+                            "count": imported,
+                            "replace": replace,
+                            "replace_source": replace_source,
+                            "estimate_sources": len(imported_source_ids),
+                            "ai_snapshot_id": int(ai_snapshot["id"]),
+                        },
+                        ensure_ascii=False,
+                    ),
                     now_ts(),
                 ),
             )
             con.commit()
 
             summary = material_summary_rows(con, project_id)
-        self.send_json(HTTPStatus.CREATED, {"imported": imported, "items": summary})
+            estimates = list_project_estimates(con, project_id)
+        self.send_json(
+            HTTPStatus.CREATED,
+            {
+                "imported": imported,
+                "estimateSources": len(imported_source_ids),
+                "estimates": estimates,
+                "items": summary,
+                "aiSnapshotId": int(ai_snapshot["id"]),
+            },
+        )
 
 
 
@@ -4402,22 +8053,44 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if move_type not in {"purchase", "receipt", "use", "writeoff"}:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_move_type"})
             return
-        qty = float(payload.get("qty", 0) or 0)
+        try:
+            estimate_item_id = int(payload.get("estimate_item_id", 0) or 0)
+            qty = float(payload.get("qty", 0) or 0)
+            price = float(payload.get("price", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stock_move_values"})
+            return
+        if estimate_item_id <= 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
+            return
         if qty <= 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_qty"})
             return
+        if price < 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_price"})
+            return
         with db() as con:
+            estimate_item = con.execute(
+                "SELECT id FROM estimate_items WHERE id = ? AND project_id = ?",
+                (estimate_item_id, project_id),
+            ).fetchone()
+            if not estimate_item:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_item_project_mismatch"})
+                return
             cur = con.execute(
                 """
-                INSERT INTO stock_moves (project_id, estimate_item_id, move_type, qty, price, comment, created_by, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price, comment,
+                    created_by, created_at, source_type
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')
                 """,
                 (
                     project_id,
-                    payload.get("estimate_item_id"),
+                    estimate_item_id,
                     move_type,
                     qty,
-                    float(payload.get("price", 0) or 0),
+                    price,
                     str(payload.get("comment", "")).strip(),
                     user["id"],
                     now_ts(),
@@ -4454,16 +8127,6 @@ class PMBIHandler(BaseHTTPRequestHandler):
         def esc(value: object) -> str:
             return html.escape("" if value is None else str(value), quote=True)
 
-        def project_money(value: object) -> str:
-            if value is None:
-                return "Скрыто"
-            try:
-                amount = float(value or 0)
-            except (TypeError, ValueError):
-                return esc(value)
-            formatted = f"{amount:,.0f}".replace(",", " ")
-            return f"{formatted} ₽"
-
         def project_progress(value: object) -> int:
             try:
                 return max(0, min(100, int(round(float(value or 0)))))
@@ -4479,6 +8142,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         for row in sorted_rows:
             progress = project_progress(row["progress"])
             completed = is_completed(row)
+            financial_meta = '<div><span>Экономика</span><strong>Раздел «Финансы»</strong></div>'
             status_badge = (
                 '<span class="badge success">Завершен</span>'
                 if completed
@@ -4492,7 +8156,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 '</div>'
                 '<div class="meta-grid">'
                 f'<div><span>Заказчик</span><strong>{esc(row["client_name"] or "Не указан")}</strong></div>'
-                f'<div><span>Бюджет</span><strong>{project_money(row["budget"])}</strong></div>'
+                f'{financial_meta}'
                 f'<div><span>Дедлайн</span><strong>{esc(row["deadline_at"] or "—")}</strong></div>'
                 '</div>'
                 '<div class="progress-strong">'

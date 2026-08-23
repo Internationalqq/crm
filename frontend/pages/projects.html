@@ -29,10 +29,7 @@
             <span>Договор</span>
             <input name="contract_no" placeholder="PM-2026-001">
         </label>
-        <label>
-            <span>Бюджет</span>
-            <input name="budget" type="number" min="0" step="1">
-        </label>
+        <input name="budget" type="hidden" value="0">
         <label>
             <span>Старт</span>
             <input name="started_at" type="date">
@@ -65,6 +62,10 @@
         <input class="search" placeholder="Поиск по объектам" data-project-search>
     </div>
     <div class="projects-grid" data-projects-list>
+        <div class="pmbi-skeleton-view pmbi-skeleton-view--cards" data-pmbi-skeleton="cards" aria-hidden="true">
+            <span class="pmbi-skeleton-item"><i></i><i></i><i></i><i></i></span>
+            <span class="pmbi-skeleton-item"><i></i><i></i><i></i><i></i></span>
+        </div>
     </div>
 </section>
 <section class="card" data-project-detail hidden>
@@ -74,7 +75,9 @@
         </a>
         <div class="tabs">
             <button class="tab active" data-tab="overview">Обзор</button>
-            <button class="tab" data-tab="schedule">Материалы и Работы</button>
+            <button class="tab" data-tab="schedule">Материалы и работы</button>
+            <button class="tab" data-tab="estimate-reconciliation">Сверка сметы</button>
+            <button class="tab" data-tab="warehouse-control">Склад</button>
             <button class="tab" data-tab="calendar">Календарь</button>
             <button class="tab" data-tab="production-schedule">График производства</button>
             <button class="tab" data-tab="reports">Отчеты</button>
@@ -85,6 +88,8 @@
     </div>
     <div class="tab-panel active" data-panel="overview"></div>
     <div class="tab-panel" data-panel="schedule"></div>
+    <div class="tab-panel" data-panel="estimate-reconciliation"></div>
+    <div class="tab-panel" data-panel="warehouse-control"></div>
     <div class="tab-panel" data-panel="calendar"></div>
     <div class="tab-panel" data-panel="production-schedule"></div>
     <div class="tab-panel" data-panel="reports"></div>

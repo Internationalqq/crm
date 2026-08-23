@@ -594,6 +594,10 @@
         return task && state.user && String(task.userId) === String(state.user.id);
     }
 
+    function dailyTaskCanManage(task) {
+        return !!(task && (canManageDailyTasks() || dailyTaskCanComplete(task)));
+    }
+
     function dailyTaskStatusAction(task) {
         if (!dailyTaskCanComplete(task)) return null;
         if (task.status === 'planned') return { status: 'in_progress', label: 'В работу' };
@@ -675,9 +679,19 @@
         var creator = dailyTaskCreator(task);
         var done = dailyTaskIsDone(task);
         var canComplete = dailyTaskCanComplete(task);
+        var canManage = dailyTaskCanManage(task);
         var boss = dailyTaskIssuedByManager(task);
         var action = dailyTaskStatusAction(task);
         var createdText = dailyTaskCreatedText(task);
+        var taskMenu = canManage
+            ? '<div class="daily-task-menu-wrap">' +
+                '<button class="daily-task-menu-toggle" type="button" data-daily-task-menu-toggle aria-label="Действия с задачей" aria-expanded="false"><i data-lucide="ellipsis"></i></button>' +
+                '<div class="daily-task-menu-panel" data-daily-task-menu-panel hidden>' +
+                    '<button type="button" data-daily-task-edit><i data-lucide="pencil"></i><span>Редактировать</span></button>' +
+                    '<button class="is-danger" type="button" data-daily-task-delete><i data-lucide="trash-2"></i><span>Удалить</span></button>' +
+                '</div>' +
+            '</div>'
+            : '';
         return '<article class="daily-list-row' + (done ? ' is-done' : '') + (task.status === 'in_progress' ? ' is-in-progress' : '') + (boss ? ' is-from-boss' : '') + (!canComplete ? ' is-readonly' : '') + '" data-daily-task-id="' + escapeHtml(task.id) + '" data-daily-task-owner-id="' + escapeHtml(task.userId) + '">' +
             '<div class="daily-row-avatars">' +
                 dailyAvatar(assignee, assignee.name || task.userName || 'Сотрудник') +
@@ -692,6 +706,7 @@
             '<div class="daily-row-action">' +
                 (createdText ? '<time class="daily-row-created" datetime="' + escapeHtml(String(task.createdAt || '')) + '">Создано ' + escapeHtml(createdText) + '</time>' : '') +
                 (action ? '<button class="daily-status-action" type="button" data-daily-status-action="' + escapeHtml(action.status) + '">' + escapeHtml(action.label) + '</button>' : '') +
+                taskMenu +
             '</div>' +
         '</article>';
     }
@@ -716,13 +731,14 @@
             var completedTime = task.completedAt ? dailyTaskTime(task.completedAt) : '';
             var archivedTime = task.archivedAt ? dailyTaskTime(task.archivedAt) : '';
             var archiveLabel = completedTime ? ('Выполнено в ' + completedTime) : (archivedTime ? ('Отменено в ' + archivedTime) : 'Отменено');
+            var canManage = dailyTaskCanManage(task);
             return '<article class="daily-archive-clean-row" data-daily-archive-task-id="' + escapeHtml(task.id) + '">' +
                 '<div class="daily-row-avatars">' + dailyAvatar(assignee, assignee.name || task.userName || 'Сотрудник') + '</div>' +
                 '<div><strong>' + escapeHtml(task.text) + '</strong><small>' + escapeHtml(assignee.name || task.userName || 'Сотрудник') + ' · ' + escapeHtml(formatDisplayDate(task.date)) + '</small></div>' +
                 '<div class="daily-archive-row-actions">' +
                     '<span>' + escapeHtml(archiveLabel) + '</span>' +
-                    '<button class="ghost compact" type="button" data-daily-archive-restore>Вернуть</button>' +
-                    '<button class="ghost compact danger" type="button" data-daily-archive-delete>Удалить</button>' +
+                    (canManage ? '<button class="ghost compact" type="button" data-daily-archive-restore>Вернуть</button>' : '') +
+                    (canManage ? '<button class="ghost compact danger" type="button" data-daily-archive-delete>Удалить</button>' : '') +
                 '</div>' +
             '</article>';
         }).join('') + '</div>');
@@ -784,6 +800,99 @@
         });
     }
 
+    function dailyTaskById(taskId) {
+        return (state.dailyTasks || []).filter(function (task) {
+            return String(task.id) === String(taskId);
+        })[0] || null;
+    }
+
+    function closeDailyTaskMenus(exceptPanel) {
+        qsa('[data-daily-task-menu-panel]').forEach(function (panel) {
+            if (panel === exceptPanel) return;
+            panel.hidden = true;
+            var toggle = panel.parentNode && qs('[data-daily-task-menu-toggle]', panel.parentNode);
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function syncDailyEditUsers(modal, task) {
+        var select = qs('[data-daily-edit-user]', modal);
+        if (!select) return;
+        var canReassign = canManageDailyTasks();
+        var field = select.closest('.daily-create-field');
+        var users = canReassign ? dailyTaskVisibleUsers() : [dailyTaskAssignee(task)];
+        if (field) field.hidden = !canReassign;
+        select.disabled = !canReassign;
+        safeReplaceChildren(select, users.map(function (user) {
+            return '<option value="' + escapeHtml(user.id) + '"' + (String(task.userId) === String(user.id) ? ' selected' : '') + '>' + escapeHtml(personDisplayName(user) || user.login || 'Сотрудник') + '</option>';
+        }).join(''));
+    }
+
+    function ensureDailyEditModal() {
+        var modal = qs('[data-daily-edit-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'daily-standup-modal';
+        modal.setAttribute('data-daily-edit-modal', '');
+        modal.hidden = true;
+        modal.innerHTML =
+            '<button class="daily-standup-backdrop" type="button" data-daily-edit-close aria-label="Закрыть"></button>' +
+            '<section class="daily-standup-dialog daily-task-create-dialog daily-task-edit-dialog" role="dialog" aria-modal="true" aria-label="Редактировать задачу">' +
+                '<div class="daily-standup-head"><div><h3>Редактировать задачу</h3></div><button class="ghost compact" type="button" data-daily-edit-close>Закрыть</button></div>' +
+                '<form data-daily-edit-form>' +
+                    '<label class="daily-create-field"><span>Исполнитель</span><select name="userId" data-daily-edit-user></select></label>' +
+                    '<label class="daily-create-field daily-edit-text-field"><span>Задача</span><textarea name="text" rows="5" required></textarea></label>' +
+                    '<div class="daily-standup-actions"><button class="primary" type="submit">Сохранить</button></div>' +
+                '</form>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target.closest('[data-daily-edit-close]')) modal.hidden = true;
+        });
+        qs('[data-daily-edit-form]', modal).addEventListener('submit', function (event) {
+            event.preventDefault();
+            var form = event.currentTarget;
+            var task = dailyTaskById(modal.getAttribute('data-daily-edit-task-id'));
+            if (!task || !dailyTaskCanManage(task)) {
+                modal.hidden = true;
+                showAppNotice('Нет доступа к редактированию этой задачи.', 'error');
+                return;
+            }
+            withSubmitLock(form, function () {
+                return updateDailyTask(task.id, {
+                    text: form.text.value,
+                    userId: form.userId && form.userId.value ? form.userId.value : task.userId,
+                    status: task.status,
+                    date: task.date
+                }).then(function () {
+                    modal.hidden = true;
+                    return loadDailyTasks();
+                });
+            }).catch(function (error) {
+                showAppNotice(appErrorMessage(error, 'Не удалось сохранить задачу.'), 'error');
+            });
+        });
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    function openDailyEditModal(task) {
+        if (!dailyTaskCanManage(task)) return;
+        var modal = ensureDailyEditModal();
+        var form = qs('[data-daily-edit-form]', modal);
+        modal.setAttribute('data-daily-edit-task-id', task.id);
+        syncDailyEditUsers(modal, task);
+        form.text.value = task.text || '';
+        modal.hidden = false;
+        form.text.focus();
+        form.text.select();
+        refreshLucideIcons(modal);
+    }
+
+    function deleteDailyActiveTask(row, task) {
+        if (!task || !dailyTaskCanManage(task) || row.classList.contains('is-saving')) return;
+        openDailyDeleteModal(task, 'active');
+    }
+
     function dailyArchiveTaskById(taskId) {
         return (state.dailyArchive || []).filter(function (task) {
             return String(task.id) === String(taskId);
@@ -817,18 +926,112 @@
 
     function deleteDailyArchiveTask(button, row) {
         var taskId = row.getAttribute('data-daily-archive-task-id');
-        if (!taskId || button.disabled) return;
-        button.disabled = true;
-        deleteDailyTask(taskId).then(function () {
-            removeDailyArchiveTask(taskId);
-        }).catch(function (error) {
-            if (error && (error.message === 'task_not_found' || error.status === 404)) {
-                removeDailyArchiveTask(taskId);
+        var task = dailyArchiveTaskById(taskId);
+        if (!task || button.disabled || !dailyTaskCanManage(task)) return;
+        openDailyDeleteModal(task, 'archive');
+    }
+
+    function closeDailyDeleteModal(modal) {
+        if (!modal || modal.classList.contains('is-saving')) return;
+        modal.hidden = true;
+        modal.removeAttribute('data-daily-delete-task-id');
+        modal.removeAttribute('data-daily-delete-source');
+    }
+
+    function finishDailyTaskDelete(modal, task, source) {
+        if (source === 'archive') {
+            removeDailyArchiveTask(task.id);
+        } else {
+            state.dailyTasks = (state.dailyTasks || []).filter(function (item) {
+                return String(item.id) !== String(task.id);
+            });
+            renderDailyTaskList(state.dailyTasks);
+        }
+        modal.classList.remove('is-saving');
+        var confirmButton = qs('[data-daily-delete-confirm]', modal);
+        if (confirmButton) confirmButton.disabled = false;
+        closeDailyDeleteModal(modal);
+        showAppNotice('Задача удалена.', 'success');
+    }
+
+    function ensureDailyDeleteModal() {
+        var modal = qs('[data-daily-delete-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'daily-standup-modal daily-task-delete-modal';
+        modal.setAttribute('data-daily-delete-modal', '');
+        modal.hidden = true;
+        modal.innerHTML =
+            '<button class="daily-standup-backdrop" type="button" data-daily-delete-cancel aria-label="Отменить удаление"></button>' +
+            '<section class="daily-standup-dialog daily-task-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="daily-task-delete-title" aria-describedby="daily-task-delete-description">' +
+                '<div class="daily-task-delete-icon" aria-hidden="true"><i data-lucide="trash-2"></i></div>' +
+                '<div class="daily-task-delete-copy">' +
+                    '<h3 id="daily-task-delete-title">Удалить задачу?</h3>' +
+                    '<p id="daily-task-delete-description">Она исчезнет у исполнителя и восстановить её будет нельзя.</p>' +
+                '</div>' +
+                '<div class="daily-task-delete-preview">' +
+                    '<strong data-daily-delete-task-text></strong>' +
+                    '<span data-daily-delete-task-user></span>' +
+                '</div>' +
+                '<div class="daily-task-delete-actions">' +
+                    '<button class="daily-task-delete-cancel" type="button" data-daily-delete-cancel>Отмена</button>' +
+                    '<button class="daily-task-delete-confirm" type="button" data-daily-delete-confirm><i data-lucide="trash-2"></i><span>Удалить</span></button>' +
+                '</div>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target.closest('[data-daily-delete-cancel]')) {
+                closeDailyDeleteModal(modal);
                 return;
             }
-            button.disabled = false;
-            showAppNotice(appErrorMessage(error, 'Не удалось удалить задачу.'), 'error');
+            var confirmButton = event.target.closest('[data-daily-delete-confirm]');
+            if (!confirmButton || confirmButton.disabled) return;
+            var taskId = modal.getAttribute('data-daily-delete-task-id');
+            var source = modal.getAttribute('data-daily-delete-source') || 'active';
+            var task = source === 'archive' ? dailyArchiveTaskById(taskId) : dailyTaskById(taskId);
+            if (!task || !dailyTaskCanManage(task)) {
+                closeDailyDeleteModal(modal);
+                showAppNotice('Нет доступа к удалению этой задачи.', 'error');
+                return;
+            }
+            confirmButton.disabled = true;
+            modal.classList.add('is-saving');
+            deleteDailyTask(task.id).then(function () {
+                finishDailyTaskDelete(modal, task, source);
+            }).catch(function (error) {
+                if (error && (error.message === 'task_not_found' || error.status === 404)) {
+                    finishDailyTaskDelete(modal, task, source);
+                    return;
+                }
+                modal.classList.remove('is-saving');
+                confirmButton.disabled = false;
+                var databaseMessage = error && error.payload && error.payload.message ? String(error.payload.message) : '';
+                var fallback = /unable to open database file/i.test(databaseMessage)
+                    ? 'База данных временно недоступна. Попробуйте удалить задачу ещё раз.'
+                    : 'Не удалось удалить задачу.';
+                showAppNotice(/unable to open database file/i.test(databaseMessage) ? fallback : appErrorMessage(error, fallback), 'error');
+            });
         });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeDailyDeleteModal(modal);
+        });
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    function openDailyDeleteModal(task, source) {
+        if (!task || !dailyTaskCanManage(task)) return;
+        var modal = ensureDailyDeleteModal();
+        var assignee = dailyTaskAssignee(task);
+        var text = qs('[data-daily-delete-task-text]', modal);
+        var user = qs('[data-daily-delete-task-user]', modal);
+        var cancel = qs('.daily-task-delete-cancel', modal);
+        modal.setAttribute('data-daily-delete-task-id', task.id);
+        modal.setAttribute('data-daily-delete-source', source || 'active');
+        if (text) text.textContent = task.text || 'Без названия';
+        if (user) user.textContent = 'Исполнитель: ' + (assignee.name || task.userName || 'Сотрудник');
+        modal.hidden = false;
+        refreshLucideIcons(modal);
+        if (cancel) cancel.focus();
     }
 
     function ensureDailyArchiveModal() {
@@ -1183,14 +1386,39 @@
         if (feed && feed.dataset.bound !== '1') {
             feed.dataset.bound = '1';
             feed.addEventListener('click', function (event) {
+                var menuToggle = event.target.closest('[data-daily-task-menu-toggle]');
+                if (menuToggle) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var panel = qs('[data-daily-task-menu-panel]', menuToggle.parentNode);
+                    var willOpen = panel && panel.hidden;
+                    closeDailyTaskMenus(willOpen ? panel : null);
+                    if (panel) panel.hidden = !willOpen;
+                    menuToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    return;
+                }
+                var editButton = event.target.closest('[data-daily-task-edit]');
+                var deleteButton = event.target.closest('[data-daily-task-delete]');
+                if (editButton || deleteButton) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    var manageRow = (editButton || deleteButton).closest('[data-daily-task-id]');
+                    var manageTask = manageRow && dailyTaskById(manageRow.getAttribute('data-daily-task-id'));
+                    closeDailyTaskMenus();
+                    if (editButton) openDailyEditModal(manageTask);
+                    if (deleteButton) deleteDailyActiveTask(manageRow, manageTask);
+                    return;
+                }
                 var statusButton = event.target.closest('[data-daily-status-action]');
                 if (statusButton) {
                     event.preventDefault();
                     event.stopPropagation();
+                    closeDailyTaskMenus();
                     var actionRow = statusButton.closest('[data-daily-task-id]');
                     if (actionRow) setDailyTaskStatus(actionRow, statusButton.getAttribute('data-daily-status-action'), event);
                     return;
                 }
+                if (event.target.closest('[data-daily-task-menu-panel]')) return;
                 if (event.target.closest('a, button, input, select, textarea, label')) return;
                 var row = event.target.closest('[data-daily-task-id]');
                 if (!row) return;
@@ -1211,6 +1439,15 @@
                 if (task.status === 'in_progress') {
                     setDailyTaskDone(row, true, event);
                 }
+            });
+        }
+        if (document.documentElement.dataset.dailyTaskMenuBound !== '1') {
+            document.documentElement.dataset.dailyTaskMenuBound = '1';
+            document.addEventListener('click', function (event) {
+                if (!event.target.closest('[data-daily-task-menu-toggle], [data-daily-task-menu-panel]')) closeDailyTaskMenus();
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') closeDailyTaskMenus();
             });
         }
     }

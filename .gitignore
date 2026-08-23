@@ -6,3 +6,4 @@ __pycache__/
 *.pyc
 reference/legacy-crm/
 deploy/copy/
+tmp/

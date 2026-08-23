@@ -425,7 +425,7 @@ def api_upload_finance_invoice(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if not user_can_manage_finances(user) and not user_has_any_role(user, {"foreman"}):
+    if not user_can_manage_finances(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
 
@@ -596,6 +596,22 @@ def api_update_finance_entry(handler, path: str) -> None:
         if status == "paid" and str(row["status"] or "") != "paid" and not user_can_pay_invoices(user):
             handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
             return
+        planned_date = str(
+            payload.get("planned_date", payload.get("plannedDate", row["planned_date"] or ""))
+        ).strip() or None
+        paid_date = str(
+            payload.get("paid_date", payload.get("paidDate", row["paid_date"] or ""))
+        ).strip() or None
+        has_allocations = con.execute(
+            "SELECT 1 FROM project_payment_allocations WHERE finance_entry_id = ? LIMIT 1",
+            (finance_id,),
+        ).fetchone()
+        if has_allocations and (
+            status != str(row["status"])
+            or paid_date != row["paid_date"]
+        ):
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "finance_entry_has_payment_allocations"})
+            return
         con.execute(
             """
             UPDATE finance_entries
@@ -603,8 +619,8 @@ def api_update_finance_entry(handler, path: str) -> None:
             WHERE id = ?
             """,
             (
-                str(payload.get("planned_date", payload.get("plannedDate", row["planned_date"] or ""))).strip() or None,
-                str(payload.get("paid_date", payload.get("paidDate", row["paid_date"] or ""))).strip() or None,
+                planned_date,
+                paid_date,
                 status,
                 str(payload.get("notes", row["notes"] or "")).strip() or None,
                 now_ts(),
@@ -648,6 +664,15 @@ def api_pay_invoice(handler) -> None:
             return
         if not user_can_pay_invoices(user):
             handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        has_allocations = con.execute(
+            "SELECT 1 FROM project_payment_allocations WHERE finance_entry_id = ? LIMIT 1",
+            (finance_id,),
+        ).fetchone()
+        if has_allocations and (
+            str(row["status"]) != "paid" or str(row["paid_date"] or "") != paid_date
+        ):
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "finance_entry_has_payment_allocations"})
             return
         con.execute(
             """

@@ -9,7 +9,16 @@ from datetime import date, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import ROLE_LABELS, normalize_role, user_can_manage_suppliers
+from auth import (
+    ROLE_LABELS,
+    display_user_name,
+    normalize_role,
+    user_can_manage_suppliers,
+    user_can_submit_procurement_price,
+    user_can_view_procurement_prices,
+)
+from procurement_limits import procurement_limit_check
+from operational_quantities import operational_quantity_plan
 from sqlite_config import configure_connection
 
 
@@ -45,6 +54,77 @@ def create_audit(
         """,
         (user_id, action, entity, entity_id, json.dumps(payload or {}, ensure_ascii=False), now_ts()),
     )
+
+
+def create_supplier_offer_event(
+    con: sqlite3.Connection,
+    offer_id: int,
+    project_id: int,
+    estimate_item_id: int | None,
+    action: str,
+    actor_id: int | None,
+    created_at: int,
+    details: dict | None = None,
+) -> None:
+    con.execute(
+        """
+        INSERT INTO supplier_offer_events (
+            supplier_offer_id, project_id, estimate_item_id, action, actor_id, details, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            offer_id,
+            project_id,
+            estimate_item_id,
+            action,
+            actor_id,
+            json.dumps(details or {}, ensure_ascii=False),
+            created_at,
+        ),
+    )
+
+
+def deactivate_active_supplier_offers(
+    con: sqlite3.Connection,
+    project_id: int,
+    estimate_item_id: int,
+    actor_id: int | None,
+    timestamp: int,
+    exclude_offer_id: int | None = None,
+) -> list[int]:
+    params: list[object] = [project_id, estimate_item_id]
+    exclude_sql = ""
+    if exclude_offer_id:
+        exclude_sql = " AND id <> ?"
+        params.append(exclude_offer_id)
+    rows = con.execute(
+        f"""
+        SELECT id
+        FROM supplier_offers
+        WHERE project_id = ? AND estimate_item_id = ? AND status = 'selected'{exclude_sql}
+        """,
+        tuple(params),
+    ).fetchall()
+    offer_ids = [int(row["id"]) for row in rows]
+    if not offer_ids:
+        return []
+    placeholders = ",".join("?" for _ in offer_ids)
+    con.execute(
+        f"UPDATE supplier_offers SET status = 'quoted', updated_at = ? WHERE id IN ({placeholders})",
+        (timestamp, *offer_ids),
+    )
+    for offer_id in offer_ids:
+        create_supplier_offer_event(
+            con,
+            offer_id,
+            project_id,
+            estimate_item_id,
+            "deactivated",
+            actor_id,
+            timestamp,
+        )
+    return offer_ids
 
 
 def parse_path_int(path: str, index: int) -> int | None:
@@ -243,8 +323,29 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             guard += 1
         return str(root["title"]).strip() if root and root["title"] else None
 
+    estimate_columns = {str(item["name"]) for item in con.execute("PRAGMA table_info(estimate_items)").fetchall()}
+    table_names = {
+        str(item["name"])
+        for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    }
+    has_estimate_sources = "estimate_source_id" in estimate_columns and "project_estimates" in table_names
+    estimate_live_where = " AND COALESCE(e.is_deleted, 0) = 0" if "is_deleted" in estimate_columns else ""
+    estimate_source_select = """
+            , e.estimate_source_id,
+            source.source_type AS estimate_source_type,
+            source.source_key AS estimate_source_key,
+            source.external_id AS estimate_source_external_id,
+            source.tender_id AS estimate_tender_id,
+            source.title AS estimate_title,
+            source.file_name AS estimate_file_name,
+            source.source_reference AS estimate_source_reference
+    """ if has_estimate_sources else ""
+    estimate_source_join = (
+        "LEFT JOIN project_estimates source ON source.id = e.estimate_source_id AND source.project_id = e.project_id"
+        if has_estimate_sources else ""
+    )
     rows = con.execute(
-        """
+        f"""
         SELECT
             e.id,
             e.title,
@@ -269,10 +370,12 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             COALESCE(SUM(CASE WHEN s.move_type = 'purchase' THEN s.qty ELSE 0 END), 0) AS purchased_qty,
             COALESCE(SUM(CASE WHEN s.move_type = 'receipt' THEN s.qty ELSE 0 END), 0) AS received_qty,
             COALESCE(SUM(CASE WHEN s.move_type = 'use' THEN s.qty ELSE 0 END), 0) AS used_qty
+            {estimate_source_select}
         FROM estimate_items e
         LEFT JOIN work_stages ws ON ws.id = e.stage_id
         LEFT JOIN stock_moves s ON s.estimate_item_id = e.id
-        WHERE e.project_id = ?
+        {estimate_source_join}
+        WHERE e.project_id = ?{estimate_live_where}
         GROUP BY e.id
         ORDER BY e.id
         """,
@@ -280,7 +383,9 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
     ).fetchall()
     items = []
     for row in rows:
-        planned = float(row["planned_qty"])
+        quantity_plan = operational_quantity_plan(row["planned_qty"], row["unit"])
+        planned = float(quantity_plan["total_qty"])
+        display_unit = str(quantity_plan["unit"])
         purchased = float(row["purchased_qty"])
         received = float(row["received_qty"])
         used = float(row["used_qty"])
@@ -322,7 +427,10 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "id": row["id"],
                 "title": row["title"],
                 "itemKind": resolved_estimate_item_kind(row),
-                "unit": row["unit"],
+                "unit": display_unit,
+                "sourceUnit": row["unit"],
+                "sourcePlannedQty": float(row["planned_qty"]),
+                "unitMultiplier": float(quantity_plan["multiplier"]),
                 "article": row["article"] or "",
                 "plannedQty": planned,
                 "plannedPrice": float(row["planned_price"] or 0),
@@ -346,6 +454,14 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "estimatedDeliveryDays": int(estimated_delivery_days),
                 "stageId": row["stage_id"],
                 "stageTitle": row["stage_title"],
+                "estimateSourceId": row["estimate_source_id"] if has_estimate_sources else None,
+                "estimateSourceType": (row["estimate_source_type"] or "estimate") if has_estimate_sources else "legacy",
+                "estimateSourceKey": (row["estimate_source_key"] or "") if has_estimate_sources else "",
+                "estimateSourceExternalId": (row["estimate_source_external_id"] or "") if has_estimate_sources else "",
+                "estimateTenderId": (row["estimate_tender_id"] or "") if has_estimate_sources else "",
+                "estimateTitle": (row["estimate_title"] or "Ранее загруженная смета") if has_estimate_sources else "Ранее загруженная смета",
+                "estimateFileName": (row["estimate_file_name"] or "Смета объекта") if has_estimate_sources else "Смета объекта",
+                "estimateSourceReference": (row["estimate_source_reference"] or "") if has_estimate_sources else "",
                 "sectionTitle": section_title,
                 "supplyStatus": supply_status,
                 "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
@@ -1088,15 +1204,26 @@ def api_project_supplier_offers(handler, path: str) -> None:
     if user["role"] == "customer":
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
+    if not user_can_view_procurement_prices(user):
+        handler.send_json(
+            HTTPStatus.OK,
+            {
+                "offers": [],
+                "history": [],
+                "canViewProcurementPrices": False,
+            },
+        )
+        return
     with db() as con:
         rows = con.execute(
             """
             SELECT so.*, e.title AS material_title, e.planned_price, e.planned_qty, e.unit AS material_unit,
-                   c.name AS company_name, u.name AS author_name
+                   c.name AS company_name, u.name AS author_name, activator.name AS activated_by_name
             FROM supplier_offers so
             LEFT JOIN estimate_items e ON e.id = so.estimate_item_id
             LEFT JOIN companies c ON c.id = so.company_id
             LEFT JOIN users u ON u.id = so.created_by
+            LEFT JOIN users activator ON activator.id = so.activated_by
             WHERE so.project_id = ?
             ORDER BY CASE so.status
                 WHEN 'selected' THEN 0
@@ -1105,6 +1232,17 @@ def api_project_supplier_offers(handler, path: str) -> None:
                 WHEN 'new' THEN 3
                 ELSE 4 END,
                 so.id DESC
+            """,
+            (project_id,),
+        ).fetchall()
+        history_rows = con.execute(
+            """
+            SELECT event.id, event.supplier_offer_id, event.estimate_item_id, event.action,
+                   event.details, event.created_at, actor.name AS actor_name
+            FROM supplier_offer_events event
+            LEFT JOIN users actor ON actor.id = event.actor_id
+            WHERE event.project_id = ?
+            ORDER BY event.created_at DESC, event.id DESC
             """,
             (project_id,),
         ).fetchall()
@@ -1123,7 +1261,31 @@ def api_project_supplier_offers(handler, path: str) -> None:
             "effectLabel": "Экономия" if delta_total is not None and delta_total < 0 else ("Переплата" if delta_total is not None and delta_total > 0 else "Без сравнения"),
         }
         offers.append(item)
-    handler.send_json(HTTPStatus.OK, {"offers": offers})
+    history = []
+    for row in history_rows:
+        try:
+            details = json.loads(row["details"] or "{}")
+        except (TypeError, ValueError):
+            details = {}
+        history.append(
+            {
+                "id": int(row["id"]),
+                "offerId": row["supplier_offer_id"],
+                "estimateItemId": row["estimate_item_id"],
+                "action": str(row["action"] or ""),
+                "actorName": str(row["actor_name"] or ""),
+                "createdAt": int(row["created_at"] or 0),
+                "details": details,
+            }
+        )
+    handler.send_json(
+        HTTPStatus.OK,
+        {
+            "offers": offers,
+            "history": history,
+            "canViewProcurementPrices": True,
+        },
+    )
 
 
 def api_create_market_counterparty(handler, path: str) -> None:
@@ -1136,6 +1298,9 @@ def api_create_market_counterparty(handler, path: str) -> None:
         return
     if not user_can_manage_suppliers(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    if not user_can_view_procurement_prices(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "price_fields_forbidden"})
         return
     payload = handler.read_json()
     candidate_type = str(payload.get("candidate_type", payload.get("candidateType", "supplier"))).strip() or "supplier"
@@ -1193,13 +1358,21 @@ def api_create_market_counterparty(handler, path: str) -> None:
             (candidate_type, name, None, None, None, phone, None, None, company_notes, timestamp),
         )
         company_id = int(company_cur.lastrowid)
+        deactivate_active_supplier_offers(
+            con,
+            project_id,
+            estimate_item_id,
+            user["id"],
+            timestamp,
+        )
         offer_cur = con.execute(
             """
             INSERT INTO supplier_offers (
                 project_id, estimate_item_id, company_id, candidate_type, candidate_name, source_type, source_url,
-                contact_name, phone, price, qty, unit, status, notes, created_by, created_at, updated_at
+                contact_name, phone, price, qty, unit, status, notes, created_by,
+                activated_by, activated_at, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'selected', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'selected', ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -1216,20 +1389,34 @@ def api_create_market_counterparty(handler, path: str) -> None:
                 unit,
                 notes or None,
                 user["id"],
+                user["id"],
+                timestamp,
                 timestamp,
                 timestamp,
             ),
         )
-        con.execute(
-            """
-            UPDATE supplier_offers
-            SET status = 'quoted', updated_at = ?
-            WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND id <> ? AND status = 'selected'
-            """,
-            (timestamp, project_id, estimate_item_id, candidate_type, offer_cur.lastrowid),
+        offer_id = int(offer_cur.lastrowid)
+        create_supplier_offer_event(
+            con,
+            offer_id,
+            project_id,
+            estimate_item_id,
+            "created",
+            user["id"],
+            timestamp,
+            {"price": price, "candidate_name": name},
+        )
+        create_supplier_offer_event(
+            con,
+            offer_id,
+            project_id,
+            estimate_item_id,
+            "activated",
+            user["id"],
+            timestamp,
         )
         create_audit(con, user["id"], "create_market_counterparty", "company", company_id, {"project_id": project_id, "estimate_item_id": estimate_item_id, "type": candidate_type})
-        create_audit(con, user["id"], "select_market_counterparty", "supplier_offer", offer_cur.lastrowid, {"project_id": project_id, "company_id": company_id})
+        create_audit(con, user["id"], "select_market_counterparty", "supplier_offer", offer_id, {"project_id": project_id, "company_id": company_id})
         con.commit()
     handler.send_json(
         HTTPStatus.CREATED,
@@ -1248,7 +1435,7 @@ def api_create_market_counterparty(handler, path: str) -> None:
                 "created_at": timestamp,
             },
             "offer": {
-                "id": int(offer_cur.lastrowid),
+                "id": offer_id,
                 "project_id": project_id,
                 "estimate_item_id": estimate_item_id,
                 "company_id": company_id,
@@ -1270,9 +1457,10 @@ def api_create_supplier_offer(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if not user_can_manage_suppliers(user):
+    if not user_can_manage_suppliers(user) and not user_can_submit_procurement_price(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
+    limited_price_submission = not user_can_view_procurement_prices(user)
     payload = handler.read_json()
     candidate_type = str(payload.get("candidate_type", payload.get("candidateType", "supplier"))).strip() or "supplier"
     if candidate_type not in {"supplier", "contractor"}:
@@ -1282,6 +1470,11 @@ def api_create_supplier_offer(handler, path: str) -> None:
     if status not in {"new", "called", "quoted", "rejected", "selected"}:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
         return
+    if limited_price_submission:
+        status = "quoted"
+    limit_override_reason = str(
+        payload.get("limit_override_reason", payload.get("limitOverrideReason", ""))
+    ).strip()
     source_type = str(payload.get("source_type", payload.get("sourceType", "manual"))).strip() or "manual"
     if source_type not in {"manual", "avito", "other"}:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_source_type"})
@@ -1295,16 +1488,32 @@ def api_create_supplier_offer(handler, path: str) -> None:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_relation_id"})
         return
     candidate_name = str(payload.get("candidate_name", payload.get("candidateName", ""))).strip()
-    price = float(payload.get("price", 0) or 0)
-    qty = float(payload.get("qty", 0) or 0)
+    if limited_price_submission:
+        candidate_name = display_user_name(
+            user.get("name"),
+            user.get("first_name", user.get("firstName")),
+            user.get("last_name", user.get("lastName")),
+            str(user.get("login") or "").strip(),
+        ) or "\u041f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f"
+        company_id = None
+        source_type = "manual"
+    try:
+        price = float(payload.get("price", 0) or 0)
+        qty = float(payload.get("qty", 0) or 0)
+    except (TypeError, ValueError):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_price_or_qty"})
+        return
     unit = str(payload.get("unit", "")).strip() or None
     if not candidate_name:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "candidate_name_required"})
         return
+    if limited_price_submission and not estimate_item_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_item_required"})
+        return
     with db() as con:
         if estimate_item_id:
             material = con.execute(
-                "SELECT id, unit, planned_qty FROM estimate_items WHERE id = ? AND project_id = ?",
+                "SELECT id, unit, planned_qty, item_kind FROM estimate_items WHERE id = ? AND project_id = ?",
                 (estimate_item_id, project_id),
             ).fetchone()
             if not material:
@@ -1314,19 +1523,43 @@ def api_create_supplier_offer(handler, path: str) -> None:
                 unit = str(material["unit"] or "") or None
             if qty <= 0:
                 qty = float(material["planned_qty"] or 0)
+            if limited_price_submission:
+                candidate_type = "contractor" if normalize_estimate_item_kind(material["item_kind"]) == "work" else "supplier"
         if company_id:
             company = con.execute("SELECT id FROM companies WHERE id = ?", (company_id,)).fetchone()
             if not company:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "company_not_found"})
                 return
         timestamp = now_ts()
+        limit_check = procurement_limit_check(
+            con,
+            project_id,
+            estimate_item_id,
+            max(0.0, price),
+            max(0.0, qty),
+        )
+        if status == "selected" and limit_check.get("status") == "exceeded" and not limit_override_reason:
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "procurement_limit_exceeded", "limitCheck": limit_check},
+            )
+            return
+        if status == "selected" and estimate_item_id:
+            deactivate_active_supplier_offers(
+                con,
+                project_id,
+                estimate_item_id,
+                user["id"],
+                timestamp,
+            )
         cur = con.execute(
             """
             INSERT INTO supplier_offers (
                 project_id, estimate_item_id, company_id, candidate_type, candidate_name, source_type, source_url,
-                contact_name, phone, price, qty, unit, status, notes, created_by, created_at, updated_at
+                contact_name, phone, price, qty, unit, status, notes, created_by,
+                activated_by, activated_at, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -1344,22 +1577,63 @@ def api_create_supplier_offer(handler, path: str) -> None:
                 status,
                 str(payload.get("notes", "")).strip() or None,
                 user["id"],
+                user["id"] if status == "selected" else None,
+                timestamp if status == "selected" else None,
                 timestamp,
                 timestamp,
             ),
         )
-        if status == "selected" and estimate_item_id:
-            con.execute(
-                """
-                UPDATE supplier_offers
-                SET status = 'quoted', updated_at = ?
-                WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND id <> ? AND status = 'selected'
-                """,
-                (timestamp, project_id, estimate_item_id, candidate_type, cur.lastrowid),
+        offer_id = int(cur.lastrowid)
+        create_supplier_offer_event(
+            con,
+            offer_id,
+            project_id,
+            estimate_item_id,
+            "created",
+            user["id"],
+            timestamp,
+            {"price": max(0.0, price), "candidate_name": candidate_name},
+        )
+        if status == "selected":
+            create_supplier_offer_event(
+                con,
+                offer_id,
+                project_id,
+                estimate_item_id,
+                "activated",
+                user["id"],
+                timestamp,
             )
-        create_audit(con, user["id"], "create_supplier_offer", "supplier_offer", cur.lastrowid, {"project_id": project_id, "candidate_name": candidate_name, "status": status})
+        if status == "selected" and limit_check.get("status") == "exceeded":
+            create_supplier_offer_event(
+                con,
+                offer_id,
+                project_id,
+                estimate_item_id,
+                "limit_override",
+                user["id"],
+                timestamp,
+                {"reason": limit_override_reason, "limitCheck": limit_check},
+            )
+        create_audit(
+            con,
+            user["id"],
+            "create_supplier_offer",
+            "supplier_offer",
+            offer_id,
+            {
+                "project_id": project_id,
+                "candidate_name": candidate_name,
+                "status": status,
+                "limit_override_reason": limit_override_reason or None,
+                "limit_check": limit_check if status == "selected" else None,
+            },
+        )
         con.commit()
-    handler.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid})
+    response = {"id": offer_id}
+    if user_can_view_procurement_prices(user):
+        response["limitCheck"] = limit_check
+    handler.send_json(HTTPStatus.CREATED, response)
 
 
 def api_clear_supplier_selection(handler, path: str) -> None:
@@ -1372,6 +1646,9 @@ def api_clear_supplier_selection(handler, path: str) -> None:
         return
     if not user_can_manage_suppliers(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    if not user_can_view_procurement_prices(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "price_fields_forbidden"})
         return
     payload = handler.read_json()
     candidate_type = str(payload.get("candidate_type", payload.get("candidateType", "supplier"))).strip() or "supplier"
@@ -1388,15 +1665,21 @@ def api_clear_supplier_selection(handler, path: str) -> None:
         return
     timestamp = now_ts()
     with db() as con:
-        con.execute(
-            """
-            UPDATE supplier_offers
-            SET status = 'quoted', updated_at = ?
-            WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND status = 'selected'
-            """,
-            (timestamp, project_id, estimate_item_id, candidate_type),
+        deactivated_ids = deactivate_active_supplier_offers(
+            con,
+            project_id,
+            estimate_item_id,
+            user["id"],
+            timestamp,
         )
-        create_audit(con, user["id"], "clear_supplier_selection", "estimate_item", estimate_item_id, {"project_id": project_id, "candidate_type": candidate_type})
+        create_audit(
+            con,
+            user["id"],
+            "clear_supplier_selection",
+            "estimate_item",
+            estimate_item_id,
+            {"project_id": project_id, "candidate_type": candidate_type, "offer_ids": deactivated_ids},
+        )
         con.commit()
     handler.send_json(HTTPStatus.OK, {"project_id": project_id, "estimate_item_id": estimate_item_id, "candidate_type": candidate_type})
 
@@ -1418,6 +1701,9 @@ def api_update_supplier_offer(handler, path: str) -> None:
         if not user_can_manage_suppliers(user):
             handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
             return
+        if not user_can_view_procurement_prices(user):
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "price_fields_forbidden"})
+            return
         status = str(payload.get("status", offer["status"])).strip() or "new"
         if status not in {"new", "called", "quoted", "rejected", "selected"}:
             handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
@@ -1437,21 +1723,59 @@ def api_update_supplier_offer(handler, path: str) -> None:
             if not company:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "company_not_found"})
                 return
+        try:
+            next_price = max(0.0, float(payload.get("price", offer["price"]) or 0))
+            next_qty = max(0.0, float(payload.get("qty", offer["qty"]) or 0))
+        except (TypeError, ValueError):
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_price_or_qty"})
+            return
+        limit_override_reason = str(
+            payload.get("limit_override_reason", payload.get("limitOverrideReason", ""))
+        ).strip()
+        limit_check = procurement_limit_check(
+            con,
+            int(offer["project_id"]),
+            offer["estimate_item_id"],
+            next_price,
+            next_qty,
+        )
+        selection_changed = (
+            offer["status"] != "selected"
+            or float(offer["price"] or 0) != next_price
+            or float(offer["qty"] or 0) != next_qty
+        )
+        if (
+            status == "selected"
+            and selection_changed
+            and limit_check.get("status") == "exceeded"
+            and not limit_override_reason
+        ):
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "procurement_limit_exceeded", "limitCheck": limit_check},
+            )
+            return
         timestamp = now_ts()
         if status == "selected" and offer["estimate_item_id"]:
-            con.execute(
-                """
-                UPDATE supplier_offers
-                SET status = 'quoted', updated_at = ?
-                WHERE project_id = ? AND estimate_item_id = ? AND candidate_type = ? AND id <> ? AND status = 'selected'
-                """,
-                (timestamp, offer["project_id"], offer["estimate_item_id"], offer["candidate_type"], offer_id),
+            deactivate_active_supplier_offers(
+                con,
+                int(offer["project_id"]),
+                int(offer["estimate_item_id"]),
+                user["id"],
+                timestamp,
+                exclude_offer_id=offer_id,
             )
+        activated_by = offer["activated_by"]
+        activated_at = offer["activated_at"]
+        if status == "selected" and offer["status"] != "selected":
+            activated_by = user["id"]
+            activated_at = timestamp
         con.execute(
             """
             UPDATE supplier_offers
             SET candidate_name = ?, company_id = ?, source_type = ?, source_url = ?, contact_name = ?, phone = ?,
-                price = ?, qty = ?, unit = ?, status = ?, notes = ?, updated_at = ?
+                price = ?, qty = ?, unit = ?, status = ?, notes = ?,
+                activated_by = ?, activated_at = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -1461,18 +1785,78 @@ def api_update_supplier_offer(handler, path: str) -> None:
                 str(payload.get("source_url", payload.get("sourceUrl", offer["source_url"] or ""))).strip() or None,
                 str(payload.get("contact_name", payload.get("contactName", offer["contact_name"] or ""))).strip() or None,
                 str(payload.get("phone", offer["phone"] or "")).strip() or None,
-                max(0.0, float(payload.get("price", offer["price"]) or 0)),
-                max(0.0, float(payload.get("qty", offer["qty"]) or 0)),
+                next_price,
+                next_qty,
                 str(payload.get("unit", offer["unit"] or "")).strip() or None,
                 status,
                 str(payload.get("notes", offer["notes"] or "")).strip() or None,
+                activated_by,
+                activated_at,
                 timestamp,
                 offer_id,
             ),
         )
-        create_audit(con, user["id"], "update_supplier_offer", "supplier_offer", offer_id, {"project_id": offer["project_id"], "status": status})
+        if float(offer["price"] or 0) != next_price:
+            create_supplier_offer_event(
+                con,
+                offer_id,
+                int(offer["project_id"]),
+                offer["estimate_item_id"],
+                "price_changed",
+                user["id"],
+                timestamp,
+                {"from": float(offer["price"] or 0), "to": next_price},
+            )
+        if offer["status"] == "selected" and status != "selected":
+            create_supplier_offer_event(
+                con,
+                offer_id,
+                int(offer["project_id"]),
+                offer["estimate_item_id"],
+                "deactivated",
+                user["id"],
+                timestamp,
+            )
+        elif offer["status"] != "selected" and status == "selected":
+            create_supplier_offer_event(
+                con,
+                offer_id,
+                int(offer["project_id"]),
+                offer["estimate_item_id"],
+                "activated",
+                user["id"],
+                timestamp,
+            )
+        if (
+            status == "selected"
+            and selection_changed
+            and limit_check.get("status") == "exceeded"
+        ):
+            create_supplier_offer_event(
+                con,
+                offer_id,
+                int(offer["project_id"]),
+                offer["estimate_item_id"],
+                "limit_override",
+                user["id"],
+                timestamp,
+                {"reason": limit_override_reason, "limitCheck": limit_check},
+            )
+        create_audit(
+            con,
+            user["id"],
+            "update_supplier_offer",
+            "supplier_offer",
+            offer_id,
+            {
+                "project_id": offer["project_id"],
+                "status": status,
+                "limit_override_reason": limit_override_reason or None,
+                "limit_check": limit_check if status == "selected" else None,
+            },
+        )
         con.commit()
-    handler.send_json(HTTPStatus.OK, {"id": offer_id})
+    handler.send_json(HTTPStatus.OK, {"id": offer_id, "limitCheck": limit_check})
 
 
 def resolved_estimate_item_kind(item: dict | sqlite3.Row) -> str:

@@ -1,0 +1,422 @@
+/* Final visual QA layer. Loaded last to neutralize active legacy styling safely. */
+
+/* Decorative surfaces: cream/sand is not part of the product palette. */
+:is(
+    .stats-grid,
+    .timeline-row,
+    .data-item,
+    .chat-item,
+    .notice-card,
+    .activity-item,
+    .action-item,
+    .risk-item,
+    .mini-metrics > div,
+    .log-card,
+    .material-row,
+    .user-row,
+    .company-row,
+    .assignment-row,
+    .document-row
+) {
+    border-color: var(--color-border) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+.dashboard-hero {
+    border-color: var(--color-border) !important;
+    border-left-color: var(--color-accent) !important;
+    background:
+        radial-gradient(circle at 86% 12%, rgba(37, 99, 235, .10), transparent 30%),
+        linear-gradient(135deg, var(--color-surface) 0%, var(--color-surface-accent) 100%) !important;
+}
+
+:is(.projects-grid, .materials-list, .timeline, .users-list) {
+    background: var(--color-surface-subtle) !important;
+}
+
+.accent-card {
+    border-color: var(--color-border) !important;
+    background: linear-gradient(180deg, var(--color-surface), var(--color-surface-accent)) !important;
+}
+
+.client-message {
+    background: var(--color-accent-soft) !important;
+}
+
+:is(.form-card, .chat-compose, .inline-form, .log-form) :is(input, select, textarea),
+.search,
+.chat-compose input,
+.inline-form input,
+.warehouse-table-wrap {
+    border-color: var(--color-border) !important;
+    background: var(--color-surface) !important;
+}
+
+.log-details div {
+    border-color: var(--color-border) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+.warehouse-table th {
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-secondary) !important;
+}
+
+.warehouse-table tr:hover td {
+    background: var(--color-surface-accent) !important;
+}
+
+.warehouse-table tr.row-risk td {
+    background: var(--color-warning-soft) !important;
+}
+
+.estimate-import {
+    border-color: var(--color-border-strong) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+.warehouse-table :is(th, td):first-child {
+    background: var(--color-surface) !important;
+    box-shadow: 1px 0 0 var(--color-border) !important;
+}
+
+.warehouse-table tr:hover :is(th, td):first-child {
+    background: var(--color-surface-accent) !important;
+}
+
+.warehouse-table tr.row-risk :is(th, td):first-child {
+    background: var(--color-warning-soft) !important;
+}
+
+.warehouse-volume {
+    white-space: nowrap;
+    color: var(--color-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.warehouse-volume.is-empty {
+    color: var(--color-text-secondary);
+}
+
+.warehouse-volume.is-missing {
+    color: var(--color-danger);
+}
+
+.warehouse-hot-qty {
+    display: grid;
+    justify-items: end;
+    gap: 3px;
+    min-width: 120px;
+}
+
+.warehouse-hot-qty > small {
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
+}
+
+.warehouse-hot-qty > strong {
+    color: var(--color-danger);
+    font-size: var(--text-lg);
+    font-variant-numeric: tabular-nums;
+}
+
+body[data-page="schedule"] .section-schedule-details .quantity-actual-editor {
+    min-width: 164px;
+}
+
+body[data-page="schedule"] .section-schedule-details .quantity-actual-editor span {
+    width: auto;
+    min-width: 164px;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+body[data-page="schedule"] .section-schedule-details .quantity-actual-editor span :is(b, em) {
+    width: auto;
+}
+
+body[data-page="schedule"] .section-schedule-details .quantity-actual-editor span .quantity-actual-separator {
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
+    font-style: normal;
+}
+
+@media (max-width: 720px) {
+    .warehouse-hot-qty {
+        justify-items: start;
+        min-width: 0;
+    }
+}
+
+/* Informational identities and normal priority use the primary accent. */
+.daily-director-badge,
+.daily-avatar-boss,
+[data-panel="tasks"] .task-priority-normal {
+    border-color: rgba(37, 99, 235, .24) !important;
+    background: var(--color-accent-soft) !important;
+    color: var(--color-accent-hover) !important;
+}
+
+.finance-history-row.is-expense .finance-row-chip {
+    background: var(--badge-neutral-bg) !important;
+    color: var(--badge-neutral-text) !important;
+}
+
+.compact-alerts {
+    border-color: var(--color-danger-border) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+.quick-alert-detail:hover {
+    background: var(--color-surface-accent) !important;
+}
+
+.material-calendar-day.has-window {
+    background: linear-gradient(180deg, var(--color-surface-accent), var(--color-surface)) !important;
+}
+
+.calendar-modal-row.is-start,
+.material-calendar-card.is-start {
+    border-left-color: var(--color-accent) !important;
+    background: var(--color-accent-soft) !important;
+    color: var(--color-accent-strong) !important;
+}
+
+/* Warm color is reserved for actual warning states and comes only from tokens. */
+:is(
+    .app-notice-warn,
+    .badge.warn,
+    .timeline-warn,
+    .notice-card.notice-warn,
+    .quick-alert-group.is-low,
+    .quick-alert-group.is-medium,
+    .quick-alert-detail.is-low,
+    .quick-alert-detail.is-medium,
+    .executive-stat-warn,
+    .executive-item-missing,
+    .schedule-action-warn,
+    .economics-notice.is-warning,
+    .warehouse-alert-warn,
+    .reconciliation-stat.is-warn,
+    .warehouse-control-metric.is-warn,
+    .warehouse-control-fact.is-reversal,
+    .warehouse-control-fact.is-reversed,
+    .work-section-card.work-section-warn,
+    .work-row-warn,
+    .finance-plan-item.is-warn,
+    .quantity-work-check.is-partial,
+    .work-row-partial,
+    .material-row-partial,
+    .report-preview-items .is-partial,
+    .reminder-item.is-warn,
+    .employee-status-yellow
+) {
+    border-color: var(--color-warning-border) !important;
+    background: var(--color-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+:is(
+    .quick-alert-group.is-low,
+    .quick-alert-group.is-medium,
+    .quick-alert-detail.is-low,
+    .quick-alert-detail.is-medium
+) strong,
+:is(.reminder-item.is-warn, .employee-status-yellow) span,
+.schedule-work-duration-metrics .schedule-work-confidence.is-assumption,
+.production-duration-cell small {
+    color: var(--color-warning) !important;
+}
+
+.reminder-item.is-warn span {
+    background: var(--color-warning-soft) !important;
+}
+
+.calendar-modal-row.is-warning,
+.material-calendar-card.is-warning,
+.material-calendar-card.is-warning[class] {
+    border-left-color: var(--color-warning) !important;
+    background: var(--color-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+.reconciliation-row:is(.is-changed, .is-added_by_ai, .is-duplicate),
+.reconciliation-difference:not(.is-price),
+.finance-status-track:not(.is-cancelled) .finance-status-step:not(.is-paid) {
+    border-color: var(--color-warning-border) !important;
+    background: var(--color-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+.project-overview-timeline-item.is-warn,
+.project-overview-deadline-row.is-warn,
+.project-overview-inline-alert {
+    border-color: var(--color-warning-border) !important;
+    background: var(--color-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+/* Error and success states use the same semantic treatment everywhere. */
+:is(
+    .app-notice-error,
+    .form-error,
+    .notice-card.notice-danger,
+    .reconciliation-empty.is-error,
+    .warehouse-control-empty.is-error
+) {
+    border-color: var(--color-danger-border) !important;
+    background: var(--color-danger-soft) !important;
+    color: var(--color-danger) !important;
+}
+
+:is(.app-notice-success, .form-success) {
+    border-color: var(--color-success-border) !important;
+    background: var(--color-success-soft) !important;
+    color: var(--color-success) !important;
+}
+
+/* Empty/loading states share spacing, typography and icon scale. */
+:is(
+    .econ-empty,
+    .reconciliation-empty,
+    .warehouse-control-empty,
+    .report-archive-empty,
+    .project-overview-empty,
+    .project-critical-empty,
+    .finance-plan-empty,
+    .reminder-empty,
+    [data-panel="tasks"] .tasks-empty
+) {
+    min-height: 132px;
+    padding: var(--space-5) !important;
+    border: 1px dashed var(--color-border-strong) !important;
+    border-radius: var(--radius-lg) !important;
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-secondary) !important;
+    text-align: center;
+}
+
+:is(
+    .econ-empty,
+    .reconciliation-empty,
+    .warehouse-control-empty,
+    .report-archive-empty,
+    .project-overview-empty,
+    .project-critical-empty,
+    .finance-plan-empty,
+    .reminder-empty,
+    [data-panel="tasks"] .tasks-empty
+) :is(svg, .lucide) {
+    width: 30px !important;
+    height: 30px !important;
+    color: var(--color-accent) !important;
+    stroke-width: 1.8;
+}
+
+:is(
+    .econ-empty,
+    .reconciliation-empty,
+    .warehouse-control-empty,
+    .report-archive-empty,
+    .project-overview-empty,
+    .project-critical-empty,
+    .finance-plan-empty,
+    .reminder-empty,
+    [data-panel="tasks"] .tasks-empty
+) b {
+    color: var(--color-text) !important;
+    font-size: var(--text-lg);
+}
+
+:is(.reconciliation-empty.is-error, .warehouse-control-empty.is-error) {
+    border-color: var(--color-danger-border) !important;
+    background: var(--color-danger-soft) !important;
+    color: var(--color-danger) !important;
+}
+
+:is(.reconciliation-empty.is-error, .warehouse-control-empty.is-error) :is(svg, .lucide) {
+    color: var(--color-danger) !important;
+}
+
+.econ-loading {
+    min-height: 160px;
+    color: var(--color-text-secondary);
+}
+
+.econ-loading > span {
+    border-color: var(--color-border) !important;
+    border-top-color: var(--color-accent) !important;
+}
+
+.reconciliation-empty .lucide-loader-circle {
+    animation: pmbi-qa-spin .75s linear infinite;
+}
+
+@keyframes pmbi-qa-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Calendar focus feedback is blue, not a decorative yellow flash. */
+.material-row-focus {
+    outline-color: rgba(37, 99, 235, .36) !important;
+    animation-name: scheduleMaterialCalendarFocusBlue !important;
+}
+
+@keyframes scheduleSectionCalendarFocus {
+    0% {
+        background-color: var(--color-surface-selected);
+        box-shadow: 0 0 0 5px rgba(37, 99, 235, .22);
+    }
+    45% {
+        background-color: var(--color-accent-soft);
+        box-shadow: 0 0 0 8px rgba(37, 99, 235, .14);
+    }
+    100% {
+        background-color: inherit;
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    }
+}
+
+@keyframes scheduleMaterialCalendarFocusBlue {
+    0% {
+        background-color: var(--color-surface-selected);
+        box-shadow: 0 0 0 5px rgba(37, 99, 235, .22);
+    }
+    50% {
+        background-color: var(--color-accent-soft);
+        box-shadow: 0 0 0 8px rgba(37, 99, 235, .12);
+    }
+    100% {
+        background-color: inherit;
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    }
+}
+
+/* Dynamic content enters consistently without making the interface feel busy. */
+:is(
+    .econ-management-body,
+    .reconciliation-workspace,
+    .warehouse-control-workspace,
+    .report-archive-list,
+    .market-table,
+    .project-overview-panel
+) {
+    animation: pmbi-fade-in var(--motion-reveal-duration) var(--motion-reveal-easing) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :is(
+        .econ-management-body,
+        .reconciliation-workspace,
+        .warehouse-control-workspace,
+        .report-archive-list,
+        .market-table,
+        .project-overview-panel,
+        .reconciliation-empty .lucide-loader-circle,
+        .section-schedule-focus,
+        .material-row-focus
+    ) {
+        animation: none !important;
+    }
+}

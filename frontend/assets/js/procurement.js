@@ -9,6 +9,7 @@
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
     var safeReplaceChildren = PMBI.safeReplaceChildren;
+    var showSkeleton = PMBI.showSkeleton;
     var refreshLucideIcons = PMBI.refreshLucideIcons;
     var showAppNotice = PMBI.showAppNotice;
     var appErrorMessage = PMBI.appErrorMessage;
@@ -34,6 +35,7 @@
     var hasRole = PMBI.hasRole;
     var canManageSuppliers = PMBI.canManageSuppliers;
     var canManageDocuments = PMBI.canManageDocuments;
+    var canViewProcurementPrices = PMBI.canViewProcurementPrices;
     var canSeeFinances = PMBI.canSeeFinances;
 
     function appCall(name, args) {
@@ -304,7 +306,9 @@
         Promise.all(state.projects.map(function (project) {
             return new Promise(function (resolve) {
                 loadMaterials(project.id, function (items) {
-                    resolve(items.map(function (item) {
+                    resolve(items.filter(function (item) {
+                        return String(item.itemKind || 'material').toLowerCase() !== 'work';
+                    }).map(function (item) {
                         return Object.assign({}, item, {
                             projectId: project.id,
                             projectTitle: project.title,
@@ -740,14 +744,14 @@
         root.innerHTML =
             '<section class="warehouse-alerts">' +
                 '<article class="warehouse-alert warehouse-alert-danger"><strong>Срочно</strong><span>' + required.length + '</span></article>' +
-                '<article class="warehouse-alert warehouse-alert-warn"><strong>Скоро понаобятся</strong><span>' + soon.length + '</span></article>' +
+                '<article class="warehouse-alert warehouse-alert-warn"><strong>Скоро понадобятся</strong><span>' + soon.length + '</span></article>' +
                 '<article class="warehouse-alert"><strong>Без плана</strong><span>' + planned.length + '</span></article>' +
             '</section>' +
             (urgentRows.length
                 ? '<div class="warehouse-hot-list">' + urgentRows.map(function (item) {
                     return '<div class="warehouse-hot-row">' +
                         '<div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(item.projectTitle) + ' • нужно к ' + escapeHtml(item.needByDate || 'без даты') + (item.stageTitle ? ' • этап: ' + escapeHtml(item.stageTitle) : '') + '</small></div>' +
-                        '<span class="badge ' + planningStatusClass(item.supplyStatus) + '">' + escapeHtml(item.supplyLabel || 'Статус не заан') + '</span>' +
+                        '<div class="warehouse-hot-qty"><small>Не хватает</small><strong>' + escapeHtml(quantityText(item.missingQty)) + ' ' + escapeHtml(item.unit || 'ед.') + '</strong><span class="badge ' + planningStatusClass(item.supplyStatus) + '">' + escapeHtml(item.supplyLabel || 'Статус не задан') + '</span></div>' +
                     '</div>';
                 }).join('') + '</div>'
                 : '<p class="muted">Критичных позиций сейчас нет.</p>');
@@ -763,7 +767,7 @@
         root.innerHTML =
             '<div class="warehouse-table-wrap"><table class="warehouse-table warehouse-table-compact">' +
                 '<thead><tr>' +
-                    '<th>Объект</th><th>Материал</th><th>По смете</th><th>На склае</th><th>Не хватает</th><th>Нужно к</th><th>Статус</th>' +
+                    '<th>Объект</th><th>Материал</th><th>По смете</th><th>На складе</th><th>Не хватает</th><th>Нужно к</th><th>Статус</th>' +
                 '</tr></thead>' +
                 '<tbody>' + items.map(warehouseLedgerRow).join('') + '</tbody>' +
             '</table></div>';
@@ -774,12 +778,12 @@
         var rowRisk = item.supplyStatus === 'required' || missing > 0;
         return '<tr class="' + (rowRisk ? 'row-risk' : '') + '">' +
             '<td><b>' + escapeHtml(item.projectTitle) + '</b><small>' + escapeHtml(item.clientName || item.projectAddress || '') + '</small></td>' +
-            '<td><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(item.unit || '') + (item.stageTitle ? ' • ' + escapeHtml(item.stageTitle) : '') + (item.notes ? ' • ' + escapeHtml(item.notes) : '') + '</small></td>' +
-            '<td>' + escapeHtml(item.plannedQty) + ' ' + escapeHtml(item.unit || '') + '</td>' +
-            '<td>' + escapeHtml(item.stockQty) + ' ' + escapeHtml(item.unit || '') + '</td>' +
-            '<td>' + escapeHtml(missing) + ' ' + escapeHtml(item.unit || '') + '</td>' +
-            '<td>' + escapeHtml(item.needByDate || '—') + '</td>' +
-            '<td><span class="badge ' + planningStatusClass(item.supplyStatus) + '">' + escapeHtml(item.supplyLabel || '—') + '</span></td>' +
+            '<td><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(item.sectionTitle || 'Без раздела') + (item.stageTitle ? ' • ' + escapeHtml(item.stageTitle) : '') + (item.notes ? ' • ' + escapeHtml(item.notes) : '') + '</small></td>' +
+            '<td data-label="По смете"><strong class="warehouse-volume">' + escapeHtml(quantityText(item.plannedQty)) + ' ' + escapeHtml(item.unit || 'ед.') + '</strong></td>' +
+            '<td data-label="На складе"><strong class="warehouse-volume' + (Number(item.stockQty || 0) <= 0 ? ' is-empty' : '') + '">' + escapeHtml(quantityText(item.stockQty)) + ' ' + escapeHtml(item.unit || 'ед.') + '</strong></td>' +
+            '<td data-label="Не хватает"><strong class="warehouse-volume' + (missing > 0 ? ' is-missing' : '') + '">' + escapeHtml(quantityText(missing)) + ' ' + escapeHtml(item.unit || 'ед.') + '</strong></td>' +
+            '<td data-label="Нужно к">' + escapeHtml(item.needByDate || '—') + '</td>' +
+            '<td data-label="Статус"><span class="badge ' + planningStatusClass(item.supplyStatus) + '">' + escapeHtml(item.supplyLabel || '—') + '</span></td>' +
         '</tr>';
     }
 
@@ -1201,6 +1205,7 @@
     }
 
     function supplierOfferCompareText(offer) {
+        if (!canViewProcurementPrices()) return '';
         var compare = offer && offer.compareToEstimate || {};
         var delta = typeof compare.deltaTotal === 'number' ? compare.deltaTotal : null;
         if (delta == null) return '\u0421\u043c\u0435\u0442\u0430 \u043d\u0435 \u043f\u0440\u0438\u0432\u044f\u0437\u0430\u043d\u0430';
@@ -1230,7 +1235,7 @@
                 supplierDetailItem('\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a', supplierOfferSourceLabel(offer.source_type)) +
                 supplierDetailItem('\u0426\u0435\u043d\u0430', price) +
                 supplierDetailItem('\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e', qty) +
-                supplierDetailItem('\u0421\u0440\u0430\u0432\u043d\u0435\u043d\u0438\u0435', supplierOfferCompareText(offer)) +
+                (canViewProcurementPrices() ? supplierDetailItem('\u0421\u0440\u0430\u0432\u043d\u0435\u043d\u0438\u0435', supplierOfferCompareText(offer)) : '') +
                 supplierDetailItem('\u0410\u0432\u0442\u043e\u0440', offer.author_name || '') +
             '</div>' +
             (offer.source_url ? '<a class="supplier-detail-link" href="' + escapeHtml(offer.source_url) + '" target="_blank" rel="noreferrer"><i data-lucide="external-link"></i><span>\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a</span></a>' : '') +
@@ -1330,6 +1335,7 @@
         api('/api/projects/' + projectId + '/supplier-offers').then(function (data) {
             var offers = Array.isArray(data.offers) ? data.offers : [];
             state.supplierOffers = offers;
+            state.supplierOfferHistory = Array.isArray(data.history) ? data.history : [];
             renderSupplierStats(offers);
             renderSupplierList(projectId, offers, materialId, supplierFocus);
             bindSupplierCards();
@@ -1393,7 +1399,7 @@
             stat('Просчитаны', String(quoted), quoted ? 'warn' : '') +
             stat('Выбраны', String(selected), selected ? '' : 'warn') +
             stat('Avito', String(avito)) +
-            stat('Лучшая экономия', bestSavings == null ? '—' : money(Math.abs(bestSavings)));
+            (canViewProcurementPrices() ? stat('Лучшая экономия', bestSavings == null ? '—' : money(Math.abs(bestSavings))) : '');
     }
 
     function renderSupplierList(projectId, offers, materialId, supplierFocus) {
@@ -1444,7 +1450,7 @@
                 '<input name="phone" value="' + escapeHtml(offer.phone || '') + '" placeholder="+7...">' +
                 '<input name="source_url" value="' + escapeHtml(offer.source_url || '') + '" placeholder="Ссылка">' +
                 '<input name="notes" value="' + escapeHtml(offer.notes || '') + '" placeholder="Комментарий">' +
-                '<div class="supplier-offer-meta"><span class="badge ' + compareClass + '">' + escapeHtml(compareText) + '</span><button class="ghost" type="submit">Сохранить</button></div>' +
+                '<div class="supplier-offer-meta">' + (canViewProcurementPrices() ? '<span class="badge ' + compareClass + '">' + escapeHtml(compareText) + '</span>' : '') + '<button class="ghost" type="submit">Сохранить</button></div>' +
             '</form>';
         }).join('') + '</div>');
         refreshLucideIcons(root);
@@ -1558,6 +1564,7 @@
                         notes: form.notes.value.trim()
                     })
                 }).then(function () {
+                    if (state.marketAnalysisByProject) delete state.marketAnalysisByProject[projectId];
                     loadSupplierOffers(projectId);
                 });
             });
@@ -1593,19 +1600,24 @@
 
 
     function renderProjectTabViewSwitcher(projectId, tab, title, subtitle) {
+        if (hasRole('customer')) {
+            return '<div class="market-toolbar"><div><h3>' + escapeHtml(title) + '</h3><p>' +
+                escapeHtml('\u0421\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0431\u0435\u0437 \u0437\u0430\u043a\u0440\u044b\u0442\u044b\u0445 \u0446\u0435\u043d\u043e\u0432\u044b\u0445 \u0434\u0430\u043d\u043d\u044b\u0445.') + '</p></div></div>';
+        }
         var mode = getProjectTabMode(projectId, tab);
+        var marketLabel = canViewProcurementPrices() ? '\u0426\u0435\u043d\u044b \u0438 \u043c\u0430\u0440\u0436\u0430' : '\u0412\u0432\u0435\u0441\u0442\u0438 \u0446\u0435\u043d\u0443';
         return '<div class="market-toolbar">' +
             '<div><h3>' + escapeHtml(title) + '</h3><p>' + escapeHtml(subtitle) + '</p></div>' +
             '<div class="segmented compact" data-market-switcher>' +
                 '<button type="button" class="' + (mode === 'list' ? 'active' : '') + '" data-market-mode="list" data-market-tab="' + tab + '">\u0421\u043f\u0438\u0441\u043e\u043a</button>' +
-                '<button type="button" class="' + (mode === 'market' ? 'active' : '') + '" data-market-mode="market" data-market-tab="' + tab + '">\u0410\u043d\u0430\u043b\u0438\u0437 \u0440\u044b\u043d\u043a\u0430</button>' +
+                '<button type="button" class="' + (mode === 'market' ? 'active' : '') + '" data-market-mode="market" data-market-tab="' + tab + '">' + marketLabel + '</button>' +
             '</div>' +
         '</div>';
     }
 
     function renderProjectMaterialsTab(project, items, insights) {
         var header = renderProjectTabViewSwitcher(project.id, 'materials', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', '\u0421\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0438 \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 \u0432\u0438\u0434 \u0441 \u0446\u0435\u043d\u0430\u043c\u0438 \u0440\u044b\u043d\u043a\u0430 \u0438\u0437 AutoBot.');
-        if (getProjectTabMode(project.id, 'materials') === 'market') {
+        if (!hasRole('customer') && getProjectTabMode(project.id, 'materials') === 'market') {
             return header + renderProjectMarketBlock(project.id, 'material');
         }
         return header + renderMaterials(items, project.id, insights);
@@ -1613,7 +1625,7 @@
 
     function renderProjectWorksTab(project, stages, items) {
         var header = renderProjectTabViewSwitcher(project.id, 'works', '\u0420\u0430\u0431\u043e\u0442\u044b', '\u0422\u0435\u043a\u0443\u0449\u0438\u0435 \u0440\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u0438 \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u0430\u044f \u0441\u0432\u043e\u0434\u043a\u0430 \u043f\u043e \u0440\u044b\u043d\u043e\u0447\u043d\u044b\u043c \u0446\u0435\u043d\u0430\u043c.');
-        if (getProjectTabMode(project.id, 'works') === 'market') {
+        if (!hasRole('customer') && getProjectTabMode(project.id, 'works') === 'market') {
             return header + renderProjectMarketBlock(project.id, 'work');
         }
         return header + renderWorksPanel(stages, items);
@@ -1626,6 +1638,7 @@
     }
 
     function bindProjectMarketToggles(projectId) {
+        if (hasRole('customer')) return;
         qsa('[data-market-mode]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -1908,6 +1921,7 @@
     }
 
     function renderMarketCreateButton(projectId, row, kind) {
+        if (!canViewProcurementPrices()) return '';
         if (!canManageSuppliers()) return '';
         var source = Array.isArray(row.sources) && row.sources.length ? row.sources[0] : {};
         var type = kind === 'work' ? 'contractor' : 'supplier';
@@ -1917,18 +1931,84 @@
     }
 
 
-    function renderMarketTable(rows, kind, projectId) {
+    function formatMarketAnalysisDate(timestamp) {
+        if (!timestamp) return '';
+        try {
+            return new Date(Number(timestamp) * 1000).toLocaleDateString('ru-RU');
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function formatMarketMargin(value) {
+        if (value == null) return '<span class="market-margin market-margin-empty">&mdash;</span>';
+        var numeric = Number(value);
+        var cls = numeric > 0 ? 'market-margin-positive' : (numeric < 0 ? 'market-margin-negative' : 'market-margin-zero');
+        var prefix = numeric > 0 ? '+' : '';
+        return '<strong class="market-margin ' + cls + '">' + escapeHtml(prefix + String(Math.round(numeric * 100) / 100) + '%') + '</strong>';
+    }
+
+    function formatProcurementLimit(limit) {
+        limit = limit || {};
+        if (!limit.configured) {
+            return '<span class="procurement-limit is-empty">\u041d\u0435 \u0437\u0430\u0434\u0430\u043d</span>' +
+                '<button class="ghost compact procurement-limit-link" type="button" data-market-open-finance>\u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0432 \u0444\u0438\u043d\u0430\u043d\u0441\u0430\u0445</button>';
+        }
+        var total = money(Number(limit.limitNetKopecks || 0) / 100);
+        var version = limit.baselineVersion ? ('\u0424\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u0430\u044f \u0431\u0430\u0437\u0430 v' + limit.baselineVersion) : '\u0423\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d\u043d\u0430\u044f \u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432\u0430\u044f \u0431\u0430\u0437\u0430';
+        if (limit.status === 'awaiting_offer') {
+            return '<strong class="procurement-limit is-waiting">' + escapeHtml(total) + '</strong><small>' + escapeHtml(version + ' \u00b7 \u043e\u0436\u0438\u0434\u0430\u0435\u0442 \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u0443\u044e \u0446\u0435\u043d\u0443') + '</small>';
+        }
+        if (limit.status === 'exceeded') {
+            var overrun = money(Number(limit.overrunKopecks || 0) / 100);
+            var reason = limit.reasonHint === 'additional_volume'
+                ? '\u0412\u043e\u0437\u043c\u043e\u0436\u0435\u043d \u0434\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0439 \u043e\u0431\u044a\u0451\u043c'
+                : '\u0426\u0435\u043d\u0430 \u0432\u044b\u0448\u0435 \u0443\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d\u043d\u043e\u0433\u043e \u043b\u0438\u043c\u0438\u0442\u0430';
+            return '<strong class="procurement-limit is-exceeded">' + escapeHtml(total) + '</strong>' +
+                '<small class="procurement-limit-alert">\u041f\u0435\u0440\u0435\u0440\u0430\u0441\u0445\u043e\u0434 ' + escapeHtml(overrun) + '</small>' +
+                '<small>' + escapeHtml(reason + ' \u00b7 ' + version) + '</small>';
+        }
+        var reserve = Math.max(0, Number(limit.varianceKopecks || 0));
+        return '<strong class="procurement-limit is-within">' + escapeHtml(total) + '</strong>' +
+            '<small class="procurement-limit-ok">\u0412 \u043f\u0440\u0435\u0434\u0435\u043b\u0430\u0445 \u00b7 \u0440\u0435\u0437\u0435\u0440\u0432 ' + escapeHtml(money(reserve / 100)) + '</small>' +
+            '<small>' + escapeHtml(version) + '</small>';
+    }
+
+    function renderRestrictedMarketTable(rows, kind, projectId, canSubmitPrice) {
+        if (!rows.length) {
+            return '<div class="market-empty">\u041d\u0435\u0442 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u0434\u043b\u044f \u0432\u0432\u043e\u0434\u0430 \u0446\u0435\u043d\u044b.</div>';
+        }
+        return '<div class="market-table-wrap"><table class="market-table market-price-entry-table">' +
+            '<thead><tr><th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th><th>\u0412\u0430\u0448\u0430 \u0446\u0435\u043d\u0430</th></tr></thead><tbody>' +
+            rows.map(function (row) {
+                var field = canSubmitPrice
+                    ? '<form class="market-price-entry" data-market-price-entry data-project-id="' + escapeHtml(projectId) + '" data-estimate-item-id="' + escapeHtml(row.estimateItemId || '') + '" data-market-kind="' + escapeHtml(kind) + '">' +
+                        '<input name="price" type="number" min="0" step="0.01" inputmode="decimal" required placeholder="\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0446\u0435\u043d\u0443">' +
+                        '<button class="primary compact" type="submit">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c</button>' +
+                        '<small data-market-price-entry-status></small>' +
+                    '</form>'
+                    : '<span class="muted">\u0412\u0432\u043e\u0434 \u0446\u0435\u043d\u044b \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u0440\u043e\u043b\u0438</span>';
+                return '<tr><td data-label="\u041f\u043e\u0437\u0438\u0446\u0438\u044f"><b>' + escapeHtml(row.title || '') + '</b></td><td data-label="\u0412\u0430\u0448\u0430 \u0446\u0435\u043d\u0430">' + field + '</td></tr>';
+            }).join('') +
+            '</tbody></table></div>';
+    }
+
+    function renderMarketTable(rows, kind, projectId, cache) {
+        if (!canViewProcurementPrices()) {
+            return renderRestrictedMarketTable(rows, kind, projectId, !!(cache && cache.canSubmitPrice));
+        }
         if (!rows.length) {
             return '<div class="market-empty">\u041f\u043e \u044d\u0442\u043e\u043c\u0443 \u0440\u0430\u0437\u0434\u0435\u043b\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0441\u0442\u0440\u043e\u043a \u0434\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0437\u0430.</div>';
         }
         return '<div class="market-table-wrap"><table class="market-table">' +
             '<thead><tr>' +
                 '<th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>' +
-                '<th>\u0421\u043c\u0435\u0442\u0430</th>' +
-                '<th>\u0420\u044b\u043d\u043e\u043a</th>' +
-                '<th>\u0420\u0430\u0437\u043d\u0438\u0446\u0430</th>' +
-                '<th>\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u0438</th>' +
-                '<th>\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435</th>' +
+                '<th>\u0426\u0435\u043d\u0430 \u0441\u043c\u0435\u0442\u044b</th>' +
+                '<th>\u0426\u0435\u043d\u0430 \u0418\u0418</th>' +
+                '<th>\u041b\u0438\u043c\u0438\u0442 \u0437\u0430\u043a\u0443\u043f\u043a\u0438</th>' +
+                '<th>\u0412\u0432\u0435\u0434\u0435\u043d\u043d\u0430\u044f \u0446\u0435\u043d\u0430</th>' +
+                '<th>\u041c\u0430\u0440\u0436\u0430</th>' +
+                '<th>\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u0418\u0418</th>' +
             '</tr></thead><tbody>' +
             rows.map(function (row) {
                 var meta = [
@@ -1939,14 +2019,33 @@
                 var marketCell = row.marketPrice == null
                     ? '<span class="market-missing">\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445</span>'
                     : '<strong>' + escapeHtml(money(row.marketPrice)) + '</strong>' +
-                        (row.marketType ? '<small>' + escapeHtml(kind === 'work' ? '\u0420\u0430\u0431\u043e\u0442\u044b AutoBot' : '\u0420\u044b\u043d\u043e\u043a AutoBot') + '</small>' : '');
-                return '<tr>' +
-                    '<td><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430') + '</small></td>' +
-                    '<td><strong>' + escapeHtml(money(row.estimateUnitPrice || 0)) + '</strong><small>\u0412\u0441\u0435\u0433\u043e: ' + escapeHtml(money(row.estimateTotal || 0)) + '</small></td>' +
-                    '<td>' + marketCell + (row.statusNote ? '<small>' + escapeHtml(row.statusNote) + '</small>' : '') + '</td>' +
-                    '<td>' + formatMarketDelta(row.deltaPerUnit) + '</td>' +
-                    '<td>' + renderMarketSources(row) + '</td>' +
-                    '<td>' + renderMarketCreateButton(projectId, row, kind) + '</td>' +
+                        '<small>' + escapeHtml((row.marketPriceIsStale ? '\u0421\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0439 \u0441\u043d\u0438\u043c\u043e\u043a' : 'AutoBot') + (formatMarketAnalysisDate(row.marketAnalyzedAt) ? ' \u2022 ' + formatMarketAnalysisDate(row.marketAnalyzedAt) : '')) + '</small>';
+                var activeOffer = row.activeOffer || null;
+                var procurementLimit = row.procurementLimit || {};
+                var activeOfferMeta = [];
+                if (activeOffer && activeOffer.candidateName) activeOfferMeta.push(activeOffer.candidateName);
+                if (activeOffer && activeOffer.enteredBy) {
+                    activeOfferMeta.push('\u0412\u0432\u0451\u043b: ' + activeOffer.enteredBy + (formatMarketAnalysisDate(activeOffer.enteredAt) ? ' \u2022 ' + formatMarketAnalysisDate(activeOffer.enteredAt) : ''));
+                }
+                if (activeOffer && activeOffer.activatedBy) {
+                    activeOfferMeta.push('\u0410\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043b: ' + activeOffer.activatedBy + (formatMarketAnalysisDate(activeOffer.activatedAt) ? ' \u2022 ' + formatMarketAnalysisDate(activeOffer.activatedAt) : ''));
+                }
+                var enteredCell = row.enteredPrice == null
+                    ? '<span class="market-missing">\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0433\u043e \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u044f</span>'
+                    : '<strong>' + escapeHtml(money(row.enteredPrice)) + '</strong>' +
+                        activeOfferMeta.map(function (item) { return '<small>' + escapeHtml(item) + '</small>'; }).join('');
+                var source = row.marketSource || {};
+                var sourceCell = source.url
+                    ? '<a href="' + escapeHtml(source.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.name || '\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a') + '</a>'
+                    : (source.name ? '<span>' + escapeHtml(source.name) + '</span>' : renderMarketSources(row));
+                return '<tr' + (procurementLimit.status === 'exceeded' ? ' class="market-row-limit-exceeded"' : '') + '>' +
+                    '<td data-label="\u041f\u043e\u0437\u0438\u0446\u0438\u044f"><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430') + '</small></td>' +
+                    '<td data-label="\u0426\u0435\u043d\u0430 \u0441\u043c\u0435\u0442\u044b"><strong>' + escapeHtml(money(row.estimateUnitPrice || 0)) + '</strong><small>\u0412\u0441\u0435\u0433\u043e: ' + escapeHtml(money(row.estimateTotal || 0)) + '</small></td>' +
+                    '<td data-label="\u0426\u0435\u043d\u0430 \u0418\u0418">' + marketCell + (row.statusNote ? '<small>' + escapeHtml(row.statusNote) + '</small>' : '') + '</td>' +
+                    '<td data-label="\u041b\u0438\u043c\u0438\u0442 \u0437\u0430\u043a\u0443\u043f\u043a\u0438">' + formatProcurementLimit(procurementLimit) + '</td>' +
+                    '<td data-label="\u0412\u0432\u0435\u0434\u0435\u043d\u043d\u0430\u044f \u0446\u0435\u043d\u0430">' + enteredCell + '</td>' +
+                    '<td data-label="\u041c\u0430\u0440\u0436\u0430">' + formatMarketMargin(row.marginPercent) + '</td>' +
+                    '<td data-label="\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u0418\u0418">' + sourceCell + (row.marketEstimateVersion ? '<small>\u0412\u0435\u0440\u0441\u0438\u044f: ' + escapeHtml(row.marketEstimateVersion) + '</small>' : '') + '</td>' +
                 '</tr>';
             }).join('') +
             '</tbody></table></div>';
@@ -1963,11 +2062,14 @@
             return '<div class="market-empty">' + escapeHtml(marketErrorLabel(cache.error)) + '</div>';
         }
         var summary = cache.summary || {};
+        if (!canViewProcurementPrices()) {
+            return renderMarketTable(rows, kind, projectId, cache);
+        }
         return '<div class="execution-summary">' +
             stat('\u0412\u0441\u0435\u0433\u043e \u043f\u043e\u0437\u0438\u0446\u0438\u0439', String(summary.total || 0)) +
             stat('\u0415\u0441\u0442\u044c \u0440\u044b\u043d\u043e\u043a', String(summary.withMarketData || 0), summary.withMarketData ? '' : 'warn') +
             stat('\u0411\u0435\u0437 \u0440\u044b\u043d\u043a\u0430', String(summary.withoutMarketData || 0), summary.withoutMarketData ? 'warn' : '') +
-        '</div>' + renderMarketTable(rows, kind, projectId);
+        '</div>' + renderMarketTable(rows, kind, projectId, cache);
     }
 
     function marketCounterpartyModal() {
@@ -2102,6 +2204,61 @@
         });
     }
 
+    function bindMarketPriceEntryForms(projectId) {
+        qsa('[data-market-open-finance]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                activateProjectTab('finance');
+            });
+        });
+        qsa('[data-market-price-entry]').forEach(function (form) {
+            if (form.dataset.bound === '1') return;
+            form.dataset.bound = '1';
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                var input = form.elements.price;
+                var status = qs('[data-market-price-entry-status]', form);
+                var submit = qs('button[type="submit"]', form);
+                var price = Number(input && input.value || 0);
+                var itemId = Number(form.getAttribute('data-estimate-item-id') || 0);
+                var user = state.currentUser || state.user || {};
+                var candidateName = String(user.name || [user.firstName || user.first_name, user.lastName || user.last_name].filter(Boolean).join(' ') || user.login || '\u0420\u0443\u0447\u043d\u043e\u0435 \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435').trim();
+                if (!itemId || !Number.isFinite(price) || price < 0) return;
+                if (status) {
+                    status.textContent = '';
+                    status.className = '';
+                }
+                if (submit) submit.disabled = true;
+                api('/api/projects/' + projectId + '/supplier-offers', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        estimate_item_id: itemId,
+                        candidate_type: form.getAttribute('data-market-kind') === 'work' ? 'contractor' : 'supplier',
+                        candidate_name: candidateName,
+                        source_type: 'manual',
+                        status: 'quoted',
+                        price: price
+                    })
+                }).then(function () {
+                    if (input) input.value = '';
+                    if (status) {
+                        status.textContent = '\u041f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e';
+                        status.className = 'is-success';
+                    }
+                    delete state.materialInsightsByProject[projectId];
+                }).catch(function (error) {
+                    if (status) {
+                        status.textContent = error && error.payload && error.payload.error ? error.payload.error : '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c';
+                        status.className = 'is-error';
+                    }
+                }).finally(function () {
+                    if (submit) submit.disabled = false;
+                });
+            });
+        });
+    }
+
     function bindMarketCreateButtons(projectId) {
         qsa('[data-market-create-offer]').forEach(function (button) {
             if (button.dataset.marketCreateBound === '1') return;
@@ -2117,6 +2274,7 @@
     bindProjectMarketToggles = function (projectId) {
         baseBindProjectMarketTogglesCounterparties(projectId);
         bindMarketCreateButtons(projectId);
+        bindMarketPriceEntryForms(projectId);
         bindCounterpartyFilters(projectId);
         bindEstimateSectionToggles(projectId);
     };
@@ -2259,38 +2417,33 @@
         var root = qs('[data-warehouse-summary]');
         if (!root) return;
         if (!items.length) {
-            root.innerHTML = '<p class="muted">Позиции склада не найдены.</p>';
+            root.innerHTML = '<div class="warehouse-empty-state"><i data-lucide="package-open"></i><b>Ничего не найдено</b><span>Добавь первый приход или измени поиск.</span></div>';
+            refreshLucideIcons(root);
             return;
         }
         root.innerHTML =
             '<div class="warehouse-table-wrap"><table class="warehouse-table warehouse-inventory-table ui-table">' +
-                '<thead><tr><th>Тип</th><th>Наименование</th><th>Код / артикул</th><th>Текущий остаток</th><th>Статус</th><th></th></tr></thead>' +
+                '<thead><tr><th>Что на складе</th><th>Остаток</th><th></th></tr></thead>' +
                 '<tbody>' + items.map(function (item) {
                     var disabled = Number(item.qty || 0) <= 0 ? ' disabled' : '';
+                    var details = [item.sku ? 'Арт. ' + item.sku : '', item.category || '', warehouseConditionLabel(item)].filter(Boolean).join(' · ');
                     return '<tr>' +
-                        '<td><span class="badge">' + escapeHtml(warehouseTypeLabel(item.itemType || item.type)) + '</span></td>' +
-                        '<td><b>' + escapeHtml(item.name || '') + '</b><small>' + escapeHtml(item.category || '') + '</small></td>' +
-                        '<td>' + escapeHtml(item.sku || '—') + '</td>' +
-                        '<td><strong>' + escapeHtml(warehouseQtyText(item)) + '</strong></td>' +
-                        '<td><span class="badge ' + (Number(item.qty || 0) <= 0 ? 'danger' : (String(item.conditionStatus || '').indexOf('ремонт') !== -1 ? 'warn' : 'success')) + '">' + escapeHtml(warehouseConditionLabel(item)) + '</span></td>' +
-                        '<td><button class="ghost compact" type="button" data-warehouse-issue data-warehouse-item-id="' + escapeHtml(item.id) + '"' + disabled + '>Выдать на объект</button></td>' +
+                        '<td><div class="warehouse-item-title"><span class="badge">' + escapeHtml(warehouseTypeLabel(item.itemType || item.type)) + '</span><b>' + escapeHtml(item.name || '') + '</b></div><small>' + escapeHtml(details) + '</small></td>' +
+                        '<td data-label="Остаток"><strong class="warehouse-qty' + (Number(item.qty || 0) <= 0 ? ' is-empty' : '') + '">' + escapeHtml(warehouseQtyText(item)) + '</strong></td>' +
+                        '<td><button class="ghost compact" type="button" data-warehouse-issue data-warehouse-item-id="' + escapeHtml(item.id) + '"' + disabled + '>' + (disabled ? 'Нет в наличии' : 'Выдать') + '</button></td>' +
                     '</tr>';
                 }).join('') + '</tbody>' +
             '</table></div>';
+        refreshLucideIcons(root);
     }
 
     function renderWarehouseStats(items) {
         var node = qs('[data-warehouse-analysis]');
         if (!node) return;
-        var materials = (items || []).filter(function (item) { return String(item.itemType || item.type) === 'material'; }).length;
-        var tools = (items || []).filter(function (item) { return String(item.itemType || item.type) === 'tool'; }).length;
         var available = (items || []).filter(function (item) { return Number(item.qty || 0) > 0; }).length;
-        var repair = (items || []).filter(function (item) { return String(item.conditionStatus || '').toLocaleLowerCase('ru').indexOf('ремонт') !== -1; }).length;
         node.innerHTML =
-            '<div class="analysis-pill"><span>Материалы</span><strong>' + materials + '</strong></div>' +
-            '<div class="analysis-pill"><span>Инструменты</span><strong>' + tools + '</strong></div>' +
-            '<div class="analysis-pill"><span>В наличии</span><strong>' + available + '</strong></div>' +
-            '<div class="analysis-pill"><span>Требуют ремонта</span><strong>' + repair + '</strong></div>';
+            '<div class="analysis-pill"><span>Всего позиций</span><strong>' + (items || []).length + '</strong></div>' +
+            '<div class="analysis-pill"><span>Сейчас в наличии</span><strong>' + available + '</strong></div>';
     }
 
     function populateWarehouseCategories(items) {
@@ -2332,7 +2485,8 @@
     renderWarehousePage = function () {
         var root = qs('[data-warehouse-summary]');
         if (!root) return;
-        root.innerHTML = '';
+        showSkeleton(root, 'table', 1);
+        showSkeleton(qs('[data-warehouse-analysis]'), 'stats', 2);
         loadWarehouseCatalog(function (items) {
             populateWarehouseCategories(items);
             renderWarehouseStats(items);

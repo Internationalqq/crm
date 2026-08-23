@@ -1,18 +1,72 @@
-<section class="autobot-stage" data-autobot-url="{{autobot_url}}">
+<section class="autobot-stage" data-autobot-url="{{autobot_url}}" data-autobot-root>
+    <header class="autobot-workspace-head">
+        <div class="autobot-heading">
+            <span class="autobot-heading-icon" aria-hidden="true">
+                <i data-lucide="sparkles"></i>
+            </span>
+            <div>
+                <div class="autobot-eyebrow">Умный помощник по закупкам</div>
+                <h1>AutoBot</h1>
+                <p>Находит тендеры, разбирает сметы и сравнивает цены с рынком.</p>
+            </div>
+        </div>
+        <div class="autobot-toolbar" aria-label="Управление AutoBot">
+            <div class="autobot-connection is-connecting" data-autobot-connection role="status" aria-live="polite">
+                <span aria-hidden="true"></span>
+                <strong data-autobot-status>Подключаемся</strong>
+            </div>
+            <button class="ghost autobot-tool-button" type="button" data-autobot-reload>
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>Обновить</span>
+            </button>
+            <a class="ghost autobot-tool-button" href="{{autobot_url}}/" target="_blank" rel="noopener noreferrer">
+                <i data-lucide="external-link" aria-hidden="true"></i>
+                <span>Открыть отдельно</span>
+            </a>
+        </div>
+    </header>
+
     <div data-autobot-content-root>
         <div class="autobot-embed-wrap">
-            <div class="autobot-offline" data-autobot-offline hidden>
-                <strong>AutoBot не отвечает</strong>
-                <span>Проверь, что сервис AutoBot запущен, или открой его отдельно.</span>
-                <a href="{{autobot_url}}/" target="_blank" rel="noopener noreferrer">Открыть AutoBot</a>
+            <div class="autobot-loading" data-autobot-loading role="status" aria-live="polite">
+                <div class="pmbi-autobot-skeleton" data-pmbi-skeleton="autobot" aria-hidden="true">
+                    <span class="pmbi-skeleton-item"><i></i><i></i></span>
+                    <div class="pmbi-autobot-skeleton-body">
+                        <span class="pmbi-skeleton-item"><i></i><i></i><i></i><i></i></span>
+                        <span class="pmbi-skeleton-item"><i></i><i></i><i></i><i></i></span>
+                    </div>
+                </div>
+                <div class="autobot-loading-copy">
+                    <span class="autobot-loader-mark" aria-hidden="true">
+                        <i data-lucide="bot"></i>
+                    </span>
+                    <strong>Запускаем рабочее пространство</strong>
+                    <span>Проверяем AutoBot и загружаем актуальные данные.</span>
+                    <div class="autobot-loading-line" aria-hidden="true"><i></i></div>
+                </div>
             </div>
+
+            <div class="autobot-offline" data-autobot-offline hidden role="alert">
+                <span class="autobot-offline-icon" aria-hidden="true">
+                    <i data-lucide="wifi-off"></i>
+                </span>
+                <div>
+                    <strong>AutoBot пока не отвечает</strong>
+                    <span>Сервис не успел подключиться. Можно попробовать ещё раз или открыть его отдельно.</span>
+                </div>
+                <div class="autobot-offline-actions">
+                    <button class="primary" type="button" data-autobot-retry>Повторить</button>
+                    <a class="ghost" href="{{autobot_url}}/" target="_blank" rel="noopener noreferrer">Открыть отдельно</a>
+                </div>
+            </div>
+
             <iframe
                 class="autobot-embed"
                 src="{{autobot_url}}/"
-                title="AutoBot"
-                loading="lazy"
+                title="Рабочее пространство AutoBot"
                 referrerpolicy="no-referrer"
                 allow="clipboard-read; clipboard-write; microphone"
+                data-autobot-frame
             ></iframe>
         </div>
     </div>

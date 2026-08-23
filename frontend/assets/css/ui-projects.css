@@ -1,0 +1,1818 @@
+/*
+ * PM.bi objects workspace — Iteration 2.
+ * This file is intentionally loaded after the legacy feature styles. Keep the
+ * rules scoped to the projects page so the remaining CRM sections can be
+ * migrated independently in later iterations.
+ */
+
+/* List shell and creation form */
+body[data-page="projects"] [data-project-overview-section] {
+    min-width: 0;
+}
+
+/* Multiple estimates: file -> section -> positions. */
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-list {
+    display: grid;
+    gap: var(--space-5);
+    margin-top: var(--space-5);
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-group {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface));
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border-radius: var(--radius-md);
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 13%, var(--color-surface));
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-icon svg {
+    width: 21px;
+    height: 21px;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy {
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy small,
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy span {
+    display: block;
+    overflow: hidden;
+    color: var(--color-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy small {
+    margin-bottom: 2px;
+    color: var(--color-accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy h3 {
+    margin: 0 0 2px;
+    font-size: 16px;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-stats {
+    display: grid;
+    gap: 2px;
+    justify-items: end;
+    color: var(--color-text-muted);
+    font-size: 12px;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-stats strong {
+    color: var(--color-text);
+    font-size: 13px;
+}
+
+body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-group > .section-schedule-list {
+    padding: var(--space-3);
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-head {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-stats {
+        grid-column: 2;
+        display: flex;
+        gap: var(--space-2);
+        justify-content: flex-start;
+    }
+}
+
+body[data-page="projects"] [data-project-create-card] {
+    border-left: 3px solid var(--color-accent) !important;
+}
+
+body[data-page="projects"] .project-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    align-items: end;
+}
+
+body[data-page="projects"] .project-form label {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="projects"] .project-form .wide,
+body[data-page="projects"] .project-form .form-error {
+    grid-column: 1 / -1;
+}
+
+body[data-page="projects"] .project-form .form-error:empty {
+    display: none;
+}
+
+body[data-page="projects"] .project-form > button[type="submit"] {
+    grid-column: 1 / -1;
+    justify-self: end;
+    min-width: 132px;
+}
+
+body[data-page="projects"] [data-project-overview-section] > .card-head .search {
+    width: min(100%, 320px) !important;
+    flex: 0 1 320px;
+}
+
+/* Critical states: warm tones appear only where the data is actually urgent. */
+body[data-page="projects"] [data-project-critical-card] {
+    min-height: 128px;
+    border-left: 3px solid var(--color-danger) !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="projects"] [data-project-critical-card] .card-head h3 {
+    color: var(--color-danger) !important;
+}
+
+body[data-page="projects"] [data-project-critical] {
+    min-height: 52px;
+}
+
+body[data-page="projects"] .project-critical-empty,
+body[data-page="projects"] .projects-empty-state {
+    min-height: 88px;
+    margin: 0;
+    padding: var(--space-4) !important;
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--color-border-strong) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-secondary) !important;
+    text-align: center;
+}
+
+body[data-page="projects"] .project-critical-empty {
+    min-height: 52px;
+}
+
+body[data-page="projects"] .project-critical-skeleton span {
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+        90deg,
+        var(--color-surface-subtle) 25%,
+        var(--color-surface-accent) 50%,
+        var(--color-surface-subtle) 75%
+    );
+    background-size: 200% 100%;
+}
+
+body[data-page="projects"] .quick-alert-list.quick-alert-groups {
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .quick-alert-group {
+    overflow: hidden;
+    padding: 0 !important;
+    border: 1px solid var(--color-border) !important;
+    border-left: 3px solid var(--color-accent) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] .quick-alert-group.is-medium {
+    border-left-color: var(--color-warning) !important;
+}
+
+body[data-page="projects"] .quick-alert-group.is-critical {
+    border-left-color: var(--color-danger) !important;
+}
+
+body[data-page="projects"] .quick-alert-group summary {
+    min-height: 48px;
+    padding: 10px var(--space-3) !important;
+    background: var(--color-surface) !important;
+    transition: background-color .16s ease;
+}
+
+body[data-page="projects"] .quick-alert-group summary:hover {
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] .quick-alert-group[open] summary {
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] .quick-alert-group summary b,
+body[data-page="projects"] .quick-alert-detail b {
+    color: var(--color-text) !important;
+    font-size: 13px !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="projects"] .quick-alert-group summary small,
+body[data-page="projects"] .quick-alert-detail small {
+    color: var(--color-text-secondary) !important;
+    font-weight: 600 !important;
+}
+
+body[data-page="projects"] .quick-alert-group summary strong,
+body[data-page="projects"] .quick-alert-detail strong {
+    color: var(--color-accent) !important;
+}
+
+body[data-page="projects"] .quick-alert-group.is-medium summary strong,
+body[data-page="projects"] .quick-alert-detail.is-medium strong {
+    color: var(--color-warning) !important;
+}
+
+body[data-page="projects"] .quick-alert-group.is-critical summary strong,
+body[data-page="projects"] .quick-alert-detail.is-critical strong {
+    color: var(--color-danger) !important;
+}
+
+body[data-page="projects"] .quick-alert-details {
+    gap: var(--space-2);
+    padding: var(--space-2) !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="projects"] .quick-alert-section {
+    display: grid;
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .quick-alert-section + .quick-alert-section {
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] .quick-alert-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 2px var(--space-2);
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 750;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] .quick-alert-section-head strong {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+}
+
+body[data-page="projects"] .quick-alert-section-items {
+    display: grid;
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .quick-alert-detail,
+body[data-page="projects"] .quick-alert-detail.is-low,
+body[data-page="projects"] .quick-alert-detail.is-medium,
+body[data-page="projects"] .quick-alert-detail.is-critical {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+    background: var(--color-surface-subtle) !important;
+    transition: border-color .16s ease, background-color .16s ease;
+}
+
+body[data-page="projects"] .quick-alert-detail:hover {
+    border-color: #9bb8df !important;
+    background: var(--color-surface-accent) !important;
+}
+
+/* Project cards */
+body[data-page="projects"] .projects-grid {
+    min-height: 160px;
+    padding: 0 !important;
+}
+
+body[data-page="projects"] .projects-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+    gap: var(--space-4);
+    align-items: stretch;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card {
+    position: relative;
+    min-width: 0;
+    height: 100%;
+    padding: 0 !important;
+    overflow: visible;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+    transition: border-color .16s ease, box-shadow .16s ease !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card::before,
+body[data-page="projects"] .projects-card-grid .project-card::after {
+    content: none !important;
+    display: none !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card:hover {
+    transform: none !important;
+    border-color: var(--color-border-strong) !important;
+    box-shadow: var(--shadow-card-hover) !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card:has(.project-card-menu-panel:not([hidden])) {
+    z-index: 20;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card.project-risk {
+    border-left: 3px solid var(--color-danger) !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card.project-completed {
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] .project-card-shell {
+    display: grid;
+    gap: var(--space-4);
+    height: 100%;
+    padding: var(--space-4) !important;
+}
+
+body[data-page="projects"] .project-card-headline {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: start;
+}
+
+body[data-page="projects"] .project-card-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-accent-soft) !important;
+    color: var(--color-accent) !important;
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .1) !important;
+}
+
+body[data-page="projects"] .project-card-icon svg.lucide {
+    width: 19px;
+    height: 19px;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] .project-card-heading {
+    gap: var(--space-1);
+    padding-top: 1px;
+}
+
+body[data-page="projects"] .project-card-heading h3 {
+    color: var(--color-text) !important;
+    font-size: var(--text-lg) !important;
+    font-weight: 750 !important;
+    line-height: 1.3;
+}
+
+body[data-page="projects"] .project-card-heading p,
+body[data-page="projects"] .project-meta-text {
+    color: var(--color-text-secondary) !important;
+    font-size: 13px !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card-tools {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .project-status-badge,
+body[data-page="projects"] .project-inline-note {
+    min-height: 26px;
+    padding: 3px var(--space-2) !important;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 750 !important;
+    line-height: 1.2;
+}
+
+body[data-page="projects"] .project-status-badge.is-success {
+    border-color: var(--color-success-border);
+    background: var(--color-success-soft) !important;
+    color: var(--color-success) !important;
+}
+
+body[data-page="projects"] .project-status-badge.is-success-soft,
+body[data-page="projects"] .project-status-badge.is-info {
+    border-color: #cfe0f7;
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-hover) !important;
+}
+
+body[data-page="projects"] .project-status-badge.is-neutral {
+    border-color: var(--color-border);
+    background: var(--badge-neutral-bg) !important;
+    color: var(--badge-neutral-text) !important;
+}
+
+body[data-page="projects"] .project-inline-note.is-danger {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-soft) !important;
+    color: var(--color-danger) !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card-menu,
+body[data-page="projects"] .project-quick-action {
+    display: inline-grid;
+    place-items: center;
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
+    min-width: var(--control-height-sm);
+    min-height: var(--control-height-sm);
+    padding: 0 !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-text-secondary) !important;
+    box-shadow: none !important;
+    transition: border-color .16s ease, background-color .16s ease, color .16s ease !important;
+}
+
+body[data-page="projects"] .projects-card-grid .project-card-menu:hover,
+body[data-page="projects"] .project-quick-action:hover {
+    transform: none !important;
+    border-color: #9bb8df !important;
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-hover) !important;
+}
+
+body[data-page="projects"] .project-card-menu-panel {
+    z-index: 40;
+    min-width: 210px;
+    padding: var(--space-2) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-floating) !important;
+}
+
+body[data-page="projects"] .project-card-menu-panel button {
+    min-height: 38px;
+    padding: var(--space-2) var(--space-3) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--color-text) !important;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+}
+
+body[data-page="projects"] .project-card-menu-panel button:hover {
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-hover) !important;
+}
+
+body[data-page="projects"] .project-card-meta {
+    gap: 10px;
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] .project-meta-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .project-meta-icon {
+    color: var(--color-accent-strong) !important;
+}
+
+body[data-page="projects"] .project-avatar-chip {
+    width: 26px;
+    height: 26px;
+    border-color: var(--color-surface-subtle) !important;
+    background: var(--color-accent-soft) !important;
+    color: var(--color-accent-strong) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] .project-avatar-chip.is-profile-avatar {
+    background: linear-gradient(135deg, var(--color-accent-strong), var(--color-accent)) !important;
+    color: var(--color-text-inverse) !important;
+}
+
+body[data-page="projects"] .project-avatar-chip.is-empty {
+    background: var(--badge-neutral-bg) !important;
+    color: var(--badge-neutral-text) !important;
+}
+
+body[data-page="projects"] .project-card-progress {
+    gap: var(--space-2);
+    padding-top: 0;
+}
+
+body[data-page="projects"] .project-progress-label strong {
+    color: var(--color-text) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="projects"] .project-progress-track {
+    height: 6px;
+    background: #e8eef6 !important;
+}
+
+body[data-page="projects"] .project-progress-bar {
+    background: var(--color-accent) !important;
+}
+
+body[data-page="projects"] .project-card-actions {
+    gap: var(--space-2);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border) !important;
+}
+
+/* Detail shell and horizontal workspace navigation */
+body[data-page="projects"] [data-project-detail] {
+    margin-bottom: 0;
+    padding: 0 !important;
+    overflow: visible;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] .project-detail-nav {
+    position: sticky;
+    top: 68px;
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .06);
+    backdrop-filter: blur(12px);
+}
+
+body[data-page="projects"] .project-back-button {
+    flex: 0 0 auto;
+    width: var(--control-height);
+    height: var(--control-height);
+    min-height: var(--control-height);
+    border: 1px solid var(--color-border-strong) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-accent-strong) !important;
+    box-shadow: none !important;
+    transition: border-color .16s ease, background-color .16s ease, color .16s ease !important;
+}
+
+body[data-page="projects"] .project-back-button:hover {
+    transform: none !important;
+    border-color: #9bb8df !important;
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-hover) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] .project-detail-nav .tabs {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 0 !important;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+    scroll-snap-type: x proximity;
+}
+
+body[data-page="projects"] .project-detail-nav .tab {
+    flex: 0 0 auto;
+    min-height: var(--control-height);
+    padding: 0 var(--space-3) !important;
+    border: 1px solid transparent !important;
+    border-radius: var(--radius-sm) !important;
+    background: transparent !important;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+    white-space: nowrap;
+    box-shadow: none !important;
+    scroll-snap-align: start;
+    transition: border-color .16s ease, background-color .16s ease, color .16s ease !important;
+}
+
+body[data-page="projects"] .project-detail-nav .tab:hover {
+    transform: none !important;
+    border-color: var(--color-border) !important;
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] .project-detail-nav .tab.active,
+body[data-page="projects"] .project-detail-nav .tab.active:hover {
+    border-color: #cfe0f7 !important;
+    background: var(--color-surface-selected) !important;
+    color: var(--color-accent-hover) !important;
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .04) !important;
+}
+
+body[data-page="projects"] [data-project-detail] > .tab-panel.active {
+    min-width: 0;
+    animation: pmbi-fade-in var(--motion-reveal-duration) var(--motion-reveal-easing) both;
+}
+
+body[data-page="projects"] [data-project-detail] > .tab-panel.active:empty {
+    min-height: 180px;
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+}
+
+/* Project overview */
+body[data-page="projects"] .project-overview-shell,
+body[data-page="projects"] .project-overview-shell > [data-project-hub] {
+    display: grid;
+    gap: var(--space-4);
+}
+
+body[data-page="projects"] .project-overview-shell > [data-project-hub] {
+    margin-top: 0;
+}
+
+body[data-page="projects"] .project-overview-hero,
+body[data-page="projects"] .project-overview-widget,
+body[data-page="projects"] .project-overview-panel {
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+body[data-page="projects"] .project-overview-hero {
+    position: relative;
+    padding: var(--space-5) !important;
+    overflow: hidden;
+    border-left: 3px solid var(--color-accent) !important;
+}
+
+body[data-page="projects"] .project-overview-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 56px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(37, 99, 235, .045), transparent);
+}
+
+body[data-page="projects"] .project-overview-head,
+body[data-page="projects"] .project-overview-meta,
+body[data-page="projects"] .project-overview-description {
+    position: relative;
+}
+
+body[data-page="projects"] .project-overview-heading h3 {
+    margin: 0 0 var(--space-2);
+    color: var(--color-text) !important;
+    font-size: clamp(22px, 2.4vw, 30px) !important;
+    font-weight: 780 !important;
+    line-height: 1.15;
+    letter-spacing: -.025em;
+}
+
+body[data-page="projects"] .project-overview-title {
+    gap: var(--space-3);
+}
+
+body[data-page="projects"] .project-overview-title-icon {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+}
+
+body[data-page="projects"] .project-overview-address {
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--color-text-secondary) !important;
+    font-size: 13px;
+}
+
+body[data-page="projects"] .project-overview-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+    margin-top: var(--space-5);
+}
+
+body[data-page="projects"] .project-overview-meta-item {
+    min-width: 0;
+    padding: var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] .project-overview-meta-item span,
+body[data-page="projects"] .project-overview-widget-label,
+body[data-page="projects"] .project-overview-panel-head span,
+body[data-page="projects"] .project-overview-panel-head h3 {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 650 !important;
+}
+
+body[data-page="projects"] .project-overview-meta-item strong {
+    margin-top: var(--space-1);
+    color: var(--color-text) !important;
+    font-size: 13px !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="projects"] .project-overview-description {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-secondary) !important;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+body[data-page="projects"] .project-overview-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+body[data-page="projects"] .project-overview-widget {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-4) !important;
+}
+
+body[data-page="projects"] .project-overview-widget.is-accent {
+    border-color: #cfe0f7 !important;
+    background: var(--color-surface-accent) !important;
+}
+
+body[data-page="projects"] .project-overview-widget.is-warn {
+    border-color: var(--color-warning-border) !important;
+    background: var(--color-warning-soft) !important;
+}
+
+body[data-page="projects"] .project-overview-widget-head {
+    gap: var(--space-3);
+}
+
+body[data-page="projects"] .project-overview-widget-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-accent-soft) !important;
+    color: var(--color-accent) !important;
+}
+
+body[data-page="projects"] .project-overview-widget-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] .project-overview-widget-value {
+    color: var(--color-text) !important;
+    font-size: clamp(26px, 3vw, 36px) !important;
+    font-weight: 780 !important;
+    line-height: 1;
+    letter-spacing: -.025em;
+}
+
+body[data-page="projects"] .project-overview-widget-note,
+body[data-page="projects"] .project-overview-widget-body span,
+body[data-page="projects"] .project-overview-widget-body small {
+    color: var(--color-text-secondary) !important;
+}
+
+body[data-page="projects"] .project-overview-inline-stats,
+body[data-page="projects"] .project-overview-kpi-pairs {
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .project-overview-inline-stats span,
+body[data-page="projects"] .project-overview-kpi-pairs div {
+    padding: 10px !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+    background: rgba(255, 255, 255, .72) !important;
+}
+
+body[data-page="projects"] .project-overview-inline-stats b,
+body[data-page="projects"] .project-overview-kpi-pairs strong {
+    color: var(--color-text) !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="projects"] .project-overview-widget-progress {
+    height: 6px;
+    background: #e8eef6 !important;
+}
+
+body[data-page="projects"] .project-overview-widget-progress span {
+    background: var(--color-accent) !important;
+}
+
+body[data-page="projects"] .project-overview-dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+    gap: var(--space-4);
+    align-items: start;
+}
+
+body[data-page="projects"] .project-overview-panel {
+    gap: var(--space-3);
+    padding: var(--space-4) !important;
+}
+
+body[data-page="projects"] .project-overview-panel-head {
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] .project-overview-panel-head h3 {
+    color: var(--color-text) !important;
+    font-size: var(--text-lg) !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="projects"] .project-overview-timeline,
+body[data-page="projects"] .project-overview-deadlines {
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] .project-overview-timeline-item,
+body[data-page="projects"] .project-overview-deadline-row {
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] .project-overview-timeline-item.is-warn,
+body[data-page="projects"] .project-overview-deadline-row.is-warn {
+    border-color: var(--color-warning-border) !important;
+    background: var(--color-warning-soft) !important;
+}
+
+body[data-page="projects"] .project-overview-timeline-item.is-danger,
+body[data-page="projects"] .project-overview-deadline-row.is-danger {
+    border-color: var(--color-danger-border) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="projects"] .project-overview-timeline-marker,
+body[data-page="projects"] .project-overview-deadline-icon {
+    border-radius: var(--radius-md) !important;
+    background: var(--color-accent-soft) !important;
+    color: var(--color-accent) !important;
+}
+
+body[data-page="projects"] .project-overview-inline-alert {
+    border: 1px solid var(--color-warning-border);
+    border-radius: var(--radius-md) !important;
+    background: var(--color-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+body[data-page="projects"] .project-overview-pulse span:nth-child(1),
+body[data-page="projects"] .project-overview-pulse span:nth-child(2) {
+    display: none;
+    animation: none !important;
+}
+
+body[data-page="projects"] .project-overview-pulse span:nth-child(3) {
+    background: var(--color-danger) !important;
+}
+
+/* Responsive checks: desktop -> tablet -> mobile. */
+@media (max-width: 1100px) {
+    body[data-page="projects"] .project-overview-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-page="projects"] .project-overview-dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 900px) {
+    body[data-page="projects"] .project-overview-meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-page="projects"] .project-detail-nav {
+        top: 68px;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] .project-form,
+    body[data-page="projects"] .project-overview-meta,
+    body[data-page="projects"] .project-overview-kpi-grid,
+    body[data-page="projects"] .project-overview-inline-stats,
+    body[data-page="projects"] .project-overview-kpi-pairs {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-page="projects"] .project-form > button[type="submit"] {
+        width: 100%;
+        justify-self: stretch;
+    }
+
+    body[data-page="projects"] [data-project-overview-section] > .card-head {
+        align-items: stretch !important;
+    }
+
+    body[data-page="projects"] [data-project-overview-section] > .card-head .search {
+        width: 100% !important;
+        flex-basis: auto;
+    }
+
+    body[data-page="projects"] .project-card-shell,
+    body[data-page="projects"] .project-overview-widget,
+    body[data-page="projects"] .project-overview-panel {
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="projects"] .project-card-headline {
+        grid-template-columns: 40px minmax(0, 1fr);
+    }
+
+    body[data-page="projects"] .projects-card-grid .project-card-tools {
+        grid-column: 1 / -1;
+        justify-content: space-between;
+    }
+
+    body[data-page="projects"] .project-detail-nav {
+        top: 64px;
+        margin-bottom: var(--space-3);
+    }
+
+    body[data-page="projects"] .project-overview-hero {
+        padding: var(--space-4) !important;
+    }
+
+    body[data-page="projects"] .project-overview-title {
+        align-items: flex-start;
+    }
+
+    body[data-page="projects"] .project-overview-deadline-row,
+    body[data-page="projects"] .project-overview-panel-head {
+        gap: var(--space-3);
+    }
+}
+
+@media (max-width: 520px) {
+    body[data-page="projects"] .project-detail-nav {
+        gap: var(--space-1);
+        margin-inline: calc(var(--space-1) * -1);
+        padding: var(--space-1);
+    }
+
+    body[data-page="projects"] .project-back-button,
+    body[data-page="projects"] .project-detail-nav .tab {
+        min-height: var(--control-height-sm);
+        height: var(--control-height-sm);
+    }
+
+    body[data-page="projects"] .project-back-button {
+        width: var(--control-height-sm);
+    }
+
+    body[data-page="projects"] .project-detail-nav .tab {
+        padding-inline: 10px !important;
+    }
+
+    body[data-page="projects"] .project-overview-title-icon {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+    }
+
+    body[data-page="projects"] .project-overview-timeline-item {
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 10px;
+    }
+
+    body[data-page="projects"] .project-overview-timeline-marker,
+    body[data-page="projects"] .project-overview-deadline-icon {
+        width: 30px;
+        height: 30px;
+    }
+
+    body[data-page="projects"] .project-overview-deadline-main {
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 10px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body[data-page="projects"] [data-project-detail] > .tab-panel.active,
+    body[data-page="projects"] [data-project-critical] > *,
+    body[data-page="projects"] [data-projects-list] > * {
+        animation: none !important;
+    }
+}
+
+/* Materials and work: one calm execution view, with market data kept separate. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    min-width: 0;
+    margin: 0 !important;
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    background: linear-gradient(110deg, var(--color-surface-accent), var(--color-surface) 58%);
+    box-shadow: var(--shadow-card);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar-copy {
+    gap: var(--space-1);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar-copy h3 {
+    color: var(--color-text) !important;
+    font-size: 20px !important;
+    font-weight: 780 !important;
+    letter-spacing: -.015em;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar-copy .muted {
+    color: var(--color-text-secondary) !important;
+    font-size: 13px;
+    line-height: var(--line-normal);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: var(--control-height) !important;
+    padding-inline: var(--space-4) !important;
+    border-radius: var(--radius-md) !important;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button svg,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button [data-lucide] {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher.market-toolbar {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center !important;
+    gap: var(--space-4);
+    min-width: 0;
+    margin: 0 0 var(--space-4) !important;
+    padding: var(--space-3) var(--space-4) var(--space-4) !important;
+    border: 1px solid var(--color-border) !important;
+    border-top: 0 !important;
+    border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher h3 {
+    margin: 0 0 var(--space-1) !important;
+    color: var(--color-text) !important;
+    font-size: var(--text-lg) !important;
+    font-weight: 750 !important;
+    line-height: var(--line-tight);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher p {
+    margin: 0 !important;
+    color: var(--color-text-secondary) !important;
+    font-size: 13px !important;
+    line-height: var(--line-normal);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented {
+    display: inline-flex !important;
+    align-items: center;
+    gap: var(--space-1) !important;
+    min-width: max-content;
+    padding: var(--space-1) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button {
+    min-height: var(--control-height-sm) !important;
+    padding: 0 var(--space-3) !important;
+    border: 1px solid transparent !important;
+    border-radius: var(--radius-sm) !important;
+    background: transparent !important;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button:hover {
+    transform: none !important;
+    background: var(--color-surface) !important;
+    color: var(--color-text) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button.active {
+    border-color: #cfe0f7 !important;
+    background: var(--color-surface-selected) !important;
+    color: var(--color-accent-hover) !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .05) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button svg,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button [data-lucide] {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-tables {
+    display: block;
+    position: sticky;
+    top: 8px;
+    z-index: 12;
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+    min-width: 0;
+    animation: pmbi-fade-in var(--motion-reveal-duration) var(--motion-reveal-easing) both;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 72px;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+    background: linear-gradient(110deg, var(--color-surface-accent), var(--color-surface) 62%);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-head h3 {
+    margin: 2px 0 0;
+    color: var(--color-text);
+    font-size: var(--text-lg);
+    font-weight: 780;
+    line-height: var(--line-tight);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-head-side {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-kind-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-kind-switcher button {
+    min-height: var(--control-height-sm);
+    padding: 0 var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-kind-switcher button:hover {
+    transform: none;
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-kind-switcher button.active {
+    border-color: #cfe0f7;
+    background: var(--color-surface-selected);
+    color: var(--color-accent-hover);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-count {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border: 1px solid #cfe0f7;
+    border-radius: 999px;
+    background: var(--color-surface-selected);
+    color: var(--color-accent-hover);
+    font-size: var(--text-xs);
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+    scrollbar-gutter: stable;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table {
+    width: 100%;
+    min-width: 960px;
+    table-layout: fixed;
+    border-spacing: 0;
+    border-collapse: separate;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td {
+    padding: 12px 11px;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+    text-align: right;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1.25;
+    text-transform: uppercase;
+    letter-spacing: .035em;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th:first-child,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td:first-child {
+    width: 36%;
+    text-align: left;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th:not(:first-child),
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td:not(:first-child) {
+    width: 12.8%;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th span,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th small {
+    display: block;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table th small {
+    margin-top: 2px;
+    color: var(--color-text-secondary);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table tbody tr:hover td {
+    background: var(--color-surface-accent);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table .project-price-table-section-row td,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table .project-price-table-section-row:hover td {
+    width: auto;
+    padding: 9px var(--space-3);
+    border-bottom-color: #cfe0f7;
+    background: var(--color-surface-selected);
+    text-align: left;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-section-row td > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-section-row td b {
+    color: var(--color-accent-strong);
+    font-size: var(--text-sm);
+    font-weight: 780;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-section-row td small {
+    margin: 0;
+    color: var(--color-accent-hover);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td b,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td strong,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td small {
+    display: block;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td b {
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td strong {
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    font-weight: 750;
+    line-height: 1.35;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td small {
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    line-height: 1.3;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td:nth-child(4) strong {
+    color: var(--color-accent-hover);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table td:nth-child(5) strong {
+    color: var(--color-accent-strong);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-missing {
+    display: block;
+    color: var(--color-text-secondary);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.2;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-state {
+    flex: 1 1 auto;
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-5);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    text-align: center;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-state svg {
+    width: 18px;
+    height: 18px;
+    color: var(--color-text-secondary);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-state.is-error {
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-spinner {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    border: 2px solid #cfe0f7;
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: localButtonSpin .75s linear infinite;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-access {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 9px var(--space-3);
+    border-bottom: 1px solid #cfe0f7;
+    background: var(--color-surface-selected);
+    color: var(--color-accent-strong);
+    font-size: var(--text-xs);
+    font-weight: 650;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-access svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-counterparty-filters,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-presence,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .material-chain-actions,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .quantity-actual-editor,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .material-delivery-field,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .estimate-compact-side {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-board {
+    padding: var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-list {
+    gap: var(--space-2) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-current,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-past,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-done,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-list > .section-schedule-card:last-child {
+    overflow: hidden;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-open {
+    border-color: var(--color-border-strong) !important;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .055) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary {
+    padding: var(--space-3) !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary:hover {
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-heading {
+    gap: var(--space-3) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-title h4 {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    color: var(--color-text) !important;
+    font-size: var(--text-md) !important;
+    font-weight: 750 !important;
+    line-height: 1.3 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-chevron {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-split {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2) !important;
+    margin-top: var(--space-2);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line {
+    position: relative;
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 10px var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-width: 0;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 650 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line-head strong {
+    color: var(--color-text) !important;
+    font-size: var(--text-sm);
+    font-weight: 750 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line-head span {
+    margin-right: 38px;
+    color: var(--color-text-secondary) !important;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-progress-bar {
+    position: relative;
+    height: 9px !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: #e7edf5 !important;
+    box-shadow: inset 0 1px 1px rgba(15, 23, 42, .06);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-progress-bar > span {
+    display: block;
+    height: 100%;
+    min-width: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--color-accent), #60a5fa) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line-work .section-schedule-progress-bar > span {
+    background: linear-gradient(90deg, var(--color-accent-strong), var(--color-accent)) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-progress-value {
+    position: absolute !important;
+    top: -29px !important;
+    right: 0 !important;
+    left: auto !important;
+    min-width: 38px;
+    padding: 3px 6px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: var(--color-surface-selected) !important;
+    color: var(--color-accent-hover) !important;
+    font-size: 11px !important;
+    font-weight: 750 !important;
+    line-height: 1.2 !important;
+    text-align: center;
+    transform: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-details {
+    padding: 0 var(--space-4) var(--space-4) !important;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-column {
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-title {
+    min-height: 26px;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-title strong {
+    color: var(--color-text) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-title span {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 650 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list {
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.schedule-work-duration-row,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .material-estimate-row {
+    min-width: 0;
+    min-height: 44px !important;
+    padding: 9px 10px !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.schedule-work-duration-row {
+    display: block;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-work-check-main {
+    align-items: flex-start;
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .material-estimate-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-2);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list .warehouse-match-badge {
+    min-height: 22px;
+    margin-top: var(--space-1);
+    padding: 3px 7px;
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-accent);
+    color: var(--color-accent-strong);
+    font-size: 10px;
+    font-weight: 650;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-empty.inline {
+    min-height: 52px;
+    padding: var(--space-3);
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    text-align: center;
+}
+
+@media (max-width: 980px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (min-width: 721px) {
+    body[data-page="projects"] [data-project-detail]:has([data-panel="schedule"].active .project-price-tables) {
+        position: relative;
+        z-index: 20;
+    }
+
+    body[data-page="projects"] [data-project-detail]:has([data-panel="schedule"].active .project-price-tables) .project-detail-nav {
+        position: static;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar,
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher.market-toolbar {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch !important;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar {
+        display: grid;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button {
+        width: 100%;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        width: 100%;
+        min-width: 0;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button {
+        padding-inline: var(--space-2) !important;
+        white-space: nowrap;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-head {
+        min-height: 64px;
+        padding: var(--space-3);
+        flex-wrap: wrap;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-head-side {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-kind-switcher {
+        flex: 1 1 auto;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-kind-switcher button {
+        flex: 1 1 0;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-tables {
+        position: static;
+        height: auto;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-panel {
+        height: auto;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-price-table-scroll {
+        max-height: none;
+        scrollbar-gutter: auto;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-board,
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary {
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-details {
+        padding: 0 var(--space-3) var(--space-3) !important;
+    }
+}

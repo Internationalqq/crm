@@ -18,6 +18,7 @@
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
     var safeReplaceChildren = PMBI.safeReplaceChildren;
+    var showSkeleton = PMBI.showSkeleton;
     var refreshLucideIcons = PMBI.refreshLucideIcons;
     var showAppNotice = PMBI.showAppNotice;
     var getAutoBotLoaderHTML = PMBI.getAutoBotLoaderHTML;
@@ -75,7 +76,9 @@
     var canManageTeam = PMBI.canManageTeam;
     var canManageDailyTasks = PMBI.canManageDailyTasks;
     var canViewPrivateContacts = PMBI.canViewPrivateContacts;
+    var canViewProcurementPrices = PMBI.canViewProcurementPrices;
     var canSeeFinances = PMBI.canSeeFinances;
+    var canViewProjectEconomics = PMBI.canViewProjectEconomics;
     var canManageSuppliers = PMBI.canManageSuppliers;
     var canManageDocuments = PMBI.canManageDocuments;
     var canManageSchedule = PMBI.canManageSchedule;
@@ -606,8 +609,14 @@
     function applyRoleVisibility(root) {
         root = root || document;
         var director = isDirectorRole();
-        qsa('[data-director-only], [data-director-action], [data-director-finance]', root).forEach(function (node) {
+        qsa('[data-director-only], [data-director-action]', root).forEach(function (node) {
             node.classList.toggle('hidden', !director);
+        });
+        qsa('[data-director-finance]', root).forEach(function (node) {
+            node.classList.toggle('hidden', !canViewProjectEconomics());
+        });
+        qsa('[data-project-economics-only]', root).forEach(function (node) {
+            node.classList.toggle('hidden', !canViewProjectEconomics());
         });
         qsa('[data-foreman-hidden]', root).forEach(function (node) {
             node.classList.toggle('hidden', isForemanRole());
@@ -652,6 +661,7 @@
         if (page === 'logs') loadProjects(renderLogsPage);
         if (page === 'users') initUsersPage();
         if (page === 'companies') initCompaniesPage();
+        if (page === 'autobot' && PMBI.autobot && typeof PMBI.autobot.init === 'function') PMBI.autobot.init();
     }
 
     function loadProjects(callback) {
@@ -729,6 +739,10 @@
     }
 
     function initDashboardPage() {
+        var statsRoot = qs('[data-dashboard-stats]');
+        if (statsRoot && qs('[data-pmbi-skeleton]', statsRoot)) {
+            showSkeleton(statsRoot, 'stats', canViewProjectEconomics() ? 8 : 3);
+        }
         loadDashboard(function () {
             renderDashboardPage(state.dashboard || {});
         });
@@ -750,11 +764,15 @@
             stat('Объектов', data.projectsCount == null ? 0 : data.projectsCount, '', 'building-2') +
             stat('В работе', data.activeProjects == null ? 0 : data.activeProjects, '', 'hammer') +
             stat('Открытых задач', data.openTasksCount == null ? 0 : data.openTasksCount, data.openTasksCount ? 'warn' : '', 'list-checks');
-        if (state.user && isAdminRole()) {
+        if (state.user && canViewProjectEconomics()) {
+            var portfolio = data.portfolioEconomics || {};
+            var dashboardCashBalance = data.cashBalance;
             html +=
-                stat('Бюджет', data.totalBudget == null ? 'Скрыто' : money(data.totalBudget), '', 'wallet') +
-                stat('Оплачено', data.totalPaid == null ? 'Скрыто' : money(data.totalPaid), '', 'circle-dollar-sign') +
-                stat('Маржа', data.profitNow == null ? 'Скрыто' : money(data.profitNow), data.profitNow < 0 ? 'danger' : '', 'trending-up');
+                stat('Договорная выручка', portfolio.contractRevenueNetKopecks == null ? 'Нет утверждённой базы' : economicsMoney(portfolio.contractRevenueNetKopecks), '', 'badge-russian-ruble') +
+                stat('Прогнозная маржа', portfolio.forecastMarginNetKopecks == null ? 'Нет актуального прогноза' : economicsMoney(portfolio.forecastMarginNetKopecks), Number(portfolio.forecastMarginNetKopecks || 0) < 0 ? 'danger' : '', 'trending-up') +
+                stat('Без финансовой базы', portfolio.unconfiguredProjects == null ? '—' : portfolio.unconfiguredProjects, Number(portfolio.unconfiguredProjects || 0) ? 'warn' : '', 'triangle-alert') +
+                stat('Прогноз требует внимания', portfolio.forecastAttentionProjects == null ? '—' : portfolio.forecastAttentionProjects, Number(portfolio.forecastAttentionProjects || 0) ? 'warn' : '', 'refresh-cw') +
+                stat('Кассовый остаток', dashboardCashBalance == null ? 'Скрыто' : money(dashboardCashBalance), dashboardCashBalance < 0 ? 'danger' : '', 'wallet-cards');
         }
         root.innerHTML = html;
     }
@@ -912,10 +930,16 @@
         if (tabName === 'production-schedule' && PMBI.planning && typeof PMBI.planning.loadSelectedProjectProductionSchedule === 'function') {
             PMBI.planning.loadSelectedProjectProductionSchedule(false);
         }
+        if (tabName === 'estimate-reconciliation' && PMBI.estimateReconciliation && typeof PMBI.estimateReconciliation.loadSelectedProject === 'function') {
+            PMBI.estimateReconciliation.loadSelectedProject(false).catch(function () {});
+        }
+        if (tabName === 'warehouse-control' && PMBI.warehouseControl && typeof PMBI.warehouseControl.loadSelectedProject === 'function') {
+            PMBI.warehouseControl.loadSelectedProject(false).catch(function () {});
+        }
     }
 
     function isProjectTabHidden(tabName) {
-        if (tabName === 'calendar' && hasRole('customer')) return true;
+        if ((tabName === 'calendar' || tabName === 'estimate-reconciliation' || tabName === 'warehouse-control') && hasRole('customer')) return true;
         if (hasRole('admin') || hasRole('director')) return false;
         return false;
     }
@@ -924,6 +948,8 @@
         root = root || qs('[data-project-detail]') || document;
         var roleHiddenTabs = {
             calendar: hasRole('customer'),
+            'estimate-reconciliation': hasRole('customer'),
+            'warehouse-control': hasRole('customer'),
             reports: false,
             finance: false
         };
@@ -1207,10 +1233,20 @@
                 groups[key] = {
                     projectId: item.projectId,
                     projectTitle: item.projectTitle || 'Объект',
-                    items: []
+                    items: [],
+                    sections: {}
                 };
             }
             groups[key].items.push(item);
+            var sectionTitle = criticalSectionTitle(item) || 'Без раздела';
+            var sectionKey = sectionTitle.toLocaleLowerCase('ru');
+            if (!groups[key].sections[sectionKey]) {
+                groups[key].sections[sectionKey] = {
+                    title: sectionTitle,
+                    items: []
+                };
+            }
+            groups[key].sections[sectionKey].items.push(item);
         });
         var orderedGroups = Object.keys(groups).map(function (key) {
             return groups[key];
@@ -1220,31 +1256,37 @@
         root.innerHTML = '<div class="quick-alert-list quick-alert-groups">' + orderedGroups.map(function (group, index) {
             var first = group.items[0] || {};
             var groupLevel = criticalUrgencyLevel(group.items);
-            var sectionTitle = criticalSectionTitle(first);
+            var sectionGroups = Object.keys(group.sections).map(function (key) {
+                return group.sections[key];
+            });
             var summaryMeta = [
                 String(group.items.length) + ' поз.',
-                criticalDaysText(first),
-                sectionTitle ? ('раздел: ' + sectionTitle) : ''
+                String(sectionGroups.length) + ' разд.',
+                criticalDaysText(first)
             ].filter(Boolean).join(' • ');
             return '<details class="quick-alert quick-alert-group is-' + groupLevel + '">' +
                 '<summary>' +
                     '<span><b>' + escapeHtml(group.projectTitle) + '</b><small>' + escapeHtml(summaryMeta || 'Есть критичные позиции') + '</small></span>' +
                     '<strong>' + escapeHtml(String(group.items.length)) + '</strong>' +
                 '</summary>' +
-                '<div class="quick-alert-details">' + group.items.map(function (item) {
-                    var itemLevel = criticalUrgencyLevel([item]);
-                    var itemSectionTitle = criticalSectionTitle(item);
-                    var itemStageTitle = criticalStageTitle(item);
-                    var meta = [
-                        itemSectionTitle ? ('Раздел: ' + itemSectionTitle) : '',
-                        itemStageTitle ? ('Этап: ' + itemStageTitle) : '',
-                        item.workDate ? ('работа: ' + finalGraphDate(item.workDate)) : '',
-                        criticalDaysText(item)
-                    ].filter(Boolean).join(' • ');
-                    return '<a class="quick-alert-detail is-' + itemLevel + '" href="/app/projects?openProject=' + escapeHtml(item.projectId || '') + '">' +
-                        '<span><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta || 'Раздел не указан') + '</small></span>' +
-                        '<strong>' + escapeHtml(item.missingQty) + ' ' + escapeHtml(item.unit) + '</strong>' +
-                    '</a>';
+                '<div class="quick-alert-details">' + sectionGroups.map(function (section) {
+                    return '<section class="quick-alert-section">' +
+                        '<div class="quick-alert-section-head"><span>' + escapeHtml(section.title) + '</span><strong>' + escapeHtml(String(section.items.length)) + ' поз.</strong></div>' +
+                        '<div class="quick-alert-section-items">' + section.items.map(function (item) {
+                            var itemLevel = criticalUrgencyLevel([item]);
+                            var itemStageTitle = criticalStageTitle(item);
+                            var meta = [
+                                String(item.itemKind || 'material').toLowerCase() === 'work' ? 'Работа' : 'Материал',
+                                itemStageTitle ? ('Этап: ' + itemStageTitle) : '',
+                                item.workDate ? ('работа: ' + finalGraphDate(item.workDate)) : '',
+                                criticalDaysText(item)
+                            ].filter(Boolean).join(' • ');
+                            return '<a class="quick-alert-detail is-' + itemLevel + '" href="/app/projects?openProject=' + escapeHtml(item.projectId || '') + '">' +
+                                '<span><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(meta) + '</small></span>' +
+                                '<strong>' + escapeHtml(quantityText(item.missingQty)) + ' ' + escapeHtml(item.unit) + '</strong>' +
+                            '</a>';
+                        }).join('') + '</div>' +
+                    '</section>';
                 }).join('') + '</div>' +
             '</details>';
         }).join('') + '</div>';
@@ -1362,8 +1404,6 @@
     function renderProjectFocus(project) {
         var progress = percent(project.progress);
         var status = project.status || 'Подготовка';
-        var budget = project.budget == null ? 'Не указан' : money(project.budget);
-        var paid = project.paid == null ? '0 ₽' : money(project.paid);
         return '<div class="project-focus-grid">' +
             '<div class="project-focus-main">' +
                 '<span class="project-focus-kicker">Выбран объект</span>' +
@@ -1377,8 +1417,8 @@
             '<div class="project-focus-meta">' +
                 '<div><span>Заказчик</span><strong>' + escapeHtml(project.client_name || '—') + '</strong></div>' +
                 '<div><span>Номер договора</span><strong>' + escapeHtml(project.contract_no || 'Не указано') + '</strong></div>' +
-                '<div><span>Бюджет</span><strong>' + escapeHtml(budget) + '</strong></div>' +
-                '<div><span>Оплачено</span><strong>' + escapeHtml(paid) + '</strong></div>' +
+                '<div><span>Экономика</span><strong>Раздел «Финансы»</strong></div>' +
+                '<div><span>Дата договора</span><strong>' + escapeHtml(project.contract_date || '—') + '</strong></div>' +
                 '<div><span>Старт</span><strong>' + escapeHtml(project.started_at || '—') + '</strong></div>' +
                 '<div><span>Дедлайн</span><strong>' + escapeHtml(project.deadline_at || '—') + '</strong></div>' +
             '</div>' +
@@ -1581,7 +1621,7 @@
         if (!state.marketAnalysisByProject[projectId]) state.marketAnalysisByProject[projectId] = {};
         var cache = state.marketAnalysisByProject[projectId][kind];
         var pollKey = String(projectId) + ':' + kind;
-        var isReady = cache && cache.status === 'ready';
+        var isReady = cache && (cache.status === 'ready' || cache.status === 'restricted');
         if (force && state.marketAnalysisPollTimers[pollKey]) {
             clearTimeout(state.marketAnalysisPollTimers[pollKey]);
             delete state.marketAnalysisPollTimers[pollKey];
@@ -1600,7 +1640,11 @@
                 error: status === 'error' ? String(data && data.error || 'market_analysis_failed') : '',
                 rows: rows,
                 summary: data && data.summary || {},
-                estimateId: data && data.estimateId || ''
+                estimateId: data && data.estimateId || '',
+                estimateVersion: data && data.estimateVersion || '',
+                analyzedAt: data && data.analyzedAt || null,
+                canViewProcurementPrices: data && data.canViewProcurementPrices === true,
+                canSubmitPrice: data && data.canSubmitPrice === true
             };
             callback(state.marketAnalysisByProject[projectId][kind]);
             return status;
@@ -1683,6 +1727,7 @@
 
     function refreshCounterpartyProjectViews(projectId) {
         delete state.materialInsightsByProject[projectId];
+        if (state.marketAnalysisByProject) delete state.marketAnalysisByProject[projectId];
         loadMaterialInsights(projectId, function (insights) {
             if (typeof rerenderProjectMaterialAndWorkViews === 'function') {
                 rerenderProjectMaterialAndWorkViews(projectId);
@@ -1703,7 +1748,7 @@
         });
     }
 
-    function attachCounterpartyToEstimateItem(button) {
+    function attachCounterpartyToEstimateItem(button, limitOverrideReason) {
         var projectId = Number(button.dataset.projectId || 0);
         var offerId = Number(button.dataset.offerId || 0);
         var companyId = Number(button.dataset.companyId || 0);
@@ -1722,7 +1767,8 @@
                     qty: Number(button.dataset.qty || 0),
                     phone: button.dataset.phone || '',
                     source_url: button.dataset.sourceUrl || '',
-                    notes: button.dataset.notes || ''
+                    notes: button.dataset.notes || '',
+                    limit_override_reason: limitOverrideReason || ''
                 })
             });
         }
@@ -1739,7 +1785,8 @@
                 qty: Number(button.dataset.itemQty || button.dataset.qty || 0),
                 unit: button.dataset.itemUnit || '',
                 status: 'selected',
-                notes: button.dataset.notes || ''
+                notes: button.dataset.notes || '',
+                limit_override_reason: limitOverrideReason || ''
             })
         });
     }
@@ -1790,9 +1837,26 @@
         var request = button.hasAttribute('data-supplier-clear')
             ? clearCounterpartyFromEstimateItem(button)
             : attachCounterpartyToEstimateItem(button);
-        request.then(function () {
+        request.catch(function (error) {
+            var payload = error && error.payload || {};
+            if (!button.hasAttribute('data-supplier-clear') && payload.error === 'procurement_limit_exceeded') {
+                var check = payload.limitCheck || {};
+                var overrun = money(Number(check.overrunKopecks || 0) / 100);
+                var reason = window.prompt(
+                    '\u041f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0432\u044b\u0448\u0435 \u0443\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d\u043d\u043e\u0433\u043e \u043b\u0438\u043c\u0438\u0442\u0430 \u043d\u0430 ' + overrun + '.\n\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u043e\u0441\u043d\u043e\u0432\u0430\u043d\u0438\u0435 \u0434\u043b\u044f \u0432\u044b\u0431\u043e\u0440\u0430 \u044d\u0442\u043e\u0439 \u0446\u0435\u043d\u044b:'
+                );
+                if (reason && reason.trim()) {
+                    return attachCounterpartyToEstimateItem(button, reason.trim());
+                }
+                var cancelled = new Error('limit_override_cancelled');
+                cancelled.limitOverrideCancelled = true;
+                throw cancelled;
+            }
+            throw error;
+        }).then(function () {
             refreshCounterpartyProjectViews(projectId);
-        }).catch(function () {
+        }).catch(function (error) {
+            if (error && error.limitOverrideCancelled) return;
             window.alert(button.hasAttribute('data-supplier-clear') ? 'Не удалось снять контрагента.' : 'Не удалось закрепить контрагента.');
         }).finally(function () {
             button.disabled = false;
@@ -2701,13 +2765,197 @@
         }[kind] || kind || 'Оплата';
     }
 
-    function loadProjectFinances(projectId, loadingToken) {
-        api('/api/projects/' + projectId + '/finances').then(function (data) {
+    function economicsMoney(kopecks) {
+        var value = Number(kopecks);
+        return Number.isFinite(value) ? money(value / 100) : '—';
+    }
+
+    function economicsPercent(value) {
+        var number = Number(value);
+        if (value == null || !Number.isFinite(number)) return '—';
+        return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(number) + '%';
+    }
+
+    function economicsMetric(label, value, hint, tone, icon) {
+        return '<article class="economics-metric' + (tone ? ' is-' + escapeHtml(tone) : '') + '">' +
+            '<div class="economics-metric-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(icon || 'circle-dollar-sign') + '"></i></div>' +
+            '<span>' + escapeHtml(label) + '</span>' +
+            '<strong>' + escapeHtml(value) + '</strong>' +
+            '<small>' + escapeHtml(hint || '') + '</small>' +
+        '</article>';
+    }
+
+    function economicsComponentTypeLabel(type) {
+        return {
+            remaining_commitment: 'Остаток обязательства',
+            uncontracted: 'Незаконтрактованный остаток',
+            adjustment: 'Корректировка',
+            risk: 'Риск'
+        }[type] || type || 'Компонент';
+    }
+
+    function economicsSourceLabel(type) {
+        return {
+            approved_commitment: 'Утвержденное обязательство',
+            active_supplier_offer: 'Активное предложение',
+            autobot_snapshot: 'Снимок AutoBot',
+            target_budget: 'Целевая себестоимость',
+            manual_unit_price: 'Ручная прогнозная цена',
+            manual_adjustment: 'Ручная корректировка',
+            manual_risk: 'Ручной риск'
+        }[type] || type || 'Источник';
+    }
+
+    function economicsSourceDate(timestamp) {
+        var value = Number(timestamp || 0);
+        if (!value) return '—';
+        try {
+            return new Intl.DateTimeFormat('ru-RU').format(new Date(value * 1000));
+        } catch (error) {
+            return '—';
+        }
+    }
+
+    function renderEconomicsCashFlow(cashFlow) {
+        cashFlow = cashFlow || {};
+        var balance = Number(cashFlow.cashBalanceGrossKopecks || 0);
+        return '<section class="economics-group economics-cash-group">' +
+            '<div class="economics-group-head"><div><h4>Денежный поток</h4><p>Фактические поступления и оплаты с НДС. На прибыль и EAC не влияет.</p></div><span class="economics-mode-badge">с НДС</span></div>' +
+            '<div class="economics-metrics economics-cash-metrics">' +
+                economicsMetric('Получено', economicsMoney(cashFlow.cashReceivedGrossKopecks), 'Фактические поступления', '', 'arrow-down-left') +
+                economicsMetric('Оплачено', economicsMoney(cashFlow.cashPaidGrossKopecks), 'Фактические выплаты', '', 'arrow-up-right') +
+                economicsMetric('Кассовый остаток', economicsMoney(balance), 'Получено минус оплачено', balance < 0 ? 'negative' : (balance > 0 ? 'positive' : 'neutral'), 'wallet-cards') +
+            '</div>' +
+        '</section>';
+    }
+
+    function renderEconomicsComponents(forecast) {
+        var components = Array.isArray(forecast && forecast.components) ? forecast.components : [];
+        if (!components.length) return '';
+        return '<details class="economics-components">' +
+            '<summary><span>Из чего состоит ETC</span><b>' + escapeHtml(String(components.length)) + '</b></summary>' +
+            '<div class="economics-components-head"><span>Компонент</span><span>Источник</span><span>Количество</span><span>Сумма без НДС</span></div>' +
+            components.map(function (component) {
+                var quantity = component.quantity == null
+                    ? '—'
+                    : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 }).format(Number(component.quantity)) + (component.unit ? ' ' + component.unit : '');
+                var signedAmount = Number(component.signedNetAmountKopecks || 0);
+                var sourceMeta = economicsSourceDate(component.sourceSnapshotAt) + (component.sourceVersion ? ' · ' + component.sourceVersion : '');
+                return '<div class="economics-component-row">' +
+                    '<div><b>' + escapeHtml(component.title || economicsComponentTypeLabel(component.componentType)) + '</b><small>' + escapeHtml(economicsComponentTypeLabel(component.componentType)) + '</small></div>' +
+                    '<div><span>' + escapeHtml(economicsSourceLabel(component.sourceType)) + '</span><small>' + escapeHtml(sourceMeta) + '</small></div>' +
+                    '<span>' + escapeHtml(quantity) + '</span>' +
+                    '<strong class="' + (signedAmount < 0 ? 'is-negative' : '') + '">' + escapeHtml(economicsMoney(signedAmount)) + '</strong>' +
+                '</div>';
+            }).join('') +
+        '</details>';
+    }
+
+    function renderProjectEconomics(data, loadError) {
+        if (loadError) {
+            return '<section class="project-economics ui-card is-error" data-project-economics>' +
+                '<div class="economics-head"><div><span class="section-label">Экономика объекта</span><h3>Сводка временно недоступна</h3><p>Денежные операции ниже продолжают работать независимо.</p></div></div>' +
+            '</section>';
+        }
+        data = data || {};
+        var cashFlowHtml = renderEconomicsCashFlow(data.cashFlow || {});
+        if (data.status === 'not_configured') {
+            return '<section class="project-economics ui-card" data-project-economics>' +
+                '<div class="economics-head"><div><span class="section-label">Экономика объекта</span><h3>Экономическая база не подтверждена</h3><p>Legacy-бюджет и цены текущей сметы не включаются в управленческую маржу автоматически.</p></div><span class="economics-status is-warning">Нужна настройка</span></div>' +
+                '<div class="economics-notice is-warning"><i data-lucide="triangle-alert"></i><div><b>Официальный прогноз не рассчитывается</b><span>Сначала требуется утвержденная версия договорной выручки и целевой себестоимости.</span></div></div>' +
+                cashFlowHtml +
+            '</section>';
+        }
+
+        var current = data.current || {};
+        var forecast = data.forecast || null;
+        var forecastStatus = data.forecastStatus || 'not_calculated';
+        var statusLabel = forecastStatus === 'stale' ? 'Требует пересчета' : (forecast ? 'Актуален' : 'Не рассчитан');
+        var statusTone = forecastStatus === 'stale' ? 'is-danger' : (forecast ? 'is-success' : 'is-warning');
+        var baseline = data.baseline || {};
+        var html = '<section class="project-economics ui-card" data-project-economics>' +
+            '<div class="economics-head"><div><span class="section-label">Экономика объекта</span><h3>План · обязательства · факт · прогноз</h3><p>Управленческие показатели считаются без НДС и не смешиваются с оплатами.</p></div><div class="economics-head-badges"><span class="economics-mode-badge">без НДС</span><span class="economics-status ' + statusTone + '">' + escapeHtml(statusLabel) + '</span></div></div>' +
+            '<section class="economics-group"><div class="economics-group-head"><div><h4>Текущее состояние</h4><p>Утвержденная база v' + escapeHtml(baseline.versionNo || '—') + ' и подтвержденные хозяйственные события.</p></div></div>' +
+                '<div class="economics-metrics">' +
+                    economicsMetric('Договорная выручка', economicsMoney(current.contractRevenueNetKopecks), 'Утверждено по договору', '', 'badge-russian-ruble') +
+                    economicsMetric('Целевая себестоимость', economicsMoney(current.targetCostNetKopecks), 'Утвержденный бюджет затрат', '', 'target') +
+                    economicsMetric('Обязательства', economicsMoney(current.committedTotalNetKopecks), 'Утвержденные заказы и договоры', '', 'file-check-2') +
+                    economicsMetric('Остаток обязательств', economicsMoney(current.remainingCommitmentNetKopecks), 'Еще не принят в факт', '', 'hourglass') +
+                    economicsMetric('Факт затрат', economicsMoney(current.actualCostNetKopecks), 'Начислено независимо от оплаты', '', 'clipboard-check') +
+                '</div></section>';
+
+        if (!forecast) {
+            html += '<section class="economics-group"><div class="economics-group-head"><div><h4>Прогноз до завершения</h4><p>Утвержденной версии прогноза пока нет.</p></div></div>' +
+                '<div class="economics-notice is-warning"><i data-lucide="calculator"></i><div><b>ETC, EAC и прогнозная маржа не рассчитаны</b><span>Текущие обязательства и факт показаны выше, но не подменяют официальный прогноз.</span></div></div></section>';
+        } else {
+            var margin = Number(forecast.forecastMarginNetKopecks || 0);
+            var variance = Number(forecast.budgetVarianceNetKopecks || 0);
+            var marginTone = margin < 0 ? 'negative' : (margin > 0 ? 'positive' : 'neutral');
+            var varianceTone = variance < 0 ? 'negative' : (variance > 0 ? 'positive' : 'neutral');
+            html += '<section class="economics-group"><div class="economics-group-head"><div><h4>Прогноз до завершения</h4><p>Версия ' + escapeHtml(forecast.versionNo || '—') + ' · расчет на ' + escapeHtml(formatDisplayDate(forecast.calculationDate) || forecast.calculationDate || '—') + '.</p></div></div>' +
+                (forecastStatus === 'stale' ? '<div class="economics-notice is-danger"><i data-lucide="refresh-cw"></i><div><b>Исходные данные изменились</b><span>Эта версия остается в истории, но для управленческого решения нужен новый расчет.</span></div></div>' : '') +
+                '<div class="economics-metrics economics-forecast-metrics">' +
+                    economicsMetric('ETC', economicsMoney(forecast.etcNetKopecks), 'Осталось потратить', '', 'route') +
+                    economicsMetric('EAC', economicsMoney(forecast.eacNetKopecks), 'Прогноз итоговой себестоимости', '', 'sigma') +
+                    economicsMetric('Прогнозная маржа', economicsMoney(margin), economicsPercent(forecast.forecastMarginPercent), marginTone, 'trending-up') +
+                    economicsMetric('Отклонение от бюджета', economicsMoney(variance), variance < 0 ? 'Прогнозный перерасход' : (variance > 0 ? 'Прогнозная экономия' : 'В пределах бюджета'), varianceTone, 'scale') +
+                '</div>' + renderEconomicsComponents(forecast) + '</section>';
+        }
+        return html + cashFlowHtml + '</section>';
+    }
+
+    function loadProjectEconomicsData(projectId, force) {
+        if (!canViewProjectEconomics()) return Promise.resolve(null);
+        state.projectEconomicsByProject = state.projectEconomicsByProject || {};
+        state.projectEconomicsPromisesByProject = state.projectEconomicsPromisesByProject || {};
+        if (!force && state.projectEconomicsByProject[projectId]) {
+            return Promise.resolve(state.projectEconomicsByProject[projectId]);
+        }
+        if (state.projectEconomicsPromisesByProject[projectId]) {
+            return state.projectEconomicsPromisesByProject[projectId];
+        }
+        var request = api('/api/projects/' + projectId + '/economics', {
+            silentLoader: true,
+            requestGroup: 'project-economics-' + projectId
+        }).then(function (data) {
+            state.projectEconomicsByProject[projectId] = data || {};
+            return data || {};
+        }).finally(function () {
+            delete state.projectEconomicsPromisesByProject[projectId];
+        });
+        state.projectEconomicsPromisesByProject[projectId] = request;
+        return request;
+    }
+
+    function loadProjectFinances(projectId, loadingToken, options) {
+        options = options || {};
+        if (!options.preserveEconomicsManagementCache && PMBI.economicsManagement && typeof PMBI.economicsManagement.invalidate === 'function') {
+            PMBI.economicsManagement.invalidate(projectId);
+        }
+        var financesRequest = api('/api/projects/' + projectId + '/finances').then(function (data) {
+            return { data: data || {}, error: null };
+        }).catch(function (error) {
+            return { data: {}, error: error || true };
+        });
+        var economicsRequest = canViewProjectEconomics()
+            ? loadProjectEconomicsData(projectId, true).then(function (data) {
+                return { data: data || {}, error: null };
+            }).catch(function (error) {
+                return { data: null, error: error || true };
+            })
+            : Promise.resolve({ data: null, error: null });
+        Promise.all([financesRequest, economicsRequest]).then(function (results) {
             if (!isCurrentProject(projectId, loadingToken)) return;
-            renderProjectFinances(projectId, Array.isArray(data.items) ? data.items : [], data.summary || {});
-        }).catch(function () {
-            if (!isCurrentProject(projectId, loadingToken)) return;
-            safeReplaceChildren(qs('[data-panel="finance"]'), '<p class="muted">Не удалось загрузить финансы по объекту.</p>');
+            var finances = results[0];
+            var economics = results[1];
+            renderProjectFinances(
+                projectId,
+                Array.isArray(finances.data.items) ? finances.data.items : [],
+                finances.data.summary || {},
+                economics.data,
+                economics.error,
+                finances.error
+            );
         });
     }
 
@@ -2978,7 +3226,10 @@
             api('/api/projects/' + projectId + '/documents').catch(function () { return { documents: [] }; }),
             api('/api/projects/' + projectId + '/daily-logs').catch(function () { return { logs: [] }; }),
             api('/api/projects/' + projectId + '/materials-summary').catch(function () { return { items: [] }; }),
-            api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; })
+            api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; }),
+            canViewProjectEconomics()
+                ? loadProjectEconomicsData(projectId, false).catch(function () { return { status: 'unavailable' }; })
+                : Promise.resolve(null)
         ]).then(function (results) {
             if (!isCurrentProject(projectId, loadingToken)) return;
             var notifications = results[0] || {};
@@ -2993,7 +3244,8 @@
                 documents: documents,
                 logs: logs,
                 materials: materials,
-                stages: stages
+                stages: stages,
+                economics: results[6] || null
             }));
             refreshLucideIcons(root);
         }).catch(function () {
@@ -3783,27 +4035,9 @@ function renderLogsDayView(project, logs) {
     function rebuildProjectReportEffects(projectId) {
         if (!state.projectLogsByProject) state.projectLogsByProject = {};
         if (!state.projectReportEffectsByProject) state.projectReportEffectsByProject = {};
-        var logs = state.projectLogsByProject[projectId] || [];
-        var works = {};
-        var materials = {};
-        logs.forEach(function (log) {
-            var draft = buildProjectReportDraft(projectId, {
-                raw_input: log.raw_input || '',
-                work_done: log.work_done || ''
-            });
-            draft.workMatches.forEach(function (entry) {
-                var key = scheduleWorkKey(entry.sectionTitle, entry.item);
-                if (entry.done) works[key] = 1;
-                else if (Number(entry.actualQty || 0) > 0) works[key] = { qty: Number(entry.actualQty || 0) };
-            });
-            draft.materialMatches.forEach(function (entry) {
-                var materialId = Number(entry.item.id);
-                if (!materials[materialId]) materials[materialId] = { purchasedQty: 0, usedQty: 0 };
-                materials[materialId].purchasedQty += Number(entry.purchasedQty || 0);
-                materials[materialId].usedQty += Number(entry.usedQty || 0);
-            });
-        });
-        state.projectReportEffectsByProject[projectId] = { works: works, materials: materials };
+        // Daily report text is evidence, not a stock ledger. Quantities are
+        // applied only through the audited warehouse workflow.
+        state.projectReportEffectsByProject[projectId] = { works: {}, materials: {} };
     }
 
     function effectiveMaterialFromReports(projectId, item) {
@@ -4096,7 +4330,7 @@ function renderLogsDayView(project, logs) {
                             '<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:' + progress + '%"></span></div>' +
                         '</div>' +
                         '<div class="project-card-actions">' +
-                            '<button class="project-quick-action" type="button" data-project-quick-tab="schedule" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Материалы и Работы"><i data-lucide="boxes"></i></button>' +
+                            '<button class="project-quick-action" type="button" data-project-quick-tab="schedule" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Материалы и работы"><i data-lucide="boxes"></i></button>' +
                             '<button class="project-quick-action" type="button" data-project-quick-tab="tasks" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Задачи"><i data-lucide="kanban-square"></i></button>' +
                             financeQuickAction +
                         '</div>' +
@@ -4374,6 +4608,10 @@ function renderLogsDayView(project, logs) {
             var group = groups[title];
             var workProgress = workProgressForRows(projectId, title, group.estimateRows);
             var materialProgressValue = materialProgress(projectId, group.materialRows);
+            var sectionProgress = {
+                total: workProgress.total + materialProgressValue.total,
+                done: workProgress.done + materialProgressValue.done
+            };
             var scheduleMeta = workSectionScheduleMeta(projectId, title, index, workProgress);
             var open = isEstimateSectionOpen(projectId, 'works', title, index);
             var workRowsHtml = group.stageRows.map(function (stage) {
@@ -4389,7 +4627,7 @@ function renderLogsDayView(project, logs) {
                 'works',
                 title,
                 index,
-                renderBulkSectionCheckbox(projectId, title, 'works', workProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
+                renderBulkSectionCheckbox(projectId, title, 'works', sectionProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
                 scheduleMeta.html + renderInlineMarketButton(projectId, 'works', 'inline-market-section') + sectionPresenceBadge('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress) + sectionPresenceBadge('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue) + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length + group.materialRows.length) + ' \u043f\u043e\u0437.') + '</span>',
                 '',
                 sectionProgressStrip(workProgress, materialProgressValue, title)
@@ -4429,6 +4667,8 @@ function renderLogsDayView(project, logs) {
         document.documentElement.classList.remove('project-route-loading');
         var overviewPanel = panel('overview');
         var schedulePanel = panel('schedule');
+        var reconciliationPanel = panel('estimate-reconciliation');
+        var warehouseControlPanel = panel('warehouse-control');
         var calendarPanel = panel('calendar');
         var productionSchedulePanel = panel('production-schedule');
         var reportsPanel = panel('reports');
@@ -4464,6 +4704,8 @@ function renderLogsDayView(project, logs) {
             refreshLucideIcons(overviewPanel);
         }
         renderScheduleNow(state.stagesByProject[project.id] || []);
+        if (reconciliationPanel) safeReplaceChildren(reconciliationPanel, '<p class="muted">Сверка загрузится при открытии вкладки.</p>');
+        if (warehouseControlPanel) safeReplaceChildren(warehouseControlPanel, '<p class="muted">Склад загрузится при открытии вкладки.</p>');
         if (calendarPanel && PMBI.planning && typeof PMBI.planning.renderProjectCalendarPanel === 'function') {
             safeReplaceChildren(calendarPanel, PMBI.planning.renderProjectCalendarPanel(project));
         }
@@ -4474,6 +4716,16 @@ function renderLogsDayView(project, logs) {
         if (documentsPanel) safeReplaceChildren(documentsPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b...</p>');
         if (chatPanel) safeReplaceChildren(chatPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0447\u0430\u0442...</p>');
         if (aiPanel) safeReplaceChildren(aiPanel, '<p class="muted">\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0430\u043d\u0430\u043b\u0438\u0437...</p>');
+        if (!Array.isArray(state.stagesByProject[project.id]) || !state.stagesByProject[project.id].length) showSkeleton(schedulePanel, 'table', 1);
+        showSkeleton(reconciliationPanel, 'panel', 1);
+        showSkeleton(warehouseControlPanel, 'table', 1);
+        showSkeleton(productionSchedulePanel, 'table', 1);
+        showSkeleton(reportsPanel, 'feed', 3);
+        showSkeleton(tasksPanel, 'feed', 3);
+        showSkeleton(financePanel, 'panel', 1);
+        showSkeleton(documentsPanel, 'feed', 3);
+        showSkeleton(chatPanel, 'feed', 3);
+        showSkeleton(aiPanel, 'panel', 1);
         bindProjectOverviewActions();
         syncProjectTabVisibility(root);
         activateProjectTab('overview');
@@ -4552,8 +4804,6 @@ function renderLogsDayView(project, logs) {
 
     renderProjectOverviewHero = function (project) {
         var status = project.status || 'Подготовка';
-        var budget = project.budget == null ? 'Не указано' : money(project.budget);
-        var paid = project.paid == null ? '0 ₽' : money(project.paid);
         var overviewStart = projectDisplayStartDate(project);
         var overviewDeadline = projectDisplayDeadlineDate(project);
         return '<section class="project-overview-hero">' +
@@ -4568,8 +4818,8 @@ function renderLogsDayView(project, logs) {
             '<div class="data-grid project-overview-grid">' +
                 dataItem('Заказчик', project.client_name || 'Не указан') +
                 dataItem('Номер договора', project.contract_no || 'Не указано') +
-                dataItem('Бюджет', budget) +
-                dataItem('Оплачено', paid) +
+                dataItem('Экономика', 'См. раздел «Финансы»') +
+                dataItem('Дата договора', project.contract_date ? formatDisplayDate(project.contract_date) : '—') +
                 dataItem('Старт', overviewStart ? formatDisplayDate(overviewStart) : '—') +
                 dataItem('Дедлайн', overviewDeadline ? formatDisplayDate(overviewDeadline) : '—') +
                 dataItem('Город', project.city || 'Не указан') +
@@ -4637,12 +4887,12 @@ function renderLogsDayView(project, logs) {
                     '<label><span>Следующий шаг</span><input name="next_steps" placeholder="Что делаем дальше"></label>' +
                 '</div>' +
                 '<div class="assistant-confirm-card report-confirm-card">' +
-                    '<b>Предпросмотр применения</b>' +
+                    '<b>Предпросмотр отчёта</b>' +
                     '<div class="assistant-confirm-list">' +
                         '<span>Сначала проверь, какие работы и материалы будут отмечены.</span>' +
                         '<span>После сохранения изменения сразу появятся в графике, работах и материалах объекта.</span>' +
                     '</div>' +
-                    '<label class="check-inline report-confirm"><input type="checkbox" name="confirm_report" required> Подтверждаю сохранение отчета и применение изменений</label>' +
+                    '<label class="check-inline report-confirm"><input type="checkbox" name="confirm_report" required> Подтверждаю сохранение отчёта; склад и факт заполняются отдельно</label>' +
                 '</div>' +
                 '<div class="form-error" data-log-error></div>' +
                 '<div class="report-intake-actions">' +
@@ -5397,8 +5647,8 @@ function renderLogsDayView(project, logs) {
                     '</label>' +
                 '</div>' +
                 '<div class="assistant-confirm-card report-confirm-card">' +
-                    '<b>Предпросмотр применения</b>' +
-                    '<label class="report-confirm"><span>Подтверждаю сохранение отчета и применение изменений</span><input type="checkbox" name="confirm_report" required></label>' +
+                    '<b>Предпросмотр отчёта</b>' +
+                    '<label class="report-confirm"><span>Подтверждаю сохранение отчёта; склад и факт заполняются отдельно</span><input type="checkbox" name="confirm_report" required></label>' +
                 '</div>' +
                 '<div class="form-error" data-log-error></div>' +
                 '<div class="report-intake-actions">' +
@@ -5490,7 +5740,7 @@ function renderLogsDayView(project, logs) {
         var workMatches = Array.isArray(draft.workMatches) ? draft.workMatches : [];
         var materialMatches = Array.isArray(draft.materialMatches) ? draft.materialMatches : [];
         if (!draft.text && !workMatches.length && !materialMatches.length) {
-            return '<div class="report-preview-empty">Напиши в поле выше, что сделали или купили. Тут появится готовый текст отчета, работы по разделам и материалы, которые будут обновлены.</div>';
+            return '<div class="report-preview-empty">Напиши в поле выше, что сделали или купили. Тут появится готовый текст отчета. Приход, расход и выполненные объёмы фиксируются во вкладке «Склад».</div>';
         }
         function groupedBySection(entries, fallback) {
             var groups = {};
@@ -5510,7 +5760,7 @@ function renderLogsDayView(project, logs) {
         }
         var html = ['<div class="report-preview-board">'];
         html.push('<section class="report-preview-card report-preview-card-main"><div class="report-preview-title"><strong>Текст отчета</strong><span>Будет сохранено автоматически</span></div><p>' + escapeHtml(draft.text || 'Текст появится после ввода.') + '</p></section>');
-        html.push('<section class="report-preview-card"><div class="report-preview-title"><strong>Работы</strong><span>Что отметится в графике и работах</span></div>');
+        html.push('<section class="report-preview-card"><div class="report-preview-title"><strong>Работы</strong><span>Распознано из текста, без изменения факта</span></div>');
         if (workMatches.length) {
             html.push('<div class="report-preview-sections">' + groupedBySection(workMatches, 'Работы').map(function (group) {
                 return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
@@ -5521,7 +5771,7 @@ function renderLogsDayView(project, logs) {
         } else {
             html.push('<div class="report-preview-muted">Пока не нашел работы из графика. Можно написать точнее название работы или раздел.</div>');
         }
-        html.push('</section><section class="report-preview-card"><div class="report-preview-title"><strong>Материалы</strong><span>Что изменится в материалах</span></div>');
+        html.push('</section><section class="report-preview-card"><div class="report-preview-title"><strong>Материалы</strong><span>Упоминания в отчёте, без складского списания</span></div>');
         if (materialMatches.length) {
             html.push('<div class="report-preview-sections">' + groupedBySection(materialMatches, 'Материалы').map(function (group) {
                 return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
@@ -5568,7 +5818,7 @@ function renderLogsDayView(project, logs) {
                 '<div class="assistant-confirm-card report-confirm-card">' +
                     '<b>Что применится после сохранения</b>' +
                     '<div data-report-preview></div>' +
-                    '<label class="report-confirm"><span>Подтверждаю сохранение отчета и применение изменений</span><input type="checkbox" name="confirm_report" required></label>' +
+                    '<label class="report-confirm"><span>Подтверждаю сохранение отчёта; склад и факт заполняются отдельно</span><input type="checkbox" name="confirm_report" required></label>' +
                 '</div>' +
                 '<div class="form-error" data-log-error></div>' +
                 '<div class="report-intake-actions">' +
@@ -5944,12 +6194,35 @@ function renderLogsDayView(project, logs) {
             '</div></form>';
     }
 
-    function renderProjectFinances(projectId, items, summary) {
+    function renderProjectFinances(projectId, items, summary, economicsData, economicsError, financeError) {
         var root = qs('[data-panel="finance"]');
         if (!root) return;
         items = Array.isArray(items) ? items : [];
         summary = summary || {};
         cleanupFinanceEntryModals();
+        var economicsHtml = canViewProjectEconomics()
+            ? renderProjectEconomics(economicsData, economicsError)
+            : '';
+        var managementHtml = canViewProjectEconomics() && PMBI.economicsManagement
+            ? PMBI.economicsManagement.render(projectId, economicsData || null)
+            : '';
+        function bindEconomicsManagement() {
+            if (!managementHtml || !PMBI.economicsManagement) return;
+            PMBI.economicsManagement.bind(root, projectId, function () {
+                state.projectEconomicsByProject = state.projectEconomicsByProject || {};
+                delete state.projectEconomicsByProject[projectId];
+                if (state.marketAnalysisByProject) delete state.marketAnalysisByProject[projectId];
+                loadProjectFinances(projectId, undefined, { preserveEconomicsManagementCache: true });
+            });
+        }
+        if (financeError) {
+            safeReplaceChildren(root, economicsHtml + managementHtml +
+                '<section class="subsection finance-history-card ui-card"><div class="economics-notice is-danger"><i data-lucide="circle-alert"></i><div><b>Денежные операции не загрузились</b><span>Экономическая сводка выше получена отдельным запросом и остается доступной.</span></div></div></section>');
+            applyRoleVisibility(root);
+            refreshLucideIcons(root);
+            bindEconomicsManagement();
+            return;
+        }
         if (isForemanRole()) {
             safeReplaceChildren(root, renderFinanceEntryActions(false) + renderFinanceEntryModal(false));
             bindFinanceEntryModal(root);
@@ -5959,6 +6232,9 @@ function renderLogsDayView(project, logs) {
             return;
         }
         safeReplaceChildren(root,
+            economicsHtml +
+            managementHtml +
+            '<section class="finance-cash-heading ui-card" data-director-finance><div><span class="section-label">Денежные операции</span><h3>Платежи и платежный календарь</h3><p>Кассовое представление с НДС. Баланс поступлений и оплат не является прибылью или маржой.</p></div><span class="economics-mode-badge">с НДС</span></section>' +
             '<div data-director-finance>' + renderFinanceHero(projectId, summary) + '</div>' +
             '<div data-director-finance>' + renderFinancePlanFromInvoices(items, summary) + '</div>' +
             renderFinanceEntryActions(true) +
@@ -5971,6 +6247,7 @@ function renderLogsDayView(project, logs) {
         bindFinanceInvoiceForm(projectId);
         bindFinanceEditors(projectId);
         bindFinanceDocumentActions();
+        bindEconomicsManagement();
         applyRoleVisibility(root);
         var financeSearch = qs('[data-finance-search]', root);
         if (financeSearch) {
@@ -6173,8 +6450,7 @@ function renderLogsDayView(project, logs) {
             return sum + (Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0);
         }, 0);
         if (total > 0) return total;
-        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
-        return Number(project && project.budget || 0);
+        return 0;
     }
 
     function financeSuggestionItems(projectId) {
@@ -6694,7 +6970,9 @@ function renderLogsDayView(project, logs) {
     }
 
     function quantityText(value) {
-        return finalSectionSummaryNumber(Math.max(0, normalizedQuantityNumber(value)));
+        var number = Math.max(0, normalizedQuantityNumber(value));
+        var rounded = Math.round(number * 1000) / 1000;
+        return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 }).format(rounded);
     }
 
     unitMultiplierInfo = function (unit) {
@@ -6809,8 +7087,12 @@ function renderLogsDayView(project, logs) {
     };
 
     function workMatchingKeys(projectId, sectionTitle, item) {
-        if (item && item.id) return ['id|' + String(item.id)];
-        return [scheduleWorkKey(sectionTitle, item)].filter(Boolean);
+        var keys = [];
+        if (item && item.id) keys.push('id|' + String(item.id));
+        keys.push(scheduleWorkKey(sectionTitle, item));
+        return keys.filter(function (key, index) {
+            return key && keys.indexOf(key) === index;
+        });
     }
 
     function reportWorkDoneQty(projectId, sectionTitle, item) {
@@ -6902,7 +7184,7 @@ function renderLogsDayView(project, logs) {
         var itemId = item && item.id || '';
         var stepValue = Math.abs((progress.total || 0) - Math.round(progress.total || 0)) < 0.0001 ? '1' : '0.1';
         return '<label class="quantity-actual-editor quantity-actual-' + escapeHtml(kind) + '">' +
-            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> <small>из</small> <em>' + escapeHtml(quantityText(progress.total)) + '</em></span>' +
+            '<span><small class="quantity-actual-label">Факт</small><b>' + escapeHtml(quantityText(progress.actual)) + '</b><small class="quantity-actual-separator">из</small><em>' + escapeHtml(quantityText(progress.total)) + ' ' + escapeHtml(progress.unit || 'ед.') + '</em></span>' +
             '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || 'штук') + '</em></div>' +
         '</label>';
     }
@@ -6912,7 +7194,7 @@ function renderLogsDayView(project, logs) {
         var isDone = progress.total > 0 && progress.actual >= progress.total;
         return '<div class="section-work-check work-list-check quantity-work-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
             '<label class="quantity-check-main"><input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
-            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + (progress.hasMultiplier ? (' • пересчет: ' + quantityText(progress.rawQty) + ' x ' + quantityText(progress.multiplier) + ' = ' + quantityText(progress.total) + ' ' + progress.unit) : '') + '</small></span></label>' +
+            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>' +
             renderActualQtyEditor('work', projectId, sectionTitle, item, progress) +
         '</div>';
     };
@@ -6923,7 +7205,6 @@ function renderLogsDayView(project, logs) {
         var isDone = progress.total > 0 && progress.actual >= progress.total;
         var meta = [
             'по смете: ' + quantityText(progress.total) + ' ' + progress.unit,
-            progress.hasMultiplier ? ('пересчет: ' + quantityText(progress.rawQty) + ' x ' + quantityText(progress.multiplier)) : '',
             effectiveItem.manualClosed ? 'закрыто вручную' : (effectiveItem.manualPartial ? 'частично вручную' : (effectiveItem.reportApplied ? 'обновлено по отчету' : ''))
         ].filter(Boolean).join(' • ');
         return '<div class="section-work-check section-material-check quantity-work-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
@@ -7100,6 +7381,26 @@ function renderLogsDayView(project, logs) {
         if (!scope) return;
         qsa('[data-section-material-check], [data-section-work-check]', scope).forEach(function (input) {
             if (input.hasAttribute('data-bulk-section-check')) return;
+            var projectId = Number(input.getAttribute('data-project-id') || 0);
+            var sectionTitle = input.getAttribute('data-section-title') || '';
+            if (input.hasAttribute('data-section-work-check')) {
+                setScheduleWorkDone(projectId, sectionTitle, {
+                    id: input.getAttribute('data-work-id') || input.getAttribute('data-item-id') || '',
+                    title: input.getAttribute('data-work-title') || '',
+                    unit: input.getAttribute('data-work-unit') || '',
+                    planned_qty: input.getAttribute('data-work-qty') || ''
+                }, checked);
+                input.dataset.localChecked = checked ? '1' : '0';
+            } else if (input.hasAttribute('data-section-material-check')) {
+                var materialItem = {
+                    id: input.getAttribute('data-material-id') || input.getAttribute('data-item-id') || '',
+                    title: input.getAttribute('data-material-title') || '',
+                    unit: input.getAttribute('data-material-unit') || '',
+                    plannedQty: input.getAttribute('data-material-qty') || ''
+                };
+                setMaterialManuallyDone(projectId, materialItem, checked);
+                updateMaterialScheduleItemDom(materialItem.id, checked);
+            }
             input.checked = checked;
             var wrap = input.closest ? input.closest('.section-work-check, .material-row, .work-row') : null;
             if (wrap) {
@@ -7124,6 +7425,7 @@ function renderLogsDayView(project, logs) {
         var checked = !!input.checked;
         completeBulkSectionLocally(scope, checked);
         input.indeterminate = false;
+        updateBulkSectionCheckState(scope);
         return withSubmitLock(input, function () {
             return bulkCompleteSectionProgress(projectId, sectionTitle, checked, itemIds).then(function () {
                 if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
@@ -7579,7 +7881,7 @@ function renderLogsDayView(project, logs) {
         var itemId = item && item.id || '';
         var stepValue = Math.abs((progress.total || 0) - Math.round(progress.total || 0)) < 0.0001 ? '1' : '0.1';
         return '<label class="quantity-actual-editor quantity-actual-compact quantity-actual-' + escapeHtml(kind) + '" title="\u041d\u0430\u0436\u043c\u0438\u0442\u0435, \u0447\u0442\u043e\u0431\u044b \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u0444\u0430\u043a\u0442">' +
-            '<span><b>' + escapeHtml(quantityText(progress.actual)) + '</b> <small>\u0438\u0437</small> <em>' + escapeHtml(quantityText(progress.total)) + '</em></span>' +
+            '<span><small class="quantity-actual-label">\u0424\u0430\u043a\u0442</small><b>' + escapeHtml(quantityText(progress.actual)) + '</b><small class="quantity-actual-separator">\u0438\u0437</small><em>' + escapeHtml(quantityText(progress.total)) + ' ' + escapeHtml(progress.unit || '\u0435\u0434.') + '</em></span>' +
             '<div><input class="quantity-actual-input" type="number" min="0" max="' + escapeHtml(String(progress.total || '')) + '" step="' + stepValue + '" value="' + escapeHtml(String(Math.round((progress.actual || 0) * 10) / 10)) + '" data-actual-qty-input data-actual-kind="' + escapeHtml(kind) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-item-id="' + escapeHtml(itemId) + '" data-item-title="' + escapeHtml(item && item.title || '') + '" data-item-unit="' + escapeHtml(item && item.unit || '') + '" data-item-qty="' + escapeHtml(String(item && (item.plannedQty != null ? item.plannedQty : item.planned_qty) || '')) + '"><em>' + escapeHtml(progress.unit || '\u0435\u0434.') + '</em></div>' +
         '</label>';
     }
@@ -8128,20 +8430,58 @@ function renderLogsDayView(project, logs) {
         );
     }
 
-    function projectOverviewWidgetFinanceV2(project) {
-        var budget = Number(project && project.budget || 0);
-        var spent = Number(project && (project.spent != null ? project.spent : project.paid) || 0);
-        var margin = budget > 0 ? Math.round(((budget - spent) / budget) * 100) : 0;
+    function projectOverviewWidgetFinanceV2(project, economics) {
+        if (!canViewProjectEconomics()) return '';
+        if (!economics) {
+            return projectOverviewMetricV2(
+                'Экономика',
+                'Загрузка…',
+                'trending-up',
+                'Собираем базу, факт и прогноз',
+                '<div class="project-overview-kpi-pairs project-overview-finance-pairs"><div><span>Режим</span><strong>без НДС</strong></div><div><span>Статус</span><strong>—</strong></div></div>'
+            );
+        }
+        if (economics.status === 'unavailable') {
+            return projectOverviewMetricV2(
+                'Экономика',
+                'Недоступна',
+                'triangle-alert',
+                'Не удалось получить сводку',
+                '<div class="project-overview-kpi-pairs project-overview-finance-pairs"><div><span>Режим</span><strong>без НДС</strong></div><div><span>Повтор</span><strong>Финансы</strong></div></div>',
+                'is-warn'
+            );
+        }
+        if (economics.status === 'not_configured') {
+            return projectOverviewMetricV2(
+                'Экономика',
+                'Не настроена',
+                'calculator',
+                'Финансовая база не подтверждена',
+                '<div class="project-overview-kpi-pairs project-overview-finance-pairs"><div><span>Прогноз</span><strong>—</strong></div><div><span>Маржа</span><strong>—</strong></div></div>',
+                'is-warn'
+            );
+        }
+        var forecast = economics.forecast || null;
+        var current = economics.current || {};
+        if (!forecast) {
+            return projectOverviewMetricV2(
+                'Экономика',
+                economicsMoney(current.actualCostNetKopecks),
+                'calculator',
+                'Факт затрат · прогноз не утвержден',
+                '<div class="project-overview-kpi-pairs project-overview-finance-pairs"><div><span>Целевая себестоимость</span><strong>' + escapeHtml(economicsMoney(current.targetCostNetKopecks)) + '</strong></div><div><span>Обязательства</span><strong>' + escapeHtml(economicsMoney(current.committedTotalNetKopecks)) + '</strong></div></div>',
+                'is-warn'
+            );
+        }
+        var stale = economics.forecastStatus === 'stale';
+        var margin = Number(forecast.forecastMarginNetKopecks || 0);
         return projectOverviewMetricV2(
-            'Финансы',
-            money(spent),
-            'trending-up',
-            budget > 0 ? ('Маржинальность ' + margin + '%') : 'Бюджет не заполнен',
-            '<div class="project-overview-kpi-pairs project-overview-finance-pairs">' +
-                '<div><span>Бюджет</span><strong>' + escapeHtml(money(budget)) + '</strong></div>' +
-                '<div><span>Маржа</span><strong>' + escapeHtml(String(margin)) + '%</strong></div>' +
-            '</div>',
-            isAdminRole() ? '' : 'hidden'
+            'Прогнозная маржа',
+            economicsMoney(margin),
+            margin < 0 ? 'trending-down' : 'trending-up',
+            stale ? 'Прогноз требует пересчета' : ('Маржинальность ' + economicsPercent(forecast.forecastMarginPercent)),
+            '<div class="project-overview-kpi-pairs project-overview-finance-pairs"><div><span>EAC</span><strong>' + escapeHtml(economicsMoney(forecast.eacNetKopecks)) + '</strong></div><div><span>ETC</span><strong>' + escapeHtml(economicsMoney(forecast.etcNetKopecks)) + '</strong></div></div>',
+            stale || margin < 0 ? 'is-warn' : ''
         );
     }
 
@@ -8273,7 +8613,7 @@ function renderLogsDayView(project, logs) {
                 '<div class="project-overview-kpi-grid">' +
                     projectOverviewWidgetProgressV2(project.progress, 0, 0) +
                     projectOverviewWidgetSupplyV2([]) +
-                    projectOverviewWidgetFinanceV2(project) +
+                    projectOverviewWidgetFinanceV2(project, null) +
                     projectOverviewWidgetControlV2(project, [], []) +
                 '</div>' +
             '</div>' +
@@ -8291,7 +8631,7 @@ function renderLogsDayView(project, logs) {
         return '<div class="project-overview-kpi-grid">' +
             projectOverviewWidgetProgressV2(project.progress, doneStages, stages.length) +
             projectOverviewWidgetSupplyV2(materials) +
-            projectOverviewWidgetFinanceV2(project) +
+            projectOverviewWidgetFinanceV2(project, data.economics || null) +
             projectOverviewWidgetControlV2(project, tasks, logs) +
         '</div>';
     };
@@ -8507,6 +8847,7 @@ function renderLogsDayView(project, logs) {
     var appStarted = false;
 
     function cleanupBeforeRouteChange() {
+        if (PMBI.autobot && typeof PMBI.autobot.cleanup === 'function') PMBI.autobot.cleanup();
         if (abortApiRequests) {
             abortApiRequests('projects-list');
             abortApiRequests('dashboard');

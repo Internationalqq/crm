@@ -6,7 +6,15 @@ import time
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import ROLE_LABELS, display_user_name, normalize_role, user_has_any_role, user_is_hidden_admin, user_is_main_admin
+from auth import (
+    ROLE_LABELS,
+    display_user_name,
+    normalize_role,
+    user_can_view_project_economics,
+    user_has_any_role,
+    user_is_hidden_admin,
+    user_is_main_admin,
+)
 from sqlite_config import configure_connection
 
 
@@ -37,6 +45,100 @@ def delete_project_rows(con: sqlite3.Connection, table: str, column: str, projec
     if not table_exists(con, table):
         return
     con.execute(f"DELETE FROM {table} WHERE {column} = ?", (project_id,))
+
+
+def project_has_immutable_financial_history(
+    con: sqlite3.Connection,
+    project_id: int,
+) -> bool:
+    """Return whether deleting the project would erase an accounting record.
+
+    Old installations may not have every parallel-economics table yet, so each
+    probe is guarded by a schema check. Draft operational rows deliberately do
+    not count as immutable history; their existing deletion behaviour is left
+    unchanged.
+    """
+
+    direct_probes = (
+        (
+            "project_financial_baselines",
+            """
+            SELECT 1 FROM project_financial_baselines
+            WHERE project_id = ? AND status IN ('pending_approval', 'approved', 'superseded')
+            LIMIT 1
+            """,
+        ),
+        (
+            "project_commitments",
+            """
+            SELECT 1 FROM project_commitments
+            WHERE project_id = ? AND status IN ('approved', 'cancelled')
+            LIMIT 1
+            """,
+        ),
+        (
+            "project_actual_cost_entries",
+            """
+            SELECT 1 FROM project_actual_cost_entries
+            WHERE project_id = ? AND status = 'approved'
+            LIMIT 1
+            """,
+        ),
+        (
+            "project_payment_allocations",
+            """
+            SELECT 1 FROM project_payment_allocations
+            WHERE project_id = ? AND status = 'approved'
+            LIMIT 1
+            """,
+        ),
+        (
+            "project_forecasts",
+            """
+            SELECT 1 FROM project_forecasts
+            WHERE project_id = ? AND status = 'approved'
+            LIMIT 1
+            """,
+        ),
+        (
+            "project_legacy_economics_snapshots",
+            """
+            SELECT 1 FROM project_legacy_economics_snapshots
+            WHERE project_id = ?
+            LIMIT 1
+            """,
+        ),
+        (
+            "project_legacy_migration_reviews",
+            """
+            SELECT 1 FROM project_legacy_migration_reviews
+            WHERE project_id = ?
+            LIMIT 1
+            """,
+        ),
+    )
+    for table, query in direct_probes:
+        if table_exists(con, table) and con.execute(query, (project_id,)).fetchone():
+            return True
+
+    if (
+        table_exists(con, "project_legacy_migration_evidence")
+        and table_exists(con, "project_legacy_migration_reviews")
+        and con.execute(
+            """
+            SELECT 1
+            FROM project_legacy_migration_evidence evidence
+            JOIN project_legacy_migration_reviews review
+              ON review.id = evidence.review_id
+            WHERE review.project_id = ?
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+    ):
+        return True
+
+    return False
 
 
 def create_audit(
@@ -78,14 +180,12 @@ def serialize_project(row: sqlite3.Row, user: dict) -> dict:
     data = dict(row)
     data["description"] = normalize_project_description(data.get("description"))
     role = user["role"]
+    if not user_can_view_project_economics(user):
+        for key in ["budget", "paid", "spent"]:
+            data.pop(key, None)
     if role == "customer":
-        for key in ["budget", "paid", "spent", "director_id", "foreman_id", "buyer_id", "client_user_id"]:
+        for key in ["director_id", "foreman_id", "buyer_id", "client_user_id"]:
             data.pop(key, None)
-    elif role == "purchaser":
-        for key in ["paid", "spent"]:
-            data.pop(key, None)
-    elif role == "foreman":
-        data.pop("paid", None)
     try:
         with db() as con:
             assigned_rows = con.execute(
@@ -285,7 +385,11 @@ def api_create_project(handler) -> None:
     if not title or not address:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_address_client_required"})
         return
-    budget = float(payload.get("budget", 0) or 0)
+    try:
+        budget = float(payload.get("budget", 0) or 0) if user_can_view_project_economics(user) else 0
+    except (TypeError, ValueError):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_budget"})
+        return
     started_at = str(payload.get("started_at", payload.get("startedAt", ""))).strip() or None
     deadline_at = str(payload.get("deadline_at", payload.get("deadlineAt", ""))).strip() or None
     city = str(payload.get("city", "")).strip() or None
@@ -438,12 +542,18 @@ def api_update_project(handler, path: str) -> None:
             handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_address_client_required"})
             return
 
-        try:
-            budget_value = payload.get("budget", current["budget"])
-            budget = float(budget_value or 0)
-        except (TypeError, ValueError):
-            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_budget"})
-            return
+        if user_can_view_project_economics(user):
+            try:
+                budget_value = payload.get("budget", current["budget"])
+                budget = float(budget_value or 0)
+            except (TypeError, ValueError):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_budget"})
+                return
+        else:
+            # Legacy money fields are not part of the restricted role contract.
+            # Preserve the stored value even when an old client still submits a
+            # blank/zero budget from a form rendered before the field was hidden.
+            budget = current["budget"]
 
         con.execute(
             """
@@ -499,9 +609,21 @@ def api_delete_project(handler, path: str) -> None:
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     with db() as con:
+        # Acquire the write lock before checking the guard. This keeps the
+        # decision and the following deletion in one transaction, so immutable
+        # history cannot be inserted concurrently between the two operations.
+        con.execute("BEGIN IMMEDIATE")
         current = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         if not current:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            return
+        # This check intentionally precedes every row deletion (and therefore
+        # any future storage-file cleanup added to this workflow).
+        if project_has_immutable_financial_history(con, project_id):
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "project_has_immutable_financial_history"},
+            )
             return
         title = current["title"] or ""
         if table_exists(con, "chat_messages") and table_exists(con, "chats"):
@@ -515,6 +637,7 @@ def api_delete_project(handler, path: str) -> None:
             "daily_logs",
             "tasks",
             "production_schedule_cell_overrides",
+            "production_schedule_slot_overrides",
             "work_schedule_overrides",
             "material_schedule_snapshots",
             "supplier_offers",

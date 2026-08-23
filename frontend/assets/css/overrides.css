@@ -5209,7 +5209,7 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 .daily-task-feed {
     display: grid;
     gap: 0;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid var(--line);
     border-radius: var(--base-radius);
     background: #ffffff;
@@ -5361,6 +5361,94 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     justify-content: flex-end;
     gap: 8px;
     min-width: 0;
+}
+
+.daily-task-menu-wrap {
+    position: relative;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.daily-task-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: #64748b;
+}
+
+.daily-task-menu-toggle:hover,
+.daily-task-menu-toggle[aria-expanded="true"] {
+    border-color: #dbe5f1;
+    background: #f1f5f9;
+    color: #172033;
+}
+
+.daily-task-menu-toggle svg {
+    width: 18px;
+    height: 18px;
+}
+
+.daily-task-menu-panel {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 6px);
+    right: 0;
+    display: grid;
+    min-width: 184px;
+    overflow: hidden;
+    border: 1px solid #dbe5f1;
+    border-radius: 12px;
+    padding: 5px;
+    background: #ffffff;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, .18);
+}
+
+.daily-task-menu-panel[hidden] {
+    display: none;
+}
+
+.daily-task-menu-panel button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    min-height: 38px;
+    border: 0;
+    border-radius: 8px;
+    padding: 0 10px;
+    background: transparent;
+    color: #172033;
+    font-size: 13px;
+    font-weight: 750;
+    text-align: left;
+}
+
+.daily-task-menu-panel button:hover {
+    background: #f1f5f9;
+}
+
+.daily-task-menu-panel button.is-danger {
+    color: #b42318;
+}
+
+.daily-task-menu-panel button.is-danger:hover {
+    background: #fff1f2;
+}
+
+.daily-task-menu-panel svg {
+    width: 16px;
+    height: 16px;
+}
+
+.daily-list-row:has(.daily-task-menu-panel:not([hidden])) {
+    position: relative;
+    z-index: 20;
 }
 
 .daily-status-action {
@@ -5577,6 +5665,140 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 .daily-task-create-dialog textarea:focus {
     border-color: #93c5fd;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+}
+
+.daily-task-edit-dialog {
+    width: min(680px, calc(100vw - 28px));
+}
+
+.daily-task-edit-dialog textarea {
+    min-height: 150px;
+}
+
+.daily-edit-text-field {
+    margin-bottom: 0;
+}
+
+.daily-task-delete-modal {
+    z-index: 10060;
+}
+
+.daily-task-delete-dialog {
+    justify-items: center;
+    width: min(440px, calc(100vw - 28px));
+    gap: 14px;
+    padding: 28px;
+    text-align: center;
+}
+
+.daily-task-delete-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: #fff1f2;
+    color: #dc2626;
+}
+
+.daily-task-delete-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.daily-task-delete-copy h3 {
+    margin: 0;
+    color: #172033;
+    font-size: 22px;
+    line-height: 1.2;
+}
+
+.daily-task-delete-copy p {
+    margin: 7px 0 0;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.daily-task-delete-preview {
+    display: grid;
+    gap: 5px;
+    width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 13px 14px;
+    background: #f8fafc;
+    text-align: left;
+}
+
+.daily-task-delete-preview strong {
+    color: #172033;
+    font-size: 14px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.daily-task-delete-preview span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.daily-task-delete-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.daily-task-delete-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 42px;
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 850;
+}
+
+.daily-task-delete-cancel {
+    border: 1px solid #dbe5f1;
+    background: #ffffff;
+    color: #334155;
+}
+
+.daily-task-delete-cancel:hover {
+    background: #f8fafc;
+}
+
+.daily-task-delete-confirm {
+    border: 1px solid #dc2626;
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.daily-task-delete-confirm:hover {
+    border-color: #b91c1c;
+    background: #b91c1c;
+}
+
+.daily-task-delete-confirm:disabled {
+    cursor: wait;
+    opacity: .65;
+}
+
+.daily-task-delete-confirm svg {
+    width: 16px;
+    height: 16px;
+}
+
+.daily-task-delete-modal.is-saving .daily-standup-backdrop,
+.daily-task-delete-modal.is-saving .daily-task-delete-cancel {
+    pointer-events: none;
 }
 
 .daily-create-field {
@@ -6470,20 +6692,19 @@ svg.lucide {
     to { background-position: -100% 0; }
 }
 
-/* Subtle reveal: only opacity and a tiny transform change, so reserved layout
-   geometry remains stable while data-driven content appears. */
+/* Soft, mist-like reveal shared by full pages and data-driven content.
+   Opacity is intentional here: appearing elements never slide or jump. */
 @keyframes pmbi-fade-in {
     from {
         opacity: 0;
-        transform: translate3d(0, 4px, 0);
     }
     to {
         opacity: 1;
-        transform: translate3d(0, 0, 0);
     }
 }
 
 .pmbi-fade-in,
+body.login-page .login-card,
 main.content > :not([hidden]),
 [data-dashboard-stats] > *,
 [data-dashboard-projects] > *,
@@ -6492,11 +6713,12 @@ main.content > :not([hidden]),
 [data-dashboard-critical] > *,
 [data-project-critical] > *,
 [data-projects-list] > * {
-    animation: pmbi-fade-in 190ms ease-out both;
+    animation: pmbi-fade-in var(--motion-reveal-duration) var(--motion-reveal-easing) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
     .pmbi-fade-in,
+    body.login-page .login-card,
     main.content > :not([hidden]),
     [data-dashboard-stats] > *,
     [data-dashboard-projects] > *,

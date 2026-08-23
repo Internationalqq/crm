@@ -1,42 +1,48 @@
 <section class="page-head">
     <div>
         <p class="eyebrow">Склад</p>
-        <h2>Внутренний склад</h2>
-        <p>Материалы и инструменты компании с быстрым поиском, фильтрами и выдачей на объекты.</p>
+        <h2>Склад компании</h2>
+        <p>Здесь лежат материалы и инструменты до отправки на объект.</p>
     </div>
 </section>
 
 <section class="card warehouse-card">
-    <div class="card-head warehouse-head">
-        <div>
-            <h3>Материалы и инструменты</h3>
+    <div class="warehouse-head-actions">
+        <label class="warehouse-search-field"><i data-lucide="search" aria-hidden="true"></i><input class="search" placeholder="Найти материал или инструмент" data-warehouse-search></label>
+        <button class="primary warehouse-add-button" type="button" data-warehouse-receipt-open><i data-lucide="package-plus" aria-hidden="true"></i><span>Принять на склад</span></button>
+    </div>
+
+    <div class="analysis-strip" data-warehouse-analysis>
+        <div class="pmbi-skeleton-view pmbi-skeleton-view--stats" data-pmbi-skeleton="stats" aria-hidden="true">
+            <span class="pmbi-skeleton-item"><i></i><i></i></span>
+            <span class="pmbi-skeleton-item"><i></i><i></i></span>
         </div>
     </div>
 
-    <div class="warehouse-head-actions">
-        <input class="search" placeholder="Поиск по названию, артикулу или категории" data-warehouse-search>
-        <button class="primary warehouse-add-button" type="button" data-warehouse-receipt-open>+ Добавить / Вернуть на склад</button>
+    <details class="warehouse-filter-box">
+        <summary><i data-lucide="list-filter" aria-hidden="true"></i><span>Фильтры</span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+        <div class="warehouse-toolbar">
+            <select class="search" data-warehouse-type-filter>
+                <option value="all">Материалы и инструменты</option>
+                <option value="material">Только материалы</option>
+                <option value="tool">Только инструменты</option>
+            </select>
+            <select class="search" data-warehouse-category-filter>
+                <option value="all">Все категории</option>
+            </select>
+            <select class="search" data-warehouse-stock-filter>
+                <option value="all">Любой остаток</option>
+                <option value="available">Только в наличии</option>
+                <option value="empty">Только закончившиеся</option>
+            </select>
+        </div>
+    </details>
+
+    <div data-warehouse-summary class="warehouse-ledger">
+        <div class="pmbi-skeleton-view pmbi-skeleton-view--table" data-pmbi-skeleton="table" aria-hidden="true">
+            <span class="pmbi-skeleton-item"><i></i><i></i><i></i><i></i></span>
+        </div>
     </div>
-
-    <div class="analysis-strip" data-warehouse-analysis></div>
-
-    <div class="warehouse-toolbar">
-        <select class="search" data-warehouse-type-filter>
-            <option value="all">Все типы</option>
-            <option value="material">Материалы</option>
-            <option value="tool">Инструменты</option>
-        </select>
-        <select class="search" data-warehouse-category-filter>
-            <option value="all">Все категории</option>
-        </select>
-        <select class="search" data-warehouse-stock-filter>
-            <option value="all">Все остатки</option>
-            <option value="available">В наличии</option>
-            <option value="empty">Нет остатка</option>
-        </select>
-    </div>
-
-    <div data-warehouse-summary class="warehouse-ledger"></div>
 </section>
 
 <div class="warehouse-transfer-modal" data-warehouse-transfer-modal hidden>
@@ -44,8 +50,8 @@
     <section class="warehouse-transfer-dialog">
         <div class="card-head">
             <div>
-                <span class="section-label">Выдача</span>
-                <h3>Выдать на объект</h3>
+                <span class="section-label">Расход</span>
+                <h3>Выдать со склада</h3>
             </div>
             <button class="ghost compact" type="button" data-warehouse-transfer-close>Закрыть</button>
         </div>
@@ -69,7 +75,7 @@
                 <input name="comment" placeholder="Например: передано бригаде на монтаж">
             </label>
             <div class="form-error" data-warehouse-transfer-error></div>
-            <button class="primary" type="submit">Подтвердить</button>
+            <button class="primary" type="submit">Выдать на объект</button>
         </form>
     </section>
 </div>
@@ -80,14 +86,14 @@
         <div class="card-head">
             <div>
                 <span class="section-label">Приход</span>
-                <h3>Добавить / Вернуть на склад</h3>
+                <h3>Принять на склад</h3>
             </div>
             <button class="ghost compact" type="button" data-warehouse-receipt-close>Закрыть</button>
         </div>
 
         <div class="warehouse-mode-tabs" data-warehouse-receipt-mode>
-            <label><input type="radio" name="warehouse_receipt_mode" value="manual" checked> Вручную</label>
-            <label><input type="radio" name="warehouse_receipt_mode" value="return"> С объекта (Возврат)</label>
+            <label><input type="radio" name="warehouse_receipt_mode" value="manual" checked> Новый приход</label>
+            <label><input type="radio" name="warehouse_receipt_mode" value="return"> Возврат с объекта</label>
         </div>
 
         <div class="warehouse-receipt-body">
@@ -127,7 +133,7 @@
                     </select>
                 </label>
                 <div class="form-error" data-warehouse-manual-receipt-error></div>
-                <button class="primary" type="submit">Подтвердить</button>
+                <button class="primary" type="submit">Добавить на склад</button>
             </form>
 
             <form class="warehouse-form" data-warehouse-return-form hidden>
@@ -147,7 +153,7 @@
                 </label>
                 <div class="warehouse-return-available" data-warehouse-return-available>Доступно для возврата: выберите позицию</div>
                 <div class="form-error" data-warehouse-return-error></div>
-                <button class="primary" type="submit">Подтвердить</button>
+                <button class="primary" type="submit">Вернуть на склад</button>
             </form>
         </div>
     </section>

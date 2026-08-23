@@ -1,0 +1,76 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+const planningJs = read('frontend/assets/js/planning.js');
+const operationsJs = read('frontend/assets/js/operations.js');
+const projectsCss = read('frontend/assets/css/ui-projects.css');
+const routerJs = read('frontend/assets/js/router.js');
+const appCss = read('frontend/assets/app.css');
+
+assert.match(planningJs, /data-project-schedule-mode="table"/);
+assert.match(planningJs, />Табличный вид</);
+assert.match(planningJs, /function renderProjectSchedulePriceTables/);
+assert.match(planningJs, /function projectPriceTableKind/);
+assert.match(planningJs, /function setProjectPriceTableKind/);
+assert.match(planningJs, /data-project-price-kind="material"/);
+assert.match(planningJs, /data-project-price-kind="work"/);
+assert.match(planningJs, /renderProjectEstimateTable\(project\.id, kind\)/);
+assert.match(planningJs, /<th>' \+ itemLabel \+ '<\/th>'/);
+assert.match(planningJs, /<th>Объём<\/th>/);
+assert.match(planningJs, /<th>Цена за ед\.<\/th>/);
+assert.match(planningJs, /<th>Цена общая<\/th>/);
+assert.match(planningJs, /<span>Цена ИИ<\/span><small>анализ рынка<\/small>/);
+assert.match(planningJs, /<th>Цена закупщика<\/th>/);
+assert.match(planningJs, /row\.estimateUnitPrice/);
+assert.match(planningJs, /row\.estimateTotal/);
+assert.match(planningJs, /row && row\.marketPrice/);
+assert.match(planningJs, /row && row\.enteredPrice/);
+assert.match(planningJs, /canViewProcurementPrices\(\)/);
+assert.match(planningJs, /function projectPriceTableEstimateRows/);
+assert.match(planningJs, /function projectPriceTableRowsWithMarket/);
+assert.match(planningJs, /function projectPriceTableSectionGroups/);
+assert.match(planningJs, /canonicalEstimateSectionTitle/);
+assert.match(planningJs, /class="project-price-table-section-row"/);
+assert.match(planningJs, /colspan="6"/);
+assert.match(planningJs, /state\.materialsByProject/);
+assert.match(planningJs, /item\.plannedPrice/);
+assert.match(planningJs, /item\.planned_price/);
+assert.match(planningJs, /quantityPlanInfo\(item\)/);
+assert.match(planningJs, /Number\(plan\.totalQty \|\| 0\) \* unitPrice/);
+assert.match(planningJs, /Number\(plannedPrice\) \/ priceDivisor/);
+assert.match(planningJs, /mode === 'market' \|\| mode === 'table'/);
+assert.match(operationsJs, /mode === 'market' \|\| mode === 'table' \? mode : 'list'/);
+assert.match(planningJs, /function bindProjectPriceTableViewportScroll\(panel\)/);
+assert.match(planningJs, /shell\.addEventListener\('wheel',[\s\S]*?\{ passive: false \}\)/);
+assert.match(planningJs, /window\.scrollBy\(0, pageStep\)/);
+assert.match(planningJs, /scroller\.scrollTop = nextScrollTop/);
+assert.match(planningJs, /bindProjectPriceTableViewportScroll\(panel\)/);
+
+const tableBlockStart = planningJs.indexOf('function projectPriceTableEstimateRows');
+const tableBlockEnd = planningJs.indexOf('function renderAdditionalProjectStages', tableBlockStart);
+const tableBlock = planningJs.slice(tableBlockStart, tableBlockEnd);
+assert.doesNotMatch(tableBlock, /loadProjectMarketAnalysis|renderProjectMarketBlock/);
+
+assert.match(projectsCss, /\.project-price-tables\s*\{[^}]*display: block/s);
+assert.match(projectsCss, /\.project-price-kind-switcher/);
+assert.match(projectsCss, /\.project-price-table-section-row/);
+assert.match(projectsCss, /\.project-price-table-scroll\s*\{[^}]*overflow: auto/s);
+assert.match(projectsCss, /\.project-price-table th\s*\{[^}]*position: sticky/s);
+assert.match(projectsCss, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+assert.match(projectsCss, /\.project-price-tables\s*\{[^}]*position: sticky[^}]*top: 8px[^}]*height: calc\(100dvh - 16px\)/s);
+assert.match(projectsCss, /\.project-price-table-panel\s*\{[^}]*display: flex[^}]*height: 100%/s);
+assert.match(projectsCss, /\.project-price-table-scroll\s*\{[^}]*flex: 1 1 auto[^}]*max-height: none/s);
+assert.match(projectsCss, /:has\(\[data-panel="schedule"\]\.active \.project-price-tables\) \.project-detail-nav\s*\{[^}]*position: static/s);
+assert.match(projectsCss, /:has\(\[data-panel="schedule"\]\.active \.project-price-tables\)\s*\{[^}]*position: relative[^}]*z-index: 20/s);
+assert.match(projectsCss, /@media \(max-width: 720px\)[\s\S]*?\.project-price-tables\s*\{[^}]*position: static[^}]*height: auto/s);
+
+assert.match(routerJs, /planning\.js\?v=[^']*price-table-4/);
+assert.match(routerJs, /planning\.js\?v=[^']*sticky-viewport-1/);
+assert.match(routerJs, /operations\.js\?v=[^']*price-table-1/);
+assert.match(appCss, /ui-projects\.css\?v=[^"\n]*price-table-4/);
+assert.match(appCss, /ui-projects\.css\?v=[^"\n]*sticky-viewport-3/);
+
+console.log('project_price_table_frontend_ok');

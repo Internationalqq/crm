@@ -173,18 +173,70 @@ body.cal-modal-open .calendar-modal-overlay {
     z-index: 5;
 }
 
-.production-schedule-table .production-work-title {
+.production-schedule-table .production-number-cell,
+.production-schedule-table .production-work-title,
+.production-schedule-table .production-volume-cell,
+.production-schedule-table .production-people-cell,
+.production-schedule-table .production-shifts-cell,
+.production-schedule-table .production-brigades-cell,
+.production-schedule-table .production-duration-cell {
     background: #fff;
-    left: 0;
-    min-width: 360px;
-    padding: 7px 10px;
     position: sticky;
-    text-align: left;
-    width: 360px;
+    text-align: center;
     z-index: 3;
 }
 
-.production-schedule-table thead .production-work-title {
+.production-schedule-table .production-number-cell {
+    left: 0;
+    min-width: 44px;
+    width: 44px;
+}
+
+.production-schedule-table .production-work-title {
+    left: 44px;
+    min-width: 330px;
+    padding: 7px 10px;
+    text-align: left;
+    width: 330px;
+}
+
+.production-schedule-table .production-volume-cell {
+    left: 374px;
+    min-width: 105px;
+    width: 105px;
+}
+
+.production-schedule-table .production-people-cell {
+    left: 479px;
+    min-width: 70px;
+    width: 70px;
+}
+
+.production-schedule-table .production-shifts-cell {
+    left: 549px;
+    min-width: 70px;
+    width: 70px;
+}
+
+.production-schedule-table .production-brigades-cell {
+    left: 619px;
+    min-width: 80px;
+    width: 80px;
+}
+
+.production-schedule-table .production-duration-cell {
+    left: 699px;
+    min-width: 100px;
+    width: 100px;
+}
+
+.production-schedule-table thead .production-number-cell,
+.production-schedule-table thead .production-work-title,
+.production-schedule-table thead .production-volume-cell,
+.production-schedule-table thead .production-people-cell,
+.production-schedule-table thead .production-shifts-cell,
+.production-schedule-table thead .production-brigades-cell,
+.production-schedule-table thead .production-duration-cell {
     background: #f7f7f6;
     text-align: center;
     z-index: 8;
@@ -199,40 +251,6 @@ body.cal-modal-open .calendar-modal-overlay {
     color: #70777d;
     font-weight: 500;
     margin-top: 2px;
-}
-
-.production-schedule-table .production-hours-cell,
-.production-schedule-table .production-crew-cell,
-.production-schedule-table .production-duration-cell {
-    background: #fff;
-    position: sticky;
-    text-align: center;
-    z-index: 3;
-}
-
-.production-schedule-table .production-hours-cell {
-    left: 360px;
-    min-width: 88px;
-    width: 88px;
-}
-
-.production-schedule-table .production-crew-cell {
-    left: 448px;
-    min-width: 104px;
-    width: 104px;
-}
-
-.production-schedule-table .production-duration-cell {
-    left: 552px;
-    min-width: 110px;
-    width: 110px;
-}
-
-.production-schedule-table thead .production-hours-cell,
-.production-schedule-table thead .production-crew-cell,
-.production-schedule-table thead .production-duration-cell {
-    background: #f7f7f6;
-    z-index: 8;
 }
 
 .production-duration-cell input {
@@ -253,10 +271,19 @@ body.cal-modal-open .calendar-modal-overlay {
     margin-top: 2px;
 }
 
-.production-day-head,
-.production-day-cell {
+.production-day-head {
     min-width: 32px;
     width: 32px;
+}
+
+.production-day-half-cell {
+    min-width: 16px;
+    width: 16px;
+}
+
+.production-day-half-cell.is-first-half {
+    border-right-color: #bfc2c4;
+    border-right-style: dashed;
 }
 
 .production-cell-toggle {
@@ -267,7 +294,7 @@ body.cal-modal-open .calendar-modal-overlay {
     height: 33px;
     margin: 0;
     padding: 0;
-    width: 31px;
+    width: 15px;
 }
 
 .production-cell-toggle.is-filled {
@@ -310,20 +337,34 @@ body.cal-modal-open .calendar-modal-overlay {
     }
 
     .production-schedule-table .production-work-title {
-        min-width: 250px;
-        width: 250px;
+        left: 40px;
+        min-width: 240px;
+        width: 240px;
     }
 
-    .production-schedule-table .production-hours-cell {
-        left: 250px;
+    .production-schedule-table .production-number-cell {
+        min-width: 40px;
+        width: 40px;
     }
 
-    .production-schedule-table .production-crew-cell {
-        left: 338px;
+    .production-schedule-table .production-volume-cell {
+        left: 280px;
+    }
+
+    .production-schedule-table .production-people-cell {
+        left: 385px;
+    }
+
+    .production-schedule-table .production-shifts-cell {
+        left: 455px;
+    }
+
+    .production-schedule-table .production-brigades-cell {
+        left: 525px;
     }
 
     .production-schedule-table .production-duration-cell {
-        left: 442px;
+        left: 605px;
     }
 }
 
@@ -3846,4 +3887,10 @@ body[data-page="warehouse"] .section-schedule-chevron:last-child {
 
 .section-schedule-title {
     min-width: 0;
+}
+
+@media (max-width: 760px) {
+    .market-table td[data-label]::before {
+        content: attr(data-label) !important;
+    }
 }

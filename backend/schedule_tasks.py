@@ -10,6 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from auth import display_user_name, user_can_manage_documents, user_can_manage_schedule, user_has_any_role
+from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from sqlite_config import configure_connection
 from warehouse import (
@@ -495,6 +496,26 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         return str(root["title"]).strip() if root and root["title"] else None
 
     live_where = live_estimate_items_where(con, "e")
+    estimate_columns = table_columns(con, "estimate_items")
+    table_names = {
+        str(item["name"])
+        for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    }
+    has_estimate_sources = "estimate_source_id" in estimate_columns and "project_estimates" in table_names
+    estimate_source_select = """
+            , e.estimate_source_id,
+            source.source_type AS estimate_source_type,
+            source.source_key AS estimate_source_key,
+            source.external_id AS estimate_source_external_id,
+            source.tender_id AS estimate_tender_id,
+            source.title AS estimate_title,
+            source.file_name AS estimate_file_name,
+            source.source_reference AS estimate_source_reference
+    """ if has_estimate_sources else ""
+    estimate_source_join = (
+        "LEFT JOIN project_estimates source ON source.id = e.estimate_source_id AND source.project_id = e.project_id"
+        if has_estimate_sources else ""
+    )
     rows = con.execute(
         f"""
         SELECT
@@ -520,10 +541,13 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             ws.planned_end AS stage_planned_end,
             COALESCE(SUM(CASE WHEN s.move_type = 'purchase' THEN s.qty ELSE 0 END), 0) AS purchased_qty,
             COALESCE(SUM(CASE WHEN s.move_type = 'receipt' THEN s.qty ELSE 0 END), 0) AS received_qty,
-            COALESCE(SUM(CASE WHEN s.move_type = 'use' THEN s.qty ELSE 0 END), 0) AS used_qty
+            COALESCE(SUM(CASE WHEN s.move_type = 'use' THEN s.qty ELSE 0 END), 0) AS used_qty,
+            COALESCE(SUM(CASE WHEN s.move_type = 'writeoff' THEN s.qty ELSE 0 END), 0) AS writeoff_qty
+            {estimate_source_select}
         FROM estimate_items e
         LEFT JOIN work_stages ws ON ws.id = e.stage_id
         LEFT JOIN stock_moves s ON s.estimate_item_id = e.id
+        {estimate_source_join}
         WHERE e.project_id = ? AND {live_where}
         GROUP BY e.id
         ORDER BY e.id
@@ -539,13 +563,17 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             return default
 
     for row in rows:
-        planned = safe_float(row["planned_qty"])
+        quantity_plan = operational_quantity_plan(row["planned_qty"], row["unit"])
+        planned = float(quantity_plan["total_qty"])
+        display_unit = str(quantity_plan["unit"])
         purchased = safe_float(row["purchased_qty"])
         received = safe_float(row["received_qty"])
         used = safe_float(row["used_qty"])
+        writeoff = safe_float(row["writeoff_qty"])
         covered = max(purchased, received)
         stock_base = received if received else purchased
-        stock = max(stock_base - used, 0)
+        stock_balance = stock_base - used - writeoff
+        stock = max(stock_balance, 0)
         missing = max(planned - covered, 0)
         usage_progress = round(min(100, used / planned * 100), 1) if planned else 0
         purchase_progress = round(min(100, covered / planned * 100), 1) if planned else 0
@@ -578,16 +606,22 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "id": row["id"],
                 "title": row["title"],
                 "itemKind": resolved_estimate_item_kind(row),
-                "unit": row["unit"],
+                "unit": display_unit,
+                "sourceUnit": row["unit"],
+                "sourcePlannedQty": safe_float(row["planned_qty"]),
+                "unitMultiplier": float(quantity_plan["multiplier"]),
                 "article": row["article"] or "",
                 "plannedQty": planned,
                 "plannedPrice": safe_float(row["planned_price"]),
                 "purchasedQty": purchased,
                 "receivedQty": received,
                 "usedQty": used,
+                "writeoffQty": writeoff,
                 "actualQty": safe_float(row["actual_qty"]),
                 "isCompleted": bool(row["is_completed"]),
                 "stockQty": stock,
+                "stockBalanceQty": stock_balance,
+                "unaccountedQty": max(-stock_balance, 0),
                 "missingQty": missing,
                 "usageProgress": usage_progress,
                 "purchaseProgress": purchase_progress,
@@ -602,6 +636,14 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "estimatedDeliveryDays": int(estimated_delivery_days),
                 "stageId": row["stage_id"],
                 "stageTitle": row["stage_title"],
+                "estimateSourceId": row["estimate_source_id"] if has_estimate_sources else None,
+                "estimateSourceType": (row["estimate_source_type"] or "estimate") if has_estimate_sources else "legacy",
+                "estimateSourceKey": (row["estimate_source_key"] or "") if has_estimate_sources else "",
+                "estimateSourceExternalId": (row["estimate_source_external_id"] or "") if has_estimate_sources else "",
+                "estimateTenderId": (row["estimate_tender_id"] or "") if has_estimate_sources else "",
+                "estimateTitle": (row["estimate_title"] or "Ранее загруженная смета") if has_estimate_sources else "Ранее загруженная смета",
+                "estimateFileName": (row["estimate_file_name"] or "Смета объекта") if has_estimate_sources else "Смета объекта",
+                "estimateSourceReference": (row["estimate_source_reference"] or "") if has_estimate_sources else "",
                 "sectionTitle": canonical_estimate_section_title(
                     resolved_estimate_section_title(row) or resolve_stage_root_title(row["stage_id"]) or ""
                 ),
@@ -1022,6 +1064,16 @@ def positive_schedule_int(value: object) -> int | None:
     return max(1, int(round(number))) if number is not None else None
 
 
+def positive_schedule_half_days(value: object) -> float | None:
+    number = positive_schedule_float(value)
+    if number is None:
+        return None
+    half_days = round(number * 2) / 2
+    if abs(number - half_days) > 1e-9:
+        return None
+    return max(0.5, half_days)
+
+
 def estimate_schedule_work_item(item: sqlite3.Row | dict) -> dict:
     title = str(schedule_item_value(item, "title", default="") or "").strip()
     unit = str(schedule_item_value(item, "unit", default="") or "").strip()
@@ -1084,14 +1136,14 @@ def calculate_schedule_work_duration(
     crew_size = positive_schedule_int(crew_override) or max(1, int(estimate["crew_size"] or 1))
     labor_hours = max(0.0, float(estimate["hours"] or 0))
     auto_days = max(1, int(math.ceil(labor_hours / max(1, crew_size * SCHEDULE_SHIFT_HOURS))))
-    manual_days = positive_schedule_int(duration_override)
+    manual_days = positive_schedule_half_days(duration_override)
     return {
         **estimate,
         "hours": round(labor_hours, 2),
         "crew_size": crew_size,
         "shift_hours": SCHEDULE_SHIFT_HOURS,
         "auto_days": auto_days,
-        "duration_days": manual_days or auto_days,
+        "duration_days": manual_days if manual_days is not None else auto_days,
         "is_duration_overridden": manual_days is not None,
         "is_crew_overridden": positive_schedule_int(crew_override) is not None,
     }
@@ -1107,11 +1159,27 @@ def build_section_schedule_forecast(
     sections: list[dict] = []
     by_title: dict[str, dict] = {}
     for row in work_items:
+        row_keys = set(row.keys()) if isinstance(row, sqlite3.Row) else set(row)
+
+        def row_value(key: str, default: object = None) -> object:
+            return row[key] if key in row_keys else default
+
         section_title = infer_schedule_section_title(row["section_title"], str(row["title"] or ""))
-        bucket = by_title.get(section_title)
+        estimate_source_id = int(row_value("estimate_source_id") or 0)
+        estimate_source_key = str(row_value("estimate_source_key") or "")
+        bucket_key = f"{estimate_source_id}:{estimate_source_key}:{section_title.casefold()}"
+        bucket = by_title.get(bucket_key)
         if not bucket:
             bucket = {
                 "title": section_title,
+                "estimate_source_id": estimate_source_id or None,
+                "estimate_source_type": str(row_value("estimate_source_type") or "legacy"),
+                "estimate_source_key": estimate_source_key,
+                "estimate_source_external_id": str(row_value("estimate_source_external_id") or ""),
+                "estimate_tender_id": str(row_value("estimate_tender_id") or ""),
+                "estimate_title": str(row_value("estimate_title") or "Ранее загруженная смета"),
+                "estimate_file_name": str(row_value("estimate_file_name") or "Смета объекта"),
+                "estimate_source_reference": str(row_value("estimate_source_reference") or ""),
                 "scope": classify_schedule_scope(section_title + " " + str(row["title"] or "")),
                 "items": [],
                 "estimated_hours": 0.0,
@@ -1120,7 +1188,7 @@ def build_section_schedule_forecast(
                 "assumptions": False,
                 "first_item_id": int(row["id"]),
             }
-            by_title[section_title] = bucket
+            by_title[bucket_key] = bucket
             sections.append(bucket)
         item_override = overrides.get(int(row["id"]), {})
         estimate = calculate_schedule_work_duration(
@@ -1139,8 +1207,8 @@ def build_section_schedule_forecast(
             "laborHours": round(float(estimate["hours"]), 2),
             "crewSize": int(estimate["crew_size"]),
             "shiftHours": int(estimate["shift_hours"]),
-            "autoDays": int(estimate["auto_days"]),
-            "durationDays": int(estimate["duration_days"]),
+            "autoDays": float(estimate["auto_days"]),
+            "durationDays": float(estimate["duration_days"]),
             "isDurationOverridden": bool(estimate["is_duration_overridden"]),
             "isCrewOverridden": bool(estimate["is_crew_overridden"]),
             "confidence": estimate["confidence"],
@@ -1159,28 +1227,31 @@ def build_section_schedule_forecast(
             }
     sections.sort(key=lambda item: (item["first_item_id"], item["title"]))
 
-    cursor = start_at
+    cursor_half_days = 0
     total_hours = 0.0
     for section in sections:
         work_count = len(section["items"])
         buffered_hours = section["estimated_hours"]
         crew_size = max(1, int(section["crew_size"] or SECTION_SCHEDULE_FALLBACKS["general"]["crew_size"]))
-        duration_days = max(1, sum(int(item["durationDays"]) for item in section["items"]))
+        duration_half_days = max(1, sum(max(1, int(round(float(item["durationDays"]) * 2))) for item in section["items"]))
+        duration_days = duration_half_days / 2
+        section_start_offset = cursor_half_days // 2
+        section_end_offset = (cursor_half_days + duration_half_days - 1) // 2
         section["estimated_hours"] = round(section["estimated_hours"], 1)
         section["buffered_hours"] = round(buffered_hours, 1)
         section["estimated_days"] = duration_days
         section["crew_size"] = crew_size
-        section["start_date"] = cursor.isoformat()
-        section["end_date"] = (cursor + timedelta(days=duration_days - 1)).isoformat()
+        section["start_date"] = (start_at + timedelta(days=section_start_offset)).isoformat()
+        section["end_date"] = (start_at + timedelta(days=section_end_offset)).isoformat()
         section["sources"] = list(section["source_map"].values())
         section["work_items"] = work_count
         section.pop("source_map", None)
         section.pop("first_item_id", None)
         total_hours += buffered_hours
-        cursor = cursor + timedelta(days=duration_days)
+        cursor_half_days += duration_half_days
 
-    finish_at = cursor - timedelta(days=1) if sections else start_at
-    total_days = max(0, (finish_at - start_at).days + 1) if sections else 0
+    total_days = math.ceil(cursor_half_days / 2) if sections else 0
+    finish_at = start_at + timedelta(days=max(0, total_days - 1))
     return {
         "projectId": int(project["id"]),
         "startDate": start_at.isoformat(),
@@ -1190,7 +1261,18 @@ def build_section_schedule_forecast(
         "sections": [
             {
                 "title": section["title"],
-                "sectionId": normalize_progress_section_id(section["title"]),
+                "sectionId": (
+                    f"estimate-{section['estimate_source_id']}:"
+                    if section.get("estimate_source_id") else "legacy:"
+                ) + normalize_progress_section_id(section["title"]),
+                "estimateSourceId": section.get("estimate_source_id"),
+                "estimateSourceType": section.get("estimate_source_type") or "legacy",
+                "estimateSourceKey": section.get("estimate_source_key") or "",
+                "estimateSourceExternalId": section.get("estimate_source_external_id") or "",
+                "estimateTenderId": section.get("estimate_tender_id") or "",
+                "estimateTitle": section.get("estimate_title") or "Ранее загруженная смета",
+                "estimateFileName": section.get("estimate_file_name") or "Смета объекта",
+                "estimateSourceReference": section.get("estimate_source_reference") or "",
                 "scope": section["scope"],
                 "crewSize": section["crew_size"],
                 "estimatedHours": section["estimated_hours"],
@@ -1257,11 +1339,24 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
     ).fetchall()
     work_rows = [row for row in raw_rows if normalize_estimate_item_kind(row["item_kind"]) == "work"]
     overrides = load_work_schedule_overrides(con, project_id, "production")
-    cell_rows = []
-    if "production_schedule_cell_overrides" in {
+    table_names = {
         str(row["name"]) for row in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
-    }:
-        cell_rows = con.execute(
+    }
+    slots_by_item: dict[int, dict[int, bool]] = {}
+    if "production_schedule_slot_overrides" in table_names:
+        slot_rows = con.execute(
+            """
+            SELECT estimate_item_id, slot_number, is_filled
+            FROM production_schedule_slot_overrides
+            WHERE project_id = ?
+            ORDER BY estimate_item_id, slot_number
+            """,
+            (project_id,),
+        ).fetchall()
+        for row in slot_rows:
+            slots_by_item.setdefault(int(row["estimate_item_id"]), {})[int(row["slot_number"])] = bool(row["is_filled"])
+    elif "production_schedule_cell_overrides" in table_names:
+        legacy_rows = con.execute(
             """
             SELECT estimate_item_id, day_number, is_filled
             FROM production_schedule_cell_overrides
@@ -1270,11 +1365,13 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
             """,
             (project_id,),
         ).fetchall()
-    cells_by_item: dict[int, dict[int, bool]] = {}
-    for row in cell_rows:
-        cells_by_item.setdefault(int(row["estimate_item_id"]), {})[int(row["day_number"])] = bool(row["is_filled"])
+        for row in legacy_rows:
+            item_slots = slots_by_item.setdefault(int(row["estimate_item_id"]), {})
+            first_slot = int(row["day_number"]) * 2 - 1
+            item_slots[first_slot] = bool(row["is_filled"])
+            item_slots[first_slot + 1] = bool(row["is_filled"])
 
-    cursor = 1
+    cursor_slot = 1
     day_count = 0
     items: list[dict] = []
     for row in work_rows:
@@ -1285,20 +1382,21 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
             duration_override=item_override.get("duration_days"),
             crew_override=item_override.get("crew_size"),
         )
-        base_days = set(range(cursor, cursor + int(duration["duration_days"])))
-        effective_days = set(base_days)
-        cell_overrides = cells_by_item.get(item_id, {})
-        for day_number, is_filled in cell_overrides.items():
+        duration_slots = max(1, int(round(float(duration["duration_days"]) * 2)))
+        base_slots = set(range(cursor_slot, cursor_slot + duration_slots))
+        effective_slots = set(base_slots)
+        slot_overrides = slots_by_item.get(item_id, {})
+        for slot_number, is_filled in slot_overrides.items():
             if is_filled:
-                effective_days.add(day_number)
+                effective_slots.add(slot_number)
             else:
-                effective_days.discard(day_number)
-        auto_start = cursor
-        auto_end = cursor + int(duration["duration_days"]) - 1
-        cursor = auto_end + 1
-        if effective_days:
-            day_count = max(day_count, max(effective_days))
-        day_count = max(day_count, auto_end)
+                effective_slots.discard(slot_number)
+        auto_start_slot = cursor_slot
+        auto_end_slot = cursor_slot + duration_slots - 1
+        cursor_slot = auto_end_slot + 1
+        if effective_slots:
+            day_count = max(day_count, math.ceil(max(effective_slots) / 2))
+        day_count = max(day_count, math.ceil(auto_end_slot / 2))
         items.append(
             {
                 "id": item_id,
@@ -1306,17 +1404,21 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "unit": str(row["unit"] or ""),
                 "plannedQty": float(row["planned_qty"] or 0),
                 "sectionTitle": canonical_estimate_section_title(row["section_title"] or ""),
-                "laborHours": round(float(duration["hours"]), 2),
                 "crewSize": int(duration["crew_size"]),
+                "peopleCount": int(duration["crew_size"]),
+                "shiftCount": 1,
+                "brigadeCount": 1,
                 "shiftHours": int(duration["shift_hours"]),
-                "autoDays": int(duration["auto_days"]),
-                "durationDays": int(duration["duration_days"]),
-                "effectiveDays": len(effective_days),
-                "autoStartDay": auto_start,
-                "autoEndDay": auto_end,
-                "autoFilledDays": sorted(base_days),
-                "filledDays": sorted(effective_days),
-                "overriddenDays": sorted(cell_overrides),
+                "autoDays": float(duration["auto_days"]),
+                "durationDays": duration_slots / 2,
+                "effectiveDays": len(effective_slots) / 2,
+                "autoStartDay": math.ceil(auto_start_slot / 2),
+                "autoEndDay": math.ceil(auto_end_slot / 2),
+                "autoStartSlot": auto_start_slot,
+                "autoEndSlot": auto_end_slot,
+                "autoFilledSlots": sorted(base_slots),
+                "filledSlots": sorted(effective_slots),
+                "overriddenSlots": sorted(slot_overrides),
                 "isDurationOverridden": bool(duration["is_duration_overridden"]),
                 "isCrewOverridden": bool(duration["is_crew_overridden"]),
                 "confidence": duration["confidence"],
@@ -1329,7 +1431,8 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         "projectTitle": str(project["title"] or ""),
         "shiftHours": SCHEDULE_SHIFT_HOURS,
         "dayCount": day_count,
-        "autoDayCount": max(0, cursor - 1),
+        "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
+        "autoSlotCount": max(0, cursor_slot - 1),
         "items": items,
     }
 
@@ -1922,20 +2025,43 @@ def api_project_section_schedule_forecast(handler, path: str) -> None:
         if not project:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
             return
-        live_where = live_estimate_items_where(con, "")
+        live_where = live_estimate_items_where(con, "e")
         columns = table_columns(con, "estimate_items")
         optional_columns = []
         if "labor_hours_total" in columns:
-            optional_columns.append("labor_hours_total")
+            optional_columns.append("e.labor_hours_total")
         if "default_crew_size" in columns:
-            optional_columns.append("default_crew_size")
+            optional_columns.append("e.default_crew_size")
+        table_names = {
+            str(item["name"])
+            for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        has_estimate_sources = "estimate_source_id" in columns and "project_estimates" in table_names
+        if has_estimate_sources:
+            optional_columns.extend(
+                [
+                    "e.estimate_source_id",
+                    "source.source_type AS estimate_source_type",
+                    "source.source_key AS estimate_source_key",
+                    "source.external_id AS estimate_source_external_id",
+                    "source.tender_id AS estimate_tender_id",
+                    "source.title AS estimate_title",
+                    "source.file_name AS estimate_file_name",
+                    "source.source_reference AS estimate_source_reference",
+                ]
+            )
         optional_sql = (", " + ", ".join(optional_columns)) if optional_columns else ""
+        estimate_source_join = (
+            "LEFT JOIN project_estimates source ON source.id = e.estimate_source_id AND source.project_id = e.project_id"
+            if has_estimate_sources else ""
+        )
         rows = con.execute(
             f"""
-            SELECT id, title, unit, planned_qty, item_kind, section_title, is_completed, actual_qty{optional_sql}
-            FROM estimate_items
-            WHERE project_id = ? AND {live_where}
-            ORDER BY id
+            SELECT e.id, e.title, e.unit, e.planned_qty, e.item_kind, e.section_title, e.is_completed, e.actual_qty{optional_sql}
+            FROM estimate_items e
+            {estimate_source_join}
+            WHERE e.project_id = ? AND {live_where}
+            ORDER BY e.id
             """,
             (project_id,),
         ).fetchall()
@@ -1971,9 +2097,13 @@ def api_update_section_schedule_override(handler, path: str) -> None:
     except (TypeError, ValueError):
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_item_id"})
         return
-    duration_days = positive_schedule_int(payload.get("duration_days", payload.get("durationDays")))
+    raw_duration_days = payload.get("duration_days", payload.get("durationDays"))
+    duration_days = positive_schedule_half_days(raw_duration_days)
     crew_size = positive_schedule_int(payload.get("crew_size", payload.get("crewSize")))
     reset = bool(payload.get("reset"))
+    if raw_duration_days not in (None, "") and duration_days is None:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_duration_days"})
+        return
     if duration_days is not None and duration_days > 3650:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_duration_days"})
         return
@@ -2060,12 +2190,12 @@ def api_update_production_schedule(handler, path: str) -> None:
         if action == "set_cell":
             try:
                 item_id = int(payload.get("item_id", payload.get("itemId")))
-                day_number = int(payload.get("day_number", payload.get("dayNumber")))
+                slot_number = int(payload.get("slot_number", payload.get("slotNumber")))
             except (TypeError, ValueError):
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_cell"})
                 return
-            if day_number < 1 or day_number > 3650:
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_day_number"})
+            if slot_number < 1 or slot_number > 7300:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_slot_number"})
                 return
             item = con.execute(
                 "SELECT id, item_kind FROM estimate_items WHERE id = ? AND project_id = ?",
@@ -2077,25 +2207,25 @@ def api_update_production_schedule(handler, path: str) -> None:
             is_filled = 1 if payload.get("is_filled", payload.get("isFilled", False)) else 0
             con.execute(
                 """
-                INSERT INTO production_schedule_cell_overrides (
-                    project_id, estimate_item_id, day_number, is_filled, updated_by, created_at, updated_at
+                INSERT INTO production_schedule_slot_overrides (
+                    project_id, estimate_item_id, slot_number, is_filled, updated_by, created_at, updated_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(project_id, estimate_item_id, day_number) DO UPDATE SET
+                ON CONFLICT(project_id, estimate_item_id, slot_number) DO UPDATE SET
                     is_filled = excluded.is_filled,
                     updated_by = excluded.updated_by,
                     updated_at = excluded.updated_at
                 """,
-                (project_id, item_id, day_number, is_filled, user["id"], now_ts(), now_ts()),
+                (project_id, item_id, slot_number, is_filled, user["id"], now_ts(), now_ts()),
             )
-            audit_payload.update({"item_id": item_id, "day_number": day_number, "is_filled": bool(is_filled)})
+            audit_payload.update({"item_id": item_id, "slot_number": slot_number, "is_filled": bool(is_filled)})
         elif action == "set_duration":
             try:
                 item_id = int(payload.get("item_id", payload.get("itemId")))
             except (TypeError, ValueError):
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_item_id"})
                 return
-            duration_days = positive_schedule_int(payload.get("duration_days", payload.get("durationDays")))
+            duration_days = positive_schedule_half_days(payload.get("duration_days", payload.get("durationDays")))
             if duration_days is None or duration_days > 3650:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_duration_days"})
                 return
@@ -2122,6 +2252,7 @@ def api_update_production_schedule(handler, path: str) -> None:
             audit_payload.update({"item_id": item_id, "duration_days": duration_days})
         elif action in {"reset_cells", "reset_all", "recalculate"}:
             con.execute("DELETE FROM production_schedule_cell_overrides WHERE project_id = ?", (project_id,))
+            con.execute("DELETE FROM production_schedule_slot_overrides WHERE project_id = ?", (project_id,))
             if action in {"reset_all", "recalculate"}:
                 con.execute(
                     "DELETE FROM work_schedule_overrides WHERE project_id = ? AND schedule_context = 'production'",

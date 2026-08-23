@@ -1,0 +1,1420 @@
+/*
+ * PM.bi operational workspaces — Iteration 3.
+ * Loaded after the legacy feature styles and scoped to Schedule, Warehouse
+ * and Logs so these dense workspaces can migrate without affecting logic.
+ */
+
+body[data-page="schedule"],
+body[data-page="warehouse"],
+body[data-page="logs"] {
+    --workspace-row-hover: #f4f8fe;
+    --workspace-blue-border: #c9dcf4;
+}
+
+/* Warehouse simplification: physical inventory first, filters on demand. */
+body[data-page="warehouse"] .warehouse-card {
+    gap: var(--space-3) !important;
+    padding: var(--space-4) !important;
+}
+
+body[data-page="warehouse"] .warehouse-head-actions {
+    order: 1;
+    grid-template-columns: minmax(260px, 1fr) auto;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+
+body[data-page="warehouse"] .warehouse-search-field {
+    position: relative;
+    display: block;
+    min-width: 0;
+}
+
+body[data-page="warehouse"] .warehouse-search-field > svg {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 14px;
+    width: 18px;
+    height: 18px;
+    color: var(--color-text-tertiary);
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+body[data-page="warehouse"] .warehouse-search-field .search {
+    min-height: 48px;
+    padding-left: 42px !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="warehouse"] .warehouse-add-button {
+    min-height: 48px;
+    border-radius: var(--radius-md) !important;
+}
+
+body[data-page="warehouse"] .analysis-strip {
+    order: 2;
+    grid-template-columns: repeat(2, minmax(0, 180px)) !important;
+    gap: var(--space-2) !important;
+    margin: 0 !important;
+}
+
+body[data-page="warehouse"] .analysis-pill {
+    min-height: 62px !important;
+    padding: 10px 12px !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="warehouse"] .analysis-pill strong {
+    font-size: 20px !important;
+}
+
+body[data-page="warehouse"] .warehouse-filter-box {
+    order: 3;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+}
+
+body[data-page="warehouse"] .warehouse-filter-box summary {
+    display: grid;
+    grid-template-columns: 18px 1fr 18px;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 42px;
+    padding: 0 var(--space-3);
+    cursor: pointer;
+    list-style: none;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    font-weight: 700;
+}
+
+body[data-page="warehouse"] .warehouse-filter-box summary::-webkit-details-marker {
+    display: none;
+}
+
+body[data-page="warehouse"] .warehouse-filter-box summary > svg:last-child {
+    transition: transform 160ms ease;
+}
+
+body[data-page="warehouse"] .warehouse-filter-box[open] summary > svg:last-child {
+    transform: rotate(180deg);
+}
+
+body[data-page="warehouse"] .warehouse-toolbar {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2) !important;
+    margin: 0 !important;
+    padding: var(--space-3) !important;
+    border: 0 !important;
+    border-top: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="warehouse"] .warehouse-ledger {
+    order: 4;
+    margin-top: 0;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table {
+    min-width: 620px;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table th:first-child {
+    width: auto;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table th:nth-child(2) {
+    width: 170px;
+    text-align: right !important;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table th:last-child {
+    width: 130px;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table td:first-child {
+    white-space: normal;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table td:nth-child(2) {
+    text-align: right !important;
+    white-space: nowrap;
+}
+
+body[data-page="warehouse"] .warehouse-item-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+body[data-page="warehouse"] .warehouse-item-title b {
+    max-width: none;
+    color: var(--color-text) !important;
+    font-size: 14px;
+}
+
+body[data-page="warehouse"] .warehouse-inventory-table td:first-child > small {
+    margin-top: 5px;
+}
+
+body[data-page="warehouse"] .warehouse-qty {
+    color: var(--color-text) !important;
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+body[data-page="warehouse"] .warehouse-qty.is-empty {
+    color: var(--color-danger) !important;
+}
+
+body[data-page="warehouse"] .warehouse-empty-state {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-2);
+    min-height: 180px;
+    padding: var(--space-5);
+    align-content: center;
+    color: var(--color-text-secondary);
+    text-align: center;
+}
+
+body[data-page="warehouse"] .warehouse-empty-state svg {
+    width: 34px;
+    height: 34px;
+    color: var(--color-text-tertiary);
+}
+
+body[data-page="warehouse"] .warehouse-empty-state b {
+    color: var(--color-text);
+    font-size: 16px;
+}
+
+@media (max-width: 720px) {
+    body[data-page="warehouse"] .warehouse-card {
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-head-actions,
+    body[data-page="warehouse"] .warehouse-toolbar {
+        grid-template-columns: 1fr !important;
+    }
+
+    body[data-page="warehouse"] .analysis-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-table-wrap {
+        overflow: visible;
+        border: 0 !important;
+        background: transparent !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table,
+    body[data-page="warehouse"] .warehouse-inventory-table tbody,
+    body[data-page="warehouse"] .warehouse-inventory-table tr,
+    body[data-page="warehouse"] .warehouse-inventory-table td {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table thead {
+        display: none;
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table tbody {
+        display: grid;
+        gap: var(--space-2);
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table tr {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: var(--space-3);
+        padding: var(--space-3);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table td {
+        padding: 0 !important;
+        border: 0 !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table td:first-child {
+        grid-column: 1 / -1;
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table td:nth-child(2) {
+        align-self: center;
+        text-align: left !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-inventory-table td:last-child {
+        align-self: center;
+    }
+}
+
+body[data-page="schedule"] main.content,
+body[data-page="warehouse"] main.content,
+body[data-page="logs"] main.content {
+    min-width: 0;
+}
+
+body[data-page="schedule"] .page-head,
+body[data-page="warehouse"] .page-head,
+body[data-page="logs"] .page-head {
+    margin-bottom: var(--space-4) !important;
+}
+
+body[data-page="schedule"] .page-head > div,
+body[data-page="warehouse"] .page-head > div,
+body[data-page="logs"] .page-head > div {
+    max-width: 880px;
+}
+
+body[data-page="schedule"] .page-head p:not(.eyebrow),
+body[data-page="warehouse"] .page-head p:not(.eyebrow),
+body[data-page="logs"] .page-head p:not(.eyebrow) {
+    margin: var(--space-2) 0 0 !important;
+    line-height: 1.55;
+}
+
+/* Shared data reveal and reserved loading geometry */
+body[data-page="schedule"] [data-schedule-list],
+body[data-page="warehouse"] [data-warehouse-summary],
+body[data-page="logs"] [data-logs-stats],
+body[data-page="logs"] [data-logs-calendar],
+body[data-page="logs"] [data-logs-list] {
+    min-width: 0;
+}
+
+body[data-page="schedule"] [data-schedule-list] > *,
+body[data-page="warehouse"] [data-warehouse-analysis] > *,
+body[data-page="warehouse"] [data-warehouse-summary] > *,
+body[data-page="logs"] [data-logs-stats] > *,
+body[data-page="logs"] [data-logs-alerts] > *,
+body[data-page="logs"] [data-logs-calendar] > *,
+body[data-page="logs"] [data-logs-day-view] > *,
+body[data-page="logs"] [data-logs-list] > * {
+    animation: pmbi-fade-in var(--motion-reveal-duration) var(--motion-reveal-easing) both;
+}
+
+body[data-page="warehouse"] [data-warehouse-summary]:empty,
+body[data-page="logs"] [data-logs-stats]:empty,
+body[data-page="logs"] [data-logs-calendar]:empty {
+    position: relative;
+    min-height: 104px;
+    overflow: hidden;
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="warehouse"] [data-warehouse-summary]:empty::before,
+body[data-page="logs"] [data-logs-stats]:empty::before,
+body[data-page="logs"] [data-logs-calendar]:empty::before,
+body[data-page="schedule"] .section-schedule-empty:empty::before {
+    content: "";
+    position: absolute;
+    inset: var(--space-4);
+    border-radius: var(--radius-sm);
+    background:
+        linear-gradient(90deg, transparent 0 16%, rgba(37, 99, 235, .07) 30%, transparent 46%) 0 0 / 220% 100%,
+        linear-gradient(var(--color-border), var(--color-border)) 0 4px / 46% 10px no-repeat,
+        linear-gradient(var(--color-border), var(--color-border)) 0 30px / 78% 8px no-repeat,
+        linear-gradient(var(--color-border), var(--color-border)) 0 54px / 64% 8px no-repeat;
+    animation: ui-workspace-skeleton 1.25s ease-in-out infinite;
+}
+
+body[data-page="schedule"] [data-schedule-list] > .muted,
+body[data-page="warehouse"] [data-warehouse-summary] > .muted,
+body[data-page="logs"] [data-logs-list] > .muted,
+body[data-page="logs"] .report-archive-empty,
+body[data-page="logs"] .report-chat-empty {
+    min-height: 92px;
+    margin: 0 !important;
+    padding: var(--space-4) !important;
+    display: grid;
+    align-content: center;
+    gap: var(--space-2);
+    border: 1px dashed var(--color-border-strong) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-secondary) !important;
+    line-height: 1.5;
+}
+
+body[data-page="logs"] .report-archive-empty b,
+body[data-page="logs"] .report-chat-empty b {
+    color: var(--color-text) !important;
+    font-size: var(--text-md) !important;
+}
+
+@keyframes ui-workspace-skeleton {
+    from { background-position: 100% 0, 0 4px, 0 30px, 0 54px; }
+    to { background-position: -120% 0, 0 4px, 0 30px, 0 54px; }
+}
+
+/* Schedule: compact project accordions and a quiet status scale */
+body[data-page="schedule"] main.content > .card {
+    padding: var(--space-4) !important;
+}
+
+body[data-page="schedule"] .schedule-project-list {
+    display: grid;
+    gap: var(--space-3) !important;
+}
+
+body[data-page="schedule"] .schedule-project-accordion,
+body[data-page="schedule"] .schedule-project {
+    overflow: hidden;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+body[data-page="schedule"] .schedule-project-accordion.is-open {
+    border-color: var(--workspace-blue-border) !important;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .065) !important;
+}
+
+body[data-page="schedule"] .schedule-project-toggle {
+    width: 100%;
+    min-height: 68px;
+    display: grid !important;
+    grid-template-columns: minmax(220px, 1fr) minmax(0, auto) var(--control-height-sm);
+    align-items: center;
+    gap: var(--space-3) !important;
+    padding: var(--space-3) var(--space-4) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: var(--color-surface) !important;
+    color: var(--color-text) !important;
+    text-align: left;
+    box-shadow: none !important;
+    transition: background-color .16s ease, color .16s ease;
+}
+
+body[data-page="schedule"] .schedule-project-toggle:hover {
+    background: var(--workspace-row-hover) !important;
+    transform: none !important;
+}
+
+body[data-page="schedule"] .schedule-project-accordion.is-open > .schedule-project-toggle {
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="schedule"] .schedule-project-toggle-main {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+body[data-page="schedule"] .schedule-project-toggle-main b {
+    overflow: hidden;
+    color: var(--color-text) !important;
+    font-size: var(--text-md) !important;
+    font-weight: 750 !important;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="schedule"] .schedule-project-toggle-main small {
+    overflow: hidden;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="schedule"] .schedule-project-toggle .project-badges {
+    justify-content: flex-end;
+    gap: var(--space-1) !important;
+}
+
+body[data-page="schedule"] .section-schedule-chevron {
+    width: var(--control-height-sm) !important;
+    height: var(--control-height-sm) !important;
+    min-width: var(--control-height-sm) !important;
+    display: inline-grid !important;
+    place-items: center;
+    border: 1px solid var(--color-border-strong) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-accent) !important;
+    font-size: 17px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: var(--space-2) !important;
+    padding: var(--space-3) var(--space-4) !important;
+    border-top: 1px solid var(--color-border) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card {
+    min-width: 0;
+    min-height: 64px !important;
+    padding: 10px var(--space-3) !important;
+    display: grid;
+    align-content: space-between;
+    gap: var(--space-2);
+    border-radius: var(--radius-sm) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card span {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 700 !important;
+    letter-spacing: .02em;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card strong {
+    overflow: hidden;
+    color: var(--color-text) !important;
+    font-size: 15px !important;
+    font-weight: 750 !important;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card.danger {
+    border-left: 3px solid var(--color-danger) !important;
+}
+
+body[data-page="schedule"] .schedule-project-summary-compact .stat-card.danger strong {
+    color: var(--color-danger) !important;
+}
+
+body[data-page="schedule"] .schedule-project-body {
+    background: #fbfcfe !important;
+}
+
+body[data-page="schedule"] .schedule-project-body.is-open {
+    padding: var(--space-4) !important;
+    border-top: 1px solid var(--color-border) !important;
+}
+
+body[data-page="schedule"] .schedule-project-topbar,
+body[data-page="schedule"] .schedule-project-topbar-copy,
+body[data-page="schedule"] .schedule-action-center,
+body[data-page="schedule"] .section-schedule-list,
+body[data-page="schedule"] .schedule-gantt-list {
+    gap: var(--space-3) !important;
+}
+
+body[data-page="schedule"] .schedule-project-topbar {
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+body[data-page="schedule"] .schedule-project-topbar h3 {
+    color: var(--color-text) !important;
+    font-size: var(--text-xl) !important;
+}
+
+body[data-page="schedule"] .schedule-object-info {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: var(--space-2) !important;
+}
+
+body[data-page="schedule"] .schedule-object-info .data-item,
+body[data-page="schedule"] .schedule-state-row,
+body[data-page="schedule"] .schedule-action-card,
+body[data-page="schedule"] .section-schedule-card,
+body[data-page="schedule"] .timeline-row,
+body[data-page="schedule"] .schedule-brief-row {
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="schedule"] .schedule-state-row:hover,
+body[data-page="schedule"] .schedule-action-card:hover,
+body[data-page="schedule"] .section-schedule-card:hover,
+body[data-page="schedule"] .timeline-row:hover,
+body[data-page="schedule"] .schedule-brief-row:hover {
+    border-color: #b8cee9 !important;
+    background: var(--workspace-row-hover) !important;
+    transform: none !important;
+}
+
+body[data-page="schedule"] .timeline-row.timeline-warn,
+body[data-page="schedule"] .schedule-gantt-plan.timeline-warn {
+    border-left: 3px solid var(--color-warning) !important;
+    background: var(--color-warning-soft) !important;
+}
+
+body[data-page="schedule"] .timeline-row.timeline-overdue,
+body[data-page="schedule"] .timeline-row.timeline-risk,
+body[data-page="schedule"] .schedule-gantt-plan.timeline-overdue,
+body[data-page="schedule"] .schedule-gantt-plan.timeline-risk {
+    border-left: 3px solid var(--color-danger) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="schedule"] .timeline-row.timeline-done,
+body[data-page="schedule"] .schedule-gantt-plan.timeline-done {
+    border-left: 3px solid var(--color-success) !important;
+    background: var(--color-success-soft) !important;
+}
+
+body[data-page="schedule"] .timeline-warn,
+body[data-page="schedule"] .timeline-risk,
+body[data-page="schedule"] .timeline-overdue,
+body[data-page="schedule"] .material-arrow-alert,
+body[data-page="schedule"] .material-today,
+body[data-page="schedule"] .schedule-pulse {
+    animation: none !important;
+}
+
+body[data-page="schedule"] .schedule-gantt-track,
+body[data-page="schedule"] .material-schedule-track,
+body[data-page="schedule"] .section-schedule-progress-bar,
+body[data-page="schedule"] .timeline-progress {
+    background: #e6edf7 !important;
+}
+
+body[data-page="schedule"] .schedule-gantt-plan:not(.timeline-warn):not(.timeline-risk):not(.timeline-overdue):not(.timeline-done),
+body[data-page="schedule"] .timeline-progress > i,
+body[data-page="schedule"] .section-schedule-progress-bar > span {
+    background: linear-gradient(90deg, var(--color-accent), #60a5fa) !important;
+}
+
+body[data-page="schedule"] .section-schedule-empty {
+    position: relative;
+    min-height: 92px;
+    padding: var(--space-4) !important;
+    display: grid;
+    align-content: center;
+    overflow: hidden;
+    border: 1px dashed var(--color-border-strong) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-secondary) !important;
+}
+
+/* Warehouse: one responsive control zone and a readable inventory ledger */
+body[data-page="warehouse"] .warehouse-card {
+    display: grid;
+    gap: 0;
+}
+
+body[data-page="warehouse"] .warehouse-head {
+    order: 0;
+}
+
+body[data-page="warehouse"] .warehouse-head-actions {
+    order: 1;
+    display: grid !important;
+    grid-template-columns: minmax(240px, 1fr) auto;
+    gap: var(--space-3) !important;
+    margin: 0 !important;
+    padding: var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-bottom: 0 !important;
+    border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="warehouse"] .warehouse-head-actions .search {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+body[data-page="warehouse"] .warehouse-add-button {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    white-space: nowrap;
+}
+
+body[data-page="warehouse"] .warehouse-add-button svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2;
+}
+
+body[data-page="warehouse"] .warehouse-toolbar {
+    order: 2;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2) !important;
+    margin: 0 0 var(--space-4) !important;
+    padding: 0 var(--space-3) var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-top: 0 !important;
+    border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="warehouse"] .warehouse-toolbar .search {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+body[data-page="warehouse"] .analysis-strip {
+    order: 3;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-3) !important;
+    margin: 0 0 var(--space-4) !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+
+body[data-page="warehouse"] .analysis-pill {
+    min-height: 76px;
+    padding: var(--space-3) !important;
+    display: grid !important;
+    align-content: space-between;
+    gap: var(--space-2) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="warehouse"] .analysis-pill span {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="warehouse"] .analysis-pill strong {
+    color: var(--color-text) !important;
+    font-size: 22px !important;
+    font-weight: 750 !important;
+    line-height: 1.1;
+}
+
+body[data-page="warehouse"] .warehouse-ledger {
+    order: 4;
+    min-height: 104px;
+}
+
+body[data-page="warehouse"] .warehouse-table-wrap {
+    width: 100%;
+    overflow: auto;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="warehouse"] .warehouse-table {
+    width: 100%;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="warehouse"] .warehouse-table th,
+body[data-page="warehouse"] .warehouse-table td {
+    padding: 11px var(--space-3) !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    background: transparent !important;
+    color: var(--color-text) !important;
+    font-size: 13px !important;
+    line-height: 1.4;
+    vertical-align: middle;
+}
+
+body[data-page="warehouse"] .warehouse-table th {
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 750 !important;
+    letter-spacing: .025em;
+    text-transform: none !important;
+    white-space: nowrap;
+}
+
+body[data-page="warehouse"] .warehouse-table tbody tr:last-child td {
+    border-bottom: 0 !important;
+}
+
+body[data-page="warehouse"] .warehouse-table tbody tr:hover td {
+    background: var(--workspace-row-hover) !important;
+}
+
+body[data-page="warehouse"] .warehouse-table td:nth-child(4),
+body[data-page="warehouse"] .warehouse-table th:nth-child(4),
+body[data-page="warehouse"] .warehouse-table td:last-child,
+body[data-page="warehouse"] .warehouse-table th:last-child {
+    text-align: right !important;
+}
+
+body[data-page="warehouse"] .warehouse-table td:nth-child(4) strong {
+    font-variant-numeric: tabular-nums;
+}
+
+body[data-page="warehouse"] .warehouse-table td:nth-child(2) b,
+body[data-page="warehouse"] .warehouse-table td:nth-child(2) small {
+    display: block;
+}
+
+body[data-page="warehouse"] .warehouse-table td:nth-child(2) small {
+    margin-top: 3px;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+}
+
+body[data-page="warehouse"] .warehouse-transfer-modal {
+    padding: var(--space-4) !important;
+    background: rgba(15, 23, 42, .42) !important;
+    backdrop-filter: blur(3px);
+}
+
+body[data-page="warehouse"] .warehouse-transfer-dialog,
+body[data-page="warehouse"] .warehouse-receipt-dialog {
+    width: min(100%, 760px) !important;
+    max-height: calc(100vh - 32px);
+    padding: var(--space-4) !important;
+    overflow: auto;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-lg) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-floating) !important;
+}
+
+body[data-page="warehouse"] .warehouse-transfer-item,
+body[data-page="warehouse"] .warehouse-return-available {
+    padding: var(--space-3) !important;
+    border: 1px solid var(--workspace-blue-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-strong) !important;
+}
+
+body[data-page="warehouse"] .warehouse-form {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: var(--space-3) !important;
+}
+
+body[data-page="warehouse"] .warehouse-form label {
+    display: grid;
+    gap: var(--space-2) !important;
+    min-width: 0;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="warehouse"] .warehouse-form .wide,
+body[data-page="warehouse"] .warehouse-form .form-error,
+body[data-page="warehouse"] .warehouse-form > button[type="submit"],
+body[data-page="warehouse"] .warehouse-return-available {
+    grid-column: 1 / -1 !important;
+}
+
+body[data-page="warehouse"] .warehouse-form > button[type="submit"] {
+    justify-self: end;
+    min-width: 132px;
+}
+
+body[data-page="warehouse"] .warehouse-mode-tabs {
+    gap: var(--space-2) !important;
+    margin-bottom: var(--space-4) !important;
+    padding: var(--space-1) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="warehouse"] .warehouse-mode-tabs label {
+    min-height: var(--control-height-sm);
+    padding: 0 var(--space-3) !important;
+    border: 1px solid transparent !important;
+    border-radius: var(--radius-sm) !important;
+    background: transparent !important;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="warehouse"] .warehouse-mode-tabs label:has(input:checked) {
+    border-color: var(--workspace-blue-border) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-accent) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+body[data-page="warehouse"] .warehouse-suggest-list,
+body[data-page="warehouse"] .warehouse-match-popover {
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-floating) !important;
+}
+
+body[data-page="warehouse"] .warehouse-suggest-list button:hover {
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-strong) !important;
+}
+
+/* Logs: calendar first, then archive and report composer */
+body[data-page="logs"] .log-stats,
+body[data-page="logs"] .stats-grid[data-logs-stats] {
+    display: grid !important;
+    grid-template-columns: repeat(7, minmax(112px, 1fr)) !important;
+    gap: var(--space-3) !important;
+    margin: 0 0 var(--space-4) !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+
+body[data-page="logs"] .log-stats .stat-card,
+body[data-page="logs"] .stats-grid[data-logs-stats] .stat-card {
+    min-width: 0;
+    min-height: 78px !important;
+    padding: var(--space-3) !important;
+    display: grid;
+    align-content: space-between;
+    gap: var(--space-2);
+    box-shadow: none !important;
+}
+
+body[data-page="logs"] .log-stats .stat-card span,
+body[data-page="logs"] .stats-grid[data-logs-stats] .stat-card span {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: 700 !important;
+    line-height: 1.3;
+}
+
+body[data-page="logs"] .log-stats .stat-card strong,
+body[data-page="logs"] .stats-grid[data-logs-stats] .stat-card strong {
+    overflow: hidden;
+    color: var(--color-text) !important;
+    font-size: 21px !important;
+    font-weight: 750 !important;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="logs"] .log-stats .stat-card.warn,
+body[data-page="logs"] .stats-grid[data-logs-stats] .stat-card.warn {
+    border-left: 3px solid var(--color-warning) !important;
+}
+
+body[data-page="logs"] .log-stats .stat-card.danger,
+body[data-page="logs"] .stats-grid[data-logs-stats] .stat-card.danger {
+    border-left: 3px solid var(--color-danger) !important;
+}
+
+body[data-page="logs"] .logs-alerts,
+body[data-page="logs"] [data-logs-alerts] {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-3) !important;
+    margin: 0 0 var(--space-4) !important;
+}
+
+body[data-page="logs"] [data-logs-alerts]:empty {
+    display: none !important;
+    margin: 0 !important;
+}
+
+body[data-page="logs"] .notice-card {
+    min-height: 72px;
+    padding: var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-left: 3px solid var(--color-accent) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+    animation-iteration-count: 1 !important;
+}
+
+body[data-page="logs"] .notice-card.notice-warn {
+    border-color: var(--color-warning-border) !important;
+    border-left-color: var(--color-warning) !important;
+    background: var(--color-warning-soft) !important;
+}
+
+body[data-page="logs"] .notice-card.notice-danger {
+    border-color: var(--color-danger-border) !important;
+    border-left-color: var(--color-danger) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="logs"] .notice-card b {
+    color: var(--color-text) !important;
+    font-size: 13px !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="logs"] .notice-card small {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+}
+
+body[data-page="logs"] .logs-calendar-shell {
+    display: grid !important;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr) !important;
+    gap: var(--space-4) !important;
+    align-items: stretch !important;
+}
+
+body[data-page="logs"] .logs-calendar-card,
+body[data-page="logs"] .logs-day-panel {
+    height: 100%;
+    padding: var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="logs"] .logs-calendar-head,
+body[data-page="logs"] .logs-day-panel-head {
+    min-height: var(--control-height-sm);
+    margin-bottom: var(--space-3) !important;
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+body[data-page="logs"] .logs-calendar-head > b,
+body[data-page="logs"] .logs-calendar-head > strong,
+body[data-page="logs"] .logs-day-panel-head > b {
+    color: var(--color-text) !important;
+    font-size: var(--text-md) !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="logs"] .logs-calendar-head .ghost {
+    min-height: var(--control-height-sm) !important;
+    padding: 0 var(--space-3) !important;
+}
+
+body[data-page="logs"] .logs-calendar-grid {
+    gap: var(--space-1) !important;
+}
+
+body[data-page="logs"] .logs-calendar-weekdays span {
+    color: var(--color-text-secondary) !important;
+    font-size: 10px !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="logs"] .logs-calendar-day,
+body[data-page="logs"] .logs-day {
+    min-width: 0;
+    min-height: 44px !important;
+    padding: var(--space-1) !important;
+    display: grid;
+    place-content: center;
+    gap: 2px;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-text) !important;
+    box-shadow: none !important;
+    text-align: center;
+    transition: border-color .16s ease, background-color .16s ease, color .16s ease;
+}
+
+body[data-page="logs"] .logs-calendar-day:hover,
+body[data-page="logs"] .logs-day:hover {
+    border-color: #a8c3e5 !important;
+    background: var(--workspace-row-hover) !important;
+    transform: none !important;
+}
+
+body[data-page="logs"] .logs-calendar-day.is-empty {
+    border-color: transparent !important;
+    background: transparent !important;
+}
+
+body[data-page="logs"] .logs-calendar-day.is-today,
+body[data-page="logs"] .logs-day-today {
+    border-color: #8bb2e7 !important;
+    box-shadow: inset 0 0 0 1px #8bb2e7 !important;
+}
+
+body[data-page="logs"] .logs-calendar-day.has-report,
+body[data-page="logs"] .logs-day-has-log {
+    border-color: var(--workspace-blue-border) !important;
+    background: var(--color-surface-accent) !important;
+    color: var(--color-accent-strong) !important;
+}
+
+body[data-page="logs"] .logs-calendar-day.is-selected,
+body[data-page="logs"] .logs-day-active {
+    border-color: var(--color-accent) !important;
+    background: var(--color-accent) !important;
+    color: var(--color-text-inverse) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="logs"] .logs-day-risk:not(.logs-day-active) {
+    border-color: var(--color-danger-border) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="logs"] .logs-calendar-day strong,
+body[data-page="logs"] .logs-day-number {
+    color: inherit !important;
+    font-size: 12px !important;
+    font-weight: 750 !important;
+}
+
+body[data-page="logs"] .logs-calendar-day span,
+body[data-page="logs"] .logs-day-meta,
+body[data-page="logs"] .logs-day-progress {
+    color: inherit !important;
+    font-size: 9px !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="logs"] .report-chat-list,
+body[data-page="logs"] .report-archive-list,
+body[data-page="logs"] .logs-list {
+    display: grid;
+    gap: var(--space-3) !important;
+}
+
+body[data-page="logs"] .report-chat-message,
+body[data-page="logs"] .report-archive-card,
+body[data-page="logs"] .report-timeline-card,
+body[data-page="logs"] .log-card {
+    padding: var(--space-3) !important;
+    border: 1px solid var(--color-border) !important;
+    border-left: 3px solid var(--color-accent) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="logs"] .report-archive-card.is-danger,
+body[data-page="logs"] .report-timeline-card.is-danger,
+body[data-page="logs"] .log-card.is-danger {
+    border-color: var(--color-danger-border) !important;
+    border-left-color: var(--color-danger) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="logs"] .report-chat-bubble,
+body[data-page="logs"] .log-details > div {
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+    background: var(--color-surface-subtle) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="logs"] .log-details {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+    gap: var(--space-2) !important;
+}
+
+body[data-page="logs"] .log-details > div {
+    padding: var(--space-2) var(--space-3) !important;
+}
+
+body[data-page="logs"] .log-details > .log-risk {
+    border-color: var(--color-danger-border) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="logs"] .log-details > .log-risk strong {
+    color: var(--color-danger) !important;
+}
+
+body[data-page="logs"] .logs-layout {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr) !important;
+    gap: var(--space-4) !important;
+    align-items: start !important;
+}
+
+body[data-page="logs"] .logs-layout > .card {
+    min-width: 0;
+    margin-bottom: 0 !important;
+}
+
+body[data-page="logs"] .logs-layout [data-logs-project] {
+    width: min(100%, 260px) !important;
+}
+
+body[data-page="logs"] .log-form {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: var(--space-3) !important;
+}
+
+body[data-page="logs"] .log-form label {
+    display: grid;
+    gap: var(--space-2) !important;
+    min-width: 0;
+    color: var(--color-text-secondary) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: 700 !important;
+}
+
+body[data-page="logs"] .log-form .wide,
+body[data-page="logs"] .log-form .form-error,
+body[data-page="logs"] .log-form > button[type="submit"] {
+    grid-column: 1 / -1 !important;
+}
+
+body[data-page="logs"] .log-form > button[type="submit"] {
+    justify-self: end;
+    min-width: 150px;
+}
+
+body[data-page="logs"] .log-form .form-error:empty {
+    display: none;
+}
+
+/* Tablet */
+@media (max-width: 1100px) {
+    body[data-page="schedule"] .schedule-project-summary-compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    body[data-page="warehouse"] .analysis-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-page="logs"] .log-stats,
+    body[data-page="logs"] .stats-grid[data-logs-stats] {
+        grid-template-columns: repeat(4, minmax(112px, 1fr)) !important;
+    }
+
+    body[data-page="logs"] .logs-layout {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 900px) {
+    body[data-page="schedule"] .schedule-project-toggle {
+        grid-template-columns: minmax(0, 1fr) var(--control-height-sm);
+    }
+
+    body[data-page="schedule"] .schedule-project-toggle .project-badges {
+        grid-column: 1 / 2;
+        justify-content: flex-start;
+    }
+
+    body[data-page="schedule"] .schedule-project-toggle .section-schedule-chevron {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+
+    body[data-page="schedule"] .schedule-object-info {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    body[data-page="logs"] .logs-calendar-shell {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* Mobile */
+@media (max-width: 720px) {
+    body[data-page="schedule"] main.content > .card,
+    body[data-page="warehouse"] .warehouse-card,
+    body[data-page="logs"] main.content > .card,
+    body[data-page="logs"] .logs-layout > .card {
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="schedule"] .schedule-project-toggle {
+        min-height: 64px;
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="schedule"] .schedule-project-toggle-main b,
+    body[data-page="schedule"] .schedule-project-toggle-main small {
+        white-space: normal;
+    }
+
+    body[data-page="schedule"] .schedule-project-summary-compact {
+        padding: var(--space-2) var(--space-3) !important;
+    }
+
+    body[data-page="schedule"] .schedule-project-body.is-open {
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="schedule"] .schedule-object-info {
+        grid-template-columns: 1fr !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-head-actions,
+    body[data-page="warehouse"] .warehouse-toolbar {
+        grid-template-columns: 1fr !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-head-actions {
+        padding: var(--space-3) var(--space-3) var(--space-2) !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-add-button {
+        width: 100% !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-form,
+    body[data-page="logs"] .log-form {
+        grid-template-columns: 1fr !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-form > *,
+    body[data-page="logs"] .log-form > * {
+        grid-column: 1 !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-form > button[type="submit"],
+    body[data-page="logs"] .log-form > button[type="submit"] {
+        width: 100%;
+        justify-self: stretch;
+    }
+
+    body[data-page="warehouse"] .warehouse-transfer-modal {
+        align-items: end !important;
+        padding: var(--space-2) !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-transfer-dialog,
+    body[data-page="warehouse"] .warehouse-receipt-dialog {
+        width: 100% !important;
+        max-height: calc(100vh - 16px);
+        padding: var(--space-3) !important;
+        border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-sm) !important;
+    }
+
+    body[data-page="logs"] .log-stats,
+    body[data-page="logs"] .stats-grid[data-logs-stats] {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    body[data-page="logs"] .logs-calendar-head {
+        gap: var(--space-2) !important;
+    }
+
+    body[data-page="logs"] .logs-calendar-head .ghost {
+        padding: 0 var(--space-2) !important;
+        font-size: var(--text-xs) !important;
+    }
+
+    body[data-page="logs"] .logs-layout [data-logs-project] {
+        width: 100% !important;
+    }
+}
+
+@media (max-width: 520px) {
+    body[data-page="schedule"] .schedule-project-summary-compact,
+    body[data-page="warehouse"] .analysis-strip,
+    body[data-page="logs"] .log-stats,
+    body[data-page="logs"] .stats-grid[data-logs-stats] {
+        grid-template-columns: 1fr !important;
+    }
+
+    body[data-page="schedule"] .schedule-project-summary-compact .stat-card,
+    body[data-page="warehouse"] .analysis-pill,
+    body[data-page="logs"] .log-stats .stat-card,
+    body[data-page="logs"] .stats-grid[data-logs-stats] .stat-card {
+        min-height: 64px !important;
+    }
+
+    body[data-page="logs"] .logs-calendar-card,
+    body[data-page="logs"] .logs-day-panel {
+        padding: var(--space-2) !important;
+    }
+
+    body[data-page="logs"] .logs-calendar-day,
+    body[data-page="logs"] .logs-day {
+        min-height: 40px !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body[data-page="schedule"] [data-schedule-list] > *,
+    body[data-page="warehouse"] [data-warehouse-analysis] > *,
+    body[data-page="warehouse"] [data-warehouse-summary] > *,
+    body[data-page="logs"] [data-logs-stats] > *,
+    body[data-page="logs"] [data-logs-alerts] > *,
+    body[data-page="logs"] [data-logs-calendar] > *,
+    body[data-page="logs"] [data-logs-day-view] > *,
+    body[data-page="logs"] [data-logs-list] > *,
+    body[data-page="warehouse"] [data-warehouse-summary]:empty::before,
+    body[data-page="logs"] [data-logs-stats]:empty::before,
+    body[data-page="logs"] [data-logs-calendar]:empty::before,
+    body[data-page="schedule"] .section-schedule-empty:empty::before {
+        animation: none !important;
+    }
+}
+
+/* Keep the simplified warehouse layout above the legacy workspace cascade. */
+body[data-page="warehouse"] .warehouse-card {
+    gap: var(--space-3) !important;
+    padding: var(--space-4) !important;
+}
+
+body[data-page="warehouse"] .warehouse-head-actions {
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+
+body[data-page="warehouse"] .analysis-strip {
+    grid-template-columns: repeat(2, minmax(0, 180px)) !important;
+    margin: 0 !important;
+}
+
+body[data-page="warehouse"] .warehouse-filter-box .warehouse-toolbar {
+    order: initial;
+    margin: 0 !important;
+    padding: var(--space-3) !important;
+    border: 0 !important;
+    border-top: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
+}
+
+@media (max-width: 720px) {
+    body[data-page="warehouse"] .warehouse-card {
+        padding: var(--space-3) !important;
+    }
+
+    body[data-page="warehouse"] .warehouse-head-actions {
+        padding: 0 !important;
+    }
+
+    body[data-page="warehouse"] .analysis-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}

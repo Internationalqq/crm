@@ -50,6 +50,8 @@
         productionScheduleByProject: {},
         productionScheduleLoadingByProject: {},
         productionScheduleVisibleDaysByProject: {},
+        projectEconomicsByProject: {},
+        projectEconomicsPromisesByProject: {},
         scheduleQuickActions: {},
         projectTabModesByProject: {},
         logsCalendarMonthByProject: {},
@@ -118,6 +120,8 @@
         clearAutoLoginAttempt();
         state.user = null;
         state.currentUser = null;
+        state.projectEconomicsByProject = {};
+        state.projectEconomicsPromisesByProject = {};
         currentUserPromise = null;
         clearApiCache();
         clearSessionCookieFallback();
@@ -213,6 +217,22 @@
             node.appendChild(template.content.cloneNode(true));
         }
         return node;
+    }
+
+    var SKELETON_VARIANTS = ['stats', 'list', 'feed', 'cards', 'team', 'table', 'calendar', 'panel'];
+
+    function skeletonMarkup(variant, count) {
+        variant = SKELETON_VARIANTS.indexOf(variant) !== -1 ? variant : 'list';
+        count = Math.max(1, Math.min(8, Number(count) || 1));
+        var items = '';
+        for (var index = 0; index < count; index += 1) {
+            items += '<span class="pmbi-skeleton-item"><i></i><i></i><i></i><i></i></span>';
+        }
+        return '<div class="pmbi-skeleton-view pmbi-skeleton-view--' + variant + '" data-pmbi-skeleton="' + variant + '" aria-hidden="true">' + items + '</div>';
+    }
+
+    function showSkeleton(container, variant, count) {
+        return safeReplaceChildren(container, skeletonMarkup(variant, count));
     }
 
     function refreshLucideIcons(root) {
@@ -1031,8 +1051,20 @@
         return isBootstrapAdminUser(user);
     }
 
+    function canViewProcurementPrices() {
+        var permissions = currentPermissions();
+        return permissions.canViewProcurementPrices === true
+            || isMainAdminRole()
+            || hasRole('admin')
+            || hasRole('director');
+    }
+
     function canSeeFinances() {
-        return !!(state.currentUser || state.user);
+        return canViewProcurementPrices();
+    }
+
+    function canViewProjectEconomics() {
+        return isMainAdminRole() || hasRole('admin') || hasRole('director');
     }
 
     function canManageSuppliers() {
@@ -1188,6 +1220,8 @@
         readStoredJson: readStoredJson,
         writeStoredJson: writeStoredJson,
         safeReplaceChildren: safeReplaceChildren,
+        skeletonMarkup: skeletonMarkup,
+        showSkeleton: showSkeleton,
         clearApiCache: clearApiCache,
         abortApiRequests: abortApiRequests,
         debounce: debounce,
@@ -1251,7 +1285,9 @@
         canManageTeam: canManageTeam,
         canManageDailyTasks: canManageDailyTasks,
         canViewPrivateContacts: canViewPrivateContacts,
+        canViewProcurementPrices: canViewProcurementPrices,
         canSeeFinances: canSeeFinances,
+        canViewProjectEconomics: canViewProjectEconomics,
         canManageSuppliers: canManageSuppliers,
         canManageDocuments: canManageDocuments,
         canManageSchedule: canManageSchedule,

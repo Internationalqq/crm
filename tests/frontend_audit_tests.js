@@ -114,7 +114,8 @@ test('Daily task loads ignore stale responses and checkbox saves are de-duped', 
 });
 
 test('Daily task all-user visibility is separate from completion ownership', () => {
-  assert.match(serverPy, /if status == "done" and int\(row\["user_id"\]\) != int\(user\["id"\]\):/);
+  assert.match(serverPy, /is_assignee = int\(row\["user_id"\]\) == int\(user\["id"\]\)/);
+  assert.match(serverPy, /if status == "done" and not is_assignee:/);
   assert.match(serverPy, /"error": "not_task_assignee"/);
   assert.doesNotMatch(serverPy, /if not self\.daily_task_manager\(user\):\s*requested_user_id = int\(user\["id"\]\)/);
   assert.match(serverPy, /"createdAt": row\["created_at"\]/);
@@ -150,9 +151,10 @@ test('Main admin account is only visible to itself in user directories', () => {
   assert.match(serverPy, /u\.role = 'main_admin'/);
 });
 
-test('Project cards can be edited by all visible users, while project delete is admin-only', () => {
-  assert.doesNotMatch(appJs, /var editButton = isAdminRole\(\)/);
-  assert.match(appJs, /var editButton = '<button class="project-card-menu"/);
+test('Project card editing follows project permission, while project delete is admin-only', () => {
+  assert.match(appJs, /function canEditProjectFromCard\(\) \{\s*return isAdminRole\(\) \|\| currentPermissions\(\)\.projects === 'edit';/);
+  assert.match(appJs, /if \(canEditProjectFromCard\(\)\) menuItems\.push/);
+  assert.match(appJs, /var editButton = menuItems\.length/);
   assert.match(coreJs, /function canDeleteProject\(\) \{\s*return isMainAdminRole\(\) \|\| hasRole\('admin'\);/);
   assert.match(operationsJs, /deleteButton\.hidden = !canDeleteProject\(\)/);
   assert.match(operationsJs, /Удалять объект может только Админ\./);
@@ -165,11 +167,12 @@ test('Reminder bell loads visible projects before showing what is urgent', () =>
   assert.match(appJs, /api\('\/api\/projects', \{ silentLoader: true \}\)/);
 });
 
-test('Employee contacts are visible while team mutations are admin-only', () => {
+test('Employee contacts are visible while team and access mutations stay role-protected', () => {
   assert.match(coreJs, /function canManageTeam\(\) \{\s*return hasRole\('admin'\) \|\| isMainAdminRole\(\);/);
   assert.match(serverPy, /"email": row\["email"\]/);
   assert.match(serverPy, /"phone": row\["phone"\]/);
-  assert.match(serverPy, /if not viewer or not user_is_main_admin\(viewer\):/);
+  assert.match(serverPy, /can_set_project_access = \([\s\S]+user_is_main_admin\(viewer\)[\s\S]+user_has_any_role\(viewer, \{"admin", "director"\}\)/);
+  assert.match(serverPy, /action not in \{"set_project_foremen", "set_access"\} and not user_is_main_admin\(viewer\)/);
   assert.doesNotMatch(serverPy, /viewer_roles & \{"admin", "director", "main_admin"\}/);
   assert.match(operationsJs, /var avatarUrl = safeAvatarUrl\(user\.avatarUrl \|\| user\.avatar_url \|\| user\.avatar \|\| ''\);/);
   assert.match(operationsJs, /'<div class="employee-profile-avatar" aria-hidden="true">' \+ avatar \+ '<\/div>'/);
@@ -183,7 +186,8 @@ test('Production schedule has a project tab, editable cells, and a sticky day ta
   assert.match(planningJs, /data-production-cell/);
   assert.match(planningJs, /action: 'set_cell'/);
   assert.match(planningJs, /action: 'recalculate'/);
-  assert.match(planningJs, /9 часов \/ человеко-день/);
+  assert.match(planningJs, /data-slot-number/);
+  assert.match(planningJs, /Объём работ/);
   assert.match(planningCss, /\.production-schedule-table/);
   assert.match(planningCss, /position: sticky/);
 });
@@ -192,7 +196,7 @@ test('Existing graph exposes shared work durations and an automatic reset', () =
   assert.match(planningJs, /data-graph-duration-input/);
   assert.match(planningJs, /section-schedule-override/);
   assert.match(planningJs, /data-graph-duration-reset/);
-  assert.match(planningJs, /item\.laborHours/);
+  assert.doesNotMatch(planningJs, /<small>Чел\/час<\/small>/);
   assert.match(planningJs, /item\.crewSize/);
 });
 

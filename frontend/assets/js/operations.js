@@ -9,6 +9,7 @@
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
     var safeReplaceChildren = PMBI.safeReplaceChildren;
+    var showSkeleton = PMBI.showSkeleton;
     var refreshLucideIcons = PMBI.refreshLucideIcons;
     var showAppNotice = PMBI.showAppNotice;
     var appErrorMessage = PMBI.appErrorMessage;
@@ -27,6 +28,7 @@
     var canViewPrivateContacts = PMBI.canViewPrivateContacts;
     var canManageDailyTasks = PMBI.canManageDailyTasks;
     var canManageSuppliers = PMBI.canManageSuppliers;
+    var canViewProjectEconomics = PMBI.canViewProjectEconomics || function () { return false; };
     var canDeleteProject = PMBI.canDeleteProject || function () { return hasRole('admin'); };
     var canSeeFinances = PMBI.canSeeFinances;
     var currentRoleLabel = PMBI.currentRoleLabel;
@@ -949,7 +951,9 @@
         options = options || {};
         var root = qs('[data-users-list]');
         if (!root) return Promise.resolve();
-        if (!options.silent) safeReplaceChildren(root, '');
+        if (!options.silent && (!root.children.length || qs('[data-pmbi-skeleton]', root))) {
+            showSkeleton(root, 'team', 3);
+        }
         return api('/api/users').then(function (data) {
             var users = Array.isArray(data.users) ? data.users : [];
             state.users = users;
@@ -967,15 +971,20 @@
         api('/api/dashboard').then(function (data) {
             var stats = qs('[data-dashboard-stats]');
             if (stats) {
+                var portfolio = data.portfolioEconomics || {};
+                var dashboardCashBalance = data.cashBalance;
                 stats.innerHTML =
                     stat('Объектов', data.projectsCount) +
                     stat('В работе', data.activeProjects) +
                     stat('Средний прогресс', data.avgProgress + '%') +
                     stat('Нехватки', data.shortagesCount, data.shortagesCount ? 'danger' : '') +
                     stat('Открытые задачи', data.openTasksCount) +
-                    stat('Бюджет', data.totalBudget == null ? 'Скрыто' : money(data.totalBudget)) +
-                    stat('Оплачено', data.totalPaid == null ? 'Скрыто' : money(data.totalPaid)) +
-                    stat('Маржа сейчас', data.profitNow == null ? 'Скрыто' : money(data.profitNow), data.profitNow < 0 ? 'danger' : '');
+                    (canViewProjectEconomics() ?
+                        stat('Договорная выручка', portfolio.contractRevenueNetKopecks == null ? 'Нет утверждённой базы' : money(Number(portfolio.contractRevenueNetKopecks) / 100)) +
+                        stat('Прогнозная маржа', portfolio.forecastMarginNetKopecks == null ? 'Нет актуального прогноза' : money(Number(portfolio.forecastMarginNetKopecks) / 100), Number(portfolio.forecastMarginNetKopecks || 0) < 0 ? 'danger' : '') +
+                        stat('Без финансовой базы', portfolio.unconfiguredProjects == null ? '—' : portfolio.unconfiguredProjects, Number(portfolio.unconfiguredProjects || 0) ? 'warn' : '') +
+                        stat('Прогноз требует внимания', portfolio.forecastAttentionProjects == null ? '—' : portfolio.forecastAttentionProjects, Number(portfolio.forecastAttentionProjects || 0) ? 'warn' : '') : '') +
+                    stat('Кассовый остаток', dashboardCashBalance == null ? 'Скрыто' : money(dashboardCashBalance), dashboardCashBalance < 0 ? 'danger' : '');
             }
             var critical = qs('[data-dashboard-critical]');
             if (critical) {
@@ -1237,8 +1246,6 @@
 
 
     function renderProjectOverviewHero(project) {
-        var budget = project.budget == null ? 'Скрыто ролью' : money(project.budget);
-        var paid = project.paid == null ? 'Скрыто ролью' : money(project.paid);
         var overviewStart = projectDisplayStartDate(project);
         var overviewDeadline = projectDisplayDeadlineDate(project);
         return '<section class="project-overview-hero ui-card">' +
@@ -1252,8 +1259,8 @@
             '<div class="data-grid project-overview-grid">' +
                 dataItem('Заказчик', project.client_name || 'Не указано') +
                 dataItem('Номер договора', project.contract_no || 'Не указано') +
-                dataItem('Бюджет', budget) +
-                dataItem('Оплачено', paid) +
+                dataItem('Экономика', 'См. раздел «Финансы»') +
+                dataItem('Дата договора', project.contract_date ? formatDisplayDate(project.contract_date) : '—') +
                 dataItem('Старт', overviewStart ? formatDisplayDate(overviewStart) : '—') +
                 dataItem('Дедлайн', overviewDeadline ? formatDisplayDate(overviewDeadline) : '—') +
                 dataItem('Город', project.city || 'Не указано') +
@@ -1280,7 +1287,7 @@
                     '<label class="wide"><span>Адрес</span><input name="address" required></label>' +
                     '<label><span>Статус</span><input name="status"></label>' +
                     '<label><span>Договор</span><input name="contract_no"></label>' +
-                    '<label><span>Бюджет</span><input name="budget" type="number" min="0" step="1"></label>' +
+                    '<input name="budget" type="hidden">' +
                     '<label><span>Старт</span><input name="started_at" type="date"></label>' +
                     '<label><span>Дедлайн</span><input name="deadline_at" type="date"></label>' +
                     '<label><span>Город</span><input name="city"></label>' +
@@ -1409,7 +1416,6 @@
                         address: project.address || '',
                         status: select.value,
                         contract_no: project.contract_no || '',
-                        budget: project.budget == null ? 0 : Number(project.budget || 0),
                         started_at: project.started_at || '',
                         deadline_at: project.deadline_at || '',
                         city: project.city || '',
@@ -1924,7 +1930,7 @@
 
     function setProjectTabMode(projectId, tab, mode) {
         if (!state.projectTabModesByProject[projectId]) state.projectTabModesByProject[projectId] = {};
-        state.projectTabModesByProject[projectId][tab] = mode === 'market' ? 'market' : 'list';
+        state.projectTabModesByProject[projectId][tab] = mode === 'market' || mode === 'table' ? mode : 'list';
     }
 
     function bindUserMenu() {
@@ -2469,7 +2475,7 @@
                         '<label class="wide"><span>Адрес</span><input name="address" required></label>' +
                         '<label><span>Статус</span><input name="status"></label>' +
                         '<label><span>Договор</span><input name="contract_no"></label>' +
-                        '<label><span>Бюджет</span><input name="budget" type="number" min="0" step="1"></label>' +
+                        '<input name="budget" type="hidden">' +
                         '<label><span>Старт</span><input name="started_at" type="date"></label>' +
                         '<label><span>Дедлайн</span><input name="deadline_at" type="date"></label>' +
                         '<label><span>Город</span><input name="city"></label>' +
@@ -2485,6 +2491,7 @@
             '</div>'
         );
         bindProjectEditOverlayClose(qs('[data-project-edit-card]'));
+        applyRoleVisibility(qs('[data-project-edit-card]'));
     }
 
     function closeProjectEditCard() {

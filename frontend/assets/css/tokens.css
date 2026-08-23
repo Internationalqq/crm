@@ -1,82 +1,111 @@
-/* Extracted from app.css: tokens. Keep app.css as the import entrypoint. */
+/* PM.bi semantic design tokens. Keep legacy aliases until feature CSS is migrated. */
 
 :root {
-    --bg: #f2f6fc;
-    --panel: #ffffff;
-    --ink: #1d2b44;
-    --muted: #6e7f98;
-    --line: #dbe5f1;
-    --green: #2f6fed;
-    --green-2: #5ea1ff;
-    --green-soft: #e9f2ff;
-    --orange: #d9822b;
-    --red: #b9473f;
-    --shadow: 0 12px 34px rgba(24, 50, 89, .08);
-    --base-radius: 8px;
-    --space-xs: 4px;
-    --space-sm: 8px;
-    --space-md: 16px;
-    --space-lg: 24px;
-    --border-muted: #e2e8f0;
-    --text-main: #1e293b;
-    --text-muted: #64748b;
-    --badge-success-bg: #e6f4ea;
-    --badge-success-text: #137333;
-    --badge-warn-bg: #fef7e0;
-    --badge-warn-text: #b06000;
-    --badge-danger-bg: #fce8e6;
-    --badge-danger-text: #c5221f;
-    --surface-main: #ffffff;
-    --surface-muted: #f8fafc;
-    --badge-neutral-bg: #f1f5f9;
+    color-scheme: light;
+
+    /* Typography */
+    --font-sans: Inter, "Segoe UI", Arial, sans-serif;
+    --text-xs: 11px;
+    --text-sm: 12px;
+    --text-md: 14px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --text-page-title: 28px;
+    --line-tight: 1.2;
+    --line-normal: 1.45;
+
+    /* Spacing */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-xs: var(--space-1);
+    --space-sm: var(--space-2);
+    --space-md: var(--space-4);
+    --space-lg: var(--space-5);
+
+    /* Blue-graphite product palette */
+    --color-canvas: #f3f6fb;
+    --color-surface: #ffffff;
+    --color-surface-subtle: #f8fafc;
+    --color-surface-accent: #eff6ff;
+    --color-surface-selected: #e8f1ff;
+    --color-text: #172033;
+    --color-text-secondary: #64748b;
+    --color-text-inverse: #ffffff;
+    --color-border: #dfe7f1;
+    --color-border-strong: #cbd7e6;
+    --color-accent: #2563eb;
+    --color-accent-hover: #1d4ed8;
+    --color-accent-strong: #173f78;
+    --color-accent-soft: #eaf2ff;
+    --color-sidebar: #f7f9fc;
+    --color-sidebar-deep: #ffffff;
+    --color-sidebar-active: #e8f1ff;
+
+    /* Semantic states. Warm hues are reserved for actual warnings only. */
+    --color-success: #15803d;
+    --color-success-soft: #edf9f0;
+    --color-success-border: #b9dfc6;
+    --color-warning: #c2410c;
+    --color-warning-soft: #fff7ed;
+    --color-warning-border: #fed7aa;
+    --color-danger: #b42318;
+    --color-danger-soft: #fef2f2;
+    --color-danger-border: #fecaca;
+
+    /* Shape, controls and elevation */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --control-height: 38px;
+    --control-height-sm: 34px;
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, .045);
+    --shadow-card-hover: 0 10px 24px rgba(15, 23, 42, .08);
+    --shadow-floating: 0 18px 44px rgba(15, 23, 42, .14), 0 2px 8px rgba(15, 23, 42, .06);
+    --focus-ring: 0 0 0 3px rgba(37, 99, 235, .16);
+    --motion-reveal-duration: 420ms;
+    --motion-reveal-easing: cubic-bezier(.4, 0, .2, 1);
+
+    /* Legacy aliases used throughout the current feature styles. */
+    --bg: var(--color-canvas);
+    --panel: var(--color-surface);
+    --ink: var(--color-text);
+    --muted: var(--color-text-secondary);
+    --line: var(--color-border);
+    --green: var(--color-accent);
+    --green-2: #60a5fa;
+    --green-soft: var(--color-accent-soft);
+    --blue: var(--color-accent-strong);
+    --blue-soft: var(--color-surface-accent);
+    --sand: var(--color-surface-subtle);
+    --orange: var(--color-warning);
+    --red: var(--color-danger);
+    --red-soft: var(--color-danger-soft);
+    --accent-main: var(--color-accent);
+    --surface-main: var(--color-surface);
+    --surface-muted: var(--color-surface-subtle);
+    --text-main: var(--color-text);
+    --text-muted: var(--color-text-secondary);
+    --border-muted: var(--color-border);
+    --border-hover: var(--color-border-strong);
+    --badge-neutral-bg: #eef2f7;
     --badge-neutral-text: #475569;
-    --border-hover: #cbd5e1;
-    --accent-main: #2563eb;
-}
-
-/* Compact CRM density layer */
-:root {
-    --shadow: 0 6px 18px rgba(26, 49, 42, .055);
-}
-
-/* Color refresh and clearer section separation */
-:root {
-    --bg: #f3f7fd;
-    --panel: #fbfdff;
-    --ink: #1c2c45;
-    --muted: #70829d;
-    --line: #d9e5f3;
-    --green: #2e6ee8;
-    --green-2: #67a8ff;
-    --green-soft: #e8f1ff;
-    --blue: #173f78;
-    --blue-soft: #e7f0ff;
-    --sand: #f5f9ff;
-    --orange: #d77a28;
-    --red: #c1493f;
-    --red-soft: #fff0ed;
-    --shadow: 0 8px 24px rgba(24, 48, 87, .08);
-}
-
-/* Stricter B2B radius layer */
-:root {
-    --radius-xs: 3px;
-    --radius-sm: 5px;
-    --radius-md: 7px;
-    --radius-lg: 9px;
-}
-
-/* Final UI consistency pass */
-:root {
-    --ui-radius-sm: 10px;
-    --ui-radius-md: 12px;
-    --ui-radius-lg: 14px;
-    --ui-control-height: 42px;
-    --ui-control-height-sm: 38px;
-}
-
-/* Dense workspace pass */
-:root {
-    --ui-control-height: 38px;
-    --ui-control-height-sm: 34px;
+    --badge-success-bg: var(--color-success-soft);
+    --badge-success-text: var(--color-success);
+    --badge-warn-bg: var(--color-warning-soft);
+    --badge-warn-text: var(--color-warning);
+    --badge-danger-bg: var(--color-danger-soft);
+    --badge-danger-text: var(--color-danger);
+    --base-radius: var(--radius-md);
+    --ui-radius-sm: var(--radius-sm);
+    --ui-radius-md: var(--radius-md);
+    --ui-radius-lg: var(--radius-lg);
+    --ui-control-height: var(--control-height);
+    --ui-control-height-sm: var(--control-height-sm);
+    --shadow: var(--shadow-card);
 }
