@@ -6,6 +6,7 @@
 
     var connectionTimer = null;
     var loadingHideTimer = null;
+    var frameMessageHandler = null;
 
     function refreshIcons(root) {
         if (PMBI.refreshLucideIcons) {
@@ -109,6 +110,11 @@
 
         root.dataset.autobotBound = '1';
         frame.dataset.autobotReady = '0';
+        frameMessageHandler = function (event) {
+            if (event.source !== frame.contentWindow || !event.data || event.data.type !== 'autobot:feature-modal') return;
+            document.body.classList.toggle('autobot-modal-open', event.data.open === true);
+        };
+        window.addEventListener('message', frameMessageHandler);
         frame.addEventListener('load', function () { handleFrameLoad(root, frame); });
         frame.addEventListener('error', function () {
             frame.dataset.autobotReady = '0';
@@ -139,6 +145,11 @@
     function cleanup() {
         clearConnectionTimer();
         clearLoadingHideTimer();
+        if (frameMessageHandler) {
+            window.removeEventListener('message', frameMessageHandler);
+            frameMessageHandler = null;
+        }
+        document.body.classList.remove('autobot-modal-open');
     }
 
     PMBI.autobot = { __loaded: true, init: init, cleanup: cleanup };

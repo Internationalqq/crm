@@ -15,7 +15,7 @@
 
     var SCRIPT_URLS = {
         app: '/assets/js/app.js?v=20260821-quantity-normalization-1-bulk-section-completion-1-crm-skeletons-1',
-        autobot: '/assets/js/autobot.js?v=20260821-autobot-workspace-1-crm-skeletons-1',
+        autobot: '/assets/js/autobot.js?v=20260823-autobot-modal-space-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260817-standup-inline-1',
         planning: '/assets/js/planning.js?v=20260821-multi-estimate-files-1-production-halfday-1-price-table-4-sticky-viewport-1-bulk-section-completion-1-crm-skeletons-1',
         procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1',

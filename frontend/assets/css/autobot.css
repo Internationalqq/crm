@@ -10,6 +10,54 @@ body[data-page="autobot"] main.content {
         var(--color-canvas);
 }
 
+/* AutoBot owns its scrolling area, so the CRM header must stay in the page flow. */
+body[data-page="autobot"] .main {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+}
+
+body[data-page="autobot"] .topbar {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+body[data-page="autobot"] main.content {
+    min-height: 0;
+    height: auto;
+    padding-top: 18px !important;
+}
+
+body[data-page="autobot"].autobot-topbar-hidden .topbar {
+    transform: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* A feature dialog inside AutoBot receives the whole viewport, not a cropped iframe. */
+body[data-page="autobot"].autobot-modal-open .main {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+body[data-page="autobot"].autobot-modal-open .topbar,
+body[data-page="autobot"].autobot-modal-open .autobot-workspace-head {
+    display: none !important;
+}
+
+body[data-page="autobot"].autobot-modal-open main.content {
+    padding: 0 !important;
+}
+
+body[data-page="autobot"].autobot-modal-open .autobot-stage {
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+}
+
 body[data-page="autobot"] .autobot-stage {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
