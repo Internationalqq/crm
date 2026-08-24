@@ -50,12 +50,12 @@
     ].join(', ');
 
     var MODES = [
-        { key: 'baseline', label: 'База', icon: 'landmark' },
-        { key: 'commitments', label: 'Обязательства', icon: 'file-check-2' },
-        { key: 'actual', label: 'Факт', icon: 'clipboard-check' },
-        { key: 'cash', label: 'Разнесение', icon: 'split' },
-        { key: 'forecast', label: 'Прогноз', icon: 'chart-no-axes-combined' },
-        { key: 'legacy', label: 'Legacy', icon: 'archive-restore' }
+        { key: 'baseline', step: '01', label: 'Плановая база', description: 'Выручка и лимиты', icon: 'landmark' },
+        { key: 'commitments', step: '02', label: 'Обязательства и заказы', description: 'Договоры и закупки', icon: 'file-check-2' },
+        { key: 'actual', step: '03', label: 'Выполнение', description: 'Принятые затраты', icon: 'clipboard-check' },
+        { key: 'cash', step: '04', label: 'Связь с оплатой', description: 'Разнесение денег', icon: 'split' },
+        { key: 'forecast', step: '05', label: 'Итоговый прогноз', description: 'ETC, EAC и маржа', icon: 'chart-no-axes-combined' },
+        { key: 'legacy', step: '••', label: 'Перенос данных', description: 'Разбор Legacy', icon: 'archive-restore' }
     ];
 
     var STATUS_LABELS = {
@@ -1049,9 +1049,9 @@
         }
         var mode = projectUi(projectId).mode;
         return '<section class="economics-management ui-card" data-economics-management data-project-id="' + projectId + '">' +
-            '<div class="econ-management-head"><div><span class="section-label">Контур управления</span><h3>Управленческая экономика объекта</h3><p>Версионируемая база, обязательства, начисленный факт, разнесение денег и прогноз — без смешения понятий.</p></div><button class="ghost compact" type="button" data-econ-refresh><i data-lucide="refresh-cw"></i><span>Обновить</span></button></div>' +
+            '<div class="econ-management-head"><div><span class="section-label">Путь данных от плана до прогноза</span><h3>Управленческая экономика объекта</h3><p>Работайте слева направо: утвердите план, зафиксируйте заказы и выполнение, затем свяжите оплаты и пересчитайте итог.</p></div><button class="ghost compact" type="button" data-econ-refresh><i data-lucide="refresh-cw"></i><span>Обновить данные</span></button></div>' +
             '<nav class="econ-management-tabs" aria-label="Разделы экономики">' + MODES.map(function (item) {
-                return '<button type="button" class="' + (item.key === mode ? 'active' : '') + '" data-econ-mode="' + item.key + '"><i data-lucide="' + item.icon + '"></i><span>' + item.label + '</span></button>';
+                return '<button type="button" class="' + (item.key === mode ? 'active' : '') + '" data-econ-mode="' + item.key + '"><b>' + item.step + '</b><i data-lucide="' + item.icon + '"></i><span>' + item.label + '<small>' + item.description + '</small></span></button>';
             }).join('') + '</nav>' +
             '<div class="econ-management-body" data-econ-management-body>' + renderMode(projectId, cacheByProject[key], mode) + '</div>' +
         '</section>';

@@ -64,7 +64,6 @@
     function rerenderProjectMarketTab() { return appCall('rerenderProjectMarketTab', arguments); }
     function refreshCounterpartyProjectViews() { return appCall('refreshCounterpartyProjectViews', arguments); }
     function bindProjectMarketToggles() { return appCall('bindProjectMarketToggles', arguments); }
-    function materialRow() { return appCall('materialRow', arguments); }
     function getProjectTabMode() { return appCall('getProjectTabMode', arguments); }
     function setProjectTabMode() { return appCall('setProjectTabMode', arguments); }
     function loadProjectMarketAnalysis() { return appCall('loadProjectMarketAnalysis', arguments); }
@@ -76,8 +75,6 @@
     function renderMaterialManualCheck() { return appCall('renderMaterialManualCheck', arguments); }
     function renderWorkManualCheck() { return appCall('renderWorkManualCheck', arguments); }
     function renderBulkSectionCheckbox() { return appCall('renderBulkSectionCheckbox', arguments); }
-    function sectionProgressStrip() { return appCall('sectionProgressStrip', arguments); }
-    function sectionPresenceBadge() { return appCall('sectionPresenceBadge', arguments); }
     function finalSectionWorkDigest() { return appCall('finalSectionWorkDigest', arguments); }
     function finalGraphDate() { return appCall('finalGraphDate', arguments); }
     function finalSectionSummaryNumber(value) {
@@ -307,6 +304,20 @@
         '</header>';
     }
 
+    function renderWorkProgressStrip(workProgress, sectionId) {
+        workProgress = workProgress || { total: 0, done: 0, percent: 0 };
+        var total = Number(workProgress.total || 0);
+        var done = Number(workProgress.done || 0);
+        var percentValue = total ? percent(workProgress.percent != null ? workProgress.percent : Math.round((done / total) * 100)) : 0;
+        var normalizedSectionId = canonicalEstimateSectionId(sectionId);
+        return '<div class="estimate-section-progress-strip estimate-section-progress-split estimate-section-progress-work-only" data-progress-split-section="' + escapeHtml(normalizedSectionId) + '">' +
+            '<div class="estimate-section-progress-line estimate-section-progress-line-work" data-progress-section-id="' + escapeHtml(normalizedSectionId) + '" data-section-progress="' + escapeHtml(normalizedSectionId) + '" data-section-progress-kind="work" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percentValue + '">' +
+                '<div class="estimate-section-progress-line-head"><strong>Работы</strong><span data-progress-count>' + escapeHtml(total ? (String(done) + ' из ' + String(total)) : 'Позиций нет') + '</span></div>' +
+                '<div class="section-schedule-progress-bar"><span style="width:' + percentValue + '%"></span>' + (total ? '<b class="section-schedule-progress-value" data-progress-text>' + escapeHtml(String(percentValue)) + '%</b>' : '') + '</div>' +
+            '</div>' +
+        '</div>';
+    }
+
     function renderSectionScheduleRow(project, section) {
         section = section || {};
         var sectionTitle = canonicalEstimateSectionTitle(section.title || '');
@@ -320,23 +331,9 @@
             });
             console.log('Физически будет отрисовано позиций:', allWorkItems.length, section.title || '');
         }
-        var sectionEstimateKey = estimateSourceIdentity(section);
-        var allSectionMaterials = (state.materialsByProject && state.materialsByProject[project.id] || []).filter(function (item) {
-            var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
-            return kind !== 'work' && estimateSourceIdentity(item) === sectionEstimateKey && canonicalEstimateSectionId(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId)) === canonicalEstimateSectionId(sectionTitle);
-        });
-        var insights = state.materialInsightsByProject[project.id] || {};
         var visibleItems = allWorkItems;
-        var sectionMaterials = allSectionMaterials;
         var workProgress = workProgressForRows(project.id, sectionTitle, allWorkItems);
-        var materialProgressValue = materialProgress(project.id, allSectionMaterials);
-        var totalProgressItems = workProgress.total + materialProgressValue.total;
-        var doneProgressItems = workProgress.done + materialProgressValue.done;
-        var progress = {
-            total: totalProgressItems,
-            done: doneProgressItems,
-            percent: totalProgressItems ? Math.round((doneProgressItems / totalProgressItems) * 100) : 0
-        };
+        var progress = workProgress;
         var isOpen = isScheduleSectionOpen(project.id, section, false);
         var digest = finalSectionWorkDigest(section);
         var allStages = state.stagesByProject[project.id] || [];
@@ -359,11 +356,7 @@
         }).join('');
         var workDetails = stageDetails + estimateWorkDetails;
         if (!workDetails) workDetails = '<div class="section-schedule-empty inline">Работ в разделе пока нет.</div>';
-        var materialDetails = sectionMaterials.map(function (item) {
-            return materialRow(item, project.id, insights[Number(item.id)] || null);
-        }).join('') || '<div class="section-schedule-empty inline">Материалов в разделе пока нет.</div>';
-        var details = '<div class="section-schedule-detail-grid">' +
-            '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b</strong><span>' + escapeHtml(String(materialProgressValue.done) + ' из ' + String(materialProgressValue.total)) + '</span></div><div class="section-schedule-detail-list">' + materialDetails + '</div></section>' +
+        var details = '<div class="section-schedule-detail-grid is-work-only">' +
             '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u0420\u0430\u0431\u043e\u0442\u044b</strong><span>' + escapeHtml(String(workProgress.done) + ' из ' + String(workProgress.total)) + '</span></div><div class="section-schedule-detail-list">' + workDetails + '</div></section>' +
         '</div>';
         return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + (isOpen ? ' is-open' : '') + '">' +
@@ -371,12 +364,11 @@
                 '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + escapeHtml(project.id) + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
                     '<div class="section-schedule-summary-head">' +
                         '<div class="section-schedule-summary-copy">' +
-                            '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, sectionTitle, 'schedule', progress) + '<div class="section-schedule-title"><h4>' + escapeHtml(sectionTitle) + '</h4></div></div>' +
-                            '<div class="section-schedule-presence">' + sectionPresenceBadge('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress) + sectionPresenceBadge('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue) + '</div>' +
+                            '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, sectionTitle, 'work', progress) + '<div class="section-schedule-title"><h4>' + escapeHtml(sectionTitle) + '</h4></div></div>' +
                         '</div>' +
                         '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
                     '</div>' +
-                    sectionProgressStrip(workProgress, materialProgressValue, sectionTitle) +
+                    renderWorkProgressStrip(workProgress, sectionTitle) +
                     (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
                 '</div>' +
                 renderScheduleSectionDetailsShell(isOpen, details) +
@@ -454,19 +446,20 @@
 
     function renderProjectScheduleViewSwitcher(project) {
         if (hasRole('customer')) {
-            return '<div class="project-schedule-view-switcher market-toolbar"><div><h3>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u0438 \u0440\u0430\u0431\u043e\u0442\u044b</h3><p>\u0420\u0430\u0431\u043e\u0442\u044b \u0438 \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u043f\u043e \u0440\u0430\u0437\u0434\u0435\u043b\u0430\u043c \u0441\u043c\u0435\u0442\u044b \u0441 \u0444\u0430\u043a\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u043c \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441\u043e\u043c.</p></div></div>';
+            return '<div class="project-schedule-view-switcher market-toolbar"><div><h3>\u0420\u0430\u0431\u043e\u0442\u044b</h3><p>\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0440\u0430\u0437\u0434\u0435\u043b\u0430\u043c \u0441\u043c\u0435\u0442\u044b \u0441 \u0444\u0430\u043a\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u043c \u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441\u043e\u043c.</p></div></div>';
         }
         var mode = projectScheduleViewMode(project.id);
         var marketLabel = 'Анализ рынка';
+        var heading = mode === 'list' ? 'Работы' : 'Материалы и работы';
         var description = mode === 'list'
-            ? 'Работы и материалы по разделам сметы с фактическим прогрессом.'
+            ? 'Работы по разделам сметы с фактическим прогрессом.'
             : (mode === 'table'
-                ? 'Сводная смета с объёмом, ценой за единицу и общей стоимостью.'
+                ? 'Сводная смета материалов и работ с объёмом, ценой за единицу и общей стоимостью.'
                 : (canViewProcurementPrices()
                     ? 'Цены, предложения, поставщики и подрядчики по позициям сметы.'
                     : 'Позиции сметы и поле для вашего ценового предложения.'));
         return '<div class="project-schedule-view-switcher market-toolbar">' +
-            '<div><h3>Материалы и работы</h3><p>' + description + '</p></div>' +
+            '<div><h3>' + heading + '</h3><p>' + description + '</p></div>' +
             '<div class="segmented compact" data-project-schedule-switcher>' +
                 '<button type="button" class="' + (mode === 'list' ? 'active' : '') + '" data-project-schedule-mode="list">По разделам</button>' +
                 '<button type="button" class="' + (mode === 'market' ? 'active' : '') + '" data-project-schedule-mode="market">' + marketLabel + '</button>' +
@@ -602,6 +595,7 @@
         var isWork = kind === 'work';
         var noun = isWork ? 'Работы' : 'Материалы';
         var itemLabel = isWork ? 'Работа' : 'Материал';
+        var counterpartyPriceLabel = isWork ? 'Цена подрядчика' : 'Цена закупщика';
         var rows = projectPriceTableRowsWithMarket(projectId, kind, projectPriceTableEstimateRows(projectId, kind));
         var sectionGroups = projectPriceTableSectionGroups(rows);
         var body = '';
@@ -621,7 +615,7 @@
                         '<th>Цена за ед.</th>' +
                         '<th>Цена общая</th>' +
                         '<th><span>Цена ИИ</span><small>анализ рынка</small></th>' +
-                        '<th>Цена закупщика</th>' +
+                        '<th>' + counterpartyPriceLabel + '</th>' +
                     '</tr></thead>' +
                     '<tbody>' + sectionGroups.map(function (group) {
                         return '<tr class="project-price-table-section-row"><td colspan="6"><span><b>' + escapeHtml(group.title) + '</b><small>' + group.rows.length + ' поз.</small></span></td></tr>' +
@@ -633,7 +627,7 @@
                                     '<td data-label="Цена за ед.">' + projectPriceTableMoney(row.estimateUnitPrice, 'Не указана') + '</td>' +
                                     '<td data-label="Цена общая">' + projectPriceTableMoney(row.estimateTotal, 'Не рассчитана') + '</td>' +
                                     '<td data-label="Цена ИИ">' + projectPriceTableMarketCell(row) + '</td>' +
-                                    '<td data-label="Цена закупщика">' + projectPriceTablePurchaserCell(row) + '</td>' +
+                                    '<td data-label="' + counterpartyPriceLabel + '">' + projectPriceTablePurchaserCell(row) + '</td>' +
                                 '</tr>';
                             }).join('');
                     }).join('') + '</tbody>' +
@@ -690,25 +684,28 @@
 
     function renderSchedulePanel(stages, project) {
         stages = Array.isArray(stages) ? stages : [];
-        var drawer = renderAutoScheduleDrawer(project);
         var topBar = project ? '<section class="schedule-project-topbar">' +
             '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
-            (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="calendar-cog" aria-hidden="true"></i><span>Автоплан графика</span></button>' : '') +
         '</section>' : '';
         var switcher = project ? renderProjectScheduleViewSwitcher(project) : '';
         if (project && projectScheduleViewMode(project.id) === 'market') {
-            return drawer + topBar + switcher + renderProjectScheduleMarketAnalysis(project);
+            return topBar + switcher + renderProjectScheduleMarketAnalysis(project);
         }
         if (project && projectScheduleViewMode(project.id) === 'table') {
-            return drawer + topBar + switcher + renderProjectSchedulePriceTables(project);
+            return topBar + switcher + renderProjectSchedulePriceTables(project);
         }
         var forecast = renderSectionScheduleForecast(project);
-        return drawer + topBar + switcher + forecast + renderAdditionalProjectStages(stages, project);
+        return topBar + switcher + forecast + renderAdditionalProjectStages(stages, project);
     }
 
     function renderProjectCalendarPanel(project) {
         if (!project || hasRole('customer')) return '';
-        return renderMaterialScheduleContainer(project.id);
+        return renderAutoScheduleDrawer(project) +
+            '<section class="schedule-project-topbar calendar-project-topbar">' +
+                '<div class="schedule-project-topbar-copy"><h3>Календарь объекта</h3><span class="muted">Даты работ, закупок и поставок по объекту.</span></div>' +
+                (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="calendar-cog" aria-hidden="true"></i><span>Автоплан графика</span></button>' : '') +
+            '</section>' +
+            renderMaterialScheduleContainer(project.id);
     }
 
     function ensureProjectScheduleMarketAnalysis(projectId, force) {
@@ -950,7 +947,7 @@
                     setMaterialScheduleForProject(activeProjectId, schedule || { items: [] });
                     try {
                         openProject(activeProjectId);
-                        activateProjectTab('schedule');
+                        activateProjectTab('calendar');
                         loadMaterialSchedule(activeProjectId, function (freshSchedule) {
                             var details = scheduleProjectDetails(activeProjectId);
                             if (details) {
@@ -1896,27 +1893,12 @@
 
     function scheduleSectionProgress(projectId, section) {
         var sectionTitle = canonicalEstimateSectionTitle(section && (section.title || section.sectionId));
-        var sectionKey = canonicalEstimateSectionId(sectionTitle);
-        var estimateKey = estimateSourceIdentity(section);
-        var materialItems = (state.materialsByProject && state.materialsByProject[projectId] || []).filter(function (item) {
-            var kind = String(item && (item.itemKind || item.item_kind || 'material')).toLowerCase();
-            return kind !== 'work' && estimateSourceIdentity(item) === estimateKey && canonicalEstimateSectionId(item && (item.sectionTitle || item.section_title || item.stageTitle || item.sectionId)) === sectionKey;
-        });
-        qsa('[data-role-create-open]').forEach(function (button) {
-            if (button.dataset.roleCreateOpenBound === '1') return;
-            button.dataset.roleCreateOpenBound = '1';
-            button.addEventListener('click', openRoleCreateModal);
-        });
         var workItems = liveScheduleSectionItems(section);
-        var materialValue = materialProgress(projectId, materialItems);
         var workValue = workProgressForRows(projectId, sectionTitle, workItems);
-        var total = materialValue.total + workValue.total;
-        var done = materialValue.done + workValue.done;
         return {
-            total: total,
-            done: done,
-            percent: total ? Math.round((done / total) * 100) : 0,
-            materials: materialValue,
+            total: workValue.total,
+            done: workValue.done,
+            percent: workValue.percent,
             works: workValue
         };
     }
@@ -2550,7 +2532,7 @@
                     endDate: item.stageEndDate
                 },
                 supplier: null,
-                materialUrl: '/app/projects?openProject=' + projectId + '&tab=schedule&materialId=' + item.id
+                materialUrl: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + item.id
             };
         }).sort(function (a, b) {
             return String(a.deadlineDate || '9999-12-31').localeCompare(String(b.deadlineDate || '9999-12-31')) || String(a.purchaseStartDate || '9999-12-31').localeCompare(String(b.purchaseStartDate || '9999-12-31')) || String(a.title).localeCompare(String(b.title));
@@ -3104,8 +3086,13 @@
             var materialId = goto.getAttribute('data-material-id') || '';
             closeDayMaterialsModal();
             window.setTimeout(function () {
-                if (state.selectedProject && Number(state.selectedProject.id) === projectId) activateProjectTab('schedule');
-                focusProjectMaterialRow(materialId, projectId);
+                if (!state.selectedProject || Number(state.selectedProject.id) !== projectId) return;
+                activateProjectTab('warehouse-control');
+                if (PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+                    PMBI.warehouseControl.load(projectId, false).then(function () {
+                        PMBI.warehouseControl.focusMaterial(materialId, projectId);
+                    }).catch(function () {});
+                }
             }, 220);
         });
         modal.addEventListener('keydown', function (event) {
@@ -3255,7 +3242,7 @@
                 dataItem('Поставщик', supplier) +
             '</div>' +
             '<div class="material-schedule-drawer-actions">' +
-                '<button class="primary compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">К материалу</button>' +
+                '<button class="primary compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">Открыть на складе</button>' +
                 (item.relatedWork && item.relatedWork.title ? '<button class="ghost compact" type="button" data-material-schedule-work>К работам</button>' : '') +
             '</div>';
         document.body.appendChild(drawer);
@@ -3290,7 +3277,7 @@
             '<div class="material-schedule-drawer-actions">' +
                 '<button class="primary compact" type="button" data-material-schedule-mark-purchased data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '"' + (Number(item.missingQty || 0) <= 0 ? ' disabled' : '') + '>Отметить как закуплено</button>' +
                 '<button class="ghost compact" type="button" data-material-schedule-save-delivery data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">Сохранить срок</button>' +
-                '<button class="ghost compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">К материалу</button>' +
+                '<button class="ghost compact" type="button" data-material-schedule-goto data-project-id="' + escapeHtml(projectId) + '" data-material-id="' + escapeHtml(materialId) + '">Открыть на складе</button>' +
                 (item.relatedWork && item.relatedWork.title ? '<button class="ghost compact" type="button" data-material-schedule-work>К работам</button>' : '') +
             '</div>';
         document.body.appendChild(drawer);
@@ -3414,6 +3401,7 @@
         if (state.isMaterialScheduleRendering) return;
         if (!state.selectedProject || hasRole('customer') || !isSelectedProjectScheduleTabActive()) return;
         var projectId = state.selectedProject.id;
+        bindAutoScheduleForm(projectId);
         replaceSelectedProjectMaterialCalendar(projectId);
         loadMaterialSchedule(projectId, function () {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId) || !isSelectedProjectScheduleTabActive()) return;
@@ -3584,11 +3572,15 @@
                 var gotoMaterialId = goto.getAttribute('data-material-id') || '';
                 closeMaterialScheduleDrawer();
                 if (!state.selectedProject || Number(state.selectedProject.id) !== gotoProjectId) {
-                    location.href = '/app/projects?openProject=' + gotoProjectId + '&tab=schedule&materialId=' + encodeURIComponent(gotoMaterialId);
+                    location.href = '/app/projects?openProject=' + gotoProjectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(gotoMaterialId);
                     return;
                 }
-                activateProjectTab('schedule');
-                setTimeout(function () { focusProjectMaterialRow(gotoMaterialId); }, 80);
+                activateProjectTab('warehouse-control');
+                if (PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+                    PMBI.warehouseControl.load(gotoProjectId, false).then(function () {
+                        PMBI.warehouseControl.focusMaterial(gotoMaterialId, gotoProjectId);
+                    }).catch(function () {});
+                }
                 return;
             }
             var work = event.target && event.target.closest ? event.target.closest('[data-material-schedule-work]') : null;

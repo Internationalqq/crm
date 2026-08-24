@@ -620,10 +620,12 @@ body[data-page="projects"] .project-detail-nav .tabs {
     gap: var(--space-1);
     min-width: 0;
     margin: 0;
-    padding: 0 0 2px;
+    padding: 4px;
     overflow-x: auto;
     overflow-y: hidden;
-    border: 0 !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, #f8fbff, #f3f7fc);
     scrollbar-width: thin;
     scrollbar-color: var(--color-border-strong) transparent;
     scroll-snap-type: x proximity;
@@ -632,6 +634,10 @@ body[data-page="projects"] .project-detail-nav .tabs {
 body[data-page="projects"] .project-detail-nav .tab {
     flex: 0 0 auto;
     min-height: var(--control-height);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
     padding: 0 var(--space-3) !important;
     border: 1px solid transparent !important;
     border-radius: var(--radius-sm) !important;
@@ -642,23 +648,51 @@ body[data-page="projects"] .project-detail-nav .tab {
     white-space: nowrap;
     box-shadow: none !important;
     scroll-snap-align: start;
-    transition: border-color .16s ease, background-color .16s ease, color .16s ease !important;
+    transition: border-color .16s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease !important;
+}
+
+body[data-page="projects"] .project-detail-nav .tab svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    color: #7185a1;
+    stroke-width: 2;
+    transition: color .16s ease, transform .16s ease;
+}
+
+body[data-page="projects"] .project-detail-nav .tab:is([data-tab="overview"], [data-tab="schedule"], [data-tab="warehouse-control"]) {
+    font-weight: 760 !important;
 }
 
 body[data-page="projects"] .project-detail-nav .tab:hover {
     transform: none !important;
-    border-color: var(--color-border) !important;
-    background: var(--color-surface-subtle) !important;
+    border-color: #d4e0ee !important;
+    background: rgba(255, 255, 255, .78) !important;
     color: var(--color-text) !important;
-    box-shadow: none !important;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, .05) !important;
+}
+
+body[data-page="projects"] .project-detail-nav .tab:hover svg {
+    color: var(--color-accent);
+    transform: translateY(-1px);
 }
 
 body[data-page="projects"] .project-detail-nav .tab.active,
 body[data-page="projects"] .project-detail-nav .tab.active:hover {
-    border-color: #cfe0f7 !important;
-    background: var(--color-surface-selected) !important;
+    border-color: #bfd5f2 !important;
+    background: linear-gradient(180deg, #ffffff, #edf5ff) !important;
     color: var(--color-accent-hover) !important;
-    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .04) !important;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, .10), inset 0 0 0 1px rgba(37, 99, 235, .04) !important;
+}
+
+body[data-page="projects"] .project-detail-nav .tab.active svg,
+body[data-page="projects"] .project-detail-nav .tab.active:hover svg {
+    color: var(--color-accent-hover);
+    transform: none;
+}
+
+body[data-page="projects"] .project-detail-nav .tab[data-tab="estimate-reconciliation"] {
+    margin-left: var(--space-1);
 }
 
 body[data-page="projects"] [data-project-detail] > .tab-panel.active {
@@ -1558,6 +1592,10 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estima
     margin-top: var(--space-2);
 }
 
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-work-only {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line {
     position: relative;
     display: grid;
@@ -1643,6 +1681,10 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-3);
     padding-top: var(--space-3);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-grid.is-work-only {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-column {

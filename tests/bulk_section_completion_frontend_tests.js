@@ -20,11 +20,11 @@ assert.match(bulkBlock, /updateMaterialScheduleItemDom\(materialItem\.id, checke
 assert.match(appJs, /completeBulkSectionLocally\(scope, checked\);\s*input\.indeterminate = false;\s*updateBulkSectionCheckState\(scope\)/);
 assert.match(appJs, /function workMatchingKeys[\s\S]*?keys\.push\('id\|' \+ String\(item\.id\)\)[\s\S]*?keys\.push\(scheduleWorkKey\(sectionTitle, item\)\)/);
 assert.match(appJs, /renderBulkSectionCheckbox\(projectId, title, 'works', sectionProgress\)/);
-assert.match(planningJs, /renderBulkSectionCheckbox\(project\.id, sectionTitle, 'schedule', progress\)/);
+assert.match(planningJs, /renderBulkSectionCheckbox\(project\.id, sectionTitle, 'work', progress\)/);
 assert.match(planningJs, /if \(forcedOpen\) return false;\s*if \(item && \(item\.isCompleted \|\| item\.is_completed\)\) return true/);
 assert.match(planningJs, /entry\.isCompleted = !!isDone/);
 assert.match(routerJs, /app\.js\?v=[^']*bulk-section-completion-1/);
 assert.match(routerJs, /planning\.js\?v=[^']*bulk-section-completion-1/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*bulk-section-completion-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*works-only-1/);
 
 console.log('bulk_section_completion_frontend_ok');

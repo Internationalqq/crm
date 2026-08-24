@@ -2201,42 +2201,6 @@
         });
     }
 
-    function loadTasks(projectId) {
-        api('/api/projects/' + projectId + '/tasks').then(function (data) {
-            var tasks = Array.isArray(data.tasks) ? data.tasks : [];
-            qs('[data-panel="tasks"]').innerHTML = renderTasks(tasks, projectId);
-            bindTaskForm(projectId);
-        }).catch(function () {
-            qs('[data-panel="tasks"]').innerHTML = '<p class="muted">Задачи недоступны для этой роли.</p>';
-        });
-    }
-
-    function renderTasks(tasks, projectId) {
-        var list = tasks.length ? tasks.map(function (task) {
-            return '<div class="material-row"><div><b>' + escapeHtml(task.title) + '</b><small>' + escapeHtml(task.description || '') + ' • Срок: ' + escapeHtml(task.due_at || '—') + '</small></div><span class="badge ' + (task.priority === 'high' ? 'danger' : '') + '">' + escapeHtml(statusLabel(task.status)) + '</span></div>';
-        }).join('') : '<p class="muted">Задач пока нет.</p>';
-        return '<div class="materials-list">' + list + '</div>' +
-            '<form class="inline-form" data-task-form data-project-id="' + projectId + '">' +
-                '<input name="title" placeholder="Новая задача">' +
-                '<button type="submit">Добавить</button>' +
-            '</form>';
-    }
-
-    function bindTaskForm(projectId) {
-        var form = qs('[data-task-form]');
-        if (!form) return;
-        form.addEventListener('submit', function (event) {
-            event.preventDefault();
-            if (!form.title.value.trim()) return;
-            api('/api/projects/' + projectId + '/tasks', {
-                method: 'POST',
-                body: JSON.stringify({ title: form.title.value.trim(), priority: 'normal' })
-            }).then(function () {
-                loadTasks(projectId);
-            });
-        });
-    }
-
     function loadProjectNotifications(projectId, callback) {
         api('/api/projects/' + projectId + '/notifications').then(function (data) {
             callback(data || null);
@@ -2245,7 +2209,31 @@
         });
     }
 
+    var taskViewState = {
+        projectId: null,
+        query: '',
+        assignee: 'all',
+        priority: 'all',
+        deadline: 'all'
+    };
+
+    function canCreateProjectTask() {
+        return hasRole('admin') || hasRole('director');
+    }
+
+    function resetTaskViewState(projectId) {
+        if (Number(taskViewState.projectId) === Number(projectId)) return;
+        taskViewState = {
+            projectId: projectId,
+            query: '',
+            assignee: 'all',
+            priority: 'all',
+            deadline: 'all'
+        };
+    }
+
     function loadTasks(projectId, loadingToken) {
+        resetTaskViewState(projectId);
         api('/api/projects/' + projectId + '/tasks').then(function (data) {
             if (!isCurrentProject(projectId, loadingToken)) return;
             var tasks = Array.isArray(data.tasks) ? data.tasks : [];
@@ -2255,13 +2243,15 @@
                     safeReplaceChildren(qs('[data-panel="tasks"]'), renderTasks(tasks, projectId, users, notifications));
                     bindTaskForm(projectId);
                     bindTaskEditors(projectId);
+                    bindTaskFilters(projectId);
                     initTaskDragAndDrop(projectId);
                     if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
                 });
             });
         }).catch(function () {
             if (!isCurrentProject(projectId, loadingToken)) return;
-            safeReplaceChildren(qs('[data-panel="tasks"]'), '<p class="muted">Задачи недоступны для этой роли.</p>');
+            safeReplaceChildren(qs('[data-panel="tasks"]'), '<section class="task-access-state"><i data-lucide="shield-alert" aria-hidden="true"></i><div><b>Раздел задач недоступен</b><span>У вашей роли нет доступа к задачам этого объекта.</span></div></section>');
+            if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
         });
     }
 
@@ -2274,31 +2264,67 @@
         var open = tasks.filter(function (task) { return task.status === 'open'; }).length;
         var review = tasks.filter(function (task) { return task.status === 'review'; }).length;
         var done = tasks.filter(function (task) { return task.status === 'done'; }).length;
-        var summary = '<div class="execution-summary">' +
-            stat('Задач всего', String(tasks.length)) +
-            stat('Бэклог', String(open), open ? 'warn' : '') +
-            stat('В работе', String(inProgress), inProgress ? 'warn' : '') +
-            stat('Проверка', String(review), review ? 'warn' : '') +
-            stat('Готово', String(done), done ? 'success' : '') +
-            stat('Просрочены', String(overdue), overdue ? 'danger' : '') +
-        '</div>';
+        var completion = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+        var canCreate = canCreateProjectTask();
+        var header = '<header class="task-workspace-head">' +
+            '<div class="task-workspace-title">' +
+                '<span class="task-workspace-kicker"><i data-lucide="list-checks" aria-hidden="true"></i> Управление работой</span>' +
+                '<h2>Задачи объекта</h2>' +
+                '<p>Планируйте работу, назначайте ответственных и двигайте карточки между этапами.</p>' +
+            '</div>' +
+            (canCreate ? '<button class="primary task-create-toggle" type="button" data-task-create-toggle><i data-lucide="plus" aria-hidden="true"></i><span>Новая задача</span></button>' : '') +
+        '</header>';
+        var summary = '<section class="task-overview" aria-label="Сводка по задачам">' +
+            '<div class="task-progress-card">' +
+                '<div class="task-progress-copy"><span>Готовность задач</span><strong>' + completion + '%</strong><small>' + done + ' из ' + tasks.length + ' завершено</small></div>' +
+                '<div class="task-progress-track" role="progressbar" aria-label="Готовность задач" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + completion + '"><i style="width:' + completion + '%"></i></div>' +
+            '</div>' +
+            '<div class="task-metrics">' +
+                renderTaskMetric('Всего', tasks.length, 'layers-3', '') +
+                renderTaskMetric('В очереди', open, 'circle-dashed', '') +
+                renderTaskMetric('В работе', inProgress, 'loader-circle', 'is-active') +
+                renderTaskMetric('На проверке', review, 'scan-eye', '') +
+                renderTaskMetric('Просрочено', overdue, 'alarm-clock', overdue ? 'is-danger' : '') +
+            '</div>' +
+        '</section>';
         var alerts = renderTaskAlerts(notifications);
-        var board = renderTaskBoard(tasks, users || []);
-        var createAction = hasRole('customer') ? '' : '<div class="tasks-top-actions"><button class="primary compact task-create-toggle" type="button" data-task-create-toggle><i data-lucide="plus-circle"></i><span>Добавить</span></button></div>';
-        var createModal = hasRole('customer') ? '' : renderTaskCreateModal(projectId, users || []);
-        return '<section class="tasks-ui">' + createAction + createModal + summary + alerts + board + '</section>';
+        var filters = tasks.length ? renderTaskFilters(users || [], tasks.length) : '';
+        var board = renderTaskBoard(tasks, users || [], canCreate);
+        var createModal = canCreate ? renderTaskCreateModal(projectId, users || []) : '';
+        return '<section class="tasks-ui" data-task-workspace data-project-id="' + escapeHtml(projectId) + '">' + header + summary + alerts + filters + board + createModal + '</section>';
+    }
+
+    function renderTaskMetric(label, value, icon, kind) {
+        return '<div class="task-metric ' + escapeHtml(kind || '') + '">' +
+            '<span class="task-metric-icon"><i data-lucide="' + escapeHtml(icon) + '" aria-hidden="true"></i></span>' +
+            '<span><small>' + escapeHtml(label) + '</small><strong>' + escapeHtml(value) + '</strong></span>' +
+        '</div>';
+    }
+
+    function renderTaskFilters(users, total) {
+        var userOptions = users.map(function (user) {
+            return '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(user.name) + '</option>';
+        }).join('');
+        return '<section class="task-toolbar" aria-label="Фильтры задач">' +
+            '<label class="task-search"><i data-lucide="search" aria-hidden="true"></i><span class="sr-only">Поиск задач</span><input type="search" data-task-filter-query placeholder="Найти задачу" autocomplete="off" value="' + escapeHtml(taskViewState.query) + '"></label>' +
+            '<label><span class="sr-only">Исполнитель</span><select data-task-filter-assignee aria-label="Исполнитель"><option value="all">Все исполнители</option><option value="none">Без ответственного</option>' + userOptions + '</select></label>' +
+            '<label><span class="sr-only">Приоритет</span><select data-task-filter-priority aria-label="Приоритет"><option value="all">Любой приоритет</option><option value="high">Высокий</option><option value="normal">Средний</option><option value="low">Низкий</option></select></label>' +
+            '<label><span class="sr-only">Срок</span><select data-task-filter-deadline aria-label="Срок"><option value="all">Любой срок</option><option value="overdue">Просроченные</option><option value="today">На сегодня</option><option value="none">Без срока</option></select></label>' +
+            '<button class="ghost compact task-filter-reset" type="button" data-task-filter-reset hidden><i data-lucide="x" aria-hidden="true"></i><span>Сбросить</span></button>' +
+            '<span class="task-filter-result" data-task-filter-result>Показано ' + total + ' из ' + total + '</span>' +
+        '</section>';
     }
 
     function renderTaskAlerts(notifications) {
         if (!notifications) return '';
         var cards = [];
         if (notifications.overdueTasks && notifications.overdueTasks.length) {
-            cards.push('<article class="notice-card notice-danger"><b>Просроченные задачи: ' + notifications.overdueTasks.length + '</b><small>Нужно обновить статусы или сдвинуть срок.</small></article>');
+            cards.push('<article class="task-alert is-danger"><span><i data-lucide="alarm-clock" aria-hidden="true"></i></span><div><b>Просрочено задач: ' + notifications.overdueTasks.length + '</b><small>Проверьте сроки или обновите статус.</small></div><button class="ghost compact" type="button" data-task-show-overdue>Показать</button></article>');
         }
         if (notifications.problemStages && notifications.problemStages.length) {
-            cards.push('<article class="notice-card"><b>Проблемные этапы: ' + notifications.problemStages.length + '</b><small>Есть блокировки или отставание по сроку.</small></article>');
+            cards.push('<article class="task-alert"><span><i data-lucide="triangle-alert" aria-hidden="true"></i></span><div><b>Проблемных этапов: ' + notifications.problemStages.length + '</b><small>Есть блокировки или отставание по плану.</small></div></article>');
         }
-        return cards.length ? '<section class="notice-grid">' + cards.join('') + '</section>' : '';
+        return cards.length ? '<section class="task-alerts" aria-label="Важные уведомления">' + cards.join('') + '</section>' : '';
     }
 
     function taskColumnStatus(status) {
@@ -2306,12 +2332,19 @@
         return 'open';
     }
 
-    function renderTaskBoard(tasks, users) {
+    function renderTaskBoard(tasks, users, canCreate) {
+        if (!tasks.length) {
+            return '<section class="task-zero-state">' +
+                '<span class="task-zero-icon"><i data-lucide="clipboard-check" aria-hidden="true"></i></span>' +
+                '<div><h3>Задач пока нет</h3><p>Создайте первую задачу, назначьте исполнителя и срок — она сразу появится на доске.</p></div>' +
+                (canCreate ? '<button class="primary" type="button" data-task-create-toggle><i data-lucide="plus" aria-hidden="true"></i><span>Создать задачу</span></button>' : '') +
+            '</section>';
+        }
         var columns = [
-            { status: 'open', title: 'Бэклог' },
-            { status: 'in_progress', title: 'В работе' },
-            { status: 'review', title: 'Проверка' },
-            { status: 'done', title: 'Готово' }
+            { status: 'open', title: 'В очереди', hint: 'Запланировано', icon: 'circle-dashed' },
+            { status: 'in_progress', title: 'В работе', hint: 'Выполняется сейчас', icon: 'loader-circle' },
+            { status: 'review', title: 'На проверке', hint: 'Ожидает приёмки', icon: 'scan-eye' },
+            { status: 'done', title: 'Готово', hint: 'Работа завершена', icon: 'circle-check' }
         ];
         return '<section class="tasks-board" aria-label="Доска задач">' + columns.map(function (column) {
             var items = tasks.filter(function (task) {
@@ -2325,10 +2358,13 @@
         var cards = tasks.length ? tasks.map(function (task) { return renderTaskRow(task, users); }).join('') : '';
         return '<section class="tasks-column tasks-column-' + column.status + '" data-task-column-status="' + escapeHtml(column.status) + '">' +
             '<div class="tasks-column-head">' +
-                '<h3>' + escapeHtml(column.title) + '</h3>' +
-                '<span>' + tasks.length + '</span>' +
+                '<span class="tasks-column-icon"><i data-lucide="' + escapeHtml(column.icon) + '" aria-hidden="true"></i></span>' +
+                '<div><h3>' + escapeHtml(column.title) + '</h3><small>' + escapeHtml(column.hint) + '</small></div>' +
+                '<span class="tasks-column-count" data-task-column-count>' + tasks.length + '</span>' +
             '</div>' +
-            '<div class="tasks-column-list" data-task-drop-list data-task-status="' + escapeHtml(column.status) + '" data-empty="' + (tasks.length ? '0' : '1') + '">' + cards + '</div>' +
+            '<div class="tasks-column-list" data-task-drop-list data-task-status="' + escapeHtml(column.status) + '" data-empty="' + (tasks.length ? '0' : '1') + '">' + cards +
+                '<div class="task-column-empty" data-task-column-empty><i data-lucide="' + escapeHtml(column.icon) + '" aria-hidden="true"></i><span>Здесь пока пусто</span><small>Перетащите задачу в эту колонку</small></div>' +
+            '</div>' +
         '</section>';
     }
     function taskPriorityClass(priority) {
@@ -2389,14 +2425,22 @@
         var assigneeName = taskAssigneeName(task, users);
         var completedAt = task.completed_at || task.completedAt || '';
         var completedTime = completedAt ? dailyTaskTime(completedAt) : '';
-        return '<form class="task-card ui-card' + (isOverdue ? ' task-card-overdue' : '') + '" data-task-edit-form data-task-id="' + task.id + '" data-task-current-status="' + escapeHtml(taskColumnStatus(task.status)) + '">' +
+        var status = taskColumnStatus(task.status);
+        var nextStatus = status === 'done' ? 'in_progress' : 'done';
+        var quickLabel = status === 'done' ? 'Вернуть в работу' : 'Отметить выполненной';
+        var description = task.description || '';
+        return '<form class="task-card ui-card' + (isOverdue ? ' task-card-overdue' : '') + (status === 'done' ? ' task-card-done' : '') + '" data-task-edit-form data-task-id="' + escapeHtml(task.id) + '" data-task-current-status="' + escapeHtml(status) + '" data-task-search-text="' + escapeHtml((task.title || '') + ' ' + description + ' ' + assigneeName).toLowerCase() + '" data-task-assignee="' + escapeHtml(task.assignee_id || 'none') + '" data-task-priority="' + escapeHtml(priority) + '" data-task-due="' + escapeHtml(task.due_at || '') + '">' +
             '<div class="task-card-top">' +
-                '<span class="task-tag">' + escapeHtml(statusLabel(taskColumnStatus(task.status))) + '</span>' +
-                '<span class="task-priority task-priority-' + taskPriorityClass(priority) + '">' + escapeHtml(priorityLabel(priority)) + '</span>' +
+                '<button class="task-drag-handle" type="button" data-task-drag-handle aria-label="Перетащить задачу" title="Перетащить задачу"><i data-lucide="grip-vertical" aria-hidden="true"></i></button>' +
+                '<div class="task-card-badges">' +
+                    '<span class="task-priority task-priority-' + taskPriorityClass(priority) + '">' + escapeHtml(priorityLabel(priority)) + ' приоритет</span>' +
+                    (isOverdue ? '<span class="task-overdue-badge"><i data-lucide="alarm-clock" aria-hidden="true"></i> Просрочено</span>' : '') +
+                '</div>' +
+                '<button class="task-edit-toggle" type="button" data-task-edit-toggle aria-expanded="false" aria-label="Изменить задачу" title="Изменить задачу"><i data-lucide="settings-2" aria-hidden="true"></i></button>' +
             '</div>' +
             '<div class="task-card-body">' +
                 '<h4>' + escapeHtml(task.title || 'Без названия') + '</h4>' +
-                '<p>' + escapeHtml(task.description || 'Без описания') + '</p>' +
+                (description ? '<p>' + escapeHtml(description) + '</p>' : '') +
             '</div>' +
             '<div class="task-card-footer">' +
                 '<div class="task-assignee">' +
@@ -2404,17 +2448,25 @@
                     '<span>' + escapeHtml(assigneeName) + '</span>' +
                 '</div>' +
                 '<div class="task-deadline' + (isOverdue ? ' task-deadline-overdue' : '') + '">' +
-                    '<span class="task-deadline-icon" aria-hidden="true"></span>' +
+                    '<i data-lucide="calendar-days" aria-hidden="true"></i>' +
                     '<span>' + escapeHtml(task.due_at ? formatDisplayDate(task.due_at) : 'Без срока') + '</span>' +
                 '</div>' +
                 (completedTime ? '<div class="task-completed-time"><i data-lucide="clock" aria-hidden="true"></i><span>Выполнено в ' + escapeHtml(completedTime) + '</span></div>' : '') +
             '</div>' +
-            '<div class="task-card-controls">' +
-                '<select name="status" aria-label="Статус"><option value="open"' + (taskColumnStatus(task.status) === 'open' ? ' selected' : '') + '>Бэклог</option><option value="in_progress"' + (task.status === 'in_progress' ? ' selected' : '') + '>В работе</option><option value="review"' + (task.status === 'review' ? ' selected' : '') + '>Проверка</option><option value="done"' + (task.status === 'done' ? ' selected' : '') + '>Готово</option></select>' +
-                '<select name="priority" aria-label="Приоритет"><option value="low"' + (priority === 'low' ? ' selected' : '') + '>Низкий</option><option value="normal"' + (priority === 'normal' ? ' selected' : '') + '>Средний</option><option value="high"' + (priority === 'high' ? ' selected' : '') + '>Высокий</option></select>' +
-                '<input name="due_at" aria-label="Дедлайн" type="date" value="' + escapeHtml(task.due_at || '') + '">' +
-                '<select name="assignee_id" aria-label="Исполнитель">' + userOptions + '</select>' +
-                '<button class="ghost task-save" type="submit">Сохранить</button>' +
+            '<div class="task-card-actions">' +
+                '<button class="task-quick-status" type="button" data-task-quick-status="' + escapeHtml(nextStatus) + '"><i data-lucide="' + (status === 'done' ? 'rotate-ccw' : 'check') + '" aria-hidden="true"></i><span>' + escapeHtml(quickLabel) + '</span></button>' +
+            '</div>' +
+            '<div class="task-card-editor" data-task-card-editor hidden>' +
+                '<div class="task-editor-grid">' +
+                    '<label class="wide"><span>Название</span><input name="title" value="' + escapeHtml(task.title || '') + '" required></label>' +
+                    '<label class="wide"><span>Описание</span><textarea name="description" rows="3" placeholder="Что именно нужно сделать">' + escapeHtml(description) + '</textarea></label>' +
+                    '<label><span>Статус</span><select name="status"><option value="open"' + (status === 'open' ? ' selected' : '') + '>В очереди</option><option value="in_progress"' + (status === 'in_progress' ? ' selected' : '') + '>В работе</option><option value="review"' + (status === 'review' ? ' selected' : '') + '>На проверке</option><option value="done"' + (status === 'done' ? ' selected' : '') + '>Готово</option></select></label>' +
+                    '<label><span>Приоритет</span><select name="priority"><option value="low"' + (priority === 'low' ? ' selected' : '') + '>Низкий</option><option value="normal"' + (priority === 'normal' ? ' selected' : '') + '>Средний</option><option value="high"' + (priority === 'high' ? ' selected' : '') + '>Высокий</option></select></label>' +
+                    '<label><span>Срок</span><input name="due_at" type="date" value="' + escapeHtml(task.due_at || '') + '"></label>' +
+                    '<label><span>Исполнитель</span><select name="assignee_id">' + userOptions + '</select></label>' +
+                '</div>' +
+                '<div class="task-editor-error" data-task-editor-error role="alert" hidden></div>' +
+                '<div class="task-editor-actions"><button class="ghost" type="button" data-task-edit-cancel>Отмена</button><button class="primary task-save" type="submit"><i data-lucide="check" aria-hidden="true"></i><span>Сохранить</span></button></div>' +
             '</div>' +
         '</form>';
     }
@@ -2506,15 +2558,118 @@
     function syncTaskDropLists() {
         qsa('[data-task-drop-list]').forEach(function (list) {
             var cards = qsa('[data-task-edit-form]', list);
-            qsa('.tasks-empty', list).forEach(function (empty) {
-                empty.remove();
-            });
             list.dataset.empty = cards.length ? '0' : '1';
             var column = list.closest('[data-task-column-status]');
-            var count = column ? qs('.tasks-column-head span', column) : null;
+            var count = column ? qs('[data-task-column-count]', column) : null;
             if (count) count.textContent = String(cards.length);
         });
     }
+
+    function taskFiltersAreActive() {
+        return !!taskViewState.query || taskViewState.assignee !== 'all' || taskViewState.priority !== 'all' || taskViewState.deadline !== 'all';
+    }
+
+    function taskMatchesDeadline(form) {
+        var filter = taskViewState.deadline;
+        var due = form.dataset.taskDue || '';
+        if (filter === 'all') return true;
+        if (filter === 'none') return !due;
+        if (filter === 'today') return due === APP_TODAY;
+        if (filter === 'overdue') return !!due && due < APP_TODAY && form.dataset.taskCurrentStatus !== 'done';
+        return true;
+    }
+
+    function taskMatchesFilters(form) {
+        if (taskViewState.query && (form.dataset.taskSearchText || '').indexOf(taskViewState.query) === -1) return false;
+        if (taskViewState.assignee !== 'all' && (form.dataset.taskAssignee || 'none') !== taskViewState.assignee) return false;
+        if (taskViewState.priority !== 'all' && (form.dataset.taskPriority || 'normal') !== taskViewState.priority) return false;
+        return taskMatchesDeadline(form);
+    }
+
+    function applyTaskFilters() {
+        var workspace = qs('[data-task-workspace]');
+        if (!workspace) return;
+        var cards = qsa('[data-task-edit-form]', workspace);
+        var visibleTotal = 0;
+        cards.forEach(function (form) {
+            var visible = taskMatchesFilters(form);
+            form.hidden = !visible;
+            if (visible) visibleTotal += 1;
+        });
+        qsa('[data-task-drop-list]', workspace).forEach(function (list) {
+            var visibleCards = qsa('[data-task-edit-form]', list).filter(function (form) { return !form.hidden; });
+            var allCards = qsa('[data-task-edit-form]', list);
+            list.dataset.empty = visibleCards.length ? '0' : '1';
+            var column = list.closest('[data-task-column-status]');
+            var count = column ? qs('[data-task-column-count]', column) : null;
+            var empty = qs('[data-task-column-empty]', list);
+            if (count) count.textContent = String(visibleCards.length);
+            if (empty) {
+                var title = qs('span', empty);
+                var hint = qs('small', empty);
+                if (taskFiltersAreActive() && allCards.length) {
+                    if (title) title.textContent = 'Нет совпадений';
+                    if (hint) hint.textContent = 'Измените или сбросьте фильтры';
+                } else {
+                    if (title) title.textContent = 'Здесь пока пусто';
+                    if (hint) hint.textContent = 'Перетащите задачу в эту колонку';
+                }
+            }
+        });
+        var result = qs('[data-task-filter-result]', workspace);
+        if (result) result.textContent = 'Показано ' + visibleTotal + ' из ' + cards.length;
+        var reset = qs('[data-task-filter-reset]', workspace);
+        if (reset) reset.hidden = !taskFiltersAreActive();
+    }
+
+    function bindTaskFilters() {
+        var workspace = qs('[data-task-workspace]');
+        if (!workspace) return;
+        var query = qs('[data-task-filter-query]', workspace);
+        var assignee = qs('[data-task-filter-assignee]', workspace);
+        var priority = qs('[data-task-filter-priority]', workspace);
+        var deadline = qs('[data-task-filter-deadline]', workspace);
+        if (query) query.value = taskViewState.query;
+        if (assignee) assignee.value = taskViewState.assignee;
+        if (priority) priority.value = taskViewState.priority;
+        if (deadline) deadline.value = taskViewState.deadline;
+        if (query) query.addEventListener('input', function () {
+            taskViewState.query = query.value.trim().toLowerCase();
+            applyTaskFilters();
+        });
+        [assignee, priority, deadline].forEach(function (control) {
+            if (!control) return;
+            control.addEventListener('change', function () {
+                if (control === assignee) taskViewState.assignee = control.value;
+                if (control === priority) taskViewState.priority = control.value;
+                if (control === deadline) taskViewState.deadline = control.value;
+                applyTaskFilters();
+            });
+        });
+        var reset = qs('[data-task-filter-reset]', workspace);
+        if (reset) reset.addEventListener('click', function () {
+            taskViewState.query = '';
+            taskViewState.assignee = 'all';
+            taskViewState.priority = 'all';
+            taskViewState.deadline = 'all';
+            if (query) query.value = '';
+            if (assignee) assignee.value = 'all';
+            if (priority) priority.value = 'all';
+            if (deadline) deadline.value = 'all';
+            applyTaskFilters();
+            if (query) query.focus();
+        });
+        var overdue = qs('[data-task-show-overdue]', workspace);
+        if (overdue) overdue.addEventListener('click', function () {
+            taskViewState.deadline = 'overdue';
+            if (deadline) deadline.value = 'overdue';
+            applyTaskFilters();
+            var board = qs('.tasks-board', workspace);
+            if (board && typeof board.scrollIntoView === 'function') board.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        applyTaskFilters();
+    }
+
     function initTaskDragAndDrop(projectId) {
         if (!window.Sortable) {
             if (window.console) console.warn('SortableJS не загружен: перетаскивание задач отключено.');
@@ -2536,8 +2691,8 @@
                 invertSwap: false,
                 swapThreshold: 0.65,
                 draggable: '[data-task-edit-form]',
-                handle: '[data-task-edit-form]',
-                filter: 'input, select, textarea, button, option, .task-card-controls, .task-card-controls *',
+                handle: '[data-task-drag-handle]',
+                filter: 'input, select, textarea, button:not([data-task-drag-handle]), option, .task-card-editor, .task-card-editor *',
                 preventOnFilter: false,
                 ghostClass: 'sortable-ghost',
                 chosenClass: 'sortable-chosen',
@@ -2597,24 +2752,25 @@
         var userOptions = '<option value="">Без ответственного</option>' + users.map(function (user) {
             return '<option value="' + user.id + '">' + escapeHtml(user.name) + '</option>';
         }).join('');
-        return '<form class="task-create-form ui-card" data-task-form data-project-id="' + projectId + '">' +
-            '<div class="task-create-head"><div><h3>Новая задача</h3><span>Название, срок, приоритет и исполнитель.</span></div></div>' +
+        return '<form class="task-create-form" data-task-form data-project-id="' + escapeHtml(projectId) + '">' +
+            '<div class="task-create-head"><span class="task-create-head-icon"><i data-lucide="clipboard-plus" aria-hidden="true"></i></span><div><span>Задача объекта</span><h3 id="task-create-title">Новая задача</h3><p>Опишите результат, выберите ответственного и задайте срок.</p></div></div>' +
             '<div class="task-create-grid">' +
-                '<label class="wide"><span>Название</span><input name="title" placeholder="Название задачи" required></label>' +
-                '<label class="wide"><span>Описание</span><input name="description" placeholder="Короткое описание"></label>' +
-                '<label><span>Статус</span><select name="status" aria-label="Статус"><option value="open">Бэклог</option><option value="in_progress">В работе</option><option value="review">Проверка</option><option value="done">Готово</option></select></label>' +
+                '<label class="wide"><span>Название <b>*</b></span><input name="title" placeholder="Например: принять кладку второго этажа" maxlength="160" required autofocus></label>' +
+                '<label class="wide"><span>Описание</span><textarea name="description" rows="4" placeholder="Что должно быть сделано и какой результат ожидается"></textarea></label>' +
+                '<label><span>Статус</span><select name="status" aria-label="Статус"><option value="open">В очереди</option><option value="in_progress">В работе</option><option value="review">На проверке</option><option value="done">Готово</option></select></label>' +
                 '<label><span>Приоритет</span><select name="priority" aria-label="Приоритет"><option value="normal">Средний</option><option value="high">Высокий</option><option value="low">Низкий</option></select></label>' +
-                '<label><span>Дедлайн</span><input name="due_at" aria-label="Дедлайн" type="date"></label>' +
+                '<label><span>Срок</span><input name="due_at" aria-label="Срок" type="date"></label>' +
                 '<label><span>Исполнитель</span><select name="assignee_id" aria-label="Исполнитель">' + userOptions + '</select></label>' +
-                '<button class="primary" type="submit">Добавить</button>' +
             '</div>' +
+            '<div class="task-create-error" data-task-create-error role="alert" hidden></div>' +
+            '<div class="task-create-actions"><button class="ghost" type="button" data-task-create-close>Отмена</button><button class="primary" type="submit"><i data-lucide="plus" aria-hidden="true"></i><span>Создать задачу</span></button></div>' +
         '</form>';
     }
 
     function renderTaskCreateModal(projectId, users) {
         return '<div class="task-create-modal" data-task-create-modal hidden>' +
             '<div class="task-create-backdrop" data-task-create-close></div>' +
-            '<div class="task-create-dialog" role="dialog" aria-modal="true">' +
+            '<div class="task-create-dialog" role="dialog" aria-modal="true" aria-labelledby="task-create-title">' +
                 '<button class="task-create-close" type="button" data-task-create-close aria-label="Закрыть"><i data-lucide="x"></i></button>' +
                 renderTaskCreateForm(projectId, users) +
             '</div>' +
@@ -2627,6 +2783,8 @@
         document.body.classList.remove('task-modal-lock');
     }
 
+    var taskCreateLastTrigger = null;
+
     function closeTaskCreateModal(modal) {
         modal = modal || qs('[data-task-create-modal]');
         if (!modal) return;
@@ -2635,11 +2793,15 @@
         setTimeout(function () {
             if (!modal.classList.contains('is-open')) modal.hidden = true;
         }, 180);
+        if (taskCreateLastTrigger && typeof taskCreateLastTrigger.focus === 'function') {
+            taskCreateLastTrigger.focus();
+        }
     }
 
-    function openTaskCreateModal() {
+    function openTaskCreateModal(trigger) {
         var modal = qs('[data-task-create-modal]');
         if (!modal) return;
+        taskCreateLastTrigger = trigger || document.activeElement;
         modal.hidden = false;
         document.body.classList.add('task-modal-lock');
         requestAnimationFrame(function () {
@@ -2662,13 +2824,13 @@
         var form = qs('[data-task-form]', modal || panel);
         if (!form || form.dataset.bound === '1') return;
         form.dataset.bound = '1';
-        var toggle = qs('[data-task-create-toggle]');
-        if (toggle && modal && toggle.dataset.bound !== '1') {
+        qsa('[data-task-create-toggle]').forEach(function (toggle) {
+            if (!modal || toggle.dataset.bound === '1') return;
             toggle.dataset.bound = '1';
             toggle.addEventListener('click', function () {
-                openTaskCreateModal();
+                openTaskCreateModal(toggle);
             });
-        }
+        });
         qsa('[data-task-create-close]', modal || panel).forEach(function (node) {
             if (node.dataset.bound === '1') return;
             node.dataset.bound = '1';
@@ -2684,7 +2846,19 @@
         }
         form.addEventListener('submit', function (event) {
             event.preventDefault();
-            if (!form.title.value.trim()) return;
+            var error = qs('[data-task-create-error]', form);
+            var submit = qs('button[type="submit"]', form);
+            if (!form.title.value.trim()) {
+                if (error) {
+                    error.hidden = false;
+                    error.textContent = 'Введите название задачи.';
+                }
+                form.title.focus();
+                return;
+            }
+            if (error) error.hidden = true;
+            if (submit) submit.disabled = true;
+            form.classList.add('is-saving');
             api('/api/projects/' + projectId + '/tasks', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -2697,8 +2871,79 @@
                 })
             }).then(function () {
                 closeTaskCreateModal(form.closest('[data-task-create-modal]'));
+                showFinanceToast('Задача создана');
                 loadTasks(projectId);
+            }).catch(function (err) {
+                if (submit) submit.disabled = false;
+                form.classList.remove('is-saving');
+                if (error) {
+                    error.hidden = false;
+                    error.textContent = appErrorMessage(err, 'Не удалось создать задачу');
+                }
             });
+        });
+    }
+
+    function taskEditorPayload(form, statusOverride) {
+        return {
+            title: form.title ? form.title.value.trim() : '',
+            description: form.description ? form.description.value.trim() : '',
+            status: statusOverride || (form.status ? form.status.value : form.dataset.taskCurrentStatus || 'open'),
+            priority: form.priority ? form.priority.value : 'normal',
+            due_at: form.due_at ? form.due_at.value : '',
+            assignee_id: form.assignee_id ? form.assignee_id.value : ''
+        };
+    }
+
+    function setTaskEditorOpen(form, open, reset) {
+        if (!form) return;
+        var editor = qs('[data-task-card-editor]', form);
+        var toggle = qs('[data-task-edit-toggle]', form);
+        if (!editor || !toggle) return;
+        if (!open && reset && typeof form.reset === 'function') form.reset();
+        editor.hidden = !open;
+        form.classList.toggle('is-editing', open);
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) {
+            var title = form.title;
+            if (title && typeof title.focus === 'function') title.focus();
+        }
+    }
+
+    function saveTaskEditor(projectId, form, statusOverride) {
+        var error = qs('[data-task-editor-error]', form);
+        var payload = taskEditorPayload(form, statusOverride);
+        if (!payload.title) {
+            setTaskEditorOpen(form, true, false);
+            if (error) {
+                error.hidden = false;
+                error.textContent = 'Введите название задачи.';
+            }
+            return Promise.reject(new Error('title_required'));
+        }
+        if (error) error.hidden = true;
+        form.classList.add('is-task-drag-saving');
+        qsa('button, input, select, textarea', form).forEach(function (control) { control.disabled = true; });
+        return api('/api/tasks/' + form.dataset.taskId + '/update', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        }).then(function () {
+            showFinanceToast(statusOverride === 'done' ? 'Задача выполнена' : 'Задача сохранена');
+            loadTasks(projectId);
+            if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                loadStages(projectId, function (stages) {
+                    loadExecutionInsights(projectId, stages);
+                });
+            }
+        }).catch(function (err) {
+            form.classList.remove('is-task-drag-saving');
+            qsa('button, input, select, textarea', form).forEach(function (control) { control.disabled = false; });
+            if (error) {
+                error.hidden = false;
+                error.textContent = appErrorMessage(err, 'Не удалось сохранить задачу');
+            }
+            if (statusOverride) setTaskEditorOpen(form, true, false);
+            throw err;
         });
     }
 
@@ -2706,24 +2951,25 @@
         qsa('[data-task-edit-form]').forEach(function (form) {
             if (form.dataset.bound === '1') return;
             form.dataset.bound = '1';
+            var toggle = qs('[data-task-edit-toggle]', form);
+            var cancel = qs('[data-task-edit-cancel]', form);
+            var quickStatus = qs('[data-task-quick-status]', form);
+            if (toggle) toggle.addEventListener('click', function () {
+                var open = toggle.getAttribute('aria-expanded') !== 'true';
+                qsa('[data-task-edit-form].is-editing').forEach(function (other) {
+                    if (other !== form) setTaskEditorOpen(other, false, true);
+                });
+                setTaskEditorOpen(form, open, !open);
+            });
+            if (cancel) cancel.addEventListener('click', function () {
+                setTaskEditorOpen(form, false, true);
+            });
+            if (quickStatus) quickStatus.addEventListener('click', function () {
+                saveTaskEditor(projectId, form, quickStatus.dataset.taskQuickStatus).catch(function () {});
+            });
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
-                api('/api/tasks/' + form.dataset.taskId + '/update', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        status: form.status.value,
-                        priority: form.priority.value,
-                        due_at: form.due_at.value,
-                        assignee_id: form.assignee_id.value
-                    })
-                }).then(function () {
-                    loadTasks(projectId);
-                    if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
-                        loadStages(projectId, function (stages) {
-                            loadExecutionInsights(projectId, stages);
-                        });
-                    }
-                });
+                saveTaskEditor(projectId, form).catch(function () {});
             });
         });
     }
@@ -2854,16 +3100,15 @@
     function renderProjectEconomics(data, loadError) {
         if (loadError) {
             return '<section class="project-economics ui-card is-error" data-project-economics>' +
-                '<div class="economics-head"><div><span class="section-label">Экономика объекта</span><h3>Сводка временно недоступна</h3><p>Денежные операции ниже продолжают работать независимо.</p></div></div>' +
+                '<div class="economics-head"><div><span class="section-label">Результат объекта · без НДС</span><h3>Экономическая сводка временно недоступна</h3><p>Платежи и счета продолжают работать в соседних разделах.</p></div></div>' +
             '</section>';
         }
         data = data || {};
-        var cashFlowHtml = renderEconomicsCashFlow(data.cashFlow || {});
         if (data.status === 'not_configured') {
             return '<section class="project-economics ui-card" data-project-economics>' +
-                '<div class="economics-head"><div><span class="section-label">Экономика объекта</span><h3>Экономическая база не подтверждена</h3><p>Legacy-бюджет и цены текущей сметы не включаются в управленческую маржу автоматически.</p></div><span class="economics-status is-warning">Нужна настройка</span></div>' +
-                '<div class="economics-notice is-warning"><i data-lucide="triangle-alert"></i><div><b>Официальный прогноз не рассчитывается</b><span>Сначала требуется утвержденная версия договорной выручки и целевой себестоимости.</span></div></div>' +
-                cashFlowHtml +
+                '<div class="economics-head"><div><span class="section-label">Результат объекта · без НДС</span><h3>Сначала зафиксируйте план объекта</h3><p>Чтобы увидеть прибыль и прогноз затрат, подтвердите договорную выручку и лимит себестоимости.</p></div><span class="economics-status is-warning">Не настроено</span></div>' +
+                '<div class="economics-setup-path" aria-label="Порядок настройки"><span><b>1</b> Выручка по договору</span><i data-lucide="arrow-right"></i><span><b>2</b> Лимит затрат</span><i data-lucide="arrow-right"></i><span><b>3</b> Прогноз маржи</span></div>' +
+                '<div class="economics-notice is-warning"><i data-lucide="triangle-alert"></i><div><b>Официальный прогноз пока не рассчитывается</b><span>Legacy-бюджет и цены текущей сметы не включаются в управленческую маржу автоматически.</span></div><button class="ghost compact" type="button" data-finance-view-target="management" data-econ-mode-target="baseline">Настроить плановую базу</button></div>' +
             '</section>';
         }
 
@@ -2873,35 +3118,45 @@
         var statusLabel = forecastStatus === 'stale' ? 'Требует пересчета' : (forecast ? 'Актуален' : 'Не рассчитан');
         var statusTone = forecastStatus === 'stale' ? 'is-danger' : (forecast ? 'is-success' : 'is-warning');
         var baseline = data.baseline || {};
+        var forecastMargin = forecast ? Number(forecast.forecastMarginNetKopecks || 0) : null;
+        var forecastEac = forecast ? Number(forecast.eacNetKopecks || 0) : null;
+        var actualCost = Number(current.actualCostNetKopecks || 0);
+        var costProgress = forecastEac > 0 ? Math.max(0, Math.min(100, Math.round(actualCost / forecastEac * 100))) : 0;
+        var marginTone = forecastMargin == null ? '' : (forecastMargin < 0 ? 'is-danger' : 'is-success');
         var html = '<section class="project-economics ui-card" data-project-economics>' +
-            '<div class="economics-head"><div><span class="section-label">Экономика объекта</span><h3>План · обязательства · факт · прогноз</h3><p>Управленческие показатели считаются без НДС и не смешиваются с оплатами.</p></div><div class="economics-head-badges"><span class="economics-mode-badge">без НДС</span><span class="economics-status ' + statusTone + '">' + escapeHtml(statusLabel) + '</span></div></div>' +
-            '<section class="economics-group"><div class="economics-group-head"><div><h4>Текущее состояние</h4><p>Утвержденная база v' + escapeHtml(baseline.versionNo || '—') + ' и подтвержденные хозяйственные события.</p></div></div>' +
-                '<div class="economics-metrics">' +
-                    economicsMetric('Договорная выручка', economicsMoney(current.contractRevenueNetKopecks), 'Утверждено по договору', '', 'badge-russian-ruble') +
-                    economicsMetric('Целевая себестоимость', economicsMoney(current.targetCostNetKopecks), 'Утвержденный бюджет затрат', '', 'target') +
-                    economicsMetric('Обязательства', economicsMoney(current.committedTotalNetKopecks), 'Утвержденные заказы и договоры', '', 'file-check-2') +
-                    economicsMetric('Остаток обязательств', economicsMoney(current.remainingCommitmentNetKopecks), 'Еще не принят в факт', '', 'hourglass') +
-                    economicsMetric('Факт затрат', economicsMoney(current.actualCostNetKopecks), 'Начислено независимо от оплаты', '', 'clipboard-check') +
-                '</div></section>';
+            '<div class="economics-head"><div><span class="section-label">Результат объекта · без НДС</span><h3>От плана к ожидаемому итогу</h3><p>Здесь показаны прибыль и стоимость работ. Реальное движение денег вынесено отдельно.</p></div><div class="economics-head-badges"><span class="economics-mode-badge">База v' + escapeHtml(baseline.versionNo || '—') + '</span><span class="economics-status ' + statusTone + '">' + escapeHtml(statusLabel) + '</span></div></div>' +
+            '<div class="economics-story-grid">' +
+                '<article class="economics-story-card"><header><span>1 · План</span><i data-lucide="landmark"></i></header>' +
+                    '<div class="economics-story-value"><small>Договорная выручка</small><strong>' + escapeHtml(economicsMoney(current.contractRevenueNetKopecks)) + '</strong></div>' +
+                    '<div class="economics-story-row"><span>Целевая себестоимость</span><b>' + escapeHtml(economicsMoney(current.targetCostNetKopecks)) + '</b></div>' +
+                '</article>' +
+                '<article class="economics-story-card"><header><span>2 · Исполнение</span><i data-lucide="hard-hat"></i></header>' +
+                    '<div class="economics-story-value"><small>Факт затрат</small><strong>' + escapeHtml(economicsMoney(current.actualCostNetKopecks)) + '</strong></div>' +
+                    '<div class="economics-story-row"><span>Обязательства</span><b>' + escapeHtml(economicsMoney(current.committedTotalNetKopecks)) + '</b></div>' +
+                    '<div class="economics-story-row"><span>Остаток обязательств</span><b>' + escapeHtml(economicsMoney(current.remainingCommitmentNetKopecks)) + '</b></div>' +
+                '</article>' +
+                '<article class="economics-story-card economics-story-result ' + marginTone + '"><header><span>3 · Прогноз</span><i data-lucide="chart-no-axes-combined"></i></header>' +
+                    (forecast
+                        ? '<div class="economics-story-value"><small>Прогнозная маржа</small><strong>' + escapeHtml(economicsMoney(forecastMargin)) + '</strong><em>' + escapeHtml(economicsPercent(forecast.forecastMarginPercent)) + ' от выручки</em></div>' +
+                            '<div class="economics-story-row"><span>EAC · итоговая себестоимость</span><b>' + escapeHtml(economicsMoney(forecast.eacNetKopecks)) + '</b></div>' +
+                            '<div class="economics-story-row"><span>ETC · осталось потратить</span><b>' + escapeHtml(economicsMoney(forecast.etcNetKopecks)) + '</b></div>'
+                        : '<div class="economics-story-empty"><b>Прогноз не рассчитан</b><span>План и факт уже видны, но итоговая себестоимость и маржа появятся после расчёта.</span></div>') +
+                '</article>' +
+            '</div>';
 
         if (!forecast) {
-            html += '<section class="economics-group"><div class="economics-group-head"><div><h4>Прогноз до завершения</h4><p>Утвержденной версии прогноза пока нет.</p></div></div>' +
-                '<div class="economics-notice is-warning"><i data-lucide="calculator"></i><div><b>ETC, EAC и прогнозная маржа не рассчитаны</b><span>Текущие обязательства и факт показаны выше, но не подменяют официальный прогноз.</span></div></div></section>';
+            html += '<div class="economics-notice is-warning"><i data-lucide="calculator"></i><div><b>Нужен первый прогноз до завершения</b><span>ETC, EAC и прогнозная маржа не рассчитаны. Перейдите в управленческий учёт и создайте расчёт.</span></div><button class="ghost compact" type="button" data-finance-view-target="management" data-econ-mode-target="forecast">Рассчитать прогноз</button></div>';
         } else {
-            var margin = Number(forecast.forecastMarginNetKopecks || 0);
             var variance = Number(forecast.budgetVarianceNetKopecks || 0);
-            var marginTone = margin < 0 ? 'negative' : (margin > 0 ? 'positive' : 'neutral');
-            var varianceTone = variance < 0 ? 'negative' : (variance > 0 ? 'positive' : 'neutral');
-            html += '<section class="economics-group"><div class="economics-group-head"><div><h4>Прогноз до завершения</h4><p>Версия ' + escapeHtml(forecast.versionNo || '—') + ' · расчет на ' + escapeHtml(formatDisplayDate(forecast.calculationDate) || forecast.calculationDate || '—') + '.</p></div></div>' +
-                (forecastStatus === 'stale' ? '<div class="economics-notice is-danger"><i data-lucide="refresh-cw"></i><div><b>Исходные данные изменились</b><span>Эта версия остается в истории, но для управленческого решения нужен новый расчет.</span></div></div>' : '') +
-                '<div class="economics-metrics economics-forecast-metrics">' +
-                    economicsMetric('ETC', economicsMoney(forecast.etcNetKopecks), 'Осталось потратить', '', 'route') +
-                    economicsMetric('EAC', economicsMoney(forecast.eacNetKopecks), 'Прогноз итоговой себестоимости', '', 'sigma') +
-                    economicsMetric('Прогнозная маржа', economicsMoney(margin), economicsPercent(forecast.forecastMarginPercent), marginTone, 'trending-up') +
-                    economicsMetric('Отклонение от бюджета', economicsMoney(variance), variance < 0 ? 'Прогнозный перерасход' : (variance > 0 ? 'Прогнозная экономия' : 'В пределах бюджета'), varianceTone, 'scale') +
-                '</div>' + renderEconomicsComponents(forecast) + '</section>';
+            html += '<div class="economics-forecast-foot">' +
+                '<div><span>Освоено по факту от EAC</span><b>' + escapeHtml(String(costProgress) + '%') + '</b><i><em style="width:' + costProgress + '%"></em></i></div>' +
+                '<div><span>Отклонение от бюджета</span><strong class="' + (variance < 0 ? 'is-negative' : (variance > 0 ? 'is-positive' : '')) + '">' + escapeHtml(economicsMoney(variance)) + '</strong><small>' + escapeHtml(variance < 0 ? 'прогнозный перерасход' : (variance > 0 ? 'прогнозная экономия' : 'в пределах бюджета')) + '</small></div>' +
+                '<div><span>Версия прогноза</span><strong>v' + escapeHtml(forecast.versionNo || '—') + '</strong><small>на ' + escapeHtml(formatDisplayDate(forecast.calculationDate) || forecast.calculationDate || '—') + '</small></div>' +
+            '</div>' +
+            (forecastStatus === 'stale' ? '<div class="economics-notice is-danger"><i data-lucide="refresh-cw"></i><div><b>Исходные данные изменились</b><span>Для решения нужен новый расчёт; текущая версия сохранена в истории.</span></div><button class="ghost compact" type="button" data-finance-view-target="management" data-econ-mode-target="forecast">Пересчитать</button></div>' : '') +
+            renderEconomicsComponents(forecast);
         }
-        return html + cashFlowHtml + '</section>';
+        return html + '</section>';
     }
 
     function loadProjectEconomicsData(projectId, force) {
@@ -3020,13 +3275,39 @@
         var form = qs('[data-document-upload-form]');
         if (!form || form.dataset.bound === '1') return;
         form.dataset.bound = '1';
+        var fileInput = form.querySelector('[data-document-file]');
+        var fileName = form.querySelector('[data-document-file-name]');
+        var fileMeta = form.querySelector('[data-document-file-meta]');
+        var dropzone = form.querySelector('[data-document-dropzone]');
+        var submitButton = form.querySelector('[data-document-upload-submit]');
+
+        function syncSelectedFile() {
+            var file = fileInput && fileInput.files && fileInput.files[0];
+            if (fileName) fileName.textContent = file ? file.name : 'Выберите файл или перетащите его сюда';
+            if (fileMeta) fileMeta.textContent = file
+                ? (formatBytes(file.size) + ' · файл готов к загрузке')
+                : 'Любой рабочий формат, до 25 МБ';
+            if (dropzone) dropzone.classList.toggle('has-file', !!file);
+            if (file && form.title && !form.title.value.trim()) {
+                form.title.value = file.name.replace(/\.[^.]+$/, '');
+            }
+        }
+
+        if (fileInput) fileInput.addEventListener('change', syncSelectedFile);
         form.addEventListener('submit', function (event) {
             event.preventDefault();
-            var error = qs('[data-document-upload-error]');
+            var error = form.querySelector('[data-document-upload-error]');
             if (error) error.classList.remove('active');
             if (!form.file.files || !form.file.files[0]) {
                 if (error) {
                     error.textContent = 'Нужно выбрать файл';
+                    error.classList.add('active');
+                }
+                return;
+            }
+            if (form.file.files[0].size > 25 * 1024 * 1024) {
+                if (error) {
+                    error.textContent = 'Файл больше 25 МБ. Выберите файл меньшего размера.';
                     error.classList.add('active');
                 }
                 return;
@@ -3037,14 +3318,33 @@
             data.append('doc_type', form.doc_type.value);
             data.append('status', form.status.value);
             data.append('notes', form.notes.value.trim());
+            if (form.stage_id && form.stage_id.value) data.append('stage_id', form.stage_id.value);
             if (form.is_client_visible.checked) data.append('is_client_visible', '1');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.classList.add('is-loading');
+                submitButton.setAttribute('aria-busy', 'true');
+            }
             apiFormData('/api/projects/' + projectId + '/documents', data).then(function () {
                 form.reset();
+                syncSelectedFile();
+                showAppNotice('Документ загружен.', 'success');
                 loadDocuments(projectId);
             }).catch(function (err) {
                 if (error) {
-                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось загрузить документ';
+                    var errorCode = err && err.payload && err.payload.error;
+                    error.textContent = {
+                        file_required: 'Нужно выбрать файл.',
+                        empty_file: 'Выбранный файл пуст.',
+                        upload_too_large: 'Файл больше 25 МБ. Выберите файл меньшего размера.',
+                        forbidden: 'У вас нет прав на загрузку документов.'
+                    }[errorCode] || 'Не удалось загрузить документ. Попробуйте ещё раз.';
                     error.classList.add('active');
+                }
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.classList.remove('is-loading');
+                    submitButton.removeAttribute('aria-busy');
                 }
             });
         });
@@ -3327,39 +3627,115 @@
         }[type] || type || 'Документ';
     }
 
+    function documentTypeIcon(type, fileExt) {
+        var extension = String(fileExt || '').toLowerCase();
+        if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].indexOf(extension) !== -1) return 'image';
+        if (extension === '.pdf') return 'file-text';
+        if (['.xls', '.xlsx', '.csv'].indexOf(extension) !== -1) return 'file-spreadsheet';
+        if (['.zip', '.rar', '.7z'].indexOf(extension) !== -1) return 'file-archive';
+        return {
+            contract: 'scroll-text',
+            act: 'file-check-2',
+            hidden_work_act: 'clipboard-check',
+            inspection_act: 'clipboard-search',
+            estimate: 'table-2',
+            project_doc: 'panels-top-left',
+            executive: 'badge-check',
+            technical_solution: 'wrench',
+            letter: 'mail',
+            correspondence: 'messages-square',
+            invoice: 'receipt-text',
+            archive: 'archive',
+            photo_report: 'images',
+            finance: 'wallet-cards'
+        }[type] || 'file';
+    }
+
+    function documentStatusTone(status) {
+        if (['reviewed', 'approved', 'signed', 'ready'].indexOf(status) !== -1) return 'is-success';
+        if (status === 'draft') return 'is-draft';
+        if (status === 'internal') return 'is-internal';
+        return 'is-neutral';
+    }
+
+    function documentFileExtension(doc) {
+        var extension = String(doc && doc.file_ext || '').replace(/^\./, '').trim();
+        if (!extension && doc && doc.original_name && doc.original_name.indexOf('.') !== -1) {
+            extension = doc.original_name.split('.').pop();
+        }
+        return (extension || 'FILE').slice(0, 5).toUpperCase();
+    }
+
+    function documentCountLabel(value) {
+        var count = Number(value) || 0;
+        var mod100 = count % 100;
+        var mod10 = count % 10;
+        if (mod100 >= 11 && mod100 <= 14) return count + ' документов';
+        if (mod10 === 1) return count + ' документ';
+        if (mod10 >= 2 && mod10 <= 4) return count + ' документа';
+        return count + ' документов';
+    }
+
+    function documentDisplayDate(doc) {
+        var value = doc && (doc.updated_at || doc.created_at);
+        return value ? formatDisplayDate(value) : '';
+    }
+
     function renderDocumentRow(doc) {
-        var meta = [
-            docTypeLabel(doc.doc_type),
-            statusLabel(doc.status),
-            doc.stage_title ? ('этап: ' + doc.stage_title) : '',
-            doc.original_name || '',
-            doc.size_bytes ? formatBytes(doc.size_bytes) : '',
-            doc.uploaded_by_name || '',
-            doc.is_client_visible ? 'Видно заказчику' : 'Внутренний'
-        ].filter(Boolean).join(' • ');
+        var hasFile = !!doc.storage_path;
+        var title = doc.title || doc.original_name || 'Документ без названия';
+        var fileMeta = [doc.original_name || '', doc.size_bytes ? formatBytes(doc.size_bytes) : ''].filter(Boolean).join(' · ');
+        var details = [];
+        if (doc.stage_title) details.push('<span><i data-lucide="layers-3"></i>' + escapeHtml(doc.stage_title) + '</span>');
+        if (doc.uploaded_by_name) details.push('<span><i data-lucide="user-round"></i>' + escapeHtml(doc.uploaded_by_name) + '</span>');
+        if (documentDisplayDate(doc)) details.push('<span><i data-lucide="calendar-days"></i>' + escapeHtml(documentDisplayDate(doc)) + '</span>');
         var actions = doc.storage_path
-            ? ((doc.can_preview ? '<a class="ghost" href="' + escapeHtml(doc.view_url) + '" target="_blank" rel="noreferrer">Открыть</a>' : '') +
-               '<a class="ghost" href="' + escapeHtml(doc.download_url) + '" target="_blank" rel="noreferrer">Скачать</a>')
-            : '<span class="muted">Черновик без файла</span>';
-        return '<div class="document-row">' +
-            '<div><b>' + escapeHtml(doc.title) + '</b><small>' + escapeHtml(meta) + (doc.notes ? '<br>' + escapeHtml(doc.notes) : '') + '</small></div>' +
+            ? ((doc.can_preview ? '<a class="document-action is-primary" href="' + escapeHtml(doc.view_url) + '" target="_blank" rel="noreferrer" aria-label="Открыть ' + escapeHtml(title) + '"><i data-lucide="eye"></i><span>Открыть</span></a>' : '') +
+               '<a class="document-action" href="' + escapeHtml(doc.download_url) + '" target="_blank" rel="noreferrer" aria-label="Скачать ' + escapeHtml(title) + '"><i data-lucide="download"></i><span>Скачать</span></a>')
+            : '<span class="document-no-file"><i data-lucide="file-clock"></i>Файл ожидается</span>';
+        return '<article class="document-row document-card ' + (hasFile ? 'has-file' : 'is-fileless') + '">' +
+            '<div class="document-file-visual" aria-hidden="true"><i data-lucide="' + escapeHtml(documentTypeIcon(doc.doc_type, doc.file_ext)) + '"></i><span>' + escapeHtml(documentFileExtension(doc)) + '</span></div>' +
+            '<div class="document-card-content">' +
+                '<div class="document-card-title-row">' +
+                    '<div class="document-card-title"><h4>' + escapeHtml(title) + '</h4>' +
+                        (fileMeta ? '<p title="' + escapeHtml(doc.original_name || '') + '">' + escapeHtml(fileMeta) + '</p>' : '<p>Карточка создана, файл ещё не приложен</p>') +
+                    '</div>' +
+                    '<span class="document-status ' + documentStatusTone(doc.status) + '">' + escapeHtml(statusLabel(doc.status)) + '</span>' +
+                '</div>' +
+                '<div class="document-card-chips">' +
+                    '<span class="document-chip"><i data-lucide="folder"></i>' + escapeHtml(docTypeLabel(doc.doc_type)) + '</span>' +
+                    '<span class="document-chip ' + (doc.is_client_visible ? 'is-visible' : '') + '"><i data-lucide="' + (doc.is_client_visible ? 'users-round' : 'lock-keyhole') + '"></i>' + (doc.is_client_visible ? 'Доступен заказчику' : 'Только команда') + '</span>' +
+                '</div>' +
+                (details.length ? '<div class="document-card-meta">' + details.join('') + '</div>' : '') +
+                (doc.notes ? '<p class="document-card-note">' + escapeHtml(doc.notes) + '</p>' : '') +
+            '</div>' +
             '<div class="document-actions">' + actions + '</div>' +
-        '</div>';
+        '</article>';
     }
 
     function renderDocumentUpload(projectId) {
-        if (hasRole('customer')) return '';
+        if (!canManageDocuments()) return '';
         var stages = (state.stagesByProject && state.stagesByProject[projectId]) ? state.stagesByProject[projectId] : [];
         var stageOptions = '<option value="">Без этапа</option>' + stages.filter(function (stage) {
             return stage.stage_kind !== 'section';
         }).map(function (stage) {
             return '<option value="' + stage.id + '">' + escapeHtml(stage.title) + '</option>';
         }).join('');
-        return '<form class="document-upload-form" data-document-upload-form data-project-id="' + projectId + '">' +
-            '<div class="card-head"><h3>Загрузить документ</h3></div>' +
-            '<input name="file" type="file" required>' +
-            '<input name="title" placeholder="Название документа">' +
-            '<select name="doc_type">' +
+        var fileInputId = 'project-document-file-' + projectId;
+        return '<form class="document-upload-form" data-document-upload-form data-project-id="' + projectId + '" hidden>' +
+            '<div class="document-upload-head">' +
+                '<div><span class="section-label">Новый файл</span><h3>Добавить документ</h3><p>Заполните только важное — название подставится из имени файла автоматически.</p></div>' +
+                '<button class="document-icon-button" type="button" data-document-upload-close aria-label="Закрыть форму"><i data-lucide="x"></i></button>' +
+            '</div>' +
+            '<label class="document-dropzone" data-document-dropzone for="' + fileInputId + '">' +
+                '<input id="' + fileInputId + '" name="file" type="file" required data-document-file>' +
+                '<span class="document-dropzone-icon" aria-hidden="true"><i data-lucide="cloud-upload"></i></span>' +
+                '<span class="document-dropzone-copy"><strong data-document-file-name>Выберите файл или перетащите его сюда</strong><small data-document-file-meta>Любой рабочий формат, до 25 МБ</small></span>' +
+                '<span class="document-dropzone-action">Выбрать</span>' +
+            '</label>' +
+            '<div class="document-upload-grid">' +
+                '<label class="document-field document-field-wide"><span>Название</span><input name="title" placeholder="Например, Акт выполненных работ № 12"></label>' +
+                '<label class="document-field"><span>Тип документа</span><select name="doc_type">' +
                 '<option value="contract">Договор</option>' +
                 '<option value="estimate">Смета</option>' +
                 '<option value="project_doc">Проектная документация</option>' +
@@ -3374,46 +3750,242 @@
                 '<option value="archive">Архив</option>' +
                 '<option value="finance">Финансы</option>' +
                 '<option value="other">Другое</option>' +
-            '</select>' +
-            '<select name="stage_id">' + stageOptions + '</select>' +
-            '<select name="status">' +
+                '</select></label>' +
+                '<label class="document-field"><span>Этап работ</span><select name="stage_id">' + stageOptions + '</select></label>' +
+                '<label class="document-field"><span>Статус</span><select name="status">' +
                 '<option value="draft">Черновик</option>' +
                 '<option value="reviewed">Проверен</option>' +
                 '<option value="approved">Утвержден</option>' +
                 '<option value="signed">Подписан</option>' +
                 '<option value="internal">Внутренний</option>' +
                 '<option value="ready">Готов</option>' +
-            '</select>' +
-            '<input name="notes" placeholder="Комментарий или примечание">' +
-            '<label class="check-inline"><input type="checkbox" name="is_client_visible" value="1"> Видно заказчику</label>' +
-            '<button class="primary" type="submit">Загрузить</button>' +
-            '<div class="form-error" data-document-upload-error></div>' +
+                '</select></label>' +
+                '<label class="document-field document-field-wide"><span>Комментарий</span><textarea name="notes" rows="3" placeholder="Что важно знать об этом документе"></textarea></label>' +
+            '</div>' +
+            '<div class="document-upload-footer">' +
+                '<label class="document-visibility-switch"><input type="checkbox" name="is_client_visible" value="1"><span aria-hidden="true"></span><strong>Доступен заказчику</strong><small>Заказчик увидит документ в своём кабинете</small></label>' +
+                '<div class="document-upload-actions"><button class="ghost" type="button" data-document-upload-close>Отмена</button><button class="primary" type="submit" data-document-upload-submit><i data-lucide="upload"></i><span>Загрузить документ</span></button></div>' +
+            '</div>' +
+            '<div class="form-error" data-document-upload-error role="alert"></div>' +
         '</form>';
+    }
+
+    function renderDocumentStat(icon, label, value, tone) {
+        return '<div class="document-stat ' + (tone || '') + '">' +
+            '<span class="document-stat-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(icon) + '"></i></span>' +
+            '<span><small>' + escapeHtml(label) + '</small><strong>' + escapeHtml(value) + '</strong></span>' +
+        '</div>';
+    }
+
+    function renderDocumentEmptyState(canUpload, isFiltered) {
+        if (isFiltered) {
+            return '<div class="documents-empty is-filtered">' +
+                '<span class="documents-empty-icon" aria-hidden="true"><i data-lucide="search-x"></i></span>' +
+                '<h4>Ничего не найдено</h4><p>Измените запрос или сбросьте фильтры.</p>' +
+                '<button class="ghost" type="button" data-document-filter-reset-empty>Сбросить фильтры</button>' +
+            '</div>';
+        }
+        return '<div class="documents-empty">' +
+            '<span class="documents-empty-icon" aria-hidden="true"><i data-lucide="folder-open"></i></span>' +
+            '<h4>В папке пока пусто</h4><p>' + (canUpload ? 'Добавьте первый документ — он сразу появится в общей библиотеке объекта.' : 'Документы появятся здесь после загрузки командой проекта.') + '</p>' +
+            (canUpload ? '<button class="primary" type="button" data-document-empty-add><i data-lucide="plus"></i><span>Добавить документ</span></button>' : '') +
+        '</div>';
+    }
+
+    function renderDocumentLibrary(docs) {
+        var types = [];
+        var statuses = [];
+        docs.forEach(function (doc) {
+            if (doc.doc_type && types.indexOf(doc.doc_type) === -1) types.push(doc.doc_type);
+            if (doc.status && statuses.indexOf(doc.status) === -1) statuses.push(doc.status);
+        });
+        types.sort(function (left, right) { return docTypeLabel(left).localeCompare(docTypeLabel(right), 'ru'); });
+        var statusOrder = ['draft', 'reviewed', 'approved', 'signed', 'ready', 'internal'];
+        statuses.sort(function (left, right) {
+            var leftIndex = statusOrder.indexOf(left);
+            var rightIndex = statusOrder.indexOf(right);
+            if (leftIndex === -1) leftIndex = statusOrder.length;
+            if (rightIndex === -1) rightIndex = statusOrder.length;
+            return leftIndex - rightIndex;
+        });
+        var typeOptions = types.map(function (type) {
+            return '<option value="' + escapeHtml(type) + '">' + escapeHtml(docTypeLabel(type)) + '</option>';
+        }).join('');
+        var statusOptions = statuses.map(function (status) {
+            return '<option value="' + escapeHtml(status) + '">' + escapeHtml(statusLabel(status)) + '</option>';
+        }).join('');
+        var visibilityFilter = hasRole('customer') ? '' :
+            '<label class="document-filter"><span>Доступ</span><select data-document-filter-visibility><option value="">Любой</option><option value="client">Заказчику</option><option value="internal">Только команде</option></select></label>';
+        return '<section class="document-library" aria-labelledby="document-library-title">' +
+            '<div class="document-library-head">' +
+                '<div><span class="section-label">Библиотека</span><h3 id="document-library-title">Все документы</h3><p data-document-results>' + escapeHtml(documentCountLabel(docs.length)) + ' · сначала новые</p></div>' +
+            '</div>' +
+            '<div class="document-toolbar">' +
+                '<label class="document-search"><i data-lucide="search" aria-hidden="true"></i><span class="sr-only">Поиск документов</span><input type="search" data-document-search placeholder="Название, файл, этап или автор" autocomplete="off"></label>' +
+                '<label class="document-filter"><span>Тип</span><select data-document-filter-type><option value="">Все типы</option>' + typeOptions + '</select></label>' +
+                '<label class="document-filter"><span>Статус</span><select data-document-filter-status><option value="">Все статусы</option>' + statusOptions + '</select></label>' +
+                visibilityFilter +
+                '<button class="document-filter-reset" type="button" data-document-filter-reset hidden><i data-lucide="rotate-ccw"></i><span>Сбросить</span></button>' +
+            '</div>' +
+            '<div class="documents-list" data-documents-list aria-live="polite">' +
+                (docs.length ? docs.map(renderDocumentRow).join('') : renderDocumentEmptyState(canManageDocuments(), false)) +
+            '</div>' +
+        '</section>';
+    }
+
+    function renderDocumentsWorkspace(projectId, docs, executive) {
+        var readyStatuses = ['reviewed', 'approved', 'signed', 'ready'];
+        var ready = docs.filter(function (doc) { return readyStatuses.indexOf(doc.status) !== -1; }).length;
+        var clientVisible = docs.filter(function (doc) { return !!doc.is_client_visible; }).length;
+        var drafts = docs.filter(function (doc) { return doc.status === 'draft'; }).length;
+        var canUpload = canManageDocuments();
+        return '<section class="documents-workspace" data-documents-workspace>' +
+            '<header class="documents-hero">' +
+                '<div class="documents-hero-main">' +
+                    '<span class="documents-hero-icon" aria-hidden="true"><i data-lucide="folder-kanban"></i></span>' +
+                    '<div><span class="section-label">Папка объекта</span><h2>Документы</h2><p>' + (hasRole('customer') ? 'Актуальные документы, которые команда открыла для вас.' : 'Договоры, акты, сметы и рабочие файлы в одном понятном месте.') + '</p></div>' +
+                '</div>' +
+                (canUpload ? '<button class="primary documents-add-button" type="button" data-document-upload-toggle aria-expanded="false"><i data-lucide="plus"></i><span>Добавить документ</span></button>' : '') +
+                '<div class="document-stats" data-documents-summary>' +
+                    renderDocumentStat('files', 'Всего', String(docs.length)) +
+                    renderDocumentStat('badge-check', 'Готовы', String(ready), ready ? 'is-success' : '') +
+                    renderDocumentStat('users-round', 'Заказчику', String(clientVisible), clientVisible ? 'is-accent' : '') +
+                    renderDocumentStat('file-pen-line', 'Черновики', String(drafts), drafts ? 'is-draft' : '') +
+                '</div>' +
+            '</header>' +
+            renderDocumentUpload(projectId) +
+            renderDocumentLibrary(docs) +
+            (executive ? renderExecutiveChecklist(executive) : '') +
+        '</section>';
+    }
+
+    function documentSearchValue(doc) {
+        return [
+            doc.title,
+            doc.original_name,
+            doc.notes,
+            doc.stage_title,
+            doc.uploaded_by_name,
+            docTypeLabel(doc.doc_type),
+            statusLabel(doc.status)
+        ].filter(Boolean).join(' ').toLocaleLowerCase('ru');
+    }
+
+    function bindDocumentWorkspace(projectId, docs) {
+        var root = qs('[data-documents-workspace]');
+        if (!root) return;
+        var form = root.querySelector('[data-document-upload-form]');
+        var toggles = Array.prototype.slice.call(root.querySelectorAll('[data-document-upload-toggle], [data-document-empty-add]'));
+
+        function setUploadOpen(open) {
+            if (!form) return;
+            form.hidden = !open;
+            toggles.forEach(function (button) { button.setAttribute('aria-expanded', open ? 'true' : 'false'); });
+            if (open) {
+                form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                var fileInput = form.querySelector('[data-document-file]');
+                if (fileInput) fileInput.focus({ preventScroll: true });
+            }
+        }
+
+        toggles.forEach(function (button) {
+            button.addEventListener('click', function () { setUploadOpen(!form || form.hidden); });
+        });
+        Array.prototype.slice.call(root.querySelectorAll('[data-document-upload-close]')).forEach(function (button) {
+            button.addEventListener('click', function () { setUploadOpen(false); });
+        });
+        if (form) {
+            form.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') setUploadOpen(false);
+            });
+        }
+
+        var list = root.querySelector('[data-documents-list]');
+        var search = root.querySelector('[data-document-search]');
+        var typeFilter = root.querySelector('[data-document-filter-type]');
+        var statusFilter = root.querySelector('[data-document-filter-status]');
+        var visibilityFilter = root.querySelector('[data-document-filter-visibility]');
+        var resultText = root.querySelector('[data-document-results]');
+        var resetButton = root.querySelector('[data-document-filter-reset]');
+        if (!list || !search || !typeFilter || !statusFilter) return;
+
+        function resetFilters() {
+            search.value = '';
+            typeFilter.value = '';
+            statusFilter.value = '';
+            if (visibilityFilter) visibilityFilter.value = '';
+            applyFilters();
+            search.focus();
+        }
+
+        function applyFilters() {
+            var query = search.value.trim().toLocaleLowerCase('ru');
+            var type = typeFilter.value;
+            var status = statusFilter.value;
+            var visibility = visibilityFilter ? visibilityFilter.value : '';
+            var filtered = docs.filter(function (doc) {
+                if (query && documentSearchValue(doc).indexOf(query) === -1) return false;
+                if (type && doc.doc_type !== type) return false;
+                if (status && doc.status !== status) return false;
+                if (visibility === 'client' && !doc.is_client_visible) return false;
+                if (visibility === 'internal' && doc.is_client_visible) return false;
+                return true;
+            });
+            var filtersActive = !!(query || type || status || visibility);
+            safeReplaceChildren(list, filtered.length ? filtered.map(renderDocumentRow).join('') : renderDocumentEmptyState(canManageDocuments(), filtersActive));
+            if (resultText) resultText.textContent = filtersActive
+                ? (documentCountLabel(filtered.length) + ' из ' + docs.length)
+                : (documentCountLabel(docs.length) + ' · сначала новые');
+            if (resetButton) resetButton.hidden = !filtersActive;
+            var emptyReset = list.querySelector('[data-document-filter-reset-empty]');
+            if (emptyReset) emptyReset.addEventListener('click', resetFilters);
+            var emptyAdd = list.querySelector('[data-document-empty-add]');
+            if (emptyAdd) emptyAdd.addEventListener('click', function () { setUploadOpen(true); });
+            refreshLucideIcons(list);
+        }
+
+        search.addEventListener('input', applyFilters);
+        typeFilter.addEventListener('change', applyFilters);
+        statusFilter.addEventListener('change', applyFilters);
+        if (visibilityFilter) visibilityFilter.addEventListener('change', applyFilters);
+        if (resetButton) resetButton.addEventListener('click', resetFilters);
     }
 
     function renderExecutiveSummary(summary) {
         if (!summary) return '';
         return '<section class="executive-summary">' +
-            '<div class="executive-stat"><span>Этапов в контуре</span><strong>' + escapeHtml(summary.stages) + '</strong></div>' +
-            '<div class="executive-stat"><span>Нужно закрыть</span><strong>' + escapeHtml(summary.required) + '</strong></div>' +
-            '<div class="executive-stat"><span>Уже готово</span><strong>' + escapeHtml(summary.ready) + '</strong></div>' +
+            '<div class="executive-stat"><span>Этапов</span><strong>' + escapeHtml(summary.stages) + '</strong></div>' +
+            '<div class="executive-stat"><span>Обязательных</span><strong>' + escapeHtml(summary.required) + '</strong></div>' +
+            '<div class="executive-stat"><span>Готово</span><strong>' + escapeHtml(summary.ready) + '</strong></div>' +
             '<div class="executive-stat executive-stat-' + (summary.missing ? 'warn' : 'ok') + '"><span>Осталось</span><strong>' + escapeHtml(summary.missing) + '</strong></div>' +
         '</section>';
     }
 
     function renderExecutiveChecklist(data) {
         if (!data || !Array.isArray(data.checklist) || !data.checklist.length) {
-            return '<section class="subsection"><div class="card-head"><h3>Исполнительная документация</h3></div><p class="muted">Для текущих этапов пока нет подсказок по исполнительным документам.</p></section>';
+            return '<details class="executive-docs-block">' +
+                '<summary><span class="executive-summary-icon"><i data-lucide="clipboard-list"></i></span><span class="executive-summary-copy"><strong>Исполнительная документация</strong><small>Для текущих этапов пока нет обязательных шаблонов</small></span><i class="executive-summary-chevron" data-lucide="chevron-down"></i></summary>' +
+                '<div class="executive-docs-body"><div class="documents-empty is-compact"><span class="documents-empty-icon"><i data-lucide="list-checks"></i></span><h4>Контур пока не сформирован</h4><p>Подсказки появятся после добавления этапов работ.</p></div></div>' +
+            '</details>';
         }
-        return '<section class="subsection executive-docs-block">' +
-            '<div class="card-head"><div><h3>Исполнительная документация</h3><span class="muted">Подсказки по актам и техрешениям для закрытия этапов.</span></div></div>' +
-            renderExecutiveSummary(data.summary) +
-            '<div class="executive-stage-list">' + data.checklist.map(function (stage) {
+        var summary = data.summary || {};
+        var completed = Number(summary.required || 0) > 0 && Number(summary.missing || 0) === 0;
+        return '<details class="executive-docs-block">' +
+            '<summary>' +
+                '<span class="executive-summary-icon"><i data-lucide="clipboard-check"></i></span>' +
+                '<span class="executive-summary-copy"><strong>Исполнительная документация</strong><small>Акты и техрешения по этапам · ' + escapeHtml(completed ? 'комплект собран' : ('осталось ' + (summary.missing || 0))) + '</small></span>' +
+                '<span class="executive-summary-progress ' + (completed ? 'is-complete' : '') + '">' + escapeHtml(summary.ready || 0) + ' / ' + escapeHtml(summary.required || 0) + '</span>' +
+                '<i class="executive-summary-chevron" data-lucide="chevron-down"></i>' +
+            '</summary>' +
+            '<div class="executive-docs-body">' +
+                renderExecutiveSummary(summary) +
+                '<div class="executive-stage-list">' + data.checklist.map(function (stage) {
                 return '<article class="executive-stage">' +
                     '<div class="executive-stage-head">' +
-                        '<div><b>' + escapeHtml(stage.stageTitle) + '</b><small>' + escapeHtml(statusLabel(stage.statusCode) + ' • готовность ' + stage.progress + '%') + (stage.plannedEnd ? '<br>план до ' + escapeHtml(stage.plannedEnd) : '') + '</small></div>' +
-                        '<span class="badge ' + (stage.progress >= 100 ? 'success' : (stage.progress >= 50 ? 'warn' : '')) + '">' + escapeHtml(stage.progress) + '%</span>' +
+                        '<div class="executive-stage-title"><span class="executive-stage-icon"><i data-lucide="layers-3"></i></span><div><b>' + escapeHtml(stage.stageTitle) + '</b><small>' + escapeHtml(statusLabel(stage.statusCode)) + (stage.plannedEnd ? ' · план до ' + escapeHtml(formatDisplayDate(stage.plannedEnd)) : '') + '</small></div></div>' +
+                        '<span class="executive-stage-progress">' + escapeHtml(stage.progress) + '%</span>' +
                     '</div>' +
+                    '<div class="executive-progress-track" aria-label="Готовность этапа ' + escapeHtml(stage.progress) + '%"><span style="width:' + Math.max(0, Math.min(100, Number(stage.progress) || 0)) + '%"></span></div>' +
                     '<div class="executive-item-list">' + stage.items.map(function (item) {
                         var stateClass = item.isReady ? 'executive-item-ready' : (item.optional ? 'executive-item-optional' : 'executive-item-missing');
                         var hint = item.isReady
@@ -3421,19 +3993,20 @@
                             : (item.existingCount ? ('черновиков: ' + item.existingCount) : (item.optional ? 'опционально' : 'нужно создать'));
                         var button = '';
                         if (data.canManage) {
-                            button = '<button class="ghost" type="button" data-executive-create data-stage-id="' + stage.stageId + '" data-template-code="' + escapeHtml(item.code) + '">Создать черновик</button>';
+                            button = '<button class="ghost compact" type="button" data-executive-create data-stage-id="' + stage.stageId + '" data-template-code="' + escapeHtml(item.code) + '"><i data-lucide="file-plus-2"></i><span>Создать черновик</span></button>';
                         }
                         return '<div class="executive-item ' + stateClass + '">' +
-                            '<div><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(hint) + '</small></div>' +
+                            '<span class="executive-item-state"><i data-lucide="' + (item.isReady ? 'check' : (item.optional ? 'minus' : 'circle')) + '"></i></span>' +
+                            '<div class="executive-item-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(hint) + '</small></div>' +
                             '<div class="executive-item-side">' +
-                                '<span class="badge ' + (item.isReady ? 'success' : (item.optional ? '' : 'warn')) + '">' + (item.isReady ? 'Готово' : (item.optional ? 'Опция' : 'Нужно')) + '</span>' +
                                 button +
                             '</div>' +
                         '</div>';
                     }).join('') + '</div>' +
                 '</article>';
-            }).join('') + '</div>' +
-        '</section>';
+                }).join('') + '</div>' +
+            '</div>' +
+        '</details>';
     }
 
     function bindExecutiveDocActions(projectId) {
@@ -3469,23 +4042,29 @@
             var docs = Array.isArray(data.documents) ? data.documents : [];
             var panel = qs('[data-panel="documents"]');
             if (!panel) return;
-            safeReplaceChildren(panel,
-                (executive ? renderExecutiveChecklist(executive) : '') +
-                renderDocumentUpload(projectId) +
-                (docs.length
-                    ? '<div class="documents-list">' + docs.map(renderDocumentRow).join('') + '</div>'
-                    : '<p class="muted">Документы по объекту пока не загружены.</p>'));
+            safeReplaceChildren(panel, renderDocumentsWorkspace(projectId, docs, executive));
+            bindDocumentWorkspace(projectId, docs);
             bindDocumentUpload(projectId);
             bindExecutiveDocActions(projectId);
+            refreshLucideIcons(panel);
         }).catch(function () {
             if (!isCurrentProject(projectId, loadingToken)) return;
-            safeReplaceChildren(qs('[data-panel="documents"]'), '<p class="muted">Документы недоступны.</p>');
+            safeReplaceChildren(qs('[data-panel="documents"]'), '<div class="documents-load-error"><span><i data-lucide="folder-x"></i></span><div><h3>Документы не загрузились</h3><p>Проверьте соединение и откройте раздел ещё раз.</p></div><button class="ghost" type="button" data-documents-retry>Повторить</button></div>');
+            var retry = qs('[data-documents-retry]');
+            if (retry) retry.addEventListener('click', function () { loadDocuments(projectId); });
+            refreshLucideIcons(qs('[data-panel="documents"]'));
         });
     }
 
     function logsMonthStartIso(isoDate) {
         var base = isoDate || APP_TODAY;
         return String(base).slice(0, 7) + '-01';
+    }
+
+    function formatRuMonthYear(monthIso) {
+        var date = new Date(String(monthIso || logsMonthStartIso(APP_TODAY)).slice(0, 10) + 'T00:00:00Z');
+        if (Number.isNaN(date.getTime())) return String(monthIso || '');
+        return new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(date);
     }
 
     function logsShiftMonth(monthIso, delta) {
@@ -4127,28 +4706,28 @@ function renderLogsDayView(project, logs) {
 
     function renderReportPreviewHtml(projectId, draft) {
         if (!draft.text && !draft.workMatches.length && !draft.materialMatches.length) {
-            return '<span>\u041d\u0430\u043f\u0438\u0448\u0438 \u043a\u043e\u0440\u043e\u0442\u043a\u043e, \u0447\u0442\u043e \u0441\u0434\u0435\u043b\u0430\u043b\u0438 \u0441\u0435\u0433\u043e\u0434\u043d\u044f. \u041d\u0438\u0436\u0435 \u0441\u043e\u0431\u0435\u0440\u0435\u0442\u0441\u044f \u043e\u0442\u0447\u0435\u0442 \u0438 \u0441\u043f\u0438\u0441\u043e\u043a \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439.</span>';
+            return '<span>Опишите факт дня — здесь появится готовый текст рапорта и подсказки по распознанным позициям.</span>';
         }
         var parts = [];
         if (draft.text) {
-            parts.push('<span><b>\u0411\u0443\u0434\u0435\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d \u043e\u0442\u0447\u0435\u0442:</b> ' + escapeHtml(draft.text) + '</span>');
+            parts.push('<span><b>Текст рапорта:</b> ' + escapeHtml(draft.text) + '</span>');
         }
         if (draft.workMatches.length) {
-            parts.push('<span><b>\u0411\u0443\u0434\u0443\u0442 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u044b \u0440\u0430\u0431\u043e\u0442\u044b:</b> ' + escapeHtml(draft.workMatches.map(function (entry) {
+            parts.push('<span><b>Распознаны работы:</b> ' + escapeHtml(draft.workMatches.map(function (entry) {
                 return entry.item.title + (entry.partial ? ' (\u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e)' : '');
             }).join(', ')) + '</span>');
         } else {
-            parts.push('<span><b>\u0420\u0430\u0431\u043e\u0442\u044b:</b> \u043f\u043e\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b \u044f\u0432\u043d\u044b\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u044f.</span>');
+            parts.push('<span><b>Работы:</b> явных совпадений со сметой не найдено.</span>');
         }
         if (draft.materialMatches.length) {
-            parts.push('<span><b>\u0411\u0443\u0434\u0443\u0442 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b:</b> ' + escapeHtml(draft.materialMatches.map(function (entry) {
+            parts.push('<span><b>Распознаны материалы:</b> ' + escapeHtml(draft.materialMatches.map(function (entry) {
                 var bits = [];
                 if (entry.purchasedQty > 0) bits.push('\u043a\u0443\u043f\u043b\u0435\u043d\u043e ' + finalSectionSummaryNumber(entry.purchasedQty));
                 if (entry.usedQty > 0) bits.push('\u0432 \u0440\u0430\u0431\u043e\u0442\u0443 ' + finalSectionSummaryNumber(entry.usedQty));
                 return entry.item.title + ' (' + bits.join(', ') + ' ' + (entry.item.unit || '') + ')';
             }).join('; ')) + '</span>');
         } else {
-            parts.push('<span><b>\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b:</b> \u043f\u043e\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b \u044f\u0432\u043d\u044b\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u044f.</span>');
+            parts.push('<span><b>Материалы:</b> явных совпадений со сметой не найдено.</span>');
         }
         return parts.join('');
     }
@@ -4330,7 +4909,7 @@ function renderLogsDayView(project, logs) {
                             '<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:' + progress + '%"></span></div>' +
                         '</div>' +
                         '<div class="project-card-actions">' +
-                            '<button class="project-quick-action" type="button" data-project-quick-tab="schedule" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Материалы и работы"><i data-lucide="boxes"></i></button>' +
+                            '<button class="project-quick-action" type="button" data-project-quick-tab="schedule" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Работы"><i data-lucide="hammer"></i></button>' +
                             '<button class="project-quick-action" type="button" data-project-quick-tab="tasks" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Задачи"><i data-lucide="kanban-square"></i></button>' +
                             financeQuickAction +
                         '</div>' +
@@ -4462,6 +5041,7 @@ function renderLogsDayView(project, logs) {
             var params = new URLSearchParams(location.search);
             var openProjectId = Number(params.get('openProject') || 0);
             var openProjectTab = params.get('tab') || '';
+            if (params.get('materialId')) openProjectTab = 'warehouse-control';
             if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
                 var matched = (state.projects || []).some(function (project) { return Number(project.id) === openProjectId; });
                 if (matched) {
@@ -4656,6 +5236,7 @@ function renderLogsDayView(project, logs) {
             var params = new URLSearchParams(location.search);
             requestedMaterialId = params.get('materialId') || '';
             params.set('openProject', String(projectId));
+            if (requestedMaterialId) params.set('tab', 'warehouse-control');
             history.replaceState(null, '', location.pathname + '?' + params.toString());
         } catch (historyError) {}
         function panel(name) { return qs('[data-panel="' + name + '"]'); }
@@ -4741,7 +5322,10 @@ function renderLogsDayView(project, logs) {
                 });
                 queueScheduleRender(state.stagesByProject[project.id] || []);
                 if (requestedMaterialId) setTimeout(function () {
-                    if (isCurrentProject(project.id, loadingToken)) focusProjectMaterialRow(requestedMaterialId, project.id);
+                    if (!isCurrentProject(project.id, loadingToken) || !PMBI.warehouseControl) return;
+                    PMBI.warehouseControl.load(project.id, false).then(function () {
+                        PMBI.warehouseControl.focusMaterial(requestedMaterialId, project.id);
+                    }).catch(function () {});
                 }, 180);
             });
         });
@@ -6064,6 +6648,16 @@ function renderLogsDayView(project, logs) {
         return { kind: 'success', label: 'В порядке' };
     }
 
+    function renderProjectReportDeleteButton() {
+        var handler = PMBI.operations && PMBI.operations.renderProjectReportDeleteButton;
+        return typeof handler === 'function' ? handler.apply(null, arguments) : '';
+    }
+
+    function bindProjectReportDeleteActions() {
+        var handler = PMBI.operations && PMBI.operations.bindProjectReportDeleteActions;
+        if (typeof handler === 'function') return handler.apply(null, arguments);
+    }
+
 
 
 
@@ -6162,12 +6756,175 @@ function renderLogsDayView(project, logs) {
         }
     }
 
+    function financePaymentOverview(items) {
+        var pending = (Array.isArray(items) ? items : []).filter(function (item) {
+            return item && item.direction === 'expense' && item.status !== 'paid' && item.status !== 'cancelled';
+        });
+        var result = {
+            pending: pending,
+            pendingTotal: 0,
+            overdue: [],
+            overdueTotal: 0,
+            week: [],
+            weekTotal: 0,
+            noDate: []
+        };
+        pending.forEach(function (item) {
+            var amount = Number(item.amount || 0);
+            var bucket = financePlanBucket(item).key;
+            result.pendingTotal += amount;
+            if (bucket === 'overdue') {
+                result.overdue.push(item);
+                result.overdueTotal += amount;
+            }
+            if (bucket === 'today' || bucket === 'week') {
+                result.week.push(item);
+                result.weekTotal += amount;
+            }
+            if (bucket === 'no-date') result.noDate.push(item);
+        });
+        return result;
+    }
+
+    function financeCountText(count, one, few, many) {
+        count = Math.abs(Number(count || 0));
+        var mod100 = count % 100;
+        var mod10 = count % 10;
+        var word = mod100 >= 11 && mod100 <= 14 ? many : (mod10 === 1 ? one : (mod10 >= 2 && mod10 <= 4 ? few : many));
+        return String(count) + ' ' + word;
+    }
+
+    function renderFinanceWorkspaceHead(items, canAddIncome, canViewManagement) {
+        var paymentOverview = financePaymentOverview(items);
+        return '<section class="finance-commandbar" data-finance-workspace-head>' +
+            '<div class="finance-commandbar-copy"><span class="section-label">Финансы объекта</span><h2>Главное о деньгах — на одном экране</h2><p>Сначала посмотрите итог и риски, затем переходите к счетам или управленческому учёту.</p>' +
+                '<div class="finance-primer" aria-label="Как читать финансовые показатели">' +
+                    '<span><i data-lucide="trending-up"></i><b>Результат</b> прибыль и затраты без НДС</span>' +
+                    '<span><i data-lucide="wallet-cards"></i><b>Деньги</b> поступления и оплаты с НДС</span>' +
+                    '<span><i data-lucide="circle-equal"></i><b>Важно</b> Баланс поступлений и оплат не является прибылью или маржой.</span>' +
+                '</div>' +
+            '</div>' +
+            renderFinanceEntryActions(canAddIncome) +
+        '</section>' +
+        '<nav class="finance-section-nav" data-finance-view-tabs aria-label="Разделы финансов">' +
+            '<button type="button" data-finance-view="overview" aria-selected="true"><i data-lucide="layout-dashboard"></i><span>Обзор<small>Итог и риски</small></span></button>' +
+            '<button type="button" data-finance-view="payments" aria-selected="false"><i data-lucide="calendar-days"></i><span>К оплате<small>' + escapeHtml(paymentOverview.pending.length ? financeCountText(paymentOverview.pending.length, 'счёт', 'счёта', 'счетов') : 'Всё оплачено') + '</small></span>' + (paymentOverview.overdue.length ? '<b class="finance-nav-alert">' + escapeHtml(paymentOverview.overdue.length) + '</b>' : '') + '</button>' +
+            '<button type="button" data-finance-view="operations" aria-selected="false"><i data-lucide="list-filter"></i><span>Операции<small>' + escapeHtml(financeCountText((items || []).length, 'запись', 'записи', 'записей')) + '</small></span></button>' +
+            (canViewManagement ? '<button type="button" data-finance-view="management" aria-selected="false"><i data-lucide="sliders-horizontal"></i><span>Управленческий учёт<small>План → прогноз</small></span></button>' : '') +
+        '</nav>';
+    }
+
+    function renderFinanceExecutiveSummary(items, summary, economicsData, economicsError, financeError) {
+        var paymentOverview = financePaymentOverview(items);
+        var forecast = economicsData && economicsData.forecast || null;
+        var margin = forecast ? Number(forecast.forecastMarginNetKopecks || 0) : null;
+        var balance = Number(summary && summary.balance || 0);
+        var marginHint = economicsError
+            ? 'Сводка временно недоступна'
+            : (!canViewProjectEconomics() ? 'Доступ по роли ограничен' : (forecast ? economicsPercent(forecast.forecastMarginPercent) + ' от выручки' : 'Нужно рассчитать прогноз'));
+        return '<section class="finance-executive-summary" aria-label="Главные финансовые показатели">' +
+            '<article class="finance-executive-card ' + (margin == null ? 'is-neutral' : (margin < 0 ? 'is-danger' : 'is-success')) + '"><div class="finance-executive-icon"><i data-lucide="trending-up"></i></div><span>Прогнозная маржа</span><strong>' + escapeHtml(margin == null ? '—' : economicsMoney(margin)) + '</strong><small>' + escapeHtml(marginHint) + '</small></article>' +
+            '<article class="finance-executive-card ' + (!financeError && balance < 0 ? 'is-danger' : 'is-primary') + '"><div class="finance-executive-icon"><i data-lucide="wallet-cards"></i></div><span>Денег сейчас</span><strong>' + escapeHtml(financeError ? '—' : money(balance)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : 'Поступило минус оплачено') + '</small></article>' +
+            '<article class="finance-executive-card ' + (!financeError && paymentOverview.week.length ? 'is-warning' : 'is-neutral') + '"><div class="finance-executive-icon"><i data-lucide="calendar-clock"></i></div><span>Оплатить за 7 дней</span><strong>' + escapeHtml(financeError ? '—' : money(paymentOverview.weekTotal)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : (paymentOverview.week.length ? financeCountText(paymentOverview.week.length, 'счёт требует', 'счёта требуют', 'счетов требуют') + ' внимания' : 'Платежей на неделю нет')) + '</small></article>' +
+            '<article class="finance-executive-card ' + (!financeError && paymentOverview.overdue.length ? 'is-danger' : 'is-neutral') + '"><div class="finance-executive-icon"><i data-lucide="triangle-alert"></i></div><span>Просрочено</span><strong>' + escapeHtml(financeError ? '—' : money(paymentOverview.overdueTotal)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : (paymentOverview.overdue.length ? financeCountText(paymentOverview.overdue.length, 'счёт', 'счёта', 'счетов') + ' без оплаты' : 'Просроченных счетов нет')) + '</small></article>' +
+        '</section>';
+    }
+
+    function renderFinanceOperations(items) {
+        items = Array.isArray(items) ? items : [];
+        var unpaidCount = items.filter(function (item) {
+            return item.direction === 'expense' && item.status !== 'paid' && item.status !== 'cancelled';
+        }).length;
+        var incomeCount = items.filter(function (item) { return item.direction === 'income'; }).length;
+        var paidCount = items.filter(function (item) { return item.status === 'paid'; }).length;
+        return '<section class="subsection finance-history-card ui-card"><div class="card-head finance-toolbar"><div><span class="section-label">Журнал</span><h3>Все финансовые операции</h3><span class="muted">Счета, поступления, оплаты и документы в одном списке.</span></div><div class="card-head-actions finance-toolbar-actions"><label class="finance-search-field"><i data-lucide="search"></i><input class="search finance-search" type="search" placeholder="Счёт или контрагент" aria-label="Поиск по операциям" data-finance-search></label></div></div>' +
+            '<div class="finance-filter-bar" data-finance-filters aria-label="Фильтр операций">' +
+                '<button class="active" type="button" data-finance-filter="all">Все <b>' + escapeHtml(items.length) + '</b></button>' +
+                '<button type="button" data-finance-filter="payable">К оплате <b>' + escapeHtml(unpaidCount) + '</b></button>' +
+                '<button type="button" data-finance-filter="income">Поступления <b>' + escapeHtml(incomeCount) + '</b></button>' +
+                '<button type="button" data-finance-filter="paid">Оплачено <b>' + escapeHtml(paidCount) + '</b></button>' +
+            '</div>' +
+            '<div class="finance-table"><div class="finance-table-head"><span>Операция</span><span>Статус</span><span>Документ</span><span>Сумма</span><span>Даты</span><span>Действия</span></div><div class="finance-list">' +
+                (items.length ? items.map(renderFinanceRow).join('') : '<div class="finance-empty-state"><i data-lucide="receipt-text"></i><b>Операций пока нет</b><span>Добавьте первый счёт или поступление кнопками наверху.</span></div>') +
+            '</div></div><div class="finance-filter-empty" data-finance-filter-empty hidden><i data-lucide="search-x"></i><b>Ничего не найдено</b><span>Измените поиск или выберите другой фильтр.</span></div></section>';
+    }
+
+    function setFinanceWorkspaceView(root, projectId, view, economicsMode) {
+        if (!root) return;
+        var allowed = qsa('[data-finance-view]', root).map(function (button) { return button.dataset.financeView; });
+        if (allowed.indexOf(view) === -1) view = 'overview';
+        state.financeViewByProject = state.financeViewByProject || {};
+        state.financeViewByProject[String(projectId)] = view;
+        qsa('[data-finance-view]', root).forEach(function (button) {
+            var active = button.dataset.financeView === view;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        qsa('[data-finance-view-panel]', root).forEach(function (panelNode) {
+            panelNode.hidden = panelNode.dataset.financeViewPanel !== view;
+        });
+        if (view === 'management' && economicsMode) {
+            var modeButton = qs('[data-econ-mode="' + economicsMode + '"]', root);
+            if (modeButton) modeButton.click();
+        }
+    }
+
+    function bindFinanceWorkspaceNavigation(root, projectId) {
+        if (!root) return;
+        qsa('[data-finance-view]', root).forEach(function (button) {
+            button.addEventListener('click', function () {
+                setFinanceWorkspaceView(root, projectId, button.dataset.financeView);
+            });
+        });
+        qsa('[data-finance-view-target]', root).forEach(function (button) {
+            button.addEventListener('click', function () {
+                setFinanceWorkspaceView(root, projectId, button.dataset.financeViewTarget, button.dataset.econModeTarget || '');
+            });
+        });
+        var selected = state.financeViewByProject && state.financeViewByProject[String(projectId)] || 'overview';
+        setFinanceWorkspaceView(root, projectId, selected);
+    }
+
+    function bindFinanceOperationFilters(root) {
+        var search = qs('[data-finance-search]', root);
+        var buttons = qsa('[data-finance-filter]', root);
+        if (!search || !buttons.length) return;
+        var forms = qsa('.finance-history-card [data-finance-edit-form]', root);
+        if (!forms.length) return;
+        var activeFilter = 'all';
+        function update() {
+            var query = search.value.toLocaleLowerCase('ru').trim();
+            var visible = 0;
+            forms.forEach(function (form) {
+                var searchableText = form.dataset.financeSearchText || form.textContent.toLocaleLowerCase('ru');
+                var matchesQuery = !query || searchableText.indexOf(query) !== -1;
+                var matchesFilter = activeFilter === 'all' ||
+                    (activeFilter === 'payable' && form.dataset.financeDirection === 'expense' && form.dataset.financeStatus !== 'paid' && form.dataset.financeStatus !== 'cancelled') ||
+                    (activeFilter === 'income' && form.dataset.financeDirection === 'income') ||
+                    (activeFilter === 'paid' && form.dataset.financeStatus === 'paid');
+                form.hidden = !(matchesQuery && matchesFilter);
+                if (!form.hidden) visible += 1;
+            });
+            var empty = qs('[data-finance-filter-empty]', root);
+            if (empty) empty.hidden = visible > 0;
+        }
+        search.addEventListener('input', debounce(update, 180));
+        buttons.forEach(function (button) {
+            button.addEventListener('click', function () {
+                activeFilter = button.dataset.financeFilter || 'all';
+                buttons.forEach(function (item) { item.classList.toggle('active', item === button); });
+                update();
+            });
+        });
+    }
+
     function renderFinanceRow(item) {
         var direction = item.direction === 'income' ? 'income' : 'expense';
         var status = item.status || 'planned';
         var title = item.category || financeDirectionLabel(direction);
         var counterparty = item.counterparty_name || '\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d';
-        return '<form class="finance-row finance-history-row finance-table-row is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '">' +
+        var searchText = [title, counterparty, item.notes || '', financePaymentLabel(item.payment_kind), money(item.amount || 0)].join(' ').toLocaleLowerCase('ru');
+        return '<form class="finance-row finance-history-row finance-table-row is-' + escapeHtml(direction) + ' is-status-' + escapeHtml(status) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '" data-finance-direction="' + escapeHtml(direction) + '" data-finance-status="' + escapeHtml(status) + '" data-finance-search-text="' + escapeHtml(searchText) + '">' +
             '<div class="finance-table-cell finance-cell-main">' +
                 '<span class="finance-row-chip">' + escapeHtml(financeDirectionLabel(direction)) + '</span>' +
                 '<b>' + escapeHtml(title) + '</b>' +
@@ -6194,7 +6951,7 @@ function renderLogsDayView(project, logs) {
             '</div></form>';
     }
 
-    function renderProjectFinances(projectId, items, summary, economicsData, economicsError, financeError) {
+    function renderProjectFinancesLegacy(projectId, items, summary, economicsData, economicsError, financeError) {
         var root = qs('[data-panel="finance"]');
         if (!root) return;
         items = Array.isArray(items) ? items : [];
@@ -6215,16 +6972,8 @@ function renderLogsDayView(project, logs) {
                 loadProjectFinances(projectId, undefined, { preserveEconomicsManagementCache: true });
             });
         }
-        if (financeError) {
-            safeReplaceChildren(root, economicsHtml + managementHtml +
-                '<section class="subsection finance-history-card ui-card"><div class="economics-notice is-danger"><i data-lucide="circle-alert"></i><div><b>Денежные операции не загрузились</b><span>Экономическая сводка выше получена отдельным запросом и остается доступной.</span></div></div></section>');
-            applyRoleVisibility(root);
-            refreshLucideIcons(root);
-            bindEconomicsManagement();
-            return;
-        }
         if (isForemanRole()) {
-            safeReplaceChildren(root, renderFinanceEntryActions(false) + renderFinanceEntryModal(false));
+            safeReplaceChildren(root, '<section class="finance-commandbar is-limited"><div class="finance-commandbar-copy"><span class="section-label">Счета объекта</span><h2>Передать счёт на оплату</h2><p>Загрузите документ и основные реквизиты — финансовая команда увидит его в платёжном плане.</p></div>' + renderFinanceEntryActions(false) + '</section>' + renderFinanceEntryModal(false));
             bindFinanceEntryModal(root);
             bindFinanceInvoiceForm(projectId);
             applyRoleVisibility(root);
@@ -6259,6 +7008,75 @@ function renderLogsDayView(project, logs) {
             }, 300));
         }
         if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+    }
+
+    function renderProjectFinances(projectId, items, summary, economicsData, economicsError, financeError) {
+        var root = qs('[data-panel="finance"]');
+        if (!root) return;
+        items = Array.isArray(items) ? items : [];
+        summary = summary || {};
+        cleanupFinanceEntryModals();
+        var economicsHtml = canViewProjectEconomics()
+            ? renderProjectEconomics(economicsData, economicsError)
+            : '';
+        var managementHtml = canViewProjectEconomics() && PMBI.economicsManagement
+            ? PMBI.economicsManagement.render(projectId, economicsData || null)
+            : '';
+
+        function bindEconomicsManagement() {
+            if (!managementHtml || !PMBI.economicsManagement) return;
+            PMBI.economicsManagement.bind(root, projectId, function () {
+                state.projectEconomicsByProject = state.projectEconomicsByProject || {};
+                delete state.projectEconomicsByProject[projectId];
+                if (state.marketAnalysisByProject) delete state.marketAnalysisByProject[projectId];
+                loadProjectFinances(projectId, undefined, { preserveEconomicsManagementCache: true });
+            });
+        }
+
+        if (isForemanRole()) {
+            safeReplaceChildren(root, '<section class="finance-commandbar is-limited"><div class="finance-commandbar-copy"><span class="section-label">Счета объекта</span><h2>Передать счёт на оплату</h2><p>Загрузите документ и основные реквизиты — финансовая команда увидит его в платёжном плане.</p></div>' + renderFinanceEntryActions(false) + '</section>' + renderFinanceEntryModal(false));
+            bindFinanceEntryModal(root);
+            bindFinanceInvoiceForm(projectId);
+            applyRoleVisibility(root);
+            refreshLucideIcons(root);
+            return;
+        }
+
+        var canViewManagement = canViewProjectEconomics() && !!managementHtml;
+        var overviewPanel = '<section class="finance-view-panel" data-finance-view-panel="overview">' +
+            renderFinanceExecutiveSummary(items, summary, economicsData, economicsError, financeError) +
+            economicsHtml +
+            (financeError ? '' : '<div data-director-finance>' + renderFinanceHero(projectId, summary, items) + '</div>') +
+        '</section>';
+        var unavailable = '<div class="finance-filter-empty"><i data-lucide="cloud-off"></i><b>Данные временно недоступны</b><span>Обновите раздел немного позже.</span></div>';
+        var paymentsPanel = '<section class="finance-view-panel" data-finance-view-panel="payments" hidden data-director-finance>' + (financeError ? unavailable : renderFinancePlanFromInvoices(items, summary)) + '</section>';
+        var operationsPanel = '<section class="finance-view-panel" data-finance-view-panel="operations" hidden data-director-finance>' + (financeError ? unavailable : renderFinanceOperations(items)) + '</section>';
+        var managementPanel = canViewManagement
+            ? '<section class="finance-view-panel" data-finance-view-panel="management" hidden>' + managementHtml + '</section>'
+            : '';
+        var errorPanel = financeError
+            ? '<section class="finance-data-error ui-card"><div class="economics-notice is-danger"><i data-lucide="circle-alert"></i><div><b>Денежные операции не загрузились</b><span>Экономическая сводка остаётся доступной. Обновите раздел немного позже.</span></div></div></section>'
+            : '';
+
+        safeReplaceChildren(root,
+            '<div class="finance-workspace" data-finance-workspace data-project-id="' + escapeHtml(projectId) + '">' +
+                renderFinanceWorkspaceHead(items, true, canViewManagement) +
+                errorPanel + overviewPanel +
+                paymentsPanel + operationsPanel +
+                managementPanel + renderFinanceEntryModal(true) +
+            '</div>');
+        bindFinanceEntryModal(root);
+        bindFinanceIncomeForm(projectId);
+        bindFinanceInvoiceForm(projectId);
+        if (!financeError) {
+            bindFinanceEditors(projectId);
+            bindFinanceDocumentActions();
+            bindFinanceOperationFilters(root);
+        }
+        bindEconomicsManagement();
+        bindFinanceWorkspaceNavigation(root, projectId);
+        applyRoleVisibility(root);
+        refreshLucideIcons(root);
     }
 
     function bindFinanceInvoiceForm(projectId) {
@@ -6577,6 +7395,73 @@ function renderLogsDayView(project, logs) {
         '</section>';
     }
 
+
+    function renderFinancePlanFromInvoices(items, summary) {
+        var overview = financePaymentOverview(items);
+        var order = ['overdue', 'today', 'week', 'later', 'no-date'];
+        var groups = {};
+        overview.pending.forEach(function (item) {
+            var bucket = financePlanBucket(item);
+            if (!groups[bucket.key]) groups[bucket.key] = { bucket: bucket, items: [] };
+            groups[bucket.key].items.push(item);
+        });
+        var icons = { overdue: 'triangle-alert', today: 'alarm-clock', week: 'calendar-days', later: 'calendar-range', 'no-date': 'calendar-x-2' };
+        var planRows = order.filter(function (key) { return groups[key] && groups[key].items.length; }).map(function (key) {
+            var group = groups[key];
+            var groupTotal = group.items.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0);
+            return '<section class="finance-plan-group is-' + escapeHtml(group.bucket.kind || 'normal') + '">' +
+                '<div class="finance-plan-group-head"><div><i data-lucide="' + escapeHtml(icons[key] || 'calendar') + '"></i><span><b>' + escapeHtml(group.bucket.title) + '</b><small>' + escapeHtml(financeCountText(group.items.length, 'счёт', 'счёта', 'счетов')) + '</small></span></div><strong>' + escapeHtml(money(groupTotal)) + '</strong></div>' +
+                '<div class="finance-plan-items finance-plan-table">' + group.items.map(function (item) {
+                    var title = item.category || item.notes || 'Счёт к оплате';
+                    return '<form class="finance-plan-item ' + (group.bucket.kind ? 'is-' + group.bucket.kind : '') + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '" data-finance-direction="expense" data-finance-status="' + escapeHtml(item.status || 'planned') + '">' +
+                        '<div class="finance-plan-main"><b>' + escapeHtml(title) + '</b><small>' + escapeHtml((item.counterparty_name || 'Контрагент не указан') + ' · ' + financePaymentLabel(item.payment_kind)) + '</small></div>' +
+                        '<label><span>Оплатить до</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                        '<input name="paid_date" type="hidden" value="' + escapeHtml(item.paid_date || '') + '">' +
+                        '<strong class="finance-plan-amount">' + escapeHtml(money(item.amount || 0)) + '</strong>' +
+                        '<label><span>Статус</span><select name="status">' +
+                            '<option value="planned"' + (item.status === 'planned' ? ' selected' : '') + '>Запланировано</option>' +
+                            '<option value="approved"' + (item.status === 'approved' ? ' selected' : '') + '>Подан на оплату</option>' +
+                            '<option value="paid"' + (item.status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
+                            '<option value="cancelled"' + (item.status === 'cancelled' ? ' selected' : '') + '>Отменено</option>' +
+                        '</select></label>' +
+                        '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
+                        '<button class="ghost compact finance-icon-button" type="submit"><i data-lucide="save"></i><span>Сохранить</span></button>' +
+                    '</form>';
+                }).join('') + '</div>' +
+            '</section>';
+        }).join('');
+        return '<section class="subsection finance-plan-board ui-card">' +
+            '<div class="card-head finance-plan-head"><div><span class="section-label">Платёжный календарь</span><h3>Что и когда нужно оплатить</h3><span class="muted">Только неоплаченные счета; самые срочные всегда наверху.</span></div><button class="primary" type="button" data-finance-open-modal="invoice"><i data-lucide="file-plus"></i><span>Добавить счёт</span></button></div>' +
+            '<div class="finance-plan-summary">' +
+                '<article><span>Всего к оплате</span><strong>' + escapeHtml(money(overview.pendingTotal)) + '</strong><small>' + escapeHtml(financeCountText(overview.pending.length, 'счёт', 'счёта', 'счетов')) + '</small></article>' +
+                '<article class="' + (overview.overdue.length ? 'is-danger' : '') + '"><span>Просрочено</span><strong>' + escapeHtml(money(overview.overdueTotal)) + '</strong><small>' + escapeHtml(overview.overdue.length ? financeCountText(overview.overdue.length, 'счёт', 'счёта', 'счетов') : 'Нет просрочки') + '</small></article>' +
+                '<article class="' + (overview.week.length ? 'is-warning' : '') + '"><span>Ближайшие 7 дней</span><strong>' + escapeHtml(money(overview.weekTotal)) + '</strong><small>' + escapeHtml(overview.week.length ? financeCountText(overview.week.length, 'счёт', 'счёта', 'счетов') : 'Платежей нет') + '</small></article>' +
+                '<article class="' + (overview.noDate.length ? 'is-warning' : '') + '"><span>Без даты</span><strong>' + escapeHtml(String(overview.noDate.length)) + '</strong><small>Нужно запланировать</small></article>' +
+            '</div>' +
+            (planRows || '<div class="finance-plan-empty"><i data-lucide="badge-check"></i><b>Все счета оплачены</b><span>Новых платежей в календаре пока нет.</span><button class="ghost" type="button" data-finance-open-modal="invoice">Добавить счёт</button></div>') +
+        '</section>';
+    }
+
+    function renderFinanceHero(projectId, summary, items) {
+        var paidExpense = Number(summary && summary.paidExpense || 0);
+        var paidIncome = Number(summary && summary.paidIncome || 0);
+        var balance = Number(summary && summary.balance || 0);
+        var overview = financePaymentOverview(items);
+        var movementMax = Math.max(paidIncome, paidExpense, 1);
+        var incomeWidth = Math.round(paidIncome / movementMax * 100);
+        var expenseWidth = Math.round(paidExpense / movementMax * 100);
+        return '<section class="finance-cash-overview ui-card">' +
+            '<div class="finance-cash-head"><div><span class="section-label">Движение денег · с НДС</span><h3>Деньги на счетах и в кассе</h3><p>Показывает, сколько реально получено и оплачено. Не заменяет расчёт прибыли выше.</p></div><button class="ghost compact" type="button" data-finance-view-target="payments"><i data-lucide="calendar-days"></i><span>Открыть календарь</span></button></div>' +
+            '<div class="finance-cash-layout">' +
+                '<article class="finance-cash-balance ' + (balance < 0 ? 'is-danger' : '') + '"><span>Доступный денежный остаток</span><strong>' + escapeHtml(money(balance)) + '</strong><small>Получено ' + escapeHtml(money(paidIncome)) + ' − оплачено ' + escapeHtml(money(paidExpense)) + '</small></article>' +
+                '<div class="finance-cash-movement">' +
+                    '<div><span><i class="is-income" data-lucide="arrow-down-left"></i>Поступило</span><b>' + escapeHtml(money(paidIncome)) + '</b><em><i style="width:' + incomeWidth + '%"></i></em></div>' +
+                    '<div><span><i class="is-expense" data-lucide="arrow-up-right"></i>Оплачено</span><b>' + escapeHtml(money(paidExpense)) + '</b><em><i style="width:' + expenseWidth + '%"></i></em></div>' +
+                    '<div><span><i class="is-pending" data-lucide="clock-3"></i>Ещё к оплате</span><b>' + escapeHtml(money(overview.pendingTotal)) + '</b><small>' + escapeHtml(overview.pending.length ? financeCountText(overview.pending.length, 'счёт', 'счёта', 'счетов') + ' в календаре' : 'Нет неоплаченных счетов') + '</small></div>' +
+                '</div>' +
+            '</div>' +
+        '</section>';
+    }
 
     function renderFinanceIncomeForm() {
         return '<section class="subsection finance-income-card"><div class="card-head"><div><h3>Поступление денег</h3><span class="muted">Сюда заносим оплату от заказчика, аванс или другое пополнение баланса.</span></div></div>' +
@@ -8055,12 +8940,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderFinanceStatusTracker(status) {
-        var paid = status === 'paid';
-        var cancelled = status === 'cancelled';
-        return '<div class="finance-status-track ' + (paid ? 'is-paid' : '') + (cancelled ? ' is-cancelled' : '') + '">' +
-            '<span class="finance-status-step is-submitted">' + escapeHtml(financeStatusLabel(cancelled ? 'cancelled' : 'approved')) + '</span>' +
-            '<span class="finance-status-line"></span>' +
-            '<span class="finance-status-step is-paid">' + escapeHtml(financeStatusLabel('paid')) + '</span>' +
+        var icons = { planned: 'calendar-clock', approved: 'send', paid: 'circle-check', cancelled: 'circle-x' };
+        return '<div class="finance-status-track is-status-' + escapeHtml(status || 'planned') + (status === 'paid' ? ' is-paid' : '') + (status === 'cancelled' ? ' is-cancelled' : '') + '">' +
+            '<i data-lucide="' + escapeHtml(icons[status] || 'circle') + '"></i>' +
+            '<span>' + escapeHtml(financeStatusLabel(status)) + '</span>' +
         '</div>';
     }
 

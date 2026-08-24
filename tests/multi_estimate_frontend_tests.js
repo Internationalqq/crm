@@ -9,7 +9,8 @@ const server = fs.readFileSync(path.join(root, 'backend/server.py'), 'utf8');
 
 assert.match(planning, /function estimateSourceIdentity\(value\)/);
 assert.match(planning, /project-estimate-file-group/);
-assert.match(planning, /estimateSourceIdentity\(item\) === sectionEstimateKey/);
+assert.match(planning, /var meta = estimateSourceMeta\(section\)/);
+assert.match(planning, /estimateGroups\[meta\.key\]\.sections\.push\(section\)/);
 assert.match(planning, /renderScheduleEstimateHeading\(group\.meta, group\.sections\)/);
 assert.match(styles, /\.project-estimate-file-head/);
 assert.match(styles, /\.project-estimate-file-copy/);

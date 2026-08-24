@@ -14,11 +14,26 @@ const planningCss = read('frontend/assets/css/planning.css');
 const scheduleTasksPy = read('backend/schedule_tasks.py');
 const serverPy = read('backend/server.py');
 
-assert.match(projectsHtml, /data-tab="schedule">Материалы и работы</);
-assert.match(projectsHtml, /data-tab="calendar">Календарь</);
+assert.match(projectsHtml, /data-tab="schedule"><i data-lucide="hammer"[^>]*><\/i><span>Работы<\/span>/);
+assert.match(projectsHtml, /data-tab="calendar"><i data-lucide="calendar-days"[^>]*><\/i><span>Календарь<\/span>/);
 assert.match(projectsHtml, /data-panel="calendar"/);
 assert.doesNotMatch(projectsHtml, /data-tab="(?:materials|works)"/);
 assert.doesNotMatch(projectsHtml, /data-panel="(?:materials|works)"/);
+
+const projectTabOrder = [...projectsHtml.matchAll(/<button class="tab(?: active)?" data-tab="([^"]+)"/g)].map((match) => match[1]);
+assert.deepEqual(projectTabOrder, [
+  'overview',
+  'schedule',
+  'warehouse-control',
+  'tasks',
+  'calendar',
+  'production-schedule',
+  'reports',
+  'finance',
+  'documents',
+  'estimate-reconciliation',
+]);
+assert.equal((projectsHtml.match(/<button class="tab(?: active)?"[^>]*><i data-lucide="[^"]+"[^>]*><\/i><span>[^<]+<\/span><\/button>/g) || []).length, projectTabOrder.length);
 
 assert.match(appJs, /tabName === 'materials' \|\| tabName === 'works'/);
 assert.match(appJs, /tabName === 'calendar'.*loadSelectedProjectMaterialSchedule/);
@@ -31,15 +46,15 @@ assert.match(planningJs, /data-project-schedule-mode="market">' \+ marketLabel/)
 assert.match(planningJs, /var marketLabel = 'Анализ рынка'/);
 assert.match(planningJs, /function projectScheduleViewMode\(projectId\) \{\s*if \(hasRole\('customer'\)\) return 'list';/);
 assert.match(planningJs, /cache\.status === 'restricted'/);
-assert.match(planningJs, /renderProjectMarketBlock\(project\.id, 'material'\)/);
 assert.match(planningJs, /renderProjectMarketBlock\(project\.id, 'work'\)/);
+assert.match(planningJs, /renderProjectMarketBlock\(project\.id, 'material'\)/);
 assert.doesNotMatch(planningJs, /renderScheduleCounterpartyFilters/);
 assert.doesNotMatch(planningJs, /renderCounterpartyPicker\(project\.id, item, insight/);
 assert.match(procurementJs, /renderCounterpartyPicker\(projectId, item, insight/);
-assert.match(planningJs, /return materialRow\(item, project\.id/);
+assert.doesNotMatch(planningJs, /return materialRow\(item, project\.id/);
 assert.match(planningJs, /var panel = qs\('\[data-panel="calendar"\]'\)/);
 assert.match(planningJs, /var schedulePanel = qs\('\[data-panel="schedule"\]'\)/);
-assert.match(planningJs, /tab=schedule&materialId=/);
+assert.match(planningJs, /tab=warehouse-control&materialId=/);
 
 assert.match(procurementJs, /rerenderProjectMaterialAndWorkViews\(projectId\)/);
 assert.match(procurementJs, /row\.enteredPrice/);
@@ -57,7 +72,7 @@ assert.match(procurementCss, /\.market-row-limit-exceeded/);
 assert.match(procurementCss, /\.procurement-limit-alert/);
 assert.match(planningCss, /\.project-schedule-counterparty-filters/);
 assert.match(planningCss, /\.project-market-analysis-grid/);
-assert.match(scheduleTasksPy, /tab=schedule&materialId=/);
+assert.match(scheduleTasksPy, /tab=warehouse-control&materialId=/);
 
 for (const route of ['materials-summary', 'material-schedule', 'market-analysis', 'supplier-offers', 'production-schedule']) {
   assert.match(serverPy, new RegExp(route));

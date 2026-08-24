@@ -15,7 +15,7 @@ const server = read('backend/server.py');
 const backend = read('backend/warehouse_control.py');
 
 assert.match(projectsPage, /data-tab="warehouse-control"/);
-assert.match(projectsPage, /data-tab="warehouse-control">Склад<\/button>/);
+assert.match(projectsPage, /data-tab="warehouse-control"><i data-lucide="warehouse"[^>]*><\/i><span>Склад<\/span><\/button>/);
 assert.match(projectsPage, /data-panel="warehouse-control"/);
 assert.match(router, /warehouse_control:\s*'\/assets\/js\/warehouse-control\.js/);
 assert.match(router, /projects:\s*\[[^\]]*'warehouse_control'/);
@@ -39,6 +39,8 @@ assert.match(moduleSource, /Нужно по смете/);
 assert.match(moduleSource, /data-stock-material-search/);
 assert.match(moduleSource, /data-warehouse-material-filter/);
 assert.match(moduleSource, /data-select-material/);
+assert.match(moduleSource, /function focusMaterial\(materialId, projectId\)/);
+assert.match(moduleSource, /module\.focusMaterial = focusMaterial/);
 assert.match(moduleSource, /data-stock-fill-remaining/);
 assert.match(moduleSource, /Все операции по складу/);
 assert.match(moduleSource, /data-work-material-norm-form/);

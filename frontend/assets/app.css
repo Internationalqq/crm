@@ -9,9 +9,13 @@
 @import "./css/operations.css?v=20260818-section-presence-1";
 @import "./css/overrides.css?v=20260821-mist-fade-2";
 @import "./css/ui-system.css?v=20260821-ui-iteration-1-light-sidebar";
-@import "./css/ui-projects.css?v=20260821-ui-project-schedule-cleanup-4-multi-estimate-files-1-quantity-normalization-1-price-table-4-sticky-viewport-3-motion-reveal-2";
+@import "./css/ui-projects.css?v=20260821-ui-project-schedule-cleanup-4-multi-estimate-files-1-quantity-normalization-1-price-table-4-sticky-viewport-3-motion-reveal-2-works-only-1-object-tabs-1";
 @import "./css/ui-workspaces.css?v=20260821-simple-warehouse-1-motion-reveal-2";
 @import "./css/ui-final.css?v=20260821-ui-iteration-4-final-motion-reveal-2";
 @import "./css/ui-qa.css?v=20260821-ui-final-qa-1-quantity-normalization-1-motion-reveal-2";
+@import "./css/project-reports.css?v=20260823-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-modal-neutral-4-report-create-plus-5";
 @import "./css/autobot.css?v=20260823-autobot-modal-space-1";
 @import "./css/skeletons.css?v=20260821-crm-skeletons-1";
+@import "./css/finance-redesign.css?v=20260823-finance-workspace-1";
+@import "./css/documents.css?v=20260823-documents-workspace-1";
+@import "./css/tasks.css?v=20260823-object-tasks-workspace-1";

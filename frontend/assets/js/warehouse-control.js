@@ -672,7 +672,29 @@
         return state.selectedProject ? load(state.selectedProject.id, force) : Promise.resolve(null);
     }
 
+    function focusMaterial(materialId, projectId) {
+        projectId = Number(projectId || (state.selectedProject && state.selectedProject.id) || 0);
+        if (!projectId || !state.selectedProject || Number(state.selectedProject.id) !== projectId) return false;
+        var panel = qs('[data-panel="warehouse-control"]');
+        var card = panel && qs('[data-select-material="' + String(Number(materialId || 0)) + '"]', panel);
+        if (!card) return false;
+        var search = qs('[data-warehouse-material-filter]', panel);
+        if (search) search.value = '';
+        qsa('[data-warehouse-stock-filter]', panel).forEach(function (button) {
+            button.classList.toggle('is-active', button.getAttribute('data-warehouse-stock-filter') === 'all');
+        });
+        qsa('[data-select-material]', panel).forEach(function (item) { item.hidden = false; });
+        var empty = qs('[data-warehouse-no-results]', panel);
+        if (empty) empty.hidden = true;
+        var count = qs('[data-warehouse-visible-count]', panel);
+        if (count) count.textContent = String(qsa('[data-select-material]', panel).length) + ' позиций';
+        card.focus({ preventScroll: true });
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+    }
+
     module.load = load;
     module.loadSelectedProject = loadSelectedProject;
+    module.focusMaterial = focusMaterial;
     module.render = render;
 })(window);

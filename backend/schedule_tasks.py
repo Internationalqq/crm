@@ -798,7 +798,7 @@ def build_material_schedule_payload(
                     "endDate": material.get("stageEndDate"),
                 },
                 "supplier": supplier_by_item.get(material_id),
-                "materialUrl": f"/app/projects?openProject={project_id}&tab=schedule&materialId={material_id}",
+                "materialUrl": f"/app/projects?openProject={project_id}&tab=warehouse-control&materialId={material_id}",
             }
         )
 
