@@ -79,6 +79,8 @@ from projects import (
     api_update_project as projects_api_update_project,
     can_access_project as projects_can_access_project,
     normalize_project_description,
+    project_has_immutable_financial_history,
+    project_has_protected_operational_history,
     project_schedule_payload,
     require_project_access as projects_require_project_access,
     serialize_project,
@@ -125,6 +127,7 @@ from warehouse_control import (
 
 from finance import (
     api_create_finance_entry as finance_api_create_finance_entry,
+    api_delete_finance_entry as finance_api_delete_finance_entry,
     api_pay_invoice as finance_api_pay_invoice,
     api_project_finances as finance_api_project_finances,
     api_update_finance_entry as finance_api_update_finance_entry,
@@ -418,20 +421,25 @@ def normalize_estimate_planned_values(unit: object, qty: object, price: object) 
     return planned_qty, raw_price
 
 
-def normalize_estimate_item_values(item: dict, unit: object) -> tuple[float, float]:
-    """Resolve common parser aliases and recover a missing unit price from total."""
-    def first_positive_number(*keys: str) -> float:
-        fallback = 0.0
-        for key in keys:
-            if key in item and item.get(key) not in (None, ""):
-                number = parse_estimate_number(item.get(key))
-                if number > 0:
-                    return number
-                fallback = number
-        return fallback
+def first_positive_estimate_item_number(item: dict, *keys: str) -> float:
+    fallback = 0.0
+    for key in keys:
+        if key in item and item.get(key) not in (None, ""):
+            number = parse_estimate_number(item.get(key))
+            if number > 0:
+                return number
+            fallback = number
+    return fallback
 
-    raw_qty = first_positive_number("planned_qty", "plannedQty", "qty", "quantity", "volume")
-    raw_price = first_positive_number(
+
+def estimate_item_value_issue(item: dict, position: int | None = None) -> dict | None:
+    """Return an order-of-magnitude parser mismatch that needs human review."""
+
+    raw_qty = first_positive_estimate_item_number(
+        item, "planned_qty", "plannedQty", "qty", "quantity", "volume"
+    )
+    raw_price = first_positive_estimate_item_number(
+        item,
         "planned_price",
         "plannedPrice",
         "unit_price",
@@ -443,7 +451,68 @@ def normalize_estimate_item_values(item: dict, unit: object) -> tuple[float, flo
         "currentUnitPrice",
         "price",
     )
-    raw_total = first_positive_number(
+    raw_total = first_positive_estimate_item_number(
+        item,
+        "planned_total",
+        "plannedTotal",
+        "total",
+        "total_price",
+        "totalPrice",
+        "estimate_total",
+        "estimateTotal",
+        "price_from_estimate_rub",
+        "amount",
+    )
+    if raw_qty <= 0 or raw_price <= 0 or raw_total <= 0:
+        return None
+    calculated_total = raw_qty * raw_price
+    factor = calculated_total / raw_total
+    if 0.1 < factor < 10:
+        return None
+    return {
+        "position": position,
+        "title": str(item.get("title", "")).strip(),
+        "quantity": raw_qty,
+        "unitPrice": raw_price,
+        "positionTotal": raw_total,
+        "calculatedTotal": calculated_total,
+        "factor": factor,
+    }
+
+
+def estimate_import_value_issues(items: list) -> list[dict]:
+    issues = []
+    for position, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        issue = estimate_item_value_issue(item, position)
+        if issue:
+            issues.append(issue)
+        if len(issues) >= 20:
+            break
+    return issues
+
+
+def normalize_estimate_item_values(item: dict, unit: object) -> tuple[float, float]:
+    """Resolve common parser aliases and recover a missing unit price from total."""
+    raw_qty = first_positive_estimate_item_number(
+        item, "planned_qty", "plannedQty", "qty", "quantity", "volume"
+    )
+    raw_price = first_positive_estimate_item_number(
+        item,
+        "planned_price",
+        "plannedPrice",
+        "unit_price",
+        "unitPrice",
+        "unit_price_rub",
+        "price_per_unit",
+        "pricePerUnit",
+        "current_unit_price",
+        "currentUnitPrice",
+        "price",
+    )
+    raw_total = first_positive_estimate_item_number(
+        item,
         "planned_total",
         "plannedTotal",
         "total",
@@ -4968,6 +5037,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_upload_finance_invoice(path)
             elif method == "POST" and path.startswith("/api/finances/") and path.endswith("/update"):
                 self.api_update_finance_entry(path)
+            elif method == "DELETE" and re.fullmatch(r"/api/finances/\d+", path):
+                self.api_delete_finance_entry(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/estimate-import"):
                 self.api_import_estimate(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/auto-schedule"):
@@ -7449,11 +7520,35 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not stages_payload and not materials_payload and not tasks_payload and not project_payload:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bootstrap_payload_empty"})
             return
+        estimate_value_issues = estimate_import_value_issues(materials_payload)
+        if estimate_value_issues:
+            self.send_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                {
+                    "error": "estimate_values_need_review",
+                    "message": "Импорт остановлен: в смете количество × цена не совпадает с итогом позиции на порядок. Исправьте распознавание и повторите загрузку.",
+                    "issues": estimate_value_issues,
+                },
+            )
+            return
 
         with db() as con:
             project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
             if not project:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+                return
+
+            if replace_existing and (
+                project_has_immutable_financial_history(con, project_id)
+                or project_has_protected_operational_history(con, project_id)
+            ):
+                self.send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "bootstrap_replace_blocked_by_project_history",
+                        "message": "Повторный импорт не выполнен: на объекте уже есть финансовая или операционная история. Сначала сделайте безопасную сверку новой сметы без замены текущих данных.",
+                    },
+                )
                 return
 
             # Update core project fields from the parsed tender/estimate package.
@@ -7742,6 +7837,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
             }
         if not isinstance(items, list) or not items:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "items_required"})
+            return
+        estimate_value_issues = estimate_import_value_issues(items)
+        if estimate_value_issues:
+            self.send_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                {
+                    "error": "estimate_values_need_review",
+                    "message": "Импорт остановлен: в смете количество × цена не совпадает с итогом позиции на порядок. Исправьте распознавание и повторите загрузку.",
+                    "issues": estimate_value_issues,
+                },
+            )
             return
 
         normalized = []
@@ -8049,6 +8155,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
     def api_update_finance_entry(self, path: str) -> None:
         return finance_api_update_finance_entry(self, path)
 
+    def api_delete_finance_entry(self, path: str) -> None:
+        return finance_api_delete_finance_entry(self, path)
+
     def api_pay_invoice(self) -> None:
         return finance_api_pay_invoice(self)
 
@@ -8316,7 +8425,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not candidate.is_file():
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
-        content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+        content_type = "image/webp" if candidate.suffix.lower() == ".webp" else (mimetypes.guess_type(str(candidate))[0] or "application/octet-stream")
         if candidate.suffix.lower() in {".html", ".js", ".css", ".json", ".txt"}:
             content_type += "; charset=utf-8"
         body = candidate.read_bytes()
@@ -8351,7 +8460,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
-        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        content_type = "image/webp" if file_path.suffix.lower() == ".webp" else (mimetypes.guess_type(str(file_path))[0] or "application/octet-stream")
         if file_path.suffix.lower() in {".html", ".js", ".css", ".json", ".txt"}:
             content_type += "; charset=utf-8"
         body = file_path.read_bytes()

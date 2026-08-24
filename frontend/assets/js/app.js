@@ -145,7 +145,19 @@
     function loadSelectedProjectMaterialSchedule() { return planningCall('loadSelectedProjectMaterialSchedule', arguments); }
     function focusProjectMaterialRow() { return planningCall('focusProjectMaterialRow', arguments); }
     function bindMaterialScheduleTimeline() { return planningCall('bindMaterialScheduleTimeline', arguments); }
-    function loadProjectLogs() {}
+    function loadProjectLogs(projectId, callback) {
+        return api('/api/projects/' + projectId + '/daily-logs').then(function (data) {
+            var logs = Array.isArray(data && data.logs) ? data.logs : [];
+            if (typeof callback === 'function') callback(logs);
+            return logs;
+        }).catch(function () {
+            var cachedLogs = state.projectLogsByProject && Array.isArray(state.projectLogsByProject[projectId])
+                ? state.projectLogsByProject[projectId]
+                : [];
+            if (typeof callback === 'function') callback(cachedLogs);
+            return cachedLogs;
+        });
+    }
     function finalSectionWorkDigest() { return { lead: '', volume: '', titles: '' }; }
     function procurementCall(name, args) {
         var fn = PMBI.procurement && PMBI.procurement[name];
@@ -683,6 +695,7 @@
             requestGroup: 'projects-list'
         }).then(function (data) {
             state.projects = Array.isArray(data && data.projects) ? data.projects : [];
+            state.projectsLoaded = true;
             if (listRoot) {
                 try {
                     renderProjectList(state.projects);
@@ -695,6 +708,7 @@
         }).catch(function (error) {
             console.error('Projects load failed', error);
             state.projects = [];
+            state.projectsLoaded = false;
             if (page === 'autobot') {
                 showAppNotice(appErrorMessage(error, 'Не удалось загрузить данные AutoBot'), 'error');
             }
@@ -777,6 +791,58 @@
         root.innerHTML = html;
     }
 
+    var PROJECT_COVER_FALLBACKS = [
+        '/assets/images/project-cover-site.webp',
+        '/assets/images/project-cover-interior.webp',
+        '/assets/images/project-cover-exterior.webp'
+    ];
+
+    function projectFallbackCoverUrl(project) {
+        project = project || {};
+        var numericId = Number(project.id);
+        var seed = Number.isFinite(numericId) && numericId
+            ? Math.abs(Math.round(numericId))
+            : String(project.title || project.address || 'project').split('').reduce(function (sum, char) {
+                return sum + char.charCodeAt(0);
+            }, 0);
+        return PROJECT_COVER_FALLBACKS[seed % PROJECT_COVER_FALLBACKS.length];
+    }
+
+    function projectUploadedCoverUrl(project) {
+        var value = String(project && project.cover_photo_url || '').trim();
+        return /^\/api\/documents\/\d+\/view$/.test(value) ? value : '';
+    }
+
+    function projectCoverVisual(project) {
+        var uploadedUrl = projectUploadedCoverUrl(project);
+        return {
+            url: uploadedUrl || projectFallbackCoverUrl(project),
+            uploaded: !!uploadedUrl,
+            title: String(project && project.cover_photo_title || 'Фото объекта')
+        };
+    }
+
+    function projectCoverMedia(project, className, loading) {
+        var visual = projectCoverVisual(project);
+        return '<span class="' + escapeHtml(className || 'project-cover-media') + (visual.uploaded ? ' has-uploaded-photo' : ' is-curated-cover') + '" data-project-cover-state="' + (visual.uploaded ? 'uploaded' : 'fallback') + '">' +
+            '<img src="' + escapeHtml(visual.url) + '" alt="" loading="' + (loading === 'eager' ? 'eager' : 'lazy') + '" decoding="async">' +
+        '</span>';
+    }
+
+    function projectDocumentImageUrl(doc) {
+        var viewUrl = String(doc && doc.view_url || '').trim();
+        var mimeType = String(doc && doc.mime_type || '').toLowerCase();
+        var extension = String(doc && (doc.file_ext || doc.original_name || '') || '').toLowerCase();
+        var isImage = mimeType.indexOf('image/') === 0 || /\.(png|jpe?g|gif|webp)$/.test(extension);
+        return isImage && /^\/api\/documents\/\d+\/view$/.test(viewUrl) ? viewUrl : '';
+    }
+
+    function projectPhotoDocuments(documents) {
+        return (Array.isArray(documents) ? documents : []).filter(function (doc) {
+            return !!projectDocumentImageUrl(doc);
+        });
+    }
+
     function renderDashboardProjects(projects) {
         var root = qs('[data-dashboard-projects]');
         if (!root) return;
@@ -792,7 +858,11 @@
         });
         root.innerHTML = sortedProjects.map(function (project) {
             var progress = percent(project.progress);
-            return '<a class="dashboard-project" href="/app/projects" data-dashboard-project-id="' + project.id + '">' +
+            var cover = projectCoverVisual(project);
+            return '<a class="dashboard-project" href="/app/projects?openProject=' + encodeURIComponent(project.id) + '" data-dashboard-project-id="' + project.id + '">' +
+                '<span class="dashboard-project-cover' + (cover.uploaded ? ' has-uploaded-photo' : ' is-curated-cover') + '" aria-hidden="true">' +
+                    '<img src="' + escapeHtml(cover.url) + '" alt="" loading="lazy" decoding="async">' +
+                '</span>' +
                 '<div class="project-row-main">' +
                     '<b><i data-lucide="building-2" aria-hidden="true"></i><span>' + escapeHtml(project.title) + '</span></b>' +
                     '<span>' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span>' +
@@ -921,6 +991,13 @@
         });
         tab.classList.add('active');
         panel.hidden = false;
+        qsa('.project-detail-nav details[open]', root).forEach(function (menu) { menu.open = false; });
+        try {
+            var tabParams = new URLSearchParams(location.search);
+            if (tabName === 'overview') tabParams.delete('tab');
+            else tabParams.set('tab', tabName);
+            history.replaceState(null, '', location.pathname + (tabParams.toString() ? ('?' + tabParams.toString()) : ''));
+        } catch (historyError) {}
         if (tabName === 'finance' && canSeeFinances() && state.selectedProject) {
             loadProjectFinances(state.selectedProject.id, state.projectLoadingToken);
         }
@@ -951,7 +1028,7 @@
             'estimate-reconciliation': hasRole('customer'),
             'warehouse-control': hasRole('customer'),
             reports: false,
-            finance: false
+            finance: !canSeeFinances()
         };
         Object.keys(roleHiddenTabs).forEach(function (tabName) {
             var hidden = !!roleHiddenTabs[tabName];
@@ -967,11 +1044,14 @@
                 if (hidden) node.hidden = true;
             });
         });
+        qsa('[data-project-quick-action="invoice"]', root).forEach(function (node) {
+            node.hidden = !canSeeFinances();
+        });
     }
 
     function bindProjectTabClicks() {
         var detail = qs('[data-project-detail]');
-        var tabsRoot = detail && qs('.tabs', detail);
+        var tabsRoot = detail && qs('.project-detail-nav', detail);
         if (!tabsRoot || tabsRoot.dataset.projectTabsBound === '1') return;
         tabsRoot.dataset.projectTabsBound = '1';
         tabsRoot.addEventListener('click', function (event) {
@@ -982,6 +1062,8 @@
             if (button.classList.contains('hidden') || button.getAttribute('aria-hidden') === 'true') return;
             if (tabName === 'finance' && !canSeeFinances()) return;
             activateProjectTab(tabName);
+            var menu = button.closest('details');
+            if (menu) menu.open = false;
         });
     }
 
@@ -3105,11 +3187,7 @@
         }
         data = data || {};
         if (data.status === 'not_configured') {
-            return '<section class="project-economics ui-card" data-project-economics>' +
-                '<div class="economics-head"><div><span class="section-label">Результат объекта · без НДС</span><h3>Сначала зафиксируйте план объекта</h3><p>Чтобы увидеть прибыль и прогноз затрат, подтвердите договорную выручку и лимит себестоимости.</p></div><span class="economics-status is-warning">Не настроено</span></div>' +
-                '<div class="economics-setup-path" aria-label="Порядок настройки"><span><b>1</b> Выручка по договору</span><i data-lucide="arrow-right"></i><span><b>2</b> Лимит затрат</span><i data-lucide="arrow-right"></i><span><b>3</b> Прогноз маржи</span></div>' +
-                '<div class="economics-notice is-warning"><i data-lucide="triangle-alert"></i><div><b>Официальный прогноз пока не рассчитывается</b><span>Legacy-бюджет и цены текущей сметы не включаются в управленческую маржу автоматически.</span></div><button class="ghost compact" type="button" data-finance-view-target="management" data-econ-mode-target="baseline">Настроить плановую базу</button></div>' +
-            '</section>';
+            return '';
         }
 
         var current = data.current || {};
@@ -3330,6 +3408,7 @@
                 syncSelectedFile();
                 showAppNotice('Документ загружен.', 'success');
                 loadDocuments(projectId);
+                refreshProjectOverview(projectId);
             }).catch(function (err) {
                 if (error) {
                     var errorCode = err && err.payload && err.payload.error;
@@ -3529,7 +3608,11 @@
             api('/api/projects/' + projectId + '/stages').catch(function () { return { stages: [] }; }),
             canViewProjectEconomics()
                 ? loadProjectEconomicsData(projectId, false).catch(function () { return { status: 'unavailable' }; })
-                : Promise.resolve(null)
+                : Promise.resolve(null),
+            canSeeFinances()
+                ? api('/api/projects/' + projectId + '/finances', { silentLoader: true }).catch(function () { return { items: [], summary: {}, unavailable: true }; })
+                : Promise.resolve(null),
+            api('/api/projects/' + projectId + '/assignments', { silentLoader: true }).catch(function () { return { assignments: [] }; })
         ]).then(function (results) {
             if (!isCurrentProject(projectId, loadingToken)) return;
             var notifications = results[0] || {};
@@ -3545,9 +3628,14 @@
                 logs: logs,
                 materials: materials,
                 stages: stages,
-                economics: results[6] || null
+                economics: results[6] || null,
+                finances: results[7] || null,
+                assignments: results[8] || { assignments: [] }
             }));
+            syncProjectOverviewCover(project || state.selectedProject || {}, documents);
             refreshLucideIcons(root);
+            bindProjectOverviewActions();
+            syncProjectTabVisibility(qs('[data-project-detail]') || document);
         }).catch(function () {
             if (!isCurrentProject(projectId, loadingToken)) return;
             safeReplaceChildren(root, '<p class="muted">Не удалось собрать общую картину по объекту.</p>');
@@ -3619,6 +3707,11 @@
             letter: 'Письмо',
             correspondence: 'Переписка',
             invoice: 'Счет',
+            delivery_note: 'Накладная',
+            upd: 'УПД',
+            transport_waybill: 'Транспортная накладная / ТТН',
+            route_sheet: 'Путевой лист',
+            cash_receipt: 'Кассовый чек',
             archive: 'Архив',
             photo_report: 'Фотоотчет',
             finance: 'Финансы',
@@ -3645,6 +3738,11 @@
             letter: 'mail',
             correspondence: 'messages-square',
             invoice: 'receipt-text',
+            delivery_note: 'package-check',
+            upd: 'files',
+            transport_waybill: 'truck',
+            route_sheet: 'route',
+            cash_receipt: 'receipt',
             archive: 'archive',
             photo_report: 'images',
             finance: 'wallet-cards'
@@ -3684,6 +3782,7 @@
     function renderDocumentRow(doc) {
         var hasFile = !!doc.storage_path;
         var title = doc.title || doc.original_name || 'Документ без названия';
+        var imageUrl = projectDocumentImageUrl(doc);
         var fileMeta = [doc.original_name || '', doc.size_bytes ? formatBytes(doc.size_bytes) : ''].filter(Boolean).join(' · ');
         var details = [];
         if (doc.stage_title) details.push('<span><i data-lucide="layers-3"></i>' + escapeHtml(doc.stage_title) + '</span>');
@@ -3693,8 +3792,11 @@
             ? ((doc.can_preview ? '<a class="document-action is-primary" href="' + escapeHtml(doc.view_url) + '" target="_blank" rel="noreferrer" aria-label="Открыть ' + escapeHtml(title) + '"><i data-lucide="eye"></i><span>Открыть</span></a>' : '') +
                '<a class="document-action" href="' + escapeHtml(doc.download_url) + '" target="_blank" rel="noreferrer" aria-label="Скачать ' + escapeHtml(title) + '"><i data-lucide="download"></i><span>Скачать</span></a>')
             : '<span class="document-no-file"><i data-lucide="file-clock"></i>Файл ожидается</span>';
+        var fileVisual = imageUrl
+            ? '<div class="document-file-visual has-image" aria-hidden="true"><img src="' + escapeHtml(imageUrl) + '" alt="" loading="lazy" decoding="async"><span>' + escapeHtml(documentFileExtension(doc)) + '</span></div>'
+            : '<div class="document-file-visual" aria-hidden="true"><i data-lucide="' + escapeHtml(documentTypeIcon(doc.doc_type, doc.file_ext)) + '"></i><span>' + escapeHtml(documentFileExtension(doc)) + '</span></div>';
         return '<article class="document-row document-card ' + (hasFile ? 'has-file' : 'is-fileless') + '">' +
-            '<div class="document-file-visual" aria-hidden="true"><i data-lucide="' + escapeHtml(documentTypeIcon(doc.doc_type, doc.file_ext)) + '"></i><span>' + escapeHtml(documentFileExtension(doc)) + '</span></div>' +
+            fileVisual +
             '<div class="document-card-content">' +
                 '<div class="document-card-title-row">' +
                     '<div class="document-card-title"><h4>' + escapeHtml(title) + '</h4>' +
@@ -3745,6 +3847,11 @@
                 '<option value="technical_solution">Техрешение</option>' +
                 '<option value="act">Акт</option>' +
                 '<option value="invoice">Счет</option>' +
+                '<option value="delivery_note">Накладная</option>' +
+                '<option value="upd">УПД</option>' +
+                '<option value="transport_waybill">Транспортная накладная / ТТН</option>' +
+                '<option value="route_sheet">Путевой лист</option>' +
+                '<option value="cash_receipt">Кассовый чек</option>' +
                 '<option value="photo_report">Фотоотчет</option>' +
                 '<option value="correspondence">Переписка</option>' +
                 '<option value="archive">Архив</option>' +
@@ -4668,12 +4775,12 @@ function renderLogsDayView(project, logs) {
 
     var baseLoadProjectLogs = loadProjectLogs;
     loadProjectLogs = function (projectId, callback) {
-        baseLoadProjectLogs(projectId, function (logs) {
+        return baseLoadProjectLogs(projectId, function (logs) {
             if (!state.projectLogsByProject) state.projectLogsByProject = {};
             state.projectLogsByProject[projectId] = logs || [];
             rebuildProjectReportEffects(projectId);
             rerenderProjectReportDrivenViews(projectId);
-            callback(logs || []);
+            if (typeof callback === 'function') callback(logs || []);
         });
     };
 
@@ -4706,11 +4813,11 @@ function renderLogsDayView(project, logs) {
 
     function renderReportPreviewHtml(projectId, draft) {
         if (!draft.text && !draft.workMatches.length && !draft.materialMatches.length) {
-            return '<span>Опишите факт дня — здесь появится готовый текст рапорта и подсказки по распознанным позициям.</span>';
+            return '<span>Опишите факт дня — здесь появится готовый текст отчета и подсказки по распознанным позициям.</span>';
         }
         var parts = [];
         if (draft.text) {
-            parts.push('<span><b>Текст рапорта:</b> ' + escapeHtml(draft.text) + '</span>');
+            parts.push('<span><b>Текст отчета:</b> ' + escapeHtml(draft.text) + '</span>');
         }
         if (draft.workMatches.length) {
             parts.push('<span><b>Распознаны работы:</b> ' + escapeHtml(draft.workMatches.map(function (entry) {
@@ -4880,8 +4987,13 @@ function renderLogsDayView(project, logs) {
                 var financeQuickAction = canSeeFinances()
                     ? '<button class="project-quick-action" type="button" data-project-quick-tab="finance" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Финансы"><i data-lucide="wallet"></i></button>'
                     : '';
+                var coverVisual = projectCoverVisual(project);
                 return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + escapeHtml(project.id || '') + '">' +
                     '<div class="project-card-shell">' +
+                        '<div class="project-card-cover">' +
+                            projectCoverMedia(project, 'project-card-cover-media', 'lazy') +
+                            '<span class="project-card-cover-label"><i data-lucide="' + (coverVisual.uploaded ? 'camera' : 'image') + '"></i>' + (coverVisual.uploaded ? 'Фото объекта' : 'Обложка объекта') + '</span>' +
+                        '</div>' +
                         '<div class="project-card-headline">' +
                             '<div class="project-card-icon" aria-hidden="true"><i data-lucide="' + (completed ? 'folder-git-2' : 'building-2') + '"></i></div>' +
                             '<div class="project-card-heading">' +
@@ -6287,7 +6399,7 @@ function renderLogsDayView(project, logs) {
                     (canCreateProjectReport() ? renderProjectReportForm(project) : '<div data-logs-day-view></div>') +
                 '</div>' +
                 '<section class="subsection report-archive-panel report-daily-timeline">' +
-                    '<div class="card-head report-timeline-head"><div><h3>Предыдущие отчеты</h3><span class="muted">Лента суточных рапортов прорабов по объекту.</span></div></div>' +
+                    '<div class="card-head report-timeline-head"><div><h3>Предыдущие отчеты</h3><span class="muted">Лента суточных отчетов по объекту.</span></div></div>' +
                     '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Архив отчетов</b><span>Сохраненные отчеты появятся здесь.</span></div></div>' +
                 '</section>' +
                 (canCreateProjectReport() ? '<div class="report-day-view-hidden" data-logs-day-view></div>' : '') +
@@ -6377,7 +6489,7 @@ function renderLogsDayView(project, logs) {
         if (!canCreateProjectReport()) return '';
         var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || APP_TODAY;
         return '<section class="subsection report-intake-card report-chat-intake report-daily-form-card">' +
-            '<div class="report-drawer-caption">Суточный рапорт</div>' +
+            '<div class="report-drawer-caption">Суточный отчет</div>' +
             '<div class="card-head report-form-head"><div><h3>Отчет за сегодня</h3><span class="muted">Коротко зафиксируйте факт работ, закупки и важные замечания по объекту.</span></div></div>' +
             '<form class="project-form report-intake-form report-chat-form report-chat-simple-form report-daily-form" data-log-form>' +
                 '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
@@ -6699,6 +6811,12 @@ function renderLogsDayView(project, logs) {
         qsa('body > [data-finance-form-modal]').forEach(function (modal) {
             modal.remove();
         });
+        qsa('body > [data-finance-delete-modal]').forEach(function (modal) {
+            modal.remove();
+        });
+        qsa('body > [data-finance-payment-modal]').forEach(function (modal) {
+            modal.remove();
+        });
         document.body.classList.remove('finance-modal-lock');
     }
 
@@ -6825,8 +6943,31 @@ function renderLogsDayView(project, logs) {
         return '<section class="finance-executive-summary" aria-label="Главные финансовые показатели">' +
             '<article class="finance-executive-card ' + (margin == null ? 'is-neutral' : (margin < 0 ? 'is-danger' : 'is-success')) + '"><div class="finance-executive-icon"><i data-lucide="trending-up"></i></div><span>Прогнозная маржа</span><strong>' + escapeHtml(margin == null ? '—' : economicsMoney(margin)) + '</strong><small>' + escapeHtml(marginHint) + '</small></article>' +
             '<article class="finance-executive-card ' + (!financeError && balance < 0 ? 'is-danger' : 'is-primary') + '"><div class="finance-executive-icon"><i data-lucide="wallet-cards"></i></div><span>Денег сейчас</span><strong>' + escapeHtml(financeError ? '—' : money(balance)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : 'Поступило минус оплачено') + '</small></article>' +
-            '<article class="finance-executive-card ' + (!financeError && paymentOverview.week.length ? 'is-warning' : 'is-neutral') + '"><div class="finance-executive-icon"><i data-lucide="calendar-clock"></i></div><span>Оплатить за 7 дней</span><strong>' + escapeHtml(financeError ? '—' : money(paymentOverview.weekTotal)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : (paymentOverview.week.length ? financeCountText(paymentOverview.week.length, 'счёт требует', 'счёта требуют', 'счетов требуют') + ' внимания' : 'Платежей на неделю нет')) + '</small></article>' +
+            '<article class="finance-executive-card ' + (!financeError && paymentOverview.week.length ? 'is-primary' : 'is-neutral') + '"><div class="finance-executive-icon"><i data-lucide="calendar-clock"></i></div><span>Оплатить за 7 дней</span><strong>' + escapeHtml(financeError ? '—' : money(paymentOverview.weekTotal)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : (paymentOverview.week.length ? financeCountText(paymentOverview.week.length, 'счёт требует', 'счёта требуют', 'счетов требуют') + ' внимания' : 'Платежей на неделю нет')) + '</small></article>' +
             '<article class="finance-executive-card ' + (!financeError && paymentOverview.overdue.length ? 'is-danger' : 'is-neutral') + '"><div class="finance-executive-icon"><i data-lucide="triangle-alert"></i></div><span>Просрочено</span><strong>' + escapeHtml(financeError ? '—' : money(paymentOverview.overdueTotal)) + '</strong><small>' + escapeHtml(financeError ? 'Данные временно недоступны' : (paymentOverview.overdue.length ? financeCountText(paymentOverview.overdue.length, 'счёт', 'счёта', 'счетов') + ' без оплаты' : 'Просроченных счетов нет')) + '</small></article>' +
+        '</section>';
+    }
+
+    function renderFinancePayablesCallout(items) {
+        var overview = financePaymentOverview(items);
+        if (!overview.pending.length) {
+            return '<section class="finance-payables-callout is-clear" data-finance-payables-callout data-director-finance>' +
+                '<div class="finance-payables-callout-icon"><i data-lucide="circle-check-big"></i></div>' +
+                '<div class="finance-payables-callout-copy"><span>Счета к оплате</span><h3>Всё оплачено</h3><p>Новых счетов и просроченных платежей нет.</p></div>' +
+                '<button class="ghost compact" type="button" data-finance-view-target="payments"><span>Открыть раздел</span><i data-lucide="arrow-right"></i></button>' +
+            '</section>';
+        }
+        var dated = overview.pending.filter(function (item) { return item.planned_date; }).sort(function (left, right) {
+            return String(left.planned_date).localeCompare(String(right.planned_date));
+        });
+        var nextPayment = dated[0] || null;
+        var detail = overview.overdue.length
+            ? financeCountText(overview.overdue.length, 'счёт просрочен', 'счёта просрочены', 'счетов просрочены') + ' на ' + money(overview.overdueTotal)
+            : (nextPayment ? 'Ближайший срок — ' + formatDisplayDate(nextPayment.planned_date) : 'Есть счета без даты оплаты');
+        return '<section class="finance-payables-callout' + (overview.overdue.length ? ' has-overdue' : '') + '" data-finance-payables-callout data-director-finance>' +
+            '<div class="finance-payables-callout-icon"><i data-lucide="receipt-text"></i></div>' +
+            '<div class="finance-payables-callout-copy"><span>Счета к оплате</span><h3>' + escapeHtml(money(overview.pendingTotal)) + '</h3><p>' + escapeHtml(financeCountText(overview.pending.length, 'счёт ожидает', 'счёта ожидают', 'счетов ожидают') + ' оплаты · ' + detail) + '</p></div>' +
+            '<button class="primary" type="button" data-finance-view-target="payments"><span>Перейти к оплате</span><i data-lucide="arrow-right"></i></button>' +
         '</section>';
     }
 
@@ -6947,7 +7088,8 @@ function renderLogsDayView(project, logs) {
             '</div>' +
             '<div class="finance-table-cell finance-row-actions">' +
                 '<button class="ghost compact finance-icon-button" type="submit" title="\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"><i data-lucide="save"></i><span>\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c</span></button>' +
-                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact finance-pay-button" type="button" data-finance-confirm-payment data-director-finance><i data-lucide="credit-card"></i><span>\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c</span></button>' : '') +
+                (direction === 'expense' && status !== 'paid' && status !== 'cancelled' ? '<button class="primary compact finance-pay-button" type="button" data-finance-confirm-payment data-director-action><i data-lucide="credit-card"></i><span>\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c</span></button>' : '') +
+                (status === 'planned' && !item.document_id ? '<button class="ghost compact danger finance-delete-button" type="button" data-finance-delete data-finance-delete-direction="' + escapeHtml(direction) + '" data-finance-delete-title="' + escapeHtml(title) + '" data-finance-delete-amount="' + escapeHtml(item.amount || 0) + '" data-finance-delete-has-document="0" title="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043e\u0448\u0438\u0431\u043e\u0447\u043d\u044b\u0439 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a"><i data-lucide="trash-2"></i><span>\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a</span></button>' : '') +
             '</div></form>';
     }
 
@@ -7045,6 +7187,7 @@ function renderLogsDayView(project, logs) {
         var canViewManagement = canViewProjectEconomics() && !!managementHtml;
         var overviewPanel = '<section class="finance-view-panel" data-finance-view-panel="overview">' +
             renderFinanceExecutiveSummary(items, summary, economicsData, economicsError, financeError) +
+            (financeError ? '' : renderFinancePayablesCallout(items)) +
             economicsHtml +
             (financeError ? '' : '<div data-director-finance>' + renderFinanceHero(projectId, summary, items) + '</div>') +
         '</section>';
@@ -7170,21 +7313,228 @@ function renderLogsDayView(project, logs) {
                 if (button.dataset.bound === '1') return;
                 button.dataset.bound = '1';
                 button.addEventListener('click', function () {
-                    withSubmitLock(button, function () {
-                        return api('/api/finance/pay-invoice', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                finance_id: Number(form.dataset.financeId),
-                                paid_date: APP_TODAY
-                            })
-                        }).then(function () {
-                            loadProjectFinances(projectId);
-                        }).catch(function (err) {
-                            showFinanceToast(appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u043f\u043b\u0430\u0442\u0443'));
-                        });
-                    });
+                    openFinancePaymentModal(form, button, projectId);
                 });
             });
+            qsa('[data-finance-payable-settings]', form).forEach(function (button) {
+                if (button.dataset.bound === '1') return;
+                button.dataset.bound = '1';
+                button.addEventListener('click', function () {
+                    var editor = qs('[data-finance-payable-editor]', form);
+                    if (!editor) return;
+                    var willOpen = editor.hidden;
+                    editor.hidden = !willOpen;
+                    button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    var label = qs('span', button);
+                    if (label) label.textContent = willOpen ? 'Скрыть' : 'Настроить';
+                    if (willOpen) {
+                        var firstInput = qs('input, select', editor);
+                        if (firstInput) firstInput.focus();
+                    }
+                });
+            });
+            qsa('[data-finance-delete]', form).forEach(function (button) {
+                if (button.dataset.bound === '1') return;
+                button.dataset.bound = '1';
+                button.addEventListener('click', function () {
+                    openFinanceDeleteModal(form, button, projectId);
+                });
+            });
+        });
+    }
+
+    function closeFinancePaymentModal(modal) {
+        modal = modal || qs('[data-finance-payment-modal]');
+        if (!modal || modal.classList.contains('is-saving')) return;
+        modal.classList.remove('is-open');
+        document.body.classList.remove('finance-modal-lock');
+        setTimeout(function () {
+            if (!modal.classList.contains('is-open')) modal.hidden = true;
+        }, 180);
+    }
+
+    function financePaymentErrorMessage(error) {
+        var code = error && error.payload && error.payload.error;
+        if (code === 'finance_entry_has_payment_allocations') {
+            return 'У этого счёта уже есть разнесение. Проверьте финансовую историю перед изменением оплаты.';
+        }
+        if (code === 'forbidden') return 'У вас нет права подтверждать оплату счетов.';
+        if (code === 'finance_not_found') return 'Счёт уже изменён или не найден. Обновите раздел.';
+        return appErrorMessage(error, 'Не удалось подтвердить оплату. Попробуйте ещё раз.');
+    }
+
+    function ensureFinancePaymentModal() {
+        var modal = qs('[data-finance-payment-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'finance-payment-modal';
+        modal.setAttribute('data-finance-payment-modal', '');
+        modal.hidden = true;
+        modal.innerHTML =
+            '<button class="finance-payment-backdrop" type="button" data-finance-payment-cancel aria-label="Закрыть окно оплаты"></button>' +
+            '<section class="finance-payment-dialog" role="dialog" aria-modal="true" aria-labelledby="finance-payment-title">' +
+                '<div class="finance-payment-dialog-head"><div class="finance-payment-dialog-icon"><i data-lucide="circle-check-big"></i></div><div><span>Подтверждение</span><h3 id="finance-payment-title">Отметить счёт оплаченным</h3></div></div>' +
+                '<div class="finance-payment-preview"><strong data-finance-payment-preview-title></strong><span data-finance-payment-preview-amount></span></div>' +
+                '<label class="finance-payment-date"><span>Дата оплаты</span><input type="date" value="' + escapeHtml(APP_TODAY) + '" data-finance-payment-date></label>' +
+                '<p class="finance-payment-hint"><i data-lucide="info"></i><span>После подтверждения счёт исчезнет из «К оплате» и появится в оплаченных операциях.</span></p>' +
+                '<div class="finance-payment-error" data-finance-payment-error role="status" aria-live="polite"></div>' +
+                '<div class="finance-payment-actions"><button class="ghost" type="button" data-finance-payment-cancel>Отмена</button><button class="primary" type="button" data-finance-payment-confirm><i data-lucide="check"></i><span>Подтвердить оплату</span></button></div>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target.closest('[data-finance-payment-cancel]')) {
+                closeFinancePaymentModal(modal);
+                return;
+            }
+            var confirmButton = event.target.closest('[data-finance-payment-confirm]');
+            if (!confirmButton || confirmButton.disabled) return;
+            var dateInput = qs('[data-finance-payment-date]', modal);
+            var errorNode = qs('[data-finance-payment-error]', modal);
+            if (errorNode) errorNode.textContent = '';
+            modal.classList.add('is-saving');
+            withSubmitLock(confirmButton, function () {
+                return api('/api/finance/pay-invoice', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        finance_id: Number(modal.dataset.financeId),
+                        paid_date: dateInput && dateInput.value ? dateInput.value : APP_TODAY
+                    })
+                });
+            }).then(function () {
+                var activeProjectId = modal.dataset.projectId;
+                modal.classList.remove('is-saving');
+                closeFinancePaymentModal(modal);
+                showFinanceToast('Счёт отмечен оплаченным. Финансовые итоги обновлены.');
+                return loadProjectFinances(activeProjectId);
+            }).catch(function (error) {
+                modal.classList.remove('is-saving');
+                if (errorNode) errorNode.textContent = financePaymentErrorMessage(error);
+                confirmButton.focus();
+            });
+        });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeFinancePaymentModal(modal);
+        });
+        document.body.appendChild(modal);
+        refreshLucideIcons(modal);
+        return modal;
+    }
+
+    function openFinancePaymentModal(form, button, projectId) {
+        var modal = ensureFinancePaymentModal();
+        var titleNode = qs('.finance-payable-main b, .finance-cell-main b', form);
+        var amountNode = qs('.finance-payable-amount strong, .finance-row-amount strong', form);
+        modal.dataset.financeId = form.dataset.financeId;
+        modal.dataset.projectId = String(projectId);
+        qs('[data-finance-payment-preview-title]', modal).textContent = button.dataset.financePaymentTitle || (titleNode ? titleNode.textContent : 'Счёт к оплате');
+        qs('[data-finance-payment-preview-amount]', modal).textContent = button.dataset.financePaymentAmount ? money(Number(button.dataset.financePaymentAmount)) : (amountNode ? amountNode.textContent : '—');
+        qs('[data-finance-payment-date]', modal).value = APP_TODAY;
+        qs('[data-finance-payment-error]', modal).textContent = '';
+        modal.hidden = false;
+        document.body.classList.add('finance-modal-lock');
+        requestAnimationFrame(function () {
+            modal.classList.add('is-open');
+            var confirmButton = qs('[data-finance-payment-confirm]', modal);
+            if (confirmButton) confirmButton.focus();
+        });
+    }
+
+    function closeFinanceDeleteModal(modal) {
+        modal = modal || qs('[data-finance-delete-modal]');
+        if (!modal || modal.classList.contains('is-saving')) return;
+        modal.classList.remove('is-open');
+        document.body.classList.remove('finance-modal-lock');
+        setTimeout(function () {
+            if (!modal.classList.contains('is-open')) modal.hidden = true;
+        }, 180);
+    }
+
+    function financeDeleteErrorMessage(error) {
+        var code = error && error.payload && error.payload.error;
+        if (code === 'finance_entry_has_payment_allocations') {
+            return 'Эта операция уже участвует в разнесении и стала частью финансовой истории. Удалить её нельзя — используйте сторно или отмену.';
+        }
+        if (code === 'finance_entry_is_not_deletable_draft') {
+            return 'Удалять можно только ошибочный черновик без документа. Для реальной операции используйте отмену или сторно — история останется целой.';
+        }
+        if (code === 'finance_not_found') return 'Операция уже удалена или не найдена.';
+        if (code === 'forbidden') return 'У вас нет доступа к удалению финансовых операций.';
+        return appErrorMessage(error, 'Не удалось удалить финансовую операцию. Попробуйте ещё раз.');
+    }
+
+    function ensureFinanceDeleteModal() {
+        var modal = qs('[data-finance-delete-modal]');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.className = 'finance-delete-modal';
+        modal.setAttribute('data-finance-delete-modal', '');
+        modal.hidden = true;
+        modal.innerHTML =
+            '<button class="finance-delete-backdrop" type="button" data-finance-delete-cancel aria-label="Отменить удаление"></button>' +
+            '<section class="finance-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="finance-delete-title" aria-describedby="finance-delete-description">' +
+                '<div class="finance-delete-icon" aria-hidden="true"><i data-lucide="trash-2"></i></div>' +
+                '<div class="finance-delete-copy">' +
+                    '<h3 id="finance-delete-title" data-finance-delete-heading>Удалить черновик?</h3>' +
+                    '<p id="finance-delete-description">Удаляйте только ошибочную запись. Согласованные и оплаченные операции система сохраняет в истории.</p>' +
+                '</div>' +
+                '<div class="finance-delete-preview"><strong data-finance-delete-preview-title></strong><span data-finance-delete-preview-amount></span></div>' +
+                '<p class="finance-delete-document-note" data-finance-delete-document-note hidden><i data-lucide="file-check-2"></i><span>Прикреплённый файл останется в разделе «Документы» объекта.</span></p>' +
+                '<div class="finance-delete-error" data-finance-delete-error role="status" aria-live="polite"></div>' +
+                '<div class="finance-delete-actions">' +
+                    '<button class="ghost" type="button" data-finance-delete-cancel>Оставить</button>' +
+                    '<button class="danger" type="button" data-finance-delete-confirm><i data-lucide="trash-2"></i><span>Удалить черновик</span></button>' +
+                '</div>' +
+            '</section>';
+        modal.addEventListener('click', function (event) {
+            if (event.target.closest('[data-finance-delete-cancel]')) {
+                closeFinanceDeleteModal(modal);
+                return;
+            }
+            var confirmButton = event.target.closest('[data-finance-delete-confirm]');
+            if (!confirmButton || confirmButton.disabled) return;
+            var financeId = modal.dataset.financeId;
+            var activeProjectId = modal.dataset.projectId;
+            var errorNode = qs('[data-finance-delete-error]', modal);
+            if (errorNode) errorNode.textContent = '';
+            modal.classList.add('is-saving');
+            withSubmitLock(confirmButton, function () {
+                return api('/api/finances/' + encodeURIComponent(financeId), { method: 'DELETE' });
+            }).then(function () {
+                modal.classList.remove('is-saving');
+                closeFinanceDeleteModal(modal);
+                showFinanceToast('Финансовая операция удалена. Итоги объекта пересчитаны.');
+                return loadProjectFinances(activeProjectId);
+            }).catch(function (error) {
+                modal.classList.remove('is-saving');
+                if (errorNode) errorNode.textContent = financeDeleteErrorMessage(error);
+                confirmButton.focus();
+            });
+        });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeFinanceDeleteModal(modal);
+        });
+        document.body.appendChild(modal);
+        refreshLucideIcons(modal);
+        return modal;
+    }
+
+    function openFinanceDeleteModal(form, button, projectId) {
+        var modal = ensureFinanceDeleteModal();
+        var direction = button.dataset.financeDeleteDirection || form.dataset.financeDirection || 'expense';
+        var hasDocument = button.dataset.financeDeleteHasDocument === '1';
+        var heading = direction === 'income' ? 'Удалить черновик поступления?' : 'Удалить черновик расхода?';
+        modal.dataset.financeId = form.dataset.financeId;
+        modal.dataset.projectId = String(projectId);
+        qs('[data-finance-delete-heading]', modal).textContent = heading;
+        qs('[data-finance-delete-preview-title]', modal).textContent = button.dataset.financeDeleteTitle || 'Финансовая операция';
+        qs('[data-finance-delete-preview-amount]', modal).textContent = money(Number(button.dataset.financeDeleteAmount || 0));
+        qs('[data-finance-delete-document-note]', modal).hidden = !hasDocument;
+        qs('[data-finance-delete-error]', modal).textContent = '';
+        modal.hidden = false;
+        document.body.classList.add('finance-modal-lock');
+        requestAnimationFrame(function () {
+            modal.classList.add('is-open');
+            var confirmButton = qs('[data-finance-delete-confirm]', modal);
+            if (confirmButton) confirmButton.focus();
         });
     }
 
@@ -7405,40 +7755,43 @@ function renderLogsDayView(project, logs) {
             if (!groups[bucket.key]) groups[bucket.key] = { bucket: bucket, items: [] };
             groups[bucket.key].items.push(item);
         });
-        var icons = { overdue: 'triangle-alert', today: 'alarm-clock', week: 'calendar-days', later: 'calendar-range', 'no-date': 'calendar-x-2' };
+        var icons = { overdue: 'circle-alert', today: 'calendar-check-2', week: 'calendar-days', later: 'calendar-range', 'no-date': 'calendar-x-2' };
         var planRows = order.filter(function (key) { return groups[key] && groups[key].items.length; }).map(function (key) {
             var group = groups[key];
             var groupTotal = group.items.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0);
-            return '<section class="finance-plan-group is-' + escapeHtml(group.bucket.kind || 'normal') + '">' +
-                '<div class="finance-plan-group-head"><div><i data-lucide="' + escapeHtml(icons[key] || 'calendar') + '"></i><span><b>' + escapeHtml(group.bucket.title) + '</b><small>' + escapeHtml(financeCountText(group.items.length, 'счёт', 'счёта', 'счетов')) + '</small></span></div><strong>' + escapeHtml(money(groupTotal)) + '</strong></div>' +
-                '<div class="finance-plan-items finance-plan-table">' + group.items.map(function (item) {
+            return '<section class="finance-payable-group is-' + escapeHtml(key) + '">' +
+                '<header class="finance-payable-group-head"><div><i data-lucide="' + escapeHtml(icons[key] || 'calendar') + '"></i><span><b>' + escapeHtml(group.bucket.title) + '</b><small>' + escapeHtml(financeCountText(group.items.length, 'счёт', 'счёта', 'счетов')) + '</small></span></div><strong>' + escapeHtml(money(groupTotal)) + '</strong></header>' +
+                '<div class="finance-payable-list">' + group.items.map(function (item) {
                     var title = item.category || item.notes || 'Счёт к оплате';
-                    return '<form class="finance-plan-item ' + (group.bucket.kind ? 'is-' + group.bucket.kind : '') + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '" data-finance-direction="expense" data-finance-status="' + escapeHtml(item.status || 'planned') + '">' +
-                        '<div class="finance-plan-main"><b>' + escapeHtml(title) + '</b><small>' + escapeHtml((item.counterparty_name || 'Контрагент не указан') + ' · ' + financePaymentLabel(item.payment_kind)) + '</small></div>' +
-                        '<label><span>Оплатить до</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                    var editorId = 'finance-payable-editor-' + String(item.id);
+                    var dueDate = item.planned_date ? formatDisplayDate(item.planned_date) : 'Не указан';
+                    var statusText = key === 'overdue' ? 'Срок прошёл' : (key === 'today' ? 'Сегодня' : (key === 'week' ? 'В ближайшие 7 дней' : (key === 'no-date' ? 'Нужно назначить' : 'Запланировано')));
+                    return '<form class="finance-payable-row is-' + escapeHtml(key) + '" data-finance-edit-form data-finance-id="' + escapeHtml(item.id) + '" data-finance-direction="expense" data-finance-status="' + escapeHtml(item.status || 'planned') + '">' +
+                        '<div class="finance-payable-main"><div class="finance-payable-file-icon"><i data-lucide="receipt-text"></i></div><div><b>' + escapeHtml(title) + '</b><small>' + escapeHtml((item.counterparty_name || 'Контрагент не указан') + ' · ' + financePaymentLabel(item.payment_kind)) + '</small></div>' + renderFinanceDocumentSlot(item) + '</div>' +
+                        '<div class="finance-payable-due"><span>Срок оплаты</span><b>' + escapeHtml(dueDate) + '</b><small class="' + (key === 'overdue' ? 'is-overdue' : '') + '">' + escapeHtml(statusText) + '</small></div>' +
                         '<input name="paid_date" type="hidden" value="' + escapeHtml(item.paid_date || '') + '">' +
-                        '<strong class="finance-plan-amount">' + escapeHtml(money(item.amount || 0)) + '</strong>' +
-                        '<label><span>Статус</span><select name="status">' +
-                            '<option value="planned"' + (item.status === 'planned' ? ' selected' : '') + '>Запланировано</option>' +
-                            '<option value="approved"' + (item.status === 'approved' ? ' selected' : '') + '>Подан на оплату</option>' +
-                            '<option value="paid"' + (item.status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
-                            '<option value="cancelled"' + (item.status === 'cancelled' ? ' selected' : '') + '>Отменено</option>' +
-                        '</select></label>' +
+                        '<div class="finance-payable-amount"><span>Сумма</span><strong>' + escapeHtml(money(item.amount || 0)) + '</strong><small>' + escapeHtml(financePaymentLabel(item.payment_kind)) + '</small></div>' +
                         '<input name="notes" type="hidden" value="' + escapeHtml(item.notes || '') + '">' +
-                        '<button class="ghost compact finance-icon-button" type="submit"><i data-lucide="save"></i><span>Сохранить</span></button>' +
+                        '<div class="finance-payable-actions"><button class="primary finance-payable-pay" type="button" data-finance-confirm-payment data-director-action data-finance-payment-title="' + escapeHtml(title) + '" data-finance-payment-amount="' + escapeHtml(item.amount || 0) + '"><i data-lucide="check"></i><span>Оплатить</span></button><button class="ghost compact finance-payable-settings" type="button" data-finance-payable-settings aria-expanded="false" aria-controls="' + escapeHtml(editorId) + '"><i data-lucide="sliders-horizontal"></i><span>Настроить</span></button></div>' +
+                        '<div class="finance-payable-editor" id="' + escapeHtml(editorId) + '" data-finance-payable-editor hidden>' +
+                            '<label><span>Оплатить до</span><input name="planned_date" type="date" value="' + escapeHtml(item.planned_date || '') + '"></label>' +
+                            '<label><span>Статус</span><select name="status"><option value="planned"' + (item.status === 'planned' ? ' selected' : '') + '>Запланировано</option><option value="approved"' + (item.status === 'approved' ? ' selected' : '') + '>Подан на оплату</option><option value="cancelled"' + (item.status === 'cancelled' ? ' selected' : '') + '>Отменено</option></select></label>' +
+                            '<button class="ghost compact" type="submit"><i data-lucide="save"></i><span>Сохранить изменения</span></button>' +
+                            (item.status === 'planned' && !item.document_id ? '<button class="ghost compact danger finance-delete-button" type="button" data-finance-delete data-finance-delete-direction="expense" data-finance-delete-title="' + escapeHtml(title) + '" data-finance-delete-amount="' + escapeHtml(item.amount || 0) + '" data-finance-delete-has-document="0"><i data-lucide="trash-2"></i><span>Удалить черновик</span></button>' : '') +
+                        '</div>' +
                     '</form>';
                 }).join('') + '</div>' +
             '</section>';
         }).join('');
-        return '<section class="subsection finance-plan-board ui-card">' +
-            '<div class="card-head finance-plan-head"><div><span class="section-label">Платёжный календарь</span><h3>Что и когда нужно оплатить</h3><span class="muted">Только неоплаченные счета; самые срочные всегда наверху.</span></div><button class="primary" type="button" data-finance-open-modal="invoice"><i data-lucide="file-plus"></i><span>Добавить счёт</span></button></div>' +
-            '<div class="finance-plan-summary">' +
-                '<article><span>Всего к оплате</span><strong>' + escapeHtml(money(overview.pendingTotal)) + '</strong><small>' + escapeHtml(financeCountText(overview.pending.length, 'счёт', 'счёта', 'счетов')) + '</small></article>' +
-                '<article class="' + (overview.overdue.length ? 'is-danger' : '') + '"><span>Просрочено</span><strong>' + escapeHtml(money(overview.overdueTotal)) + '</strong><small>' + escapeHtml(overview.overdue.length ? financeCountText(overview.overdue.length, 'счёт', 'счёта', 'счетов') : 'Нет просрочки') + '</small></article>' +
-                '<article class="' + (overview.week.length ? 'is-warning' : '') + '"><span>Ближайшие 7 дней</span><strong>' + escapeHtml(money(overview.weekTotal)) + '</strong><small>' + escapeHtml(overview.week.length ? financeCountText(overview.week.length, 'счёт', 'счёта', 'счетов') : 'Платежей нет') + '</small></article>' +
-                '<article class="' + (overview.noDate.length ? 'is-warning' : '') + '"><span>Без даты</span><strong>' + escapeHtml(String(overview.noDate.length)) + '</strong><small>Нужно запланировать</small></article>' +
+        return '<section class="finance-payables-board ui-card" data-finance-payables-board>' +
+            '<header class="finance-payables-head"><div><span class="section-label">К оплате</span><h3>Счета, которые ждут оплаты</h3><p>Сначала просроченные, затем ближайшие. Один счёт — одно понятное действие.</p></div><button class="ghost" type="button" data-finance-open-modal="invoice"><i data-lucide="plus"></i><span>Добавить счёт</span></button></header>' +
+            '<section class="finance-payables-balance"><div><span>Всего к оплате</span><strong>' + escapeHtml(money(overview.pendingTotal)) + '</strong><small>' + escapeHtml(financeCountText(overview.pending.length, 'неоплаченный счёт', 'неоплаченных счёта', 'неоплаченных счетов')) + '</small></div><div class="finance-payables-facts">' +
+                '<span class="' + (overview.overdue.length ? 'is-overdue' : '') + '"><i data-lucide="circle-alert"></i><b>' + escapeHtml(String(overview.overdue.length)) + '</b> просрочено</span>' +
+                '<span><i data-lucide="calendar-days"></i><b>' + escapeHtml(String(overview.week.length)) + '</b> на 7 дней</span>' +
+                '<span><i data-lucide="calendar-x-2"></i><b>' + escapeHtml(String(overview.noDate.length)) + '</b> без даты</span>' +
             '</div>' +
-            (planRows || '<div class="finance-plan-empty"><i data-lucide="badge-check"></i><b>Все счета оплачены</b><span>Новых платежей в календаре пока нет.</span><button class="ghost" type="button" data-finance-open-modal="invoice">Добавить счёт</button></div>') +
+            '</section>' +
+            (planRows || '<div class="finance-plan-empty"><i data-lucide="badge-check"></i><b>Все счета оплачены</b><span>Новых платежей сейчас нет.</span><button class="ghost" type="button" data-finance-open-modal="invoice">Добавить счёт</button></div>') +
         '</section>';
     }
 
@@ -7619,6 +7972,14 @@ function renderLogsDayView(project, logs) {
         return bits.filter(Boolean).join(' • ');
     }
 
+    function reminderShortageText(alert) {
+        var bits = [
+            'Не хватает ' + quantityText(alert.missingQty) + (alert.unit ? (' ' + alert.unit) : ''),
+            alert.workDate ? ('нужно к работе ' + alert.workDate) : (alert.needByDate ? ('нужно к ' + alert.needByDate) : '')
+        ];
+        return bits.filter(Boolean).join(' • ');
+    }
+
     function buildReminderItemsForProject(project, notifications) {
         var projectId = Number(project.id);
         var title = project.title || 'Объект';
@@ -7639,10 +8000,24 @@ function renderLogsDayView(project, logs) {
         (notifications.problemStages || []).forEach(function (stage) {
             items.push({ kind: 'warn', label: 'Проблемный этап', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId });
         });
-        (notifications.procurementAlerts || []).slice(0, 4).forEach(function (alert) {
-            var kind = alert.status === 'critical' ? 'danger' : 'warn';
-            items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId });
-        });
+        if (Array.isArray(notifications.shortageAlerts)) {
+            var procurementByMaterialId = {};
+            (notifications.procurementAlerts || []).forEach(function (alert) {
+                procurementByMaterialId[String(alert.materialId || '')] = alert;
+            });
+            notifications.shortageAlerts.forEach(function (shortage) {
+                var procurement = procurementByMaterialId[String(shortage.materialId || '')] || {};
+                var daysUntilWork = shortage.daysUntilWork == null || shortage.daysUntilWork === '' ? null : Number(shortage.daysUntilWork);
+                var kind = procurement.status === 'critical' || (daysUntilWork != null && Number.isFinite(daysUntilWork) && daysUntilWork <= 1) ? 'danger' : 'warn';
+                var label = procurement.status === 'critical' ? 'Закупка горит' : (procurement.status === 'soon' ? 'Скоро закупка' : 'Нехватка материала');
+                items.push({ kind: kind, label: label, title: title, scope: reminderProcurementScope(shortage), text: reminderShortageText(shortage), href: '/app/projects?openProject=' + projectId });
+            });
+        } else {
+            (notifications.procurementAlerts || []).forEach(function (alert) {
+                var kind = alert.status === 'critical' ? 'danger' : 'warn';
+                items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId });
+            });
+        }
         return items;
     }
 
@@ -7665,7 +8040,7 @@ function renderLogsDayView(project, logs) {
             list.innerHTML = '<div class="reminder-empty"><b>Все спокойно</b><span>Просрочек, блокеров и срочных закупок нет.</span></div>';
             return;
         }
-        list.innerHTML = '<div class="reminder-list">' + items.slice(0, 20).map(function (item) {
+        list.innerHTML = '<div class="reminder-list">' + items.map(function (item) {
             return '<a class="reminder-item is-' + escapeHtml(item.kind || 'info') + '" href="' + escapeHtml(item.href || '/app/projects') + '">' +
                 '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b>' + (item.scope ? '<strong class="reminder-scope">Раздел: ' + escapeHtml(item.scope) + '</strong>' : '') + '<small>' + escapeHtml(item.text || '') + '</small></div>' +
             '</a>';
@@ -7674,7 +8049,7 @@ function renderLogsDayView(project, logs) {
 
     function refreshReminderBell() {
         if (!qsa('[data-reminder-toggle]').length) return;
-        if (!state.projects.length) {
+        if (!state.projectsLoaded) {
             if (state.reminderProjectsLoading) {
                 renderReminderBell([], true);
                 return;
@@ -7683,12 +8058,17 @@ function renderLogsDayView(project, logs) {
             renderReminderBell([], true);
             api('/api/projects', { silentLoader: true }).then(function (data) {
                 state.projects = Array.isArray(data.projects) ? data.projects : [];
+                state.projectsLoaded = true;
                 state.reminderProjectsLoading = false;
                 refreshReminderBell();
             }).catch(function () {
                 state.reminderProjectsLoading = false;
                 renderReminderBell([], false);
             });
+            return;
+        }
+        if (!state.projects.length) {
+            renderReminderBell([], false);
             return;
         }
         renderReminderBell([], true);
@@ -7705,26 +8085,31 @@ function renderLogsDayView(project, logs) {
     }
 
     function initReminderBell() {
-        var button = qs('[data-reminder-toggle]');
-        var popover = qs('[data-reminder-popover]');
-        var refresh = qs('[data-reminder-refresh]');
-        if (!button || !popover || button.dataset.bound === '1') return;
-        button.dataset.bound = '1';
-        button.addEventListener('click', function (event) {
-            event.preventDefault();
-            popover.hidden = !popover.hidden;
-            if (!popover.hidden) refreshReminderBell();
-        });
-        if (refresh) {
-            refresh.addEventListener('click', function (event) {
+        if (document.documentElement.dataset.reminderBellBound === '1') return;
+        document.documentElement.dataset.reminderBellBound = '1';
+        document.addEventListener('click', function (event) {
+            var toggle = event.target && event.target.closest ? event.target.closest('[data-reminder-toggle]') : null;
+            var popover = qs('[data-reminder-popover]');
+            if (toggle) {
+                event.preventDefault();
+                if (!popover) return;
+                popover.hidden = !popover.hidden;
+                toggle.setAttribute('aria-expanded', popover.hidden ? 'false' : 'true');
+                if (!popover.hidden) refreshReminderBell();
+                return;
+            }
+            var refresh = event.target && event.target.closest ? event.target.closest('[data-reminder-refresh]') : null;
+            if (refresh) {
                 event.preventDefault();
                 refreshReminderBell();
-            });
-        }
-        document.addEventListener('click', function (event) {
+                return;
+            }
+            if (!popover) return;
             if (popover.hidden) return;
-            if (event.target.closest('[data-reminder-popover]') || event.target.closest('[data-reminder-toggle]')) return;
+            if (event.target.closest('[data-reminder-popover]')) return;
             popover.hidden = true;
+            var currentToggle = qs('[data-reminder-toggle]');
+            if (currentToggle) currentToggle.setAttribute('aria-expanded', 'false');
         });
     }
 
@@ -7750,7 +8135,8 @@ function renderLogsDayView(project, logs) {
         });
     }
 
-    loadProjectAssignments = function () {
+    loadProjectAssignments = function (projectId, loadingToken) {
+        loadProjectHub(projectId, state.selectedProject, loadingToken);
         removeProjectAssignmentsBlock();
     };
 
@@ -8686,8 +9072,8 @@ function renderLogsDayView(project, logs) {
     function renderBulkSectionCheckbox(projectId, sectionTitle, kind, progress) {
         var sectionId = progressSectionId(sectionTitle || '');
         var checked = !!(progress && progress.total && progress.done >= progress.total);
-        return '<label class="bulk-section-check" title="Закрыть весь раздел">' +
-            '<input type="checkbox" data-bulk-section-check="' + escapeHtml(sectionId) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-bulk-kind="' + escapeHtml(kind || 'items') + '"' + (checked ? ' checked' : '') + '>' +
+        return '<label class="bulk-section-check" title="Отметить весь раздел выполненным">' +
+            '<input type="checkbox" aria-label="Отметить весь раздел выполненным" data-bulk-section-check="' + escapeHtml(sectionId) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-bulk-kind="' + escapeHtml(kind || 'items') + '"' + (checked ? ' checked' : '') + '>' +
             '<span aria-hidden="true"></span>' +
         '</label>';
     }
@@ -9471,52 +9857,327 @@ function renderLogsDayView(project, logs) {
         }).slice(0, 8);
     }
 
+    function objectControlActionAttributesV3(item) {
+        item = item || {};
+        if (item.access) return ' data-project-access-open';
+        if (item.quickAction) {
+            return ' data-project-quick-action="' + escapeHtml(item.quickAction) + '"' +
+                (item.documentType ? (' data-document-type="' + escapeHtml(item.documentType) + '"') : '');
+        }
+        if (item.tab) return ' data-project-tab-target="' + escapeHtml(item.tab) + '"';
+        return '';
+    }
+
+    function objectControlDocumentListV3(documents, types) {
+        var allowed = Array.isArray(types) ? types : [types];
+        return (documents || []).filter(function (doc) {
+            return allowed.indexOf(String(doc && doc.doc_type || '')) !== -1;
+        });
+    }
+
+    function objectControlHasReadyDocumentV3(documents, types) {
+        var readyStatuses = ['reviewed', 'approved', 'signed', 'ready'];
+        return objectControlDocumentListV3(documents, types).some(function (doc) {
+            return !!doc.storage_path && readyStatuses.indexOf(String(doc.status || '')) !== -1;
+        });
+    }
+
+    function objectControlFinanceOverviewV3(finances) {
+        var items = finances && Array.isArray(finances.items) ? finances.items : [];
+        var pending = items.filter(function (item) {
+            return item.direction === 'expense' && ['paid', 'cancelled'].indexOf(String(item.status || '')) === -1;
+        });
+        var overdue = pending.filter(function (item) {
+            return item.planned_date && String(item.planned_date).slice(0, 10) < APP_TODAY;
+        });
+        return {
+            items: items,
+            pending: pending,
+            overdue: overdue,
+            pendingTotal: pending.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0),
+            overdueTotal: overdue.reduce(function (sum, item) { return sum + Number(item.amount || 0); }, 0),
+            summary: finances && finances.summary ? finances.summary : {},
+            unavailable: !!(finances && finances.unavailable)
+        };
+    }
+
+    function objectControlQuickActionV3(action, label, note, icon, documentType) {
+        return '<button class="object-quick-action" type="button" data-project-quick-action="' + escapeHtml(action) + '"' +
+            (documentType ? (' data-document-type="' + escapeHtml(documentType) + '"') : '') + '>' +
+            '<span aria-hidden="true"><i data-lucide="' + escapeHtml(icon) + '"></i></span>' +
+            '<span><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(note) + '</small></span>' +
+        '</button>';
+    }
+
+    function renderObjectQuickCaptureV3() {
+        var actions = [];
+        if (canCreateProjectReport()) actions.push(objectControlQuickActionV3('report', 'Отчет', 'Закрыть день', 'notebook-pen'));
+        if (canManageDocuments()) {
+            actions.push(objectControlQuickActionV3('document', 'Накладная', 'Зафиксировать приход', 'package-check', 'delivery_note'));
+            actions.push(objectControlQuickActionV3('document', 'Путевой', 'Техника и ГСМ', 'route', 'route_sheet'));
+        }
+        if (canSeeFinances()) actions.push(objectControlQuickActionV3('invoice', 'Счёт', 'Поставить к оплате', 'receipt-text'));
+        if (canCreateProjectTask()) actions.push(objectControlQuickActionV3('task', 'Задача', 'Ответственный и срок', 'list-plus'));
+        if (!actions.length) return '';
+        return '<section class="object-quick-capture" aria-label="Быстро добавить событие">' +
+            '<div class="object-quick-capture-head"><strong>Записать событие</strong><span>Одна точка входа для ежедневной работы</span></div>' +
+            '<div class="object-quick-capture-actions">' + actions.join('') + '</div>' +
+        '</section>';
+    }
+
+    function renderObjectAttentionItemV3(item) {
+        return '<article class="object-attention-item ' + (item.tone ? ('is-' + escapeHtml(item.tone)) : '') + '">' +
+            '<span class="object-attention-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(item.icon || 'circle-alert') + '"></i></span>' +
+            '<span class="object-attention-copy"><strong>' + escapeHtml(item.title) + '</strong><span>' + escapeHtml(item.text || '') + '</span></span>' +
+            '<button class="object-attention-action" type="button"' + objectControlActionAttributesV3(item) + '>' + escapeHtml(item.label || 'Открыть') + '</button>' +
+        '</article>';
+    }
+
+    function renderObjectAttentionPanelV3(items) {
+        var visible = (items || []).slice(0, 7);
+        var danger = visible.some(function (item) { return item.tone === 'danger'; });
+        var content = visible.length
+            ? '<div class="object-attention-list">' + visible.map(renderObjectAttentionItemV3).join('') + '</div>'
+            : '<div class="object-control-empty"><i data-lucide="circle-check-big" aria-hidden="true"></i><strong>На сейчас всё спокойно</strong><span>Срочных решений не найдено. Вечером не забудьте закрыть день отчетом.</span></div>';
+        return '<section class="object-panel object-attention-panel">' +
+            '<div class="object-panel-head"><div class="object-panel-title"><span class="object-panel-kicker">Порядок действий</span><h3>Что требует решения</h3><p>Сначала красное, затем жёлтое — остальное система держит в фоне.</p></div>' +
+            '<span class="object-attention-count ' + (danger ? 'is-danger' : '') + '">' + escapeHtml(String(visible.length)) + '</span></div>' +
+            content +
+        '</section>';
+    }
+
+    function renderObjectSetupItemV3(item) {
+        var stateClass = item.complete ? 'is-complete' : (item.warning ? 'is-warning' : '');
+        var icon = item.complete ? 'check' : (item.warning ? 'triangle-alert' : 'circle');
+        var action = item.action
+            ? '<button class="object-setup-open" type="button"' + objectControlActionAttributesV3(item.action) + '>' + escapeHtml(item.actionLabel || 'Открыть') + '</button>'
+            : '';
+        return '<div class="object-setup-item ' + stateClass + '">' +
+            '<span class="object-setup-state" aria-hidden="true"><i data-lucide="' + icon + '"></i></span>' +
+            '<span class="object-setup-copy"><b>' + escapeHtml(item.title) + '</b><small>' + escapeHtml(item.text) + '</small></span>' +
+            action +
+        '</div>';
+    }
+
+    function renderObjectSetupPanelV3(items) {
+        var completed = items.filter(function (item) { return item.complete; }).length;
+        var progress = items.length ? Math.round((completed / items.length) * 100) : 0;
+        return '<section class="object-panel object-setup-panel">' +
+            '<div class="object-panel-head"><div class="object-panel-title"><span class="object-panel-kicker">Основа учёта</span><h3>Объект настроен на ' + progress + '%</h3><p>Без этих пунктов цифрам и срокам нельзя доверять полностью.</p></div></div>' +
+            '<div class="object-setup-progress"><span class="object-setup-track"><span style="width:' + progress + '%"></span></span><strong>' + completed + ' из ' + items.length + '</strong></div>' +
+            '<div class="object-setup-list">' + items.map(renderObjectSetupItemV3).join('') + '</div>' +
+        '</section>';
+    }
+
+    function renderObjectSnapshotV3(icon, label, value, note, tab, tone) {
+        return '<button class="object-snapshot-card ' + (tone ? ('is-' + escapeHtml(tone)) : '') + '" type="button" data-project-tab-target="' + escapeHtml(tab) + '">' +
+            '<span class="object-snapshot-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(icon) + '"></i></span>' +
+            '<span class="object-snapshot-copy"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong><small>' + escapeHtml(note) + '</small></span>' +
+        '</button>';
+    }
+
+    function renderObjectDocumentCategoryV3(documents, config) {
+        var count = objectControlDocumentListV3(documents, config.types).length;
+        var attrs = ' data-project-tab-target="documents"';
+        if (!count && config.quickAction === 'invoice' && canSeeFinances()) {
+            attrs = objectControlActionAttributesV3({ quickAction: 'invoice' });
+        } else if (!count && canManageDocuments()) {
+            attrs = objectControlActionAttributesV3({ quickAction: 'document', documentType: config.preset });
+        }
+        return '<button class="object-document-category ' + (count ? '' : 'is-empty') + '" type="button"' + attrs + '>' +
+            '<span aria-hidden="true"><i data-lucide="' + escapeHtml(config.icon) + '"></i></span>' +
+            '<span><b>' + escapeHtml(config.label) + '</b><small>' + escapeHtml(count ? documentCountLabel(count) : 'Добавить первый') + '</small></span>' +
+        '</button>';
+    }
+
+    function renderObjectDocumentsPanelV3(documents) {
+        var categories = [
+            { label: 'Договор и смета', icon: 'scroll-text', types: ['contract', 'estimate', 'project_doc'], preset: 'contract' },
+            { label: 'Накладные / УПД', icon: 'package-check', types: ['delivery_note', 'upd', 'transport_waybill'], preset: 'delivery_note' },
+            { label: 'Путевые листы', icon: 'route', types: ['route_sheet'], preset: 'route_sheet' },
+            { label: 'Счета и чеки', icon: 'receipt-text', types: ['invoice', 'cash_receipt', 'finance'], preset: 'invoice', quickAction: 'invoice' },
+            { label: 'Акты и ИД', icon: 'file-check-2', types: ['act', 'hidden_work_act', 'inspection_act', 'executive'], preset: 'act' }
+        ];
+        return '<section class="object-panel object-document-panel">' +
+            '<div class="object-panel-head"><div class="object-panel-title"><span class="object-panel-kicker">Первичка</span><h3>Документы по полкам</h3><p>Путевые, накладные, счета и акты больше не теряются в общей папке.</p></div>' +
+            '<button class="object-attention-action" type="button" data-project-tab-target="documents">Все документы</button></div>' +
+            '<div class="object-document-categories">' + categories.map(function (config) { return renderObjectDocumentCategoryV3(documents, config); }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function renderProjectPhotoGalleryV4(project, documents) {
+        var photos = projectPhotoDocuments(documents).slice(0, 4);
+        if (!photos.length) return '';
+        return '<section class="object-photo-panel object-panel">' +
+            '<div class="object-panel-head"><div class="object-panel-title"><span class="object-panel-kicker">С площадки</span><h3>Последние фото</h3><p>Живой визуальный прогресс объекта — без поиска по общей папке.</p></div>' +
+            '<button class="object-attention-action" type="button" data-project-tab-target="documents">Все фото</button></div>' +
+            '<div class="object-photo-grid">' + photos.map(function (doc) {
+                var title = doc.title || doc.original_name || 'Фото объекта';
+                var meta = [doc.stage_title || '', documentDisplayDate(doc)].filter(Boolean).join(' · ');
+                return '<a class="object-photo-card" href="' + escapeHtml(projectDocumentImageUrl(doc)) + '" target="_blank" rel="noreferrer" aria-label="Открыть ' + escapeHtml(title) + '">' +
+                    '<img src="' + escapeHtml(projectDocumentImageUrl(doc)) + '" alt="" loading="lazy" decoding="async">' +
+                    '<span><strong>' + escapeHtml(title) + '</strong><small>' + escapeHtml(meta || project.title || 'Фото объекта') + '</small></span>' +
+                '</a>';
+            }).join('') + '</div>' +
+        '</section>';
+    }
+
+    function syncProjectOverviewCover(project, documents) {
+        var photo = projectPhotoDocuments(documents)[0];
+        if (!photo) return;
+        var image = qs('[data-project-cover-image]');
+        var cover = image && image.closest('[data-project-cover-state]');
+        if (!image || !cover) return;
+        image.src = projectDocumentImageUrl(photo);
+        image.alt = '';
+        cover.dataset.projectCoverState = 'uploaded';
+        cover.classList.add('has-uploaded-photo');
+        cover.classList.remove('is-curated-cover');
+        var label = qs('[data-project-cover-label]', cover);
+        var note = qs('[data-project-cover-note]', cover);
+        if (label) label.textContent = 'Фото с объекта';
+        if (note) note.textContent = [photo.title || photo.original_name || '', documentDisplayDate(photo)].filter(Boolean).join(' · ');
+    }
+
     renderProjectOverviewHero = function (project) {
         var overviewStart = projectDisplayStartDate(project);
         var overviewDeadline = projectDisplayDeadlineDate(project);
-        return '<section class="project-overview-shell">' +
-            '<section class="project-overview-hero ui-card">' +
-                '<div class="project-overview-head">' +
-                    '<div class="project-overview-heading">' +
-                        '<h3 class="project-overview-title"><span class="project-card-icon project-overview-title-icon" aria-hidden="true"><i data-lucide="building-2"></i></span><span>' + escapeHtml(project.title || 'Без названия') + '</span></h3>' +
-                        '<p class="project-overview-address"><span class="project-meta-icon" aria-hidden="true"><i data-lucide="map-pin"></i></span><span>' + escapeHtml(project.address || 'Адрес не указан') + '</span></p>' +
+        var safeProgress = percent(project.progress);
+        var deadlineTone = projectOverviewDeadlineToneV2(overviewDeadline);
+        var cover = projectCoverVisual(project);
+        return '<section class="project-command-center">' +
+            '<section class="object-identity-card">' +
+                '<div class="object-identity-layout">' +
+                    '<div class="object-identity-copy">' +
+                        '<div class="object-identity-top">' +
+                            '<div><span class="object-kicker">Пульт объекта</span><div class="object-title-row"><h2>' + escapeHtml(project.title || 'Без названия') + '</h2><span class="object-status-badge">' + escapeHtml(project.status || 'Подготовка') + '</span></div>' +
+                            '<p class="object-address"><i data-lucide="map-pin" aria-hidden="true"></i><span>' + escapeHtml(project.address || 'Адрес не указан') + '</span></p></div>' +
+                            '<div class="object-identity-progress"><div class="object-progress-copy"><span>Готовность объекта</span><strong>' + safeProgress + '%</strong></div><span class="object-progress-track"><span style="width:' + safeProgress + '%"></span></span>' +
+                            '<span class="object-progress-deadline ' + (deadlineTone ? ('is-' + deadlineTone) : '') + '">' + escapeHtml(overviewDeadline ? (projectOverviewDeadlineHintV2(overviewDeadline) + ' · до ' + formatDisplayDate(overviewDeadline)) : 'Укажите срок объекта') + '</span></div>' +
+                        '</div>' +
+                        '<div class="object-identity-meta">' +
+                            '<div class="object-meta-item"><span>Заказчик</span><strong>' + escapeHtml(project.client_name || 'Не указан') + '</strong></div>' +
+                            '<div class="object-meta-item"><span>Договор</span><strong>' + escapeHtml(project.contract_no || 'Не указан') + '</strong></div>' +
+                            '<div class="object-meta-item"><span>Период работ</span><strong>' + escapeHtml((overviewStart ? formatDisplayDate(overviewStart) : 'без даты') + ' — ' + (overviewDeadline ? formatDisplayDate(overviewDeadline) : 'без срока')) + '</strong></div>' +
+                        '</div>' +
                     '</div>' +
+                    '<figure class="object-identity-cover ' + (cover.uploaded ? 'has-uploaded-photo' : 'is-curated-cover') + '" data-project-cover-state="' + (cover.uploaded ? 'uploaded' : 'fallback') + '">' +
+                        '<img data-project-cover-image src="' + escapeHtml(cover.url) + '" alt="" loading="eager" decoding="async">' +
+                        '<figcaption><span><i data-lucide="camera" aria-hidden="true"></i><b data-project-cover-label>' + (cover.uploaded ? 'Фото с объекта' : 'Визуальная обложка') + '</b></span>' +
+                        '<small data-project-cover-note>' + escapeHtml(cover.uploaded ? cover.title : 'Загрузите фотоотчёт — свежий снимок станет обложкой.') + '</small></figcaption>' +
+                    '</figure>' +
                 '</div>' +
-                '<div class="project-overview-meta">' +
-                    projectOverviewMetaItemV2('Заказчик', project.client_name || 'Не указан') +
-                    projectOverviewMetaItemV2('Договор', project.contract_no || 'Не указан') +
-                    projectOverviewMetaItemV2('Старт', overviewStart ? formatDisplayDate(overviewStart) : '—') +
-                    projectOverviewMetaItemV2('Дедлайн', overviewDeadline ? formatDisplayDate(overviewDeadline) : '—') +
-                    projectOverviewMetaItemV2('Город', project.city || 'Не указан') +
-                    projectOverviewMetaItemV2('Регион', project.region || 'Не указан') +
-                '</div>' +
-                (project.description ? '<div class="object-description project-overview-description">' + escapeHtml(project.description) + '</div>' : '') +
             '</section>' +
-            '<div data-project-hub>' +
-                '<div class="project-overview-kpi-grid">' +
-                    projectOverviewWidgetProgressV2(project.progress, 0, 0) +
-                    projectOverviewWidgetSupplyV2([]) +
-                    projectOverviewWidgetFinanceV2(project, null) +
-                    projectOverviewWidgetControlV2(project, [], []) +
-                '</div>' +
-            '</div>' +
+            '<div data-project-hub><div class="object-loading-grid" aria-label="Собираем состояние объекта"><span class="object-loading-card"></span><span class="object-loading-card"></span><span class="object-loading-card"></span></div></div>' +
         '</section>';
     };
 
     renderProjectHub = function (project, data) {
-        var tasks = data.tasks || [];
-        var logs = data.logs || [];
-        var materials = data.materials || [];
-        var stages = data.stages || [];
-        var doneStages = stages.filter(function (stage) {
-            return ['completed', 'approved'].indexOf(stage.status_code) !== -1 || percent(stage.progress) >= 100;
-        }).length;
-        return '<div class="project-overview-kpi-grid">' +
-            projectOverviewWidgetProgressV2(project.progress, doneStages, stages.length) +
-            projectOverviewWidgetSupplyV2(materials) +
-            projectOverviewWidgetFinanceV2(project, data.economics || null) +
-            projectOverviewWidgetControlV2(project, tasks, logs) +
-        '</div>';
+        data = data || {};
+        var notifications = data.notifications || {};
+        var tasks = Array.isArray(data.tasks) ? data.tasks : [];
+        var logs = Array.isArray(data.logs) ? data.logs : [];
+        var documents = Array.isArray(data.documents) ? data.documents : [];
+        var materials = Array.isArray(data.materials) ? data.materials : [];
+        var stages = Array.isArray(data.stages) ? data.stages : [];
+        var economics = data.economics || null;
+        var finance = objectControlFinanceOverviewV3(data.finances || null);
+        var assignments = data.assignments && Array.isArray(data.assignments.assignments) ? data.assignments.assignments : [];
+        var readyStatuses = ['reviewed', 'approved', 'signed', 'ready'];
+        var contractReady = objectControlHasReadyDocumentV3(documents, ['contract']);
+        var hasDeliveryDocument = objectControlDocumentListV3(documents, ['delivery_note', 'upd', 'transport_waybill']).length > 0;
+        var estimateTotal = Number(finance.summary.estimateTotal || 0);
+        var projectBudget = Number(project.budget || 0);
+        var estimateRatio = projectBudget > 0 && estimateTotal > 0 ? estimateTotal / projectBudget : 0;
+        var estimateAnomaly = estimateRatio >= 2 || (estimateRatio > 0 && estimateRatio <= .5);
+        var hasForeman = assignments.some(function (item) { return item.roleCode === 'foreman'; });
+        var hasBuyer = assignments.some(function (item) { return ['purchaser', 'buyer'].indexOf(item.roleCode) !== -1; });
+        var scheduleReady = stages.length > 0;
+        var startedStages = stages.filter(function (stage) {
+            return percent(stage.progress) > 0 || ['active', 'in_progress', 'completed', 'approved'].indexOf(String(stage.status_code || '')) !== -1;
+        });
+        var lateNotStartedStage = stages.find(function (stage) {
+            var start = String(stage.planned_start || '').slice(0, 10);
+            return start && start <= APP_TODAY && percent(stage.progress) === 0 && ['completed', 'approved'].indexOf(String(stage.status_code || '')) === -1;
+        });
+        var criticalMaterials = materials.filter(function (item) { return String(item.supplyStatus || '') === 'required'; });
+        var soonMaterials = materials.filter(function (item) { return String(item.supplyStatus || '') === 'soon'; });
+        var onSiteMaterials = materials.filter(function (item) {
+            return String(item.supplyStatus || '') === 'in_stock' || Number(item.receivedQty || item.received_qty || item.availableQty || 0) > 0;
+        });
+        var activeTasks = tasks.filter(function (task) { return task.status !== 'done'; });
+        var overdueTasks = Array.isArray(notifications.overdueTasks) ? notifications.overdueTasks : activeTasks.filter(function (task) {
+            return task.due_at && String(task.due_at).slice(0, 10) < APP_TODAY;
+        });
+        var docsWithoutFile = documents.filter(function (doc) { return !doc.storage_path; });
+        var docsForReview = documents.filter(function (doc) {
+            return !doc.storage_path || readyStatuses.indexOf(String(doc.status || '')) === -1;
+        });
+        var passportReady = !!(project.title && project.client_name && project.address && project.deadline_at);
+        var financialBaseReady = !canViewProjectEconomics() || !!(economics && economics.status && ['not_configured', 'unavailable'].indexOf(economics.status) === -1 && !estimateAnomaly);
+        var attention = [];
+
+        if (canViewProjectEconomics()) {
+            if (!estimateTotal) {
+                attention.push({ tone: 'danger', icon: 'file-warning', title: 'Нет рабочей сметы', text: 'Без исходной сметы нельзя контролировать стоимость материалов, работ и остаток бюджета.', label: 'Загрузить', tab: 'estimate-reconciliation' });
+            } else if (estimateAnomaly) {
+                attention.push({ tone: 'danger', icon: 'scale', title: 'Смета не сходится с бюджетом', text: 'Сумма строк ' + money(estimateTotal) + ', бюджет ' + money(projectBudget) + ' — разница примерно в ' + estimateRatio.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' раза. До сверки не используйте маржу и лимиты.', label: 'Сверить', tab: 'estimate-reconciliation' });
+            }
+        }
+        if (!contractReady) {
+            attention.push({ tone: 'danger', icon: 'file-signature', title: 'Нет подтверждённого договора', text: 'Карточки или номера недостаточно: приложите подписанный файл и отметьте его готовым.', label: 'Загрузить', quickAction: 'document', documentType: 'contract' });
+        }
+        if (lateNotStartedStage) {
+            attention.push({ tone: 'danger', icon: 'calendar-x-2', title: 'Работа должна была начаться', text: (lateNotStartedStage.title || 'Этап') + ' запланирован с ' + formatDisplayDate(lateNotStartedStage.planned_start) + ', но факт не зафиксирован.', label: 'Открыть работы', tab: 'schedule' });
+        }
+        if (finance.overdue.length) {
+            attention.push({ tone: 'danger', icon: 'badge-russian-ruble', title: 'Просрочены оплаты: ' + finance.overdue.length, text: 'В платёжном календаре просрочено ' + money(finance.overdueTotal) + '.', label: 'Разобрать', tab: 'finance' });
+        }
+        if (criticalMaterials.length) {
+            attention.push({ tone: 'danger', icon: 'package-x', title: 'Не хватает материалов: ' + criticalMaterials.length, text: 'Потребность уже наступила. Проверьте заказ, поставщика и дату прихода.', label: 'К материалам', tab: 'warehouse-control' });
+        }
+        if (overdueTasks.length) {
+            attention.push({ tone: 'danger', icon: 'list-x', title: 'Просрочены задачи: ' + overdueTasks.length, text: 'Обновите срок или зафиксируйте результат — просрочка не должна висеть молча.', label: 'Разобрать', tab: 'tasks' });
+        }
+        if (notifications.missingDailyReport) {
+            attention.push({ tone: 'warning', icon: 'notebook-pen', title: 'За сегодня нет отчета', text: 'Вечером зафиксируйте объёмы, людей, технику, поставки, фото и блокеры.', label: 'Добавить отчет', quickAction: 'report' });
+        }
+        if (!hasRole('customer') && (!hasForeman || !hasBuyer)) {
+            var missingRoles = [!hasForeman ? 'прораб' : '', !hasBuyer ? 'снабженец' : ''].filter(Boolean).join(' и ');
+            attention.push({ tone: 'warning', icon: 'users-round', title: 'Не назначен ' + missingRoles, text: 'У каждого рабочего контура должен быть конкретный ответственный.', label: 'Назначить', access: canManageProjectAccess(), tab: canManageProjectAccess() ? '' : 'tasks' });
+        }
+        if (onSiteMaterials.length && !hasDeliveryDocument) {
+            attention.push({ tone: 'warning', icon: 'package-open', title: 'Приход есть, накладной нет', text: 'Материал уже числится на объекте. Приложите накладную или УПД как основание прихода.', label: 'Приложить', quickAction: 'document', documentType: 'delivery_note' });
+        }
+        if (docsForReview.length) {
+            attention.push({ tone: 'warning', icon: 'files', title: 'Документы требуют разбора: ' + docsForReview.length, text: (docsWithoutFile.length ? ('Без файла: ' + docsWithoutFile.length + '. ') : '') + 'Проверьте статус, тип и доступ заказчику.', label: 'Проверить', tab: 'documents' });
+        }
+
+        var setupItems = [
+            { title: 'Паспорт объекта', text: passportReady ? 'Реквизиты и сроки заполнены' : 'Заполните заказчика, адрес и дедлайн', complete: passportReady, action: { quickAction: 'edit' } },
+            { title: 'Договор', text: contractReady ? 'Подписанный файл на месте' : 'Нужен подписанный файл, не пустая карточка', complete: contractReady, action: { quickAction: 'document', documentType: 'contract' } },
+            { title: 'Ответственные', text: hasForeman && hasBuyer ? 'Прораб и снабженец назначены' : 'Назначьте прораба и снабженца', complete: hasForeman && hasBuyer, action: canManageProjectAccess() ? { access: true } : { tab: 'tasks' } },
+            { title: 'План работ', text: scheduleReady ? (stages.length + ' этапов в графике') : 'Разбейте объект на этапы и сроки', complete: scheduleReady, action: { tab: 'schedule' } },
+            { title: 'Финансовая основа', text: !canViewProjectEconomics() ? 'Финансовый контур ведёт ответственная роль' : (estimateAnomaly ? 'Смета требует ручной сверки' : (financialBaseReady ? 'База готова к контролю' : 'Подтвердите бюджет, НДС и прогноз')), complete: financialBaseReady, warning: canViewProjectEconomics() && estimateAnomaly, action: canViewProjectEconomics() ? { tab: estimateAnomaly ? 'estimate-reconciliation' : 'finance' } : null }
+        ];
+
+        var supplyTone = criticalMaterials.length ? 'danger' : (soonMaterials.length ? 'warning' : '');
+        var financeTone = finance.overdue.length || estimateAnomaly ? 'danger' : (finance.pending.length || !finance.items.length ? 'warning' : '');
+        var documentTone = docsForReview.length ? 'warning' : '';
+        var snapshots = [
+            renderObjectSnapshotV3('hammer', 'Работы', percent(project.progress) + '%', startedStages.length + ' из ' + stages.length + ' этапов начаты', 'schedule', lateNotStartedStage ? 'danger' : ''),
+            renderObjectSnapshotV3('boxes', 'Материалы', criticalMaterials.length ? (criticalMaterials.length + ' критично') : (onSiteMaterials.length + ' на объекте'), soonMaterials.length ? ('Скоро нужно: ' + soonMaterials.length) : 'Поставки без срочных сигналов', 'warehouse-control', supplyTone),
+            renderObjectSnapshotV3('folder-check', 'Документы', String(documents.length), docsForReview.length ? ('Разобрать: ' + docsForReview.length) : 'Папка в порядке', 'documents', documentTone)
+        ];
+        if (canSeeFinances()) {
+            snapshots.splice(2, 0, renderObjectSnapshotV3('wallet-cards', 'К оплате', finance.pending.length ? money(finance.pendingTotal) : '0 ₽', finance.overdue.length ? ('Просрочено: ' + money(finance.overdueTotal)) : (finance.items.length ? 'Просрочек нет' : 'Внесите входящие остатки'), 'finance', financeTone));
+        }
+
+        return renderObjectQuickCaptureV3() +
+            '<div class="object-control-grid">' + renderObjectAttentionPanelV3(attention) + renderObjectSetupPanelV3(setupItems) + '</div>' +
+            '<div class="object-snapshot-grid">' + snapshots.join('') + '</div>' +
+            renderProjectPhotoGalleryV4(project, documents) +
+            renderObjectDocumentsPanelV3(documents);
     };
 
     function refreshProjectOverview(projectId) {
@@ -9537,6 +10198,7 @@ function renderLogsDayView(project, logs) {
 
     renderProjectReportsPanel = function () { return operationsCall('renderProjectReportsPanel', arguments); };
     renderProjectReportForm = function () { return operationsCall('renderProjectReportForm', arguments); };
+    refreshProjectReportsTab = function () { return operationsCall('refreshProjectReportsTab', arguments); };
     renderLogsList = function () { return operationsCall('renderLogsList', arguments); };
     renderProjectMaterialsTab = function () { return procurementCall('renderProjectMaterialsTab', arguments); };
     renderProjectWorksTab = function () { return procurementCall('renderProjectWorksTab', arguments); };

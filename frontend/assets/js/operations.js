@@ -85,6 +85,7 @@
     function renderProjectTabs() { return appCall('renderProjectTabs', arguments); }
     function renderProjectHub() { return appCall('renderProjectHub', arguments); }
     function renderProjectOverviewHero() { return appCall('renderProjectOverviewHero', arguments); }
+    function refreshProjectOverview() { return appCall('refreshProjectOverview', arguments); }
     function selectedProject() { return appCall('selectedProject', arguments); }
     function setSelectedProject() { return appCall('setSelectedProject', arguments); }
     function updateProjectInState() { return appCall('updateProjectInState', arguments); }
@@ -162,7 +163,7 @@
     function reportLogStatus() { return appCall('reportLogStatus', arguments); }
     function renderProjectReportDeleteButton(projectId, log, compact) {
         if (!canCreateProjectReport() || !projectId || !log || !log.id) return '';
-        return '<button class="ghost report-delete-btn' + (compact ? ' compact' : '') + '" type="button" data-project-report-delete="' + escapeHtml(log.id) + '" data-project-id="' + escapeHtml(projectId) + '" aria-label="Удалить рапорт" title="Удалить рапорт"><i data-lucide="trash-2"></i><span>Удалить</span></button>';
+        return '<button class="ghost report-delete-btn' + (compact ? ' compact' : '') + '" type="button" data-project-report-delete="' + escapeHtml(log.id) + '" data-project-id="' + escapeHtml(projectId) + '" aria-label="Удалить отчет" title="Удалить отчет"><i data-lucide="trash-2"></i><span>Удалить</span></button>';
     }
     function bindProjectReportDeleteActions() {
         qsa('[data-project-report-delete]').forEach(function (button) {
@@ -172,7 +173,7 @@
                 var projectId = Number(button.dataset.projectId || 0);
                 var logId = Number(button.dataset.projectReportDelete || 0);
                 if (!projectId || !logId) return;
-                if (!window.confirm('Удалить этот рапорт? Действие нельзя отменить.')) return;
+                if (!window.confirm('Удалить этот отчет? Действие нельзя отменить.')) return;
                 button.disabled = true;
                 api('/api/projects/' + projectId + '/daily-logs/' + logId + '/delete', { method: 'POST' }).then(function (data) {
                     if (data && data.project) {
@@ -181,7 +182,8 @@
                         renderProjectCritical();
                         renderProjectList(state.projects);
                     }
-                    showAppNotice('Рапорт удалён.', 'success');
+                    refreshProjectOverview(projectId);
+                    showAppNotice('Отчет удалён.', 'success');
                     var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.selectedProject || { id: projectId, title: 'Объект' };
                     loadProjectLogs(projectId, function (logs) {
                         loadProjectNotifications(projectId, function (notifications) {
@@ -193,7 +195,7 @@
                     });
                 }).catch(function (error) {
                     button.disabled = false;
-                    showAppNotice(appErrorMessage(error, 'Не удалось удалить рапорт.'), 'error');
+                    showAppNotice(appErrorMessage(error, 'Не удалось удалить отчет.'), 'error');
                 });
             });
         });
@@ -1158,7 +1160,7 @@
         if (card) {
             var cardHead = qs('.card-head', card);
             if (cardHead && !qs('[data-close-project-report-create]', cardHead)) {
-                cardHead.insertAdjacentHTML('beforeend', '<button class="ghost report-modal-close" type="button" data-close-project-report-create aria-label="Закрыть форму рапорта"><span class="report-modal-close-mark" aria-hidden="true">×</span><span class="report-modal-close-label">Закрыть</span></button>');
+                cardHead.insertAdjacentHTML('beforeend', '<button class="ghost report-modal-close" type="button" data-close-project-report-create aria-label="Закрыть форму отчета"><span class="report-modal-close-mark" aria-hidden="true">×</span><span class="report-modal-close-label">Закрыть</span></button>');
             }
         }
         var drawer = ensureSideDrawerFromCard('[data-project-report-create-card]', 'project-report-create', {
@@ -1445,13 +1447,72 @@
         });
     }
 
+    function waitForProjectControl(selector, callback, attempts) {
+        var remaining = Number(attempts == null ? 32 : attempts);
+        var node = qs(selector);
+        if (node) {
+            callback(node);
+            return;
+        }
+        if (remaining <= 0) {
+            showAppNotice('Раздел ещё загружается. Попробуйте действие ещё раз.', 'error');
+            return;
+        }
+        window.setTimeout(function () {
+            waitForProjectControl(selector, callback, remaining - 1);
+        }, 120);
+    }
+
+    function runProjectQuickAction(button) {
+        var action = button.dataset.projectQuickAction || '';
+        var menu = button.closest('details');
+        if (menu) menu.open = false;
+        if (action === 'edit') {
+            if (state.selectedProject) openProjectEdit(state.selectedProject.id);
+            return;
+        }
+        if (action === 'material') {
+            activateProjectTab('warehouse-control');
+            return;
+        }
+        var config = {
+            report: { tab: 'reports', selector: '[data-open-project-report-create]' },
+            document: { tab: 'documents', selector: '[data-document-upload-toggle], [data-document-empty-add]' },
+            invoice: { tab: 'finance', selector: '[data-finance-open-modal="invoice"]' },
+            task: { tab: 'tasks', selector: '[data-task-create-toggle]' }
+        }[action];
+        if (!config) return;
+        if (action === 'invoice' && !canSeeFinances()) {
+            showAppNotice('У вашей роли нет доступа к финансовым операциям.', 'error');
+            return;
+        }
+        activateProjectTab(config.tab);
+        waitForProjectControl(config.selector, function (control) {
+            control.click();
+            if (action !== 'document') return;
+            var documentType = button.dataset.documentType || '';
+            var form = qs('[data-document-upload-form]');
+            if (form && form.doc_type && documentType) {
+                form.doc_type.value = documentType;
+                form.doc_type.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+    }
+
     function bindProjectOverviewActions() {
         qsa('[data-project-tab-target]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
                 activateProjectTab(button.dataset.projectTabTarget);
+                var menu = button.closest('details');
+                if (menu) menu.open = false;
             });
+        });
+        qsa('[data-project-quick-action]').forEach(function (button) {
+            if (button.dataset.quickActionBound === '1') return;
+            button.dataset.quickActionBound = '1';
+            button.addEventListener('click', function () { runProjectQuickAction(button); });
         });
         qsa('[data-project-status-select]').forEach(function (select) {
             if (select.dataset.bound === '1') return;
@@ -1481,9 +1542,7 @@
                     renderProjectCritical();
                     renderProjectList(state.projects);
                     if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
-                        var overviewPanel = qs('[data-panel="overview"]');
-                        if (overviewPanel) overviewPanel.innerHTML = renderProjectOverviewHero(state.selectedProject);
-                        bindProjectOverviewActions();
+                        refreshProjectOverview(projectId);
                     }
                 }).catch(function () {
                     select.value = project.status || 'Подготовка';
@@ -2536,7 +2595,7 @@
                         '<label class="wide"><span>Описание</span><textarea name="description" rows="4"></textarea></label>' +
                         '<div class="form-error" data-project-edit-error></div>' +
                         '<div class="project-edit-actions">' +
-                            '<button class="danger" type="button" data-project-delete>Удалить объект</button>' +
+                            '<button class="danger" type="button" data-project-delete>Удалить пустой объект</button>' +
                             '<button class="primary" type="submit">Сохранить</button>' +
                         '</div>' +
                     '</form>' +
@@ -2636,7 +2695,7 @@
             }
             var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
             var projectTitle = project && project.title ? project.title : 'этот объект';
-            if (!window.confirm('Удалить объект "' + projectTitle + '"? Это действие удалит связанные данные.')) return;
+            if (!window.confirm('Удалить пустой объект "' + projectTitle + '"? Объект с деньгами, документами, материалами или фактами работ система удалить не даст.')) return;
             var error = qs('[data-project-edit-error]');
             if (error) error.classList.remove('active');
             deleteButton.disabled = true;
@@ -2740,7 +2799,7 @@
                 }
                 var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
                 var projectTitle = project && project.title ? project.title : 'этот объект';
-                if (!window.confirm('Удалить объект "' + projectTitle + '"? Это действие удалит связанные данные.')) return;
+                if (!window.confirm('Удалить пустой объект "' + projectTitle + '"? Объект с деньгами, документами, материалами или фактами работ система удалить не даст.')) return;
                 var error = qs('[data-project-edit-error]');
                 if (error) error.classList.remove('active');
                 deleteButton.disabled = true;
@@ -3303,7 +3362,7 @@
         if (!root) return;
         logs = Array.isArray(logs) ? logs : [];
         if (!logs.length) {
-            root.innerHTML = '<div class="report-archive-empty"><b>Отчетов пока нет</b><span>По объекту "' + escapeHtml(project && project.title ? project.title : 'Объект') + '" еще нет сохраненных суточных рапортов.</span></div>';
+            root.innerHTML = '<div class="report-archive-empty"><b>Отчетов пока нет</b><span>По объекту "' + escapeHtml(project && project.title ? project.title : 'Объект') + '" еще нет сохраненных суточных отчетов.</span></div>';
             return;
         }
         root.innerHTML = '<div class="report-archive-list">' + logs.map(function (log) {
@@ -3339,38 +3398,99 @@
         bindProjectReportDeleteActions();
     }
 
+    function reportFormControl(form, name) {
+        if (!form || !form.elements || typeof form.elements.namedItem !== 'function') return null;
+        return form.elements.namedItem(name);
+    }
+
+    function showLogFormError(form, error, message, control) {
+        if (error) {
+            error.textContent = message;
+            error.classList.add('active');
+        }
+        showAppNotice(message, 'error');
+        if (control && typeof control.focus === 'function') control.focus();
+    }
+
     function bindLogForm() {
-        bindReportPreview();
-        bindReportVoiceInputs();
         qsa('[data-log-form]').forEach(function (form) {
             if (!form || form.dataset.bound === '1') return;
             form.dataset.bound = '1';
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
                 var error = qs('[data-log-error]', form) || qs('[data-log-error]');
-                if (error) error.classList.remove('active');
-                var projectId = Number(form.project_id && form.project_id.value || 0);
-                var selectedDate = form.report_date && form.report_date.value ? form.report_date.value : APP_TODAY;
+                if (error) {
+                    error.textContent = '';
+                    error.classList.remove('active');
+                }
+                var projectControl = reportFormControl(form, 'project_id');
+                var dateControl = reportFormControl(form, 'report_date');
+                var titleControl = reportFormControl(form, 'title');
+                var workDoneControl = reportFormControl(form, 'work_done');
+                var rawInputControl = reportFormControl(form, 'raw_input');
+                var confirmControl = reportFormControl(form, 'confirm_report');
+                var workersControl = reportFormControl(form, 'workers_count');
+                var equipmentControl = reportFormControl(form, 'equipment');
+                var blockersControl = reportFormControl(form, 'blockers');
+                var nextStepsControl = reportFormControl(form, 'next_steps');
+                var progressControl = reportFormControl(form, 'progress_percent');
+                var visibilityControl = reportFormControl(form, 'is_client_visible');
+                var projectId = Number(projectControl && projectControl.value || 0);
+                var selectedDate = dateControl && dateControl.value ? dateControl.value : APP_TODAY;
+                var sourceText = rawInputControl ? rawInputControl.value.trim() : '';
+                var reportText = workDoneControl ? workDoneControl.value.trim() : '';
+                if (!reportText) reportText = sourceText;
+                var reportTitle = titleControl ? titleControl.value.trim() : '';
+                if (!reportTitle) reportTitle = '\u041e\u0442\u0447\u0435\u0442 \u0437\u0430 ' + selectedDate;
+
+                if (!projectId) {
+                    showLogFormError(form, error, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0438\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435.', projectControl);
+                    return;
+                }
+                if (!reportText) {
+                    showLogFormError(form, error, '\u041e\u043f\u0438\u0448\u0438\u0442\u0435, \u0447\u0442\u043e \u043f\u0440\u043e\u0438\u0437\u043e\u0448\u043b\u043e \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435.', rawInputControl || workDoneControl);
+                    return;
+                }
+                if (confirmControl && !confirmControl.checked) {
+                    showLogFormError(form, error, '\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435, \u0447\u0442\u043e \u0434\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u0447\u0435\u0442\u0430 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u044b.', confirmControl);
+                    return;
+                }
+
+                if (titleControl) titleControl.value = reportTitle;
+                if (workDoneControl) workDoneControl.value = reportText;
                 withSubmitLock(form, function () {
                     return api('/api/projects/' + projectId + '/daily-logs', {
                         method: 'POST',
                         body: JSON.stringify({
                             report_date: selectedDate,
-                            title: form.title ? form.title.value.trim() : '',
-                            work_done: form.work_done ? form.work_done.value.trim() : '',
-                            workers_count: Number(form.workers_count && form.workers_count.value || 0),
-                            equipment: form.equipment ? form.equipment.value.trim() : '',
-                            blockers: form.blockers ? form.blockers.value.trim() : '',
-                            next_steps: form.next_steps ? form.next_steps.value.trim() : '',
-                            progress_percent: form.progress_percent ? form.progress_percent.value : '',
-                            raw_input: form.raw_input ? form.raw_input.value.trim() : '',
-                            is_client_visible: form.is_client_visible ? form.is_client_visible.value === '1' : true
+                            title: reportTitle,
+                            work_done: reportText,
+                            workers_count: Number(workersControl && workersControl.value || 0),
+                            equipment: equipmentControl ? equipmentControl.value.trim() : '',
+                            blockers: blockersControl ? blockersControl.value.trim() : '',
+                            next_steps: nextStepsControl ? nextStepsControl.value.trim() : '',
+                            progress_percent: progressControl ? progressControl.value : '',
+                            raw_input: sourceText,
+                            is_client_visible: visibilityControl ? visibilityControl.value === '1' : true
                         })
                     }).then(function (data) {
-                        var keepProject = form.project_id && form.project_id.value ? form.project_id.value : String(projectId);
+                        var keepProject = projectControl && projectControl.value ? projectControl.value : String(projectId);
+                        var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.selectedProject || state.projects[0] || { id: projectId, title: '\u041e\u0431\u044a\u0435\u043a\u0442' };
+                        if (data && data.log) {
+                            if (!state.projectLogsByProject) state.projectLogsByProject = {};
+                            var currentLogs = Array.isArray(state.projectLogsByProject[projectId]) ? state.projectLogsByProject[projectId] : [];
+                            var savedLogId = Number(data.log.id || 0);
+                            var updatedLogs = [data.log].concat(currentLogs.filter(function (log) {
+                                return Number(log && log.id || 0) !== savedLogId;
+                            }));
+                            state.projectLogsByProject[projectId] = updatedLogs;
+                            renderLogsStats(updatedLogs, null);
+                            renderLogsCalendar(project, updatedLogs);
+                            renderLogsList(project, updatedLogs);
+                        }
                         form.reset();
-                        if (form.project_id) form.project_id.value = keepProject;
-                        if (form.report_date) form.report_date.value = APP_TODAY;
+                        if (projectControl) projectControl.value = keepProject;
+                        if (dateControl) dateControl.value = APP_TODAY;
                         state.logsSelectedDateByProject[projectId] = selectedDate;
                         state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
                         var pageSelect = qs('[data-logs-project]');
@@ -3383,7 +3503,7 @@
                         }
                         closeSideDrawer(qs('[data-drawer-id="log-create"]'));
                         closeSideDrawer(qs('[data-drawer-id="project-report-create"]'));
-                        var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.selectedProject || state.projects[0] || { id: projectId, title: '\u041e\u0431\u044a\u0435\u043a\u0442' };
+                        showAppNotice('\u041e\u0442\u0447\u0435\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d.', 'success');
                         loadProjectLogs(projectId, function (logs) {
                             loadProjectNotifications(projectId, function (notifications) {
                                 renderLogsStats(logs, notifications);
@@ -3394,14 +3514,21 @@
                         });
                     }).catch(function (err) {
                         var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043e\u0442\u0447\u0435\u0442');
-                        if (error) {
-                            error.textContent = message;
-                            error.classList.add('active');
-                        }
+                        showLogFormError(form, error, message);
                     });
                 });
             });
         });
+        try {
+            bindReportPreview();
+        } catch (previewError) {
+            console.warn('Report preview initialization failed:', previewError);
+        }
+        try {
+            bindReportVoiceInputs();
+        } catch (voiceError) {
+            console.warn('Report voice input initialization failed:', voiceError);
+        }
     }
 
     // Project reports workspace. The standalone work log keeps its denser
@@ -3496,6 +3623,31 @@
         return count + ' записей';
     }
 
+    function projectReportCalendarCountLabel(count) {
+        count = Math.max(0, Number(count) || 0);
+        var lastTwo = count % 100;
+        var last = count % 10;
+        if (lastTwo >= 11 && lastTwo <= 14) return count + ' отчетов';
+        if (last === 1) return count + ' отчет';
+        if (last >= 2 && last <= 4) return count + ' отчета';
+        return count + ' отчетов';
+    }
+
+    function projectReportCalendarDayLabel(count) {
+        count = Math.max(0, Number(count) || 0);
+        var lastTwo = count % 100;
+        var last = count % 10;
+        if (lastTwo >= 11 && lastTwo <= 14) return count + ' дней';
+        if (last === 1) return count + ' день';
+        if (last >= 2 && last <= 4) return count + ' дня';
+        return count + ' дней';
+    }
+
+    function projectReportCalendarMonthTitle(monthIso) {
+        var title = formatRuMonthYear(monthIso);
+        return title ? title.charAt(0).toUpperCase() + title.slice(1) : '';
+    }
+
     renderLogsStats = function (logs, notifications) {
         if (!projectReportsSurfaceRoot()) {
             return baseRenderLogsStatsForProjectReports(logs, notifications);
@@ -3516,8 +3668,8 @@
         });
         var riskCount = logs.filter(function (log) { return String(log.blockers || '').trim(); }).length;
         root.innerHTML =
-            projectReportMetric('files', 'Всего рапортов', String(logs.length), logs.length ? 'Вся история объекта' : 'История пока пуста') +
-            projectReportMetric('calendar-check-2', 'Последняя фиксация', projectReportRelativeDate(latest && latest.report_date), latest ? finalGraphDate(latest.report_date) : 'Добавьте первый рапорт', notifications && notifications.missingDailyReport ? 'warning' : 'success') +
+            projectReportMetric('files', 'Всего отчетов', String(logs.length), logs.length ? 'Вся история объекта' : 'История пока пуста') +
+            projectReportMetric('calendar-check-2', 'Последняя фиксация', projectReportRelativeDate(latest && latest.report_date), latest ? finalGraphDate(latest.report_date) : 'Добавьте первый отчет', notifications && notifications.missingDailyReport ? 'warning' : 'success') +
             projectReportMetric('calendar-range', 'За 7 дней', recentDays + ' из 7', recentDays >= 5 ? 'Ритм ведения хороший' : 'Есть дни без фиксации', recentDays >= 5 ? 'success' : 'warning') +
             projectReportMetric(riskCount ? 'triangle-alert' : 'trending-up', riskCount ? 'Отчёты с риском' : 'Прогресс по журналу', riskCount ? String(riskCount) : (latestProgress ? (Math.round(Number(latestProgress.progress_percent)) + '%') : '—'), riskCount ? 'Проверьте отмеченные блокеры' : (latestProgress ? 'Последнее значение' : 'Пока не зафиксирован'), riskCount ? 'danger' : 'accent');
         var count = qs('[data-report-archive-count]');
@@ -3537,7 +3689,7 @@
         }
         var items = [];
         if (notifications.missingDailyReport) {
-            items.push('<article class="report-attention-item is-warning"><span><i data-lucide="clock-3"></i></span><div><strong>Сегодня нет рапорта</strong><small>Зафиксируйте факт дня, чтобы календарь объекта оставался актуальным.</small></div></article>');
+            items.push('<article class="report-attention-item is-warning"><span><i data-lucide="clock-3"></i></span><div><strong>Сегодня нет отчета</strong><small>Зафиксируйте факт дня, чтобы календарь объекта оставался актуальным.</small></div></article>');
         }
         if (notifications.blockerLogs && notifications.blockerLogs.length) {
             var latestBlocker = notifications.blockerLogs[0];
@@ -3574,22 +3726,21 @@
                     '<h3>Суточные отчёты</h3>' +
                     '<p>Факт работ по дням, прогресс и важные замечания по объекту «' + escapeHtml(project.title || 'Без названия') + '».</p>' +
                 '</div>' +
-                (canCreateProjectReport() ? '<button class="primary report-create-button" type="button" data-open-project-report-create><span class="report-create-plus" aria-hidden="true">+</span><span>Новый рапорт</span></button>' : '') +
+                (canCreateProjectReport() ? '<button class="primary report-create-button" type="button" data-open-project-report-create><span class="report-create-plus" aria-hidden="true">+</span><span>Новый отчет</span></button>' : '') +
             '</section>' +
             '<div data-logs-alerts></div>' +
             '<section class="report-kpi-grid" data-logs-stats aria-label="Сводка по отчётам"></section>' +
             '<section class="report-workspace-main">' +
-                '<section class="report-pane report-calendar-pane">' +
-                    '<div class="report-pane-head"><div><span class="report-pane-kicker">Навигация по дням</span><h3>Календарь фиксаций</h3></div><span class="report-pane-hint">Нажмите на дату</span></div>' +
-                    '<div data-logs-calendar><div class="report-calendar-loading" aria-hidden="true"></div></div>' +
-                '</section>' +
                 '<section class="report-pane report-selected-day-pane">' +
                     '<div data-logs-day-view><div class="report-day-loading" aria-hidden="true"></div></div>' +
                 '</section>' +
+                '<section class="report-pane report-calendar-pane">' +
+                    '<div data-logs-calendar><div class="report-calendar-loading" aria-hidden="true"></div></div>' +
+                '</section>' +
             '</section>' +
             '<section class="report-pane report-history-pane">' +
-                '<div class="report-pane-head report-history-head"><div><span class="report-pane-kicker">Хронология</span><h3>История рапортов</h3><p>Полная лента записей — от свежих к ранним.</p></div><span class="report-history-count" data-report-archive-count>0 записей</span></div>' +
-                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Отчётов пока нет</b><span>После первого рапорта здесь появится история объекта.</span></div></div>' +
+                '<div class="report-pane-head report-history-head"><div><span class="report-pane-kicker">Хронология</span><h3>История отчетов</h3><p>Полная лента записей — от свежих к ранним.</p></div><span class="report-history-count" data-report-archive-count>0 записей</span></div>' +
+                '<div data-report-archive-list data-logs-list><div class="report-archive-empty"><b>Отчётов пока нет</b><span>После первого отчета здесь появится история объекта.</span></div></div>' +
             '</section>' +
             (canCreateProjectReport() ? '<div class="reports-drawer-host" data-project-report-create-card hidden>' + renderProjectReportForm(project) + '</div>' : '') +
         '</div>';
@@ -3603,7 +3754,7 @@
                 '<div class="report-modal-heading">' +
                     '<span class="report-modal-title-icon" aria-hidden="true"></span>' +
                     '<div class="report-modal-title-copy">' +
-                        '<div class="report-drawer-caption"><span>Новый рапорт</span></div>' +
+                        '<div class="report-drawer-caption"><span>Новый отчет</span></div>' +
                         '<h3 id="project-report-modal-title">Суточный отчёт</h3>' +
                         '<span class="muted">Зафиксируйте события дня — система соберёт аккуратный текст для журнала объекта.</span>' +
                         '<span class="report-modal-project">' + escapeHtml(project.title || 'Объект') + '</span>' +
@@ -3611,13 +3762,13 @@
                 '</div>' +
             '</header>' +
             '<div class="report-modal-scroll" data-report-modal-scroll>' +
-            '<form class="project-form report-intake-form report-chat-form report-chat-simple-form report-daily-form" data-log-form>' +
+            '<form class="project-form report-intake-form report-chat-form report-chat-simple-form report-daily-form" data-log-form novalidate>' +
                 '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
                 '<input type="hidden" name="title" value="">' +
                 '<section class="report-form-section report-form-meta-section">' +
-                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">1</span><div><b>Дата и доступ</b><small>Укажите день и выберите, кто увидит рапорт</small></div></div>' +
+                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">1</span><div><b>Дата и доступ</b><small>Укажите день и выберите, кто увидит отчет</small></div></div>' +
                     '<div class="report-chat-header report-chat-header-compact">' +
-                        '<label><span>Дата рапорта</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
+                        '<label><span>Дата отчета</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
                         '<label><span>Кому доступен</span><select name="is_client_visible"><option value="1">Заказчику и команде</option><option value="0">Только команде</option></select></label>' +
                     '</div>' +
                 '</section>' +
@@ -3626,13 +3777,13 @@
                     '<label class="report-chat-inputbox report-daily-textarea-field">' +
                         '<span>Опишите, что произошло</span>' +
                         '<textarea name="raw_input" rows="6" required placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
-                        '<small class="report-field-hint">Пишите свободно — текст рапорта сформируется автоматически</small>' +
+                        '<small class="report-field-hint">Пишите свободно — текст отчета сформируется автоматически</small>' +
                     '</label>' +
                 '</section>' +
                 '<section class="report-form-section report-form-preview-section">' +
-                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">3</span><div><b>Готовый рапорт</b><small>Так запись будет выглядеть в журнале объекта</small></div><span class="report-section-auto">Авто</span></div>' +
+                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">3</span><div><b>Готовый отчет</b><small>Так запись будет выглядеть в журнале объекта</small></div><span class="report-section-auto">Авто</span></div>' +
                     '<label class="report-generated-box report-daily-generated-field">' +
-                        '<span class="report-visually-hidden">Готовый текст рапорта</span>' +
+                        '<span class="report-visually-hidden">Готовый текст отчета</span>' +
                         '<textarea name="work_done" rows="4" readonly required tabindex="-1" placeholder="Начните вводить события дня — здесь появится готовый текст."></textarea>' +
                     '</label>' +
                 '</section>' +
@@ -3649,12 +3800,12 @@
                 '<div class="assistant-confirm-card report-confirm-card">' +
                     '<div class="report-confirm-heading"><span aria-hidden="true">✓</span><div><b>Проверьте перед сохранением</b><small>Сверьте распознанные работы и материалы. Склад и фактические объёмы автоматически не изменятся.</small></div></div>' +
                     '<div data-report-preview></div>' +
-                    '<label class="report-confirm"><span><b>Всё верно</b><small>Подтверждаю данные рапорта</small></span><input type="checkbox" name="confirm_report" required></label>' +
+                    '<div class="report-confirm report-confirm-ready"><span><b>Готово к сохранению</b><small>Проверьте данные отчета перед отправкой</small></span><span class="report-confirm-ready-mark" aria-hidden="true">✓</span></div>' +
                 '</div>' +
                 '<div class="form-error" data-log-error></div>' +
                 '<div class="report-intake-actions">' +
-                    '<small>Рапорт сохранится в журнале объекта</small>' +
-                    '<button class="primary report-submit-button" type="submit"><span>Сохранить рапорт</span><span class="report-submit-arrow" aria-hidden="true">→</span></button>' +
+                    '<small>Отчет сохранится в журнале объекта</small>' +
+                    '<button class="primary report-submit-button" type="submit"><span>Сохранить отчет</span><span class="report-submit-arrow" aria-hidden="true">→</span></button>' +
                 '</div>' +
             '</form>' +
             '</div>' +
@@ -3736,39 +3887,60 @@
             byDate[log.report_date] = byDate[log.report_date] || [];
             byDate[log.report_date].push(log);
         });
+        var monthKey = monthIso.slice(0, 7);
+        var monthLogs = logs.filter(function (log) { return String(log.report_date || '').slice(0, 7) === monthKey; });
+        var monthReportDates = {};
+        var monthRiskDates = {};
+        monthLogs.forEach(function (log) {
+            monthReportDates[log.report_date] = true;
+            if (String(log.blockers || '').trim()) monthRiskDates[log.report_date] = true;
+        });
+        var reportDaysCount = Object.keys(monthReportDates).length;
+        var riskDaysCount = Object.keys(monthRiskDates).length;
+        var monthSummary = monthLogs.length
+            ? projectReportCalendarCountLabel(monthLogs.length) + ' за ' + projectReportCalendarDayLabel(reportDaysCount)
+            : 'В этом месяце отчетов нет';
+        if (riskDaysCount) monthSummary += ' · ' + projectReportCalendarDayLabel(riskDaysCount) + ' с блокером';
         var dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
         var cells = [];
         for (var index = 0; index < 42; index += 1) {
             var isoDate = cursor.toISOString().slice(0, 10);
             var dayLogs = byDate[isoDate] || [];
             var hasRisk = dayLogs.some(function (log) { return String(log.blockers || '').trim(); });
+            var isOutside = cursor.getUTCMonth() !== monthIndex;
             var classes = ['report-calendar-day'];
-            if (cursor.getUTCMonth() !== monthIndex) classes.push('is-outside');
+            if (isOutside) classes.push('is-outside');
+            if (index % 7 >= 5) classes.push('is-weekend');
             if (isoDate === APP_TODAY) classes.push('is-today');
             if (dayLogs.length) classes.push('has-report');
             if (hasRisk) classes.push('has-risk');
             if (selectedDate === isoDate) classes.push('is-selected');
-            var label = formatRuDate(isoDate) + (dayLogs.length ? (', отчётов: ' + dayLogs.length) : ', отчётов нет') + (hasRisk ? ', есть блокер' : '');
-            cells.push('<button class="' + classes.join(' ') + '" type="button" data-log-date="' + isoDate + '" aria-label="' + escapeHtml(label) + '" aria-pressed="' + (selectedDate === isoDate ? 'true' : 'false') + '">' +
-                '<span class="report-calendar-day-top"><strong>' + cursor.getUTCDate() + '</strong>' + (isoDate === APP_TODAY ? '<small>сегодня</small>' : '') + '</span>' +
-                '<span class="report-calendar-day-status">' + (dayLogs.length ? ('<i></i><b>' + dayLogs.length + '</b>') : '<em></em>') + '</span>' +
+            var reportCountLabel = projectReportCalendarCountLabel(dayLogs.length);
+            var label = formatRuDate(isoDate) + (dayLogs.length ? (', ' + reportCountLabel) : ', отчетов нет') + (hasRisk ? ', есть блокер' : '');
+            var statusHtml = dayLogs.length
+                ? '<span class="report-calendar-report-count"><i aria-hidden="true"></i><span>' + escapeHtml(reportCountLabel) + '</span></span>'
+                : '';
+            if (hasRisk) statusHtml += '<span class="report-calendar-risk"><i aria-hidden="true"></i><span>Блокер</span></span>';
+            cells.push('<button class="' + classes.join(' ') + '" type="button" data-log-date="' + isoDate + '" aria-label="' + escapeHtml(label) + '" aria-pressed="' + (selectedDate === isoDate ? 'true' : 'false') + '"' + (isoDate === APP_TODAY ? ' aria-current="date"' : '') + '>' +
+                '<span class="report-calendar-day-top"><strong>' + cursor.getUTCDate() + '</strong></span>' +
+                '<span class="report-calendar-day-status">' + statusHtml + '</span>' +
             '</button>');
             cursor.setUTCDate(cursor.getUTCDate() + 1);
         }
         root.innerHTML = '<div class="report-calendar-card">' +
             '<div class="report-calendar-toolbar">' +
-                '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="-1" aria-label="Предыдущий месяц"><i data-lucide="chevron-left"></i></button>' +
-                '<strong>' + escapeHtml(formatRuMonthYear(monthIso)) + '</strong>' +
-                '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="1" aria-label="Следующий месяц"><i data-lucide="chevron-right"></i></button>' +
-                '<button class="ghost compact report-calendar-today" type="button" data-report-calendar-today>Сегодня</button>' +
+                '<div class="report-calendar-month-copy" aria-live="polite"><strong>' + escapeHtml(projectReportCalendarMonthTitle(monthIso)) + '</strong><span>' + escapeHtml(monthSummary) + '</span></div>' +
+                '<div class="report-calendar-controls" aria-label="Навигация по календарю">' +
+                    '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="-1" aria-label="Предыдущий месяц"><span class="report-calendar-nav-mark" aria-hidden="true">‹</span></button>' +
+                    '<button class="ghost compact report-calendar-today" type="button" data-report-calendar-today>Сегодня</button>' +
+                    '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="1" aria-label="Следующий месяц"><span class="report-calendar-nav-mark" aria-hidden="true">›</span></button>' +
+                '</div>' +
             '</div>' +
-            '<div class="report-calendar-grid report-calendar-weekdays">' + dayLabels.map(function (dayLabel) { return '<span>' + dayLabel + '</span>'; }).join('') + '</div>' +
-            '<div class="report-calendar-grid">' + cells.join('') + '</div>' +
-            '<div class="report-calendar-legend"><span><i class="is-report"></i>есть рапорт</span><span><i class="is-risk"></i>есть блокер</span></div>' +
+            '<div class="report-calendar-grid report-calendar-weekdays" aria-hidden="true">' + dayLabels.map(function (dayLabel, dayIndex) { return '<span' + (dayIndex >= 5 ? ' class="is-weekend"' : '') + '>' + dayLabel + '</span>'; }).join('') + '</div>' +
+            '<div class="report-calendar-grid report-calendar-days">' + cells.join('') + '</div>' +
         '</div>';
         renderLogsDayView(project, logs);
         bindProjectReportsCalendar(project, logs);
-        refreshLucideIcons(root);
     };
 
     renderLogsDayView = function (project, logs) {
@@ -3782,9 +3954,9 @@
         var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || APP_TODAY;
         var selectedLogs = logs.filter(function (log) { return log.report_date === selectedDate; });
         var isToday = selectedDate === APP_TODAY;
-        var heading = '<div class="report-selected-day-head"><div><span class="report-pane-kicker">Выбранный день</span><h3>' + escapeHtml(formatRuDate(selectedDate)) + '</h3></div><span class="report-day-count' + (selectedLogs.length ? ' has-value' : '') + '" aria-label="Рапортов за день: ' + selectedLogs.length + '">' + selectedLogs.length + '</span></div>';
+        var heading = '<div class="report-selected-day-head"><div><span class="report-pane-kicker">Выбранный день</span><h3>' + escapeHtml(formatRuDate(selectedDate)) + '</h3></div><span class="report-day-count' + (selectedLogs.length ? ' has-value' : '') + '" aria-label="Отчетов за день: ' + selectedLogs.length + '">' + selectedLogs.length + '</span></div>';
         if (!selectedLogs.length) {
-            root.innerHTML = heading + '<div class="report-selected-day-empty"><span class="report-empty-icon"><i data-lucide="calendar-plus"></i></span><strong>' + (isToday ? 'Сегодня рапорта ещё нет' : 'За этот день записей нет') + '</strong><p>' + (canCreateProjectReport() ? 'Можно сразу создать рапорт — выбранная дата уже подставлена в форму.' : 'Выберите другую дату в календаре, чтобы открыть сохранённый рапорт.') + '</p>' +
+            root.innerHTML = heading + '<div class="report-selected-day-empty"><span class="report-empty-icon"><i data-lucide="calendar-plus"></i></span><strong>' + (isToday ? 'Сегодня отчета ещё нет' : 'За этот день записей нет') + '</strong><p>' + (canCreateProjectReport() ? 'Можно сразу создать отчет — выбранная дата уже подставлена в форму.' : 'Выберите другую дату в календаре, чтобы открыть сохранённый отчет.') + '</p>' +
                 (canCreateProjectReport() ? '<button class="ghost compact" type="button" data-report-create-selected><i data-lucide="plus"></i><span>Создать за эту дату</span></button>' : '') + '</div>';
             refreshLucideIcons(root);
             return;
@@ -3794,7 +3966,7 @@
             var status = reportLogStatus(log);
             return '<article class="report-day-entry' + (status.kind === 'danger' ? ' is-danger' : '') + '">' +
                 '<div class="report-day-entry-head"><div class="report-author-block"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions"><span class="report-status-pill is-' + escapeHtml(status.kind) + '">' + escapeHtml(status.label) + '</span>' + renderProjectReportDeleteButton(projectId, log, true) + '</div></div>' +
-                '<p class="report-entry-text">' + escapeHtml(log.work_done || 'Текст рапорта не указан') + '</p>' +
+                '<p class="report-entry-text">' + escapeHtml(log.work_done || 'Текст отчета не указан') + '</p>' +
                 projectReportMetaHtml(log) + projectReportDetailsHtml(log) + projectReportSourceHtml(log) +
             '</article>';
         }).join('') + '</div>';
@@ -3812,7 +3984,7 @@
         var count = qs('[data-report-archive-count]');
         if (count) count.textContent = projectReportCountLabel(logs.length);
         if (!logs.length) {
-            safeReplaceChildren(root, '<div class="report-archive-empty"><span class="report-empty-icon"><i data-lucide="notebook-pen"></i></span><b>История пока пуста</b><span>Первый суточный рапорт по объекту «' + escapeHtml(project && project.title ? project.title : 'Объект') + '» появится здесь.</span></div>');
+            safeReplaceChildren(root, '<div class="report-archive-empty"><span class="report-empty-icon"><i data-lucide="notebook-pen"></i></span><b>История пока пуста</b><span>Первый суточный отчет по объекту «' + escapeHtml(project && project.title ? project.title : 'Объект') + '» появится здесь.</span></div>');
             refreshLucideIcons(root);
             return;
         }
@@ -3835,7 +4007,7 @@
                     '<div class="report-history-date"><strong>' + escapeHtml(dateParts.day) + '</strong><span>' + escapeHtml(dateParts.month) + '</span><small>' + escapeHtml(dateParts.year) + '</small></div>' +
                     '<div class="report-history-content">' +
                         '<div class="report-history-entry-head"><div class="report-author-inline"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions"><span class="report-status-pill is-' + escapeHtml(status.kind) + '">' + escapeHtml(status.label) + '</span>' + renderProjectReportDeleteButton(project && project.id, log, true) + '</div></div>' +
-                        '<p class="report-entry-text">' + escapeHtml(log.work_done || 'Текст рапорта не указан') + '</p>' +
+                        '<p class="report-entry-text">' + escapeHtml(log.work_done || 'Текст отчета не указан') + '</p>' +
                         projectReportMetaHtml(log) + projectReportDetailsHtml(log) + projectReportSourceHtml(log) +
                     '</div>' +
                 '</article>';

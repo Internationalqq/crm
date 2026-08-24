@@ -141,6 +141,84 @@ def project_has_immutable_financial_history(
     return False
 
 
+def project_has_protected_operational_history(
+    con: sqlite3.Connection,
+    project_id: int,
+) -> bool:
+    """Protect recorded money, documents and site facts from cascade deletion.
+
+    A genuinely empty setup may still be deleted. Once the team has attached a
+    real file or recorded money, a task, an estimate, a daily log, a stock
+    movement or a work fact, the project must be completed/archived instead so
+    its history remains available for reconciliation.
+    """
+
+    probes = (
+        (
+            "finance_entries",
+            "SELECT 1 FROM finance_entries WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "documents",
+            """
+            SELECT 1 FROM documents
+            WHERE project_id = ?
+              AND (
+                    TRIM(COALESCE(storage_path, '')) <> ''
+                    OR status IN ('submitted', 'reviewed', 'approved', 'signed', 'ready')
+                  )
+            LIMIT 1
+            """,
+        ),
+        (
+            "daily_logs",
+            "SELECT 1 FROM daily_logs WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "tasks",
+            "SELECT 1 FROM tasks WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "estimate_items",
+            "SELECT 1 FROM estimate_items WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "project_estimates",
+            "SELECT 1 FROM project_estimates WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "work_stages",
+            """
+            SELECT 1 FROM work_stages
+            WHERE project_id = ?
+              AND (
+                    COALESCE(progress, 0) <> 0
+                    OR COALESCE(status_code, 'not_started') NOT IN ('', 'not_started')
+                    OR fact_start IS NOT NULL
+                    OR fact_end IS NOT NULL
+                  )
+            LIMIT 1
+            """,
+        ),
+        (
+            "stock_moves",
+            "SELECT 1 FROM stock_moves WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "warehouse_transfers",
+            "SELECT 1 FROM warehouse_transfers WHERE project_id = ? LIMIT 1",
+        ),
+        (
+            "project_work_facts",
+            "SELECT 1 FROM project_work_facts WHERE project_id = ? LIMIT 1",
+        ),
+    )
+    return any(
+        table_exists(con, table) and con.execute(query, (project_id,)).fetchone()
+        for table, query in probes
+    )
+
+
 def create_audit(
     con: sqlite3.Connection,
     user_id: int | None,
@@ -180,6 +258,8 @@ def serialize_project(row: sqlite3.Row, user: dict) -> dict:
     data = dict(row)
     data["description"] = normalize_project_description(data.get("description"))
     role = user["role"]
+    data["cover_photo_url"] = None
+    data["cover_photo_title"] = None
     if not user_can_view_project_economics(user):
         for key in ["budget", "paid", "spent"]:
             data.pop(key, None)
@@ -198,6 +278,28 @@ def serialize_project(row: sqlite3.Row, user: dict) -> dict:
                 (row["id"],),
             ).fetchall()
             data["assigned_foremen"] = [assigned_row["user_id"] for assigned_row in assigned_rows]
+
+            visibility_filter = "AND is_client_visible = 1" if role in {"customer", "client"} else ""
+            cover_photo = con.execute(
+                f"""
+                SELECT id, title
+                FROM documents
+                WHERE project_id = ?
+                  AND storage_path IS NOT NULL
+                  AND TRIM(storage_path) <> ''
+                  AND (
+                      mime_type LIKE 'image/%'
+                      OR LOWER(COALESCE(file_ext, '')) IN ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+                  )
+                  {visibility_filter}
+                ORDER BY CASE WHEN doc_type = 'photo_report' THEN 0 ELSE 1 END, id DESC
+                LIMIT 1
+                """,
+                (row["id"],),
+            ).fetchone()
+            if cover_photo:
+                data["cover_photo_url"] = f"/api/documents/{cover_photo['id']}/view"
+                data["cover_photo_title"] = cover_photo["title"] or "Фото объекта"
     except sqlite3.Error:
         data["assigned_foremen"] = []
     data["scheduleControl"] = project_schedule_payload(row)
@@ -622,7 +724,19 @@ def api_delete_project(handler, path: str) -> None:
         if project_has_immutable_financial_history(con, project_id):
             handler.send_json(
                 HTTPStatus.CONFLICT,
-                {"error": "project_has_immutable_financial_history"},
+                {
+                    "error": "project_has_immutable_financial_history",
+                    "message": "Объект нельзя удалить: по нему уже есть утверждённая финансовая история. Переведите объект в статус «Завершен» — данные останутся в системе.",
+                },
+            )
+            return
+        if project_has_protected_operational_history(con, project_id):
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "project_has_operational_history",
+                    "message": "Объект нельзя удалить: по нему уже записаны деньги, документы, материалы или факты работ. Переведите объект в статус «Завершен» — история останется в системе.",
+                },
             )
             return
         title = current["title"] or ""

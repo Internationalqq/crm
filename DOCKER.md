@@ -28,6 +28,10 @@ project permissions still stay in the local SQLite database.
 
 Inside Docker, AutoBot talks to CRM through `http://crm:8080`.
 
+Estimate uploads are limited to `100` MB by default. Override the application
+limit with `WEB_UI_MAX_UPLOAD_MB`; keep the reverse proxy's request-body limit
+at least as large as this value.
+
 ## Password Reset Email
 
 The local CRM login can issue a temporary password from the `/login` screen.

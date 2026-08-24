@@ -43,19 +43,6 @@
     </form>
 </section>
 
-<section class="card compact-alerts" data-project-critical-card data-project-overview-section>
-    <div class="card-head">
-        <h3>Что горит</h3>
-        <span class="muted">Критичные нехватки по объектам</span>
-    </div>
-    <div data-project-critical>
-        <div class="project-critical-skeleton" aria-hidden="true">
-            <span></span>
-            <span></span>
-        </div>
-    </div>
-</section>
-
 <section class="card" data-project-overview-section>
     <div class="card-head">
         <h3>Список объектов</h3>
@@ -73,18 +60,35 @@
         <a class="project-back-button" href="/app/projects" aria-label="Назад к объектам" title="Назад к объектам">
             <i data-lucide="arrow-left" aria-hidden="true"></i>
         </a>
-        <div class="tabs">
-            <button class="tab active" data-tab="overview"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Обзор</span></button>
-            <button class="tab" data-tab="schedule"><i data-lucide="hammer" aria-hidden="true"></i><span>Работы</span></button>
-            <button class="tab" data-tab="warehouse-control"><i data-lucide="warehouse" aria-hidden="true"></i><span>Склад</span></button>
-            <button class="tab" data-tab="tasks"><i data-lucide="list-checks" aria-hidden="true"></i><span>Задачи</span></button>
-            <button class="tab" data-tab="calendar"><i data-lucide="calendar-days" aria-hidden="true"></i><span>Календарь</span></button>
-            <button class="tab" data-tab="production-schedule"><i data-lucide="calendar-range" aria-hidden="true"></i><span>График производства</span></button>
-            <button class="tab" data-tab="reports"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span>Отчеты</span></button>
-            <button class="tab" data-tab="finance"><i data-lucide="wallet" aria-hidden="true"></i><span>Финансы</span></button>
-            <button class="tab" data-tab="documents"><i data-lucide="folder-open" aria-hidden="true"></i><span>Документы</span></button>
-            <button class="tab" data-tab="estimate-reconciliation"><i data-lucide="clipboard-check" aria-hidden="true"></i><span>Сверка сметы</span></button>
+        <div class="project-tab-cluster">
+            <div class="tabs">
+                <button class="tab active" data-tab="overview"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Главное</span></button>
+                <button class="tab" data-tab="schedule"><i data-lucide="hammer" aria-hidden="true"></i><span>Работы</span></button>
+                <button class="tab" data-tab="warehouse-control"><i data-lucide="boxes" aria-hidden="true"></i><span>Материалы</span></button>
+                <button class="tab" data-tab="finance"><i data-lucide="wallet" aria-hidden="true"></i><span>Деньги</span></button>
+                <button class="tab" data-tab="documents"><i data-lucide="folder-open" aria-hidden="true"></i><span>Документы</span></button>
+            </div>
+            <details class="project-more-menu" data-project-more-menu>
+                <summary aria-label="Дополнительные разделы"><i data-lucide="ellipsis" aria-hidden="true"></i><span>Ещё</span></summary>
+                <div class="project-nav-menu project-more-menu-list">
+                    <button class="tab" data-tab="tasks"><i data-lucide="list-checks" aria-hidden="true"></i><span><b>Задачи</b><small>Кто, что и к какому сроку</small></span></button>
+                    <button class="tab" data-tab="reports"><i data-lucide="notebook-tabs" aria-hidden="true"></i><span><b>Отчеты</b><small>Ежедневный факт по объекту</small></span></button>
+                    <button class="tab" data-tab="calendar"><i data-lucide="calendar-days" aria-hidden="true"></i><span><b>Календарь</b><small>Поставки и сроки</small></span></button>
+                    <button class="tab" data-tab="production-schedule"><i data-lucide="calendar-range" aria-hidden="true"></i><span><b>График производства</b><small>Детальный производственный план</small></span></button>
+                    <button class="tab" data-tab="estimate-reconciliation"><i data-lucide="clipboard-check" aria-hidden="true"></i><span><b>Сверка сметы</b><small>Исходные данные и расхождения</small></span></button>
+                </div>
+            </details>
         </div>
+        <details class="project-add-menu" data-project-add-menu>
+            <summary><i data-lucide="plus" aria-hidden="true"></i><span>Добавить</span></summary>
+            <div class="project-nav-menu project-add-menu-list">
+                <button type="button" data-project-quick-action="report"><i data-lucide="notebook-pen" aria-hidden="true"></i><span><b>Отчет за день</b><small>Работы, люди, техника и проблемы</small></span></button>
+                <button type="button" data-project-quick-action="document"><i data-lucide="scan-line" aria-hidden="true"></i><span><b>Документ</b><small>Фото, PDF, накладная или путевой</small></span></button>
+                <button type="button" data-project-quick-action="invoice"><i data-lucide="receipt-text" aria-hidden="true"></i><span><b>Счёт</b><small>Передать в платёжный календарь</small></span></button>
+                <button type="button" data-project-quick-action="task"><i data-lucide="list-plus" aria-hidden="true"></i><span><b>Задачу</b><small>Ответственный и срок</small></span></button>
+                <button type="button" data-project-quick-action="material"><i data-lucide="package-plus" aria-hidden="true"></i><span><b>Движение материала</b><small>Приход, расход или возврат</small></span></button>
+            </div>
+        </details>
     </div>
     <div class="tab-panel active" data-panel="overview"></div>
     <div class="tab-panel" data-panel="schedule"></div>

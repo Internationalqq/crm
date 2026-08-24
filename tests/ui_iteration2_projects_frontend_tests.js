@@ -46,6 +46,6 @@ for (const legacyDecorativeColor of [
 assert.match(projectsHtml, /data-tab="estimate-reconciliation"/);
 assert.match(projectsHtml, /data-panel="estimate-reconciliation"/);
 assert.match(appJs, /<div class="projects-card-grid">/);
-assert.match(appJs, /<section class="project-overview-shell">/);
+assert.match(appJs, /<section class="project-command-center">/);
 
 console.log('ui_iteration2_projects_frontend_ok');

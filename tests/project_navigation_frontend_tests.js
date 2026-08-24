@@ -15,7 +15,7 @@ const scheduleTasksPy = read('backend/schedule_tasks.py');
 const serverPy = read('backend/server.py');
 
 assert.match(projectsHtml, /data-tab="schedule"><i data-lucide="hammer"[^>]*><\/i><span>Работы<\/span>/);
-assert.match(projectsHtml, /data-tab="calendar"><i data-lucide="calendar-days"[^>]*><\/i><span>Календарь<\/span>/);
+assert.match(projectsHtml, /data-tab="calendar"><i data-lucide="calendar-days"[^>]*><\/i><span><b>Календарь<\/b>/);
 assert.match(projectsHtml, /data-panel="calendar"/);
 assert.doesNotMatch(projectsHtml, /data-tab="(?:materials|works)"/);
 assert.doesNotMatch(projectsHtml, /data-panel="(?:materials|works)"/);
@@ -25,15 +25,17 @@ assert.deepEqual(projectTabOrder, [
   'overview',
   'schedule',
   'warehouse-control',
-  'tasks',
-  'calendar',
-  'production-schedule',
-  'reports',
   'finance',
   'documents',
+  'tasks',
+  'reports',
+  'calendar',
+  'production-schedule',
   'estimate-reconciliation',
 ]);
-assert.equal((projectsHtml.match(/<button class="tab(?: active)?"[^>]*><i data-lucide="[^"]+"[^>]*><\/i><span>[^<]+<\/span><\/button>/g) || []).length, projectTabOrder.length);
+assert.equal((projectsHtml.match(/<button class="tab(?: active)?" data-tab=/g) || []).length, projectTabOrder.length);
+assert.match(projectsHtml, /class="project-add-menu"/);
+assert.match(projectsHtml, /class="project-more-menu"/);
 
 assert.match(appJs, /tabName === 'materials' \|\| tabName === 'works'/);
 assert.match(appJs, /tabName === 'calendar'.*loadSelectedProjectMaterialSchedule/);

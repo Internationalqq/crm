@@ -173,9 +173,10 @@ class ProjectDeleteFinancialGuardTests(unittest.TestCase):
 
         self.assertEqual(result.status, HTTPStatus.CONFLICT)
         self.assertEqual(
-            result.response,
-            {"error": "project_has_immutable_financial_history"},
+            result.response["error"],
+            "project_has_immutable_financial_history",
         )
+        self.assertIn("нельзя удалить", result.response["message"])
         with server.db() as con:
             self.assertIsNotNone(
                 con.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -202,7 +203,7 @@ class ProjectDeleteFinancialGuardTests(unittest.TestCase):
 
         self.assertEqual(result.status, HTTPStatus.CONFLICT)
         self.assertEqual(
-            result.response, {"error": "project_has_immutable_financial_history"}
+            result.response["error"], "project_has_immutable_financial_history"
         )
         with server.db() as con:
             row = con.execute(
@@ -224,6 +225,51 @@ class ProjectDeleteFinancialGuardTests(unittest.TestCase):
             self.assertIsNone(
                 con.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone()
             )
+
+    def test_operational_money_task_or_material_history_blocks_cascade_delete(self) -> None:
+        fixtures = ("finance", "task", "stock")
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture), server.db() as con:
+                project_id = self._insert_project(con, f"Protected {fixture} project")
+                timestamp = server.now_ts()
+                if fixture == "finance":
+                    con.execute(
+                        """
+                        INSERT INTO finance_entries (
+                            project_id, direction, amount, status, created_by, created_at, updated_at
+                        ) VALUES (?, 'expense', 12500, 'planned', ?, ?, ?)
+                        """,
+                        (project_id, self.admin_id, timestamp, timestamp),
+                    )
+                elif fixture == "task":
+                    con.execute(
+                        """
+                        INSERT INTO tasks (
+                            project_id, title, status, priority, created_by, created_at, updated_at
+                        ) VALUES (?, 'Do not lose this task', 'open', 'high', ?, ?, ?)
+                        """,
+                        (project_id, self.admin_id, timestamp, timestamp),
+                    )
+                else:
+                    con.execute(
+                        """
+                        INSERT INTO stock_moves (
+                            project_id, move_type, qty, price, created_by, created_at
+                        ) VALUES (?, 'receipt', 38.4, 0, ?, ?)
+                        """,
+                        (project_id, self.admin_id, timestamp),
+                    )
+                con.commit()
+
+            result = self._delete(project_id)
+
+            self.assertEqual(result.status, HTTPStatus.CONFLICT)
+            self.assertEqual(result.response["error"], "project_has_operational_history")
+            self.assertIn("история останется", result.response["message"])
+            with server.db() as con:
+                self.assertIsNotNone(
+                    con.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone()
+                )
 
 
 if __name__ == "__main__":

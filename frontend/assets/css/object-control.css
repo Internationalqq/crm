@@ -1,0 +1,2535 @@
+/* Object control center: one calm daily workflow above the existing workspaces. */
+
+body[data-page="projects"] .project-detail-nav {
+    overflow: visible;
+}
+
+body[data-page="projects"] .project-tab-cluster {
+    min-width: 0;
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 4px;
+}
+
+body[data-page="projects"] .project-tab-cluster > .tabs {
+    flex: 0 1 auto;
+}
+
+body[data-page="projects"] .project-add-menu,
+body[data-page="projects"] .project-more-menu {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+body[data-page="projects"] .project-add-menu {
+    margin-left: auto;
+}
+
+body[data-page="projects"] .project-add-menu > summary,
+body[data-page="projects"] .project-more-menu > summary {
+    min-height: var(--control-height);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 15px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    font-weight: 760;
+    line-height: 1;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: border-color .16s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease;
+}
+
+body[data-page="projects"] .project-add-menu > summary::-webkit-details-marker,
+body[data-page="projects"] .project-more-menu > summary::-webkit-details-marker {
+    display: none;
+}
+
+body[data-page="projects"] .project-add-menu > summary {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: #fff;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, .18);
+}
+
+body[data-page="projects"] .project-add-menu > summary:hover,
+body[data-page="projects"] .project-add-menu[open] > summary {
+    border-color: var(--color-accent-hover);
+    background: var(--color-accent-hover);
+    box-shadow: 0 8px 18px rgba(37, 99, 235, .22);
+}
+
+body[data-page="projects"] .project-more-menu > summary:hover,
+body[data-page="projects"] .project-more-menu[open] > summary,
+body[data-page="projects"] .project-more-menu:has(.tab.active) > summary {
+    border-color: #bfd5f2;
+    background: var(--color-surface-accent);
+    color: var(--color-accent-hover);
+}
+
+body[data-page="projects"] .project-add-menu > summary svg,
+body[data-page="projects"] .project-more-menu > summary svg {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+}
+
+body[data-page="projects"] .project-nav-menu {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    z-index: 40;
+    width: min(340px, calc(100vw - 28px));
+    display: grid;
+    gap: 5px;
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .99);
+    box-shadow: 0 20px 48px rgba(15, 23, 42, .17), 0 3px 10px rgba(15, 23, 42, .06);
+}
+
+body[data-page="projects"] .project-nav-menu::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    right: 24px;
+    width: 11px;
+    height: 11px;
+    border-top: 1px solid var(--color-border);
+    border-left: 1px solid var(--color-border);
+    background: #fff;
+    transform: rotate(45deg);
+}
+
+body[data-page="projects"] .project-nav-menu > button,
+body[data-page="projects"] .project-nav-menu > button.tab {
+    width: 100%;
+    min-height: 58px;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    align-items: center;
+    justify-content: stretch;
+    gap: 11px;
+    padding: 9px 10px !important;
+    border: 1px solid transparent !important;
+    border-radius: 11px !important;
+    background: transparent !important;
+    color: var(--color-text) !important;
+    text-align: left;
+    white-space: normal;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] .project-nav-menu > button:hover,
+body[data-page="projects"] .project-nav-menu > button.tab:hover,
+body[data-page="projects"] .project-nav-menu > button.tab.active {
+    transform: none !important;
+    border-color: #d8e5f5 !important;
+    background: #f4f8fe !important;
+    color: var(--color-text) !important;
+}
+
+body[data-page="projects"] .project-nav-menu > button > svg,
+body[data-page="projects"] .project-nav-menu > button.tab > svg {
+    width: 38px !important;
+    height: 38px !important;
+    padding: 9px;
+    border-radius: 10px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent) !important;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] .project-nav-menu > button > span {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+body[data-page="projects"] .project-nav-menu b {
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 760;
+}
+
+body[data-page="projects"] .project-nav-menu small {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 540;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+}
+
+body[data-page="projects"] .project-command-center {
+    display: grid;
+    gap: 16px;
+}
+
+body[data-page="projects"] .project-command-center > [data-project-hub] {
+    display: grid;
+    gap: 16px;
+}
+
+body[data-page="projects"] .object-identity-card,
+body[data-page="projects"] .object-panel,
+body[data-page="projects"] .object-quick-capture,
+body[data-page="projects"] .object-snapshot-card {
+    border: 1px solid var(--color-border);
+    border-radius: 18px;
+    background: var(--color-surface);
+    box-shadow: 0 7px 24px rgba(15, 23, 42, .055);
+}
+
+body[data-page="projects"] .object-identity-card {
+    position: relative;
+    overflow: hidden;
+    padding: 22px 24px 18px;
+}
+
+body[data-page="projects"] .object-identity-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 4px;
+    background: linear-gradient(90deg, var(--color-accent), #56a6f6 55%, #8bd2ff);
+}
+
+body[data-page="projects"] .object-identity-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 24px;
+    align-items: start;
+}
+
+body[data-page="projects"] .object-kicker,
+body[data-page="projects"] .object-panel-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 7px;
+    color: var(--color-accent-strong);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] .object-kicker::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 4px var(--color-accent-soft);
+}
+
+body[data-page="projects"] .object-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+body[data-page="projects"] .object-title-row h2 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: clamp(24px, 3vw, 34px);
+    font-weight: 790;
+    line-height: 1.12;
+    letter-spacing: -.035em;
+}
+
+body[data-page="projects"] .object-status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 27px;
+    padding: 0 10px;
+    border: 1px solid #cfe0f7;
+    border-radius: 999px;
+    background: var(--color-surface-accent);
+    color: var(--color-accent-strong);
+    font-size: 11px;
+    font-weight: 780;
+}
+
+body[data-page="projects"] .object-address {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 8px 0 0;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+
+body[data-page="projects"] .object-address svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+}
+
+body[data-page="projects"] .object-identity-progress {
+    min-width: 190px;
+    display: grid;
+    gap: 9px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] .object-progress-copy {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+body[data-page="projects"] .object-progress-copy span {
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 650;
+}
+
+body[data-page="projects"] .object-progress-copy strong {
+    color: var(--color-text);
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -.03em;
+}
+
+body[data-page="projects"] .object-progress-track {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e7edf5;
+}
+
+body[data-page="projects"] .object-progress-track span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--color-accent), #58a7f4);
+}
+
+body[data-page="projects"] .object-progress-deadline {
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 620;
+}
+
+body[data-page="projects"] .object-progress-deadline.is-danger {
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] .object-identity-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] .object-meta-item {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+    padding: 0 16px;
+    border-left: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] .object-meta-item:first-child {
+    padding-left: 0;
+    border-left: 0;
+}
+
+body[data-page="projects"] .object-meta-item span {
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] .object-meta-item strong {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 730;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] .object-quick-capture {
+    display: grid;
+    grid-template-columns: minmax(190px, .7fr) minmax(0, 2.3fr);
+    gap: 16px;
+    align-items: center;
+    padding: 15px 16px;
+}
+
+body[data-page="projects"] .object-quick-capture-head {
+    display: grid;
+    gap: 3px;
+}
+
+body[data-page="projects"] .object-quick-capture-head strong {
+    color: var(--color-text);
+    font-size: 14px;
+    font-weight: 780;
+}
+
+body[data-page="projects"] .object-quick-capture-head span {
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+body[data-page="projects"] .object-quick-capture-actions {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+}
+
+body[data-page="projects"] .object-quick-action {
+    min-width: 0;
+    min-height: 66px;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 8px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface-subtle);
+    color: var(--color-text);
+    text-align: left;
+    box-shadow: none;
+    transition: border-color .16s ease, background-color .16s ease, transform .16s ease;
+}
+
+body[data-page="projects"] .object-quick-action:hover {
+    transform: translateY(-1px);
+    border-color: #bcd4f1;
+    background: var(--color-surface-accent);
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-quick-action > span:first-child {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: #e7f0fd;
+    color: var(--color-accent);
+}
+
+body[data-page="projects"] .object-quick-action > span:first-child svg {
+    width: 17px;
+    height: 17px;
+}
+
+body[data-page="projects"] .object-quick-action > span:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+body[data-page="projects"] .object-quick-action b {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: 11px;
+    font-weight: 760;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] .object-quick-action small {
+    color: var(--color-text-secondary);
+    font-size: 9px;
+}
+
+body[data-page="projects"] .object-control-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr);
+    gap: 16px;
+    align-items: stretch;
+}
+
+body[data-page="projects"] .object-panel {
+    min-width: 0;
+    padding: 18px;
+}
+
+body[data-page="projects"] .object-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+body[data-page="projects"] .object-panel-title {
+    display: grid;
+    gap: 3px;
+}
+
+body[data-page="projects"] .object-panel-title h3 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: 17px;
+    font-weight: 780;
+    letter-spacing: -.015em;
+}
+
+body[data-page="projects"] .object-panel-title p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+body[data-page="projects"] .object-attention-count {
+    min-width: 31px;
+    height: 31px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-warning-border);
+    border-radius: 10px;
+    background: var(--color-warning-soft);
+    color: #9a6700;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+body[data-page="projects"] .object-attention-count.is-danger {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] .object-attention-list,
+body[data-page="projects"] .object-setup-list {
+    display: grid;
+    gap: 8px;
+}
+
+body[data-page="projects"] .object-attention-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 11px;
+    padding: 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 13px;
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] .object-attention-item.is-warning {
+    border-color: var(--color-warning-border);
+    background: linear-gradient(90deg, var(--color-warning-soft), #fff 68%);
+}
+
+body[data-page="projects"] .object-attention-item.is-danger {
+    border-color: var(--color-danger-border);
+    background: linear-gradient(90deg, var(--color-danger-soft), #fff 68%);
+}
+
+body[data-page="projects"] .object-attention-icon {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+}
+
+body[data-page="projects"] .object-attention-item.is-warning .object-attention-icon {
+    background: #fff1c7;
+    color: #a46c00;
+}
+
+body[data-page="projects"] .object-attention-item.is-danger .object-attention-icon {
+    background: #fee4e6;
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] .object-attention-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+body[data-page="projects"] .object-attention-copy {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+body[data-page="projects"] .object-attention-copy strong {
+    color: var(--color-text);
+    font-size: 12px;
+    font-weight: 760;
+    line-height: 1.35;
+}
+
+body[data-page="projects"] .object-attention-copy span {
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    line-height: 1.42;
+}
+
+body[data-page="projects"] .object-attention-action {
+    min-height: 34px;
+    padding: 0 11px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--color-accent-strong);
+    font-size: 10px;
+    font-weight: 760;
+    white-space: nowrap;
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-attention-action:hover {
+    transform: none;
+    border-color: #a9c6e9;
+    background: var(--color-surface-accent);
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-control-empty {
+    min-height: 164px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 7px;
+    padding: 24px;
+    border: 1px dashed #b9dcc7;
+    border-radius: 14px;
+    background: var(--color-success-soft);
+    color: var(--color-success);
+    text-align: center;
+}
+
+body[data-page="projects"] .object-control-empty svg {
+    width: 28px;
+    height: 28px;
+}
+
+body[data-page="projects"] .object-control-empty strong {
+    color: #146c43;
+    font-size: 14px;
+}
+
+body[data-page="projects"] .object-control-empty span {
+    max-width: 360px;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+body[data-page="projects"] .object-setup-progress {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 13px;
+}
+
+body[data-page="projects"] .object-setup-track {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e8edf4;
+}
+
+body[data-page="projects"] .object-setup-track span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-accent);
+}
+
+body[data-page="projects"] .object-setup-progress strong {
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 760;
+}
+
+body[data-page="projects"] .object-setup-item {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 6px 7px;
+    border-radius: 10px;
+}
+
+body[data-page="projects"] .object-setup-item:hover {
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] .object-setup-state {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: #eef2f7;
+    color: #8b9aaf;
+}
+
+body[data-page="projects"] .object-setup-item.is-complete .object-setup-state {
+    background: var(--color-success-soft);
+    color: var(--color-success);
+}
+
+body[data-page="projects"] .object-setup-item.is-warning .object-setup-state {
+    background: var(--color-warning-soft);
+    color: #a46c00;
+}
+
+body[data-page="projects"] .object-setup-state svg {
+    width: 15px;
+    height: 15px;
+}
+
+body[data-page="projects"] .object-setup-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+body[data-page="projects"] .object-setup-copy b {
+    color: var(--color-text);
+    font-size: 11px;
+    font-weight: 730;
+}
+
+body[data-page="projects"] .object-setup-copy small {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] .object-setup-open {
+    min-height: 29px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-accent-strong);
+    font-size: 9px;
+    font-weight: 760;
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-setup-open:hover {
+    transform: none;
+    background: var(--color-accent-soft);
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-snapshot-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+body[data-page="projects"] .object-snapshot-card {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 11px;
+    align-items: center;
+    padding: 14px;
+    color: var(--color-text);
+    text-align: left;
+    box-shadow: 0 5px 18px rgba(15, 23, 42, .045);
+}
+
+button.object-snapshot-card {
+    cursor: pointer;
+}
+
+button.object-snapshot-card:hover {
+    transform: translateY(-1px);
+    border-color: #bdd4f0;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, .07);
+}
+
+body[data-page="projects"] .object-snapshot-icon {
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 13px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+}
+
+body[data-page="projects"] .object-snapshot-card.is-warning .object-snapshot-icon {
+    background: var(--color-warning-soft);
+    color: #a46c00;
+}
+
+body[data-page="projects"] .object-snapshot-card.is-danger .object-snapshot-icon {
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] .object-snapshot-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+body[data-page="projects"] .object-snapshot-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+body[data-page="projects"] .object-snapshot-copy span,
+body[data-page="projects"] .object-snapshot-copy small {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] .object-snapshot-copy strong {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: 17px;
+    font-weight: 790;
+    letter-spacing: -.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] .object-document-panel {
+    display: grid;
+    gap: 14px;
+}
+
+body[data-page="projects"] .object-document-categories {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 9px;
+}
+
+body[data-page="projects"] .object-document-category {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-height: 62px;
+    padding: 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface-subtle);
+    color: var(--color-text);
+    text-align: left;
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-document-category:hover {
+    transform: none;
+    border-color: #bdd4f0;
+    background: var(--color-surface-accent);
+    box-shadow: none;
+}
+
+body[data-page="projects"] .object-document-category.is-empty {
+    border-style: dashed;
+}
+
+body[data-page="projects"] .object-document-category > span:first-child {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: #eaf1fa;
+    color: var(--color-accent);
+}
+
+body[data-page="projects"] .object-document-category > span:first-child svg {
+    width: 17px;
+    height: 17px;
+}
+
+body[data-page="projects"] .object-document-category > span:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+body[data-page="projects"] .object-document-category b {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: 10px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] .object-document-category small {
+    color: var(--color-text-secondary);
+    font-size: 9px;
+}
+
+body[data-page="projects"] .object-loading-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+body[data-page="projects"] .object-loading-card {
+    height: 118px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: linear-gradient(100deg, #f3f6fa 15%, #fbfcfe 35%, #f3f6fa 55%);
+    background-size: 220% 100%;
+    animation: object-control-shimmer 1.4s linear infinite;
+}
+
+@keyframes object-control-shimmer {
+    to { background-position-x: -220%; }
+}
+
+@media (max-width: 1180px) {
+    body[data-page="projects"] .project-detail-nav .tabs .tab {
+        padding-inline: 11px !important;
+    }
+
+    body[data-page="projects"] .object-quick-capture {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-page="projects"] .object-control-grid {
+        grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr);
+    }
+
+    body[data-page="projects"] .object-document-categories {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 940px) {
+    body[data-page="projects"] .project-detail-nav {
+        flex-wrap: wrap;
+    }
+
+    body[data-page="projects"] .project-tab-cluster {
+        order: 3;
+        flex: 1 1 100%;
+    }
+
+    body[data-page="projects"] .project-tab-cluster > .tabs {
+        flex: 1 1 auto;
+    }
+
+    body[data-page="projects"] .project-add-menu {
+        margin-left: auto;
+    }
+
+    body[data-page="projects"] .object-control-grid {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-page="projects"] .object-snapshot-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] .project-add-menu > summary,
+    body[data-page="projects"] .project-more-menu > summary {
+        min-height: var(--control-height-sm);
+        padding-inline: 11px;
+    }
+
+    body[data-page="projects"] .project-nav-menu {
+        position: fixed;
+        top: auto;
+        right: 10px;
+        bottom: 12px;
+        left: 10px;
+        width: auto;
+        max-height: min(70vh, 520px);
+        overflow-y: auto;
+        border-radius: 18px;
+    }
+
+    body[data-page="projects"] .project-nav-menu::before {
+        display: none;
+    }
+
+    body[data-page="projects"] .object-identity-card {
+        padding: 19px 16px 15px;
+    }
+
+    body[data-page="projects"] .object-identity-top {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    body[data-page="projects"] .object-identity-progress {
+        min-width: 0;
+    }
+
+    body[data-page="projects"] .object-identity-meta {
+        grid-template-columns: 1fr;
+        gap: 9px;
+    }
+
+    body[data-page="projects"] .object-meta-item,
+    body[data-page="projects"] .object-meta-item:first-child {
+        padding: 0;
+        border-left: 0;
+    }
+
+    body[data-page="projects"] .object-meta-item strong {
+        white-space: normal;
+    }
+
+    body[data-page="projects"] .object-quick-capture {
+        padding: 14px;
+        overflow: hidden;
+    }
+
+    body[data-page="projects"] .object-quick-capture-actions {
+        grid-template-columns: none;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(138px, 44%);
+        overflow-x: auto;
+        padding-bottom: 3px;
+        scroll-snap-type: x proximity;
+    }
+
+    body[data-page="projects"] .object-quick-action {
+        scroll-snap-align: start;
+    }
+
+    body[data-page="projects"] .object-panel {
+        padding: 15px;
+    }
+
+    body[data-page="projects"] .object-document-categories {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 520px) {
+    body[data-page="projects"] .project-add-menu > summary span,
+    body[data-page="projects"] .project-more-menu > summary span {
+        display: none;
+    }
+
+    body[data-page="projects"] .project-add-menu > summary,
+    body[data-page="projects"] .project-more-menu > summary {
+        width: var(--control-height-sm);
+        padding: 0;
+    }
+
+    body[data-page="projects"] .object-title-row h2 {
+        font-size: 25px;
+    }
+
+    body[data-page="projects"] .object-attention-item {
+        grid-template-columns: 34px minmax(0, 1fr);
+    }
+
+    body[data-page="projects"] .object-attention-icon {
+        width: 34px;
+        height: 34px;
+    }
+
+    body[data-page="projects"] .object-attention-action {
+        grid-column: 2;
+        justify-self: start;
+    }
+
+    body[data-page="projects"] .object-snapshot-grid,
+    body[data-page="projects"] .object-document-categories,
+    body[data-page="projects"] .object-loading-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body[data-page="projects"] .object-loading-card {
+        animation: none;
+    }
+
+    body[data-page="projects"] .object-quick-action,
+    body[data-page="projects"] .object-snapshot-card,
+    body[data-page="projects"] .project-add-menu > summary,
+    body[data-page="projects"] .project-more-menu > summary {
+        transition: none;
+    }
+}
+
+/* Dense operational registers: materials and works belong in rows, not card grids. */
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register {
+    display: block;
+    padding: 0 22px 12px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head,
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+    display: grid;
+    grid-template-columns: minmax(210px, 1.8fr) repeat(5, minmax(74px, .65fr)) minmax(118px, .9fr) minmax(104px, auto);
+    align-items: center;
+    gap: 12px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head {
+    min-height: 38px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--color-border-strong);
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+    min-height: 62px;
+    padding: 10px;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation-delay: var(--warehouse-card-delay, 0ms);
+    transform: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card:hover,
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card:focus-visible {
+    border-color: var(--color-border-strong);
+    outline: 0;
+    background: var(--color-surface-subtle);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+    transform: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card.is-risk {
+    background: #fff8f8;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title {
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title small,
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell > span {
+    display: block;
+    color: var(--color-text-secondary);
+    font-size: 10px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title h4 {
+    overflow: hidden;
+    margin: 2px 0 0;
+    color: var(--color-text);
+    font-size: 13px;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell > span {
+    display: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell strong {
+    color: var(--color-text);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell strong small {
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    font-weight: 650;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-balance strong {
+    color: var(--color-success, #15803d);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-balance strong.is-negative {
+    color: var(--color-danger, #dc2626);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status .badge {
+    max-width: 100%;
+    font-size: 9px;
+    white-space: normal;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions {
+    justify-content: flex-end;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions button span {
+    display: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions button {
+    min-width: 32px;
+    min-height: 32px;
+    justify-content: center;
+    padding: 6px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-list {
+    gap: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-work-check-main {
+    display: grid;
+    grid-template-columns: 22px minmax(220px, 1fr) minmax(135px, .45fr) 112px;
+    align-items: center;
+    gap: 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head {
+    min-height: 34px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--color-border-strong);
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.schedule-work-duration-row {
+    display: block;
+    min-height: 48px !important;
+    padding: 8px 10px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.schedule-work-duration-row:hover {
+    background: var(--color-surface-subtle) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check-copy b,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-volume strong,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-status strong {
+    color: var(--color-text);
+    font-size: 12px !important;
+    line-height: 1.3;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-register-volume, .section-work-register-status) small {
+    display: none;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-status strong {
+    color: var(--color-text-secondary);
+    font-weight: 700;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-done .section-work-register-status strong {
+    color: var(--color-success, #15803d);
+}
+
+@media (max-width: 1080px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+        grid-template-columns: minmax(190px, 1.5fr) repeat(3, minmax(72px, .6fr)) minmax(78px, .65fr) minmax(105px, .9fr) auto;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head span:nth-child(3),
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card .warehouse-material-cell:nth-child(3) {
+        display: none;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register {
+        padding-inline: 14px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px 12px;
+        padding: 13px 4px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions {
+        grid-column: 1 / -1;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card .warehouse-material-cell:nth-child(3) {
+        display: block;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell > span,
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-register-volume, .section-work-register-status) small {
+        display: block;
+        margin-bottom: 2px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions {
+        justify-content: flex-start;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions button {
+        min-width: 0;
+        padding-inline: 10px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions button span {
+        display: inline;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-work-check-main {
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        gap: 8px 10px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-volume {
+        grid-column: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-status {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        text-align: right;
+    }
+
+}
+
+/* Materials workspace: the ledger owns the page; secondary actions live in dialogs. */
+body.warehouse-control-dialog-open {
+    overflow: hidden;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-workspace {
+    width: 100%;
+    max-width: none;
+    gap: 14px;
+    padding: 6px 8px 24px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head {
+    overflow: visible;
+    align-items: flex-end;
+    padding: 4px 4px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head::after {
+    display: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head h3 {
+    margin-top: 2px;
+    font-size: 22px;
+    letter-spacing: -.025em;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head p {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions button {
+    min-height: 36px;
+    gap: 7px;
+    border-radius: 9px;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions button svg {
+    width: 15px;
+    height: 15px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-refresh {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metrics {
+    gap: 0;
+    overflow: hidden;
+    margin-inline: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-border);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metric {
+    min-height: 60px;
+    padding: 10px 14px;
+    border: 0;
+    border-right: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metric:last-child {
+    border-right: 0;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metric::before {
+    display: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metric strong {
+    font-size: 18px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-main {
+    display: block;
+    width: 100%;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-stock-card {
+    width: 100%;
+    padding: 0 4px 16px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-inventory-head {
+    padding: 14px 8px 12px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-inventory-head p {
+    margin-top: 3px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-tools {
+    grid-template-columns: minmax(220px, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    padding: 0 8px 14px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-filter-chips {
+    justify-content: flex-end;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register {
+    padding: 0 8px 8px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head {
+    min-height: 40px;
+    padding-inline: 12px;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+    padding: 11px 12px;
+}
+
+@media (min-width: 1081px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register.is-readonly :is(.warehouse-material-register-head, .warehouse-material-card) {
+        grid-template-columns: minmax(210px, 1.8fr) repeat(5, minmax(74px, .65fr)) minmax(118px, .9fr);
+    }
+}
+
+@media (min-width: 721px) and (max-width: 1080px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register.is-readonly :is(.warehouse-material-register-head, .warehouse-material-card) {
+        grid-template-columns: minmax(190px, 1.5fr) repeat(3, minmax(72px, .6fr)) minmax(78px, .65fr) minmax(105px, .9fr);
+    }
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog[hidden] {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 1300;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, .42);
+    backdrop-filter: blur(5px);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-card {
+    display: flex;
+    flex-direction: column;
+    width: min(620px, 100%);
+    max-height: min(820px, calc(100vh - 48px));
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: 18px;
+    background: var(--color-surface);
+    box-shadow: 0 28px 80px rgba(15, 23, 42, .24);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog.is-wide .warehouse-control-dialog-card {
+    width: min(920px, 100%);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px 20px 15px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-head h3 {
+    margin: 2px 0 0;
+    color: var(--color-text);
+    font-size: 19px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-head p {
+    margin: 4px 0 0;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-head > button {
+    flex: 0 0 auto;
+    width: 34px;
+    min-height: 34px;
+    padding: 0;
+    justify-content: center;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-body {
+    overflow-y: auto;
+    padding: 18px 20px 20px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-body > .warehouse-control-card,
+body[data-page="projects"] [data-panel="warehouse-control"] :is([data-warehouse-dialog="work-fact"], [data-warehouse-dialog="norms"]) .warehouse-control-section {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-body .warehouse-control-move-card {
+    position: static;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-body .warehouse-control-move-card .warehouse-control-card-head,
+body[data-page="projects"] [data-panel="warehouse-control"] :is([data-warehouse-dialog="work-fact"], [data-warehouse-dialog="norms"]) .warehouse-control-section > summary {
+    display: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-body .warehouse-control-move-card .warehouse-control-form,
+body[data-page="projects"] [data-panel="warehouse-control"] :is([data-warehouse-dialog="work-fact"], [data-warehouse-dialog="norms"]) .warehouse-control-section-body,
+body[data-page="projects"] [data-panel="warehouse-control"] :is([data-warehouse-dialog="work-fact"], [data-warehouse-dialog="norms"]) .warehouse-control-section-body > .warehouse-control-form {
+    padding: 0;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] [data-warehouse-dialog="history"] .warehouse-control-section {
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] [data-warehouse-dialog="history"] .warehouse-control-section + .warehouse-control-section {
+    margin-top: 10px;
+}
+
+/* Works workspace: one restrained hierarchy from estimate file to section to row. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher.market-toolbar {
+    padding: 0 0 14px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary {
+    margin-bottom: 12px;
+    border-radius: 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card {
+    min-height: 58px;
+    padding: 9px 13px !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card strong {
+    font-size: 16px !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-list {
+    gap: 12px;
+    margin-top: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-group {
+    overflow: hidden;
+    border: 1px solid var(--color-border) !important;
+    border-radius: 12px;
+    background: var(--color-surface);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-head {
+    padding: 13px 14px;
+    background: var(--color-surface);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary {
+    padding: 0 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-caption {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-details {
+    padding: 0 !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-grid,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-column {
+    gap: 0;
+    padding: 0;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-title {
+    min-height: 34px;
+    padding: 8px 13px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-master-head {
+    grid-template-columns: 22px minmax(220px, 1fr) minmax(135px, .45fr) 112px;
+    min-height: 40px;
+    padding-inline: 14px;
+    border-top: 0;
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row {
+    display: grid;
+    grid-template-columns: 22px minmax(220px, 1fr) minmax(135px, .45fr) 112px;
+    align-items: center;
+    gap: 12px;
+    min-height: 62px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-open .section-work-section-row,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary:hover .section-work-section-row {
+    background: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .bulk-section-check {
+    margin: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title {
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title small,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-section-volume, .section-work-section-status) > small {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--color-text-secondary);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title h4 {
+    overflow: hidden;
+    margin: 0 !important;
+    color: var(--color-text) !important;
+    font-size: 13px !important;
+    font-weight: 760 !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-volume strong {
+    color: var(--color-text);
+    font-size: 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-status .badge {
+    max-width: 100%;
+    font-size: 9px;
+    white-space: normal;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron {
+    width: 28px;
+    height: 28px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-subtle);
+    font-size: 16px;
+    font-weight: 500;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section.is-open .section-schedule-chevron {
+    color: var(--color-accent-strong);
+    background: var(--color-surface-selected);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-details {
+    border-bottom: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-check.schedule-work-duration-row {
+    min-height: 52px !important;
+    padding: 8px 14px !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-check.schedule-work-duration-row:hover {
+    box-shadow: inset 3px 0 0 var(--color-accent) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-stage-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-secondary);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-stage-icon svg {
+    width: 15px;
+    height: 15px;
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head {
+        align-items: flex-start;
+        padding: 2px 0 12px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions button {
+        flex: 0 0 auto;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-inline: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metric:nth-child(2) {
+        border-right: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-metric:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-tools {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-filter-chips {
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register {
+        padding-inline: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-workspace,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-stock-card {
+        padding-inline: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-inventory-head,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-tools {
+        padding-inline: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+        padding-inline: 8px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-master-head {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row {
+        grid-template-columns: 22px minmax(0, 1fr) auto 28px;
+        gap: 8px 10px;
+        min-height: 68px;
+        padding: 10px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-volume {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-status {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        text-align: right;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron {
+        grid-column: 4;
+        grid-row: 1 / span 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title small,
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-status > small {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-check.schedule-work-duration-row {
+        padding-inline: 10px !important;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog {
+        align-items: end;
+        padding: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-card,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog.is-wide .warehouse-control-dialog-card {
+        width: 100%;
+        max-height: min(88vh, 760px);
+        border-width: 1px 0 0;
+        border-radius: 18px 18px 0 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-head,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-body {
+        padding-inline: 16px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Browser audit fixes: viewport-safe dialogs and compact mobile registers. */
+body[data-page="projects"] {
+    overflow-x: hidden;
+}
+
+body[data-page="projects"] [data-project-overview-section][hidden] {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail],
+body[data-page="projects"] [data-project-detail] .object-panel,
+body[data-page="projects"] [data-panel="warehouse-control"],
+body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-control-workspace, .warehouse-control-head, .warehouse-control-head > div, .warehouse-control-head-actions, .warehouse-control-main, .warehouse-control-stock-card, .warehouse-control-tools, .warehouse-control-search, .warehouse-control-filter-chips, .warehouse-material-register, .warehouse-material-card) {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+body[data-page="projects"] .warehouse-control-portal {
+    position: relative;
+    z-index: 1300;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-card {
+    max-height: min(820px, calc(100dvh - 48px));
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+    cursor: default;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-select {
+    min-width: 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-select:hover {
+    transform: none;
+    background: transparent;
+    box-shadow: none;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-select:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 4px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title strong,
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title h4 {
+    display: block;
+    overflow: hidden;
+    margin: 2px 0 0;
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 750;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head {
+    font-size: 11px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell strong,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-check-copy b, .section-work-register-volume strong, .section-work-register-status strong) {
+    font-size: 13px !important;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status .badge,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-status .badge {
+    font-size: 10px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-material-title small, .warehouse-material-cell > span),
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-section-row .section-schedule-title small, .section-work-section-volume > small, .section-work-section-status > small) {
+    color: #475569;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-meta {
+    display: contents;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron {
+    font-size: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron::before {
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    content: "";
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 150ms ease;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section.is-open .section-schedule-chevron::before {
+    transform: translateY(2px) rotate(225deg);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary {
+    display: grid !important;
+    width: 100% !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 0 !important;
+}
+
+/* Compact works register: column headings carry the labels, rows carry only data. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-head {
+    min-height: 54px;
+    padding: 8px 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-copy > span {
+    display: none;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-copy small {
+    margin-bottom: 1px;
+    font-size: 9px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-copy h3 {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.25;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-icon {
+    width: 30px;
+    height: 30px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-master-head {
+    min-height: 34px;
+    padding-inline: 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row {
+    min-height: 50px;
+    padding: 7px 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title small,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-section-volume, .section-work-section-status) > small {
+    display: none;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title h4 {
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 1.25 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-volume strong {
+    font-size: 12px;
+    font-weight: 720;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-status .badge {
+    padding: 4px 7px;
+    line-height: 1.15;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron {
+    width: 26px;
+    height: 26px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-check.schedule-work-duration-row {
+    min-height: 44px !important;
+    padding: 6px 12px !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check-copy b,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-volume strong,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-status strong {
+    line-height: 1.25;
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] {
+        overflow-x: clip;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-workspace {
+        width: 100%;
+        overflow: hidden;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+        overflow: visible;
+        gap: 8px;
+        padding: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions button,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-refresh {
+        width: 100%;
+        min-width: 0;
+        min-height: 42px;
+        padding-inline: 9px;
+        justify-content: center;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-head-actions button span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-tools {
+        width: 100%;
+        gap: 10px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-search,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-search input {
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-filter-chips {
+        width: 100%;
+        flex-wrap: wrap;
+        overflow: visible;
+        gap: 7px;
+        padding: 0;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-filter-chips button {
+        min-height: 40px;
+        padding: 8px 11px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+        width: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px 10px;
+        min-height: 0;
+        padding: 11px 8px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-select,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title {
+        grid-column: 1 / -1;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title strong,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title h4 {
+        display: -webkit-box;
+        overflow: hidden;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell {
+        min-height: 32px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status {
+        grid-column: 1 / 3;
+        align-self: center;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions {
+        grid-column: 3;
+        justify-self: end;
+        justify-content: flex-end;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions button {
+        min-width: 40px;
+        min-height: 40px;
+        padding: 8px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions button span {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog {
+        inset: 0;
+        width: 100vw;
+        height: 100dvh;
+        max-width: 100vw;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-card,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog.is-wide .warehouse-control-dialog-card {
+        max-width: 100vw;
+        max-height: calc(100dvh - env(safe-area-inset-top, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row {
+        grid-template-columns: 22px minmax(0, 1fr) 28px;
+        grid-template-rows: auto auto;
+        gap: 5px 9px;
+        min-height: 72px;
+        padding: 8px 9px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .bulk-section-check {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        align-self: center;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title h4 {
+        display: -webkit-box;
+        overflow: hidden;
+        line-height: 1.25 !important;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-meta {
+        grid-column: 2;
+        grid-row: 2;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+        min-width: 0;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-section-volume, .section-work-section-status) {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        text-align: left;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-section-volume, .section-work-section-status) > small {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-status .badge {
+        padding: 3px 6px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        align-self: center;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-head {
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        min-height: 52px;
+        gap: 9px;
+        padding: 7px 9px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-copy > small,
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-copy > span {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-copy h3 {
+        overflow: hidden;
+        margin: 0;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-stats {
+        grid-column: 3;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        font-size: 10px;
+        white-space: nowrap;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-stats strong {
+        padding: 2px 5px;
+        font-size: 10px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-board .execution-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+/* Works table foundation: files and sections group rows; work rows never collapse. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section {
+    overflow: visible;
+    border: 0 !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
+    background: var(--color-surface) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row {
+    grid-template-columns: 22px minmax(220px, 1fr) minmax(135px, .45fr) 112px;
+    border-bottom: 1px solid var(--color-border);
+    background: #f8fafc;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-schedule-chevron {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-schedule-detail-grid,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-schedule-detail-column,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-schedule-detail-list {
+    display: block;
+    width: 100%;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-schedule-detail-grid,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-schedule-detail-column {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-check.schedule-work-duration-row {
+    border-bottom: 1px solid var(--color-border) !important;
+    background: var(--color-surface) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-check.schedule-work-duration-row:last-child {
+    border-bottom: 0 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(input[type="checkbox"][data-bulk-section-check], input[type="checkbox"][data-section-work-check]) {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    margin: 0;
+    border-width: 2px;
+    border-radius: 4px;
+    box-shadow: none;
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row {
+        grid-template-columns: 22px minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        min-height: 66px;
+        padding: 7px 9px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .bulk-section-check {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-schedule-title {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-row .section-work-section-meta {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main {
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+    }
+}
+
+/* Works register controls and summary. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary {
+    display: grid;
+    grid-template-columns: minmax(230px, 1.6fr) repeat(3, minmax(110px, .6fr));
+    overflow: hidden;
+    margin: 0 0 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-surface);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item {
+    min-width: 0;
+    min-height: 46px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 10px 12px;
+    border-left: 1px solid var(--color-border);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item:first-child {
+    border-left: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item span {
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item strong {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 760;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item.is-danger strong {
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item.is-warn strong {
+    color: #a16207;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(input[type="checkbox"][data-bulk-section-check], input[type="checkbox"][data-section-work-check]) {
+    position: relative;
+    width: 20px !important;
+    height: 20px !important;
+    min-width: 20px !important;
+    min-height: 20px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1.5px solid #aebdce !important;
+    border-radius: 4px !important;
+    appearance: none;
+    -webkit-appearance: none;
+    background: #fff !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(input[type="checkbox"][data-bulk-section-check], input[type="checkbox"][data-section-work-check])::before {
+    content: none !important;
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(input[type="checkbox"][data-bulk-section-check], input[type="checkbox"][data-section-work-check]):hover {
+    border-color: var(--color-accent) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(input[type="checkbox"][data-bulk-section-check], input[type="checkbox"][data-section-work-check]):checked,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] input[type="checkbox"][data-bulk-section-check]:indeterminate {
+    border-color: var(--color-accent) !important;
+    background: var(--color-accent) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(input[type="checkbox"][data-bulk-section-check], input[type="checkbox"][data-section-work-check]):checked::before {
+    position: static !important;
+    inset: auto !important;
+    width: 5px !important;
+    height: 9px !important;
+    display: block !important;
+    border: solid #fff !important;
+    border-width: 0 2px 2px 0 !important;
+    content: "" !important;
+    transform: translateY(-1px) rotate(45deg) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] input[type="checkbox"][data-bulk-section-check]:indeterminate::before {
+    position: static !important;
+    inset: auto !important;
+    width: 9px !important;
+    height: 2px !important;
+    display: block !important;
+    border: 0 !important;
+    border-radius: 999px;
+    content: "" !important;
+    background: #fff;
+    transform: none !important;
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item {
+        min-height: 44px;
+        display: grid;
+        gap: 2px;
+        padding: 8px 10px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item:nth-child(3) {
+        border-left: 0;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--color-border);
+    }
+}

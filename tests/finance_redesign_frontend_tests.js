@@ -20,6 +20,17 @@ function assert(condition, message) {
     'data-finance-view="management"',
     'data-finance-view-target="management"',
     'data-finance-filter="payable"',
+    'data-finance-delete',
+    'data-finance-delete-modal',
+    "method: 'DELETE'",
+    'data-finance-payables-callout',
+    'data-finance-payables-board',
+    'data-finance-payment-modal',
+    'data-finance-confirm-payment',
+    'data-finance-payment-date',
+    'data-finance-payable-settings',
+    '/api/finance/pay-invoice',
+    'paid_date: dateInput',
     'bindFinanceWorkspaceNavigation',
     'bindFinanceOperationFilters',
 ].forEach((token) => {
@@ -32,7 +43,9 @@ function assert(condition, message) {
     'Оплатить за 7 дней',
     'Просрочено',
     'Баланс поступлений и оплат не является прибылью или маржой.',
-    'Платёжный календарь',
+    'Счета, которые ждут оплаты',
+    'Перейти к оплате',
+    'Подтвердить оплату',
     'Все финансовые операции',
 ].forEach((label) => {
     assert(app.includes(label), `finance workspace copy is missing: ${label}`);
@@ -49,6 +62,22 @@ assert(
         currentFinanceHero.includes('financePaymentOverview(items)'),
     'cash overview must be based on received, paid and pending money'
 );
+
+const economicsStart = app.indexOf('function renderProjectEconomics(');
+const economicsEnd = app.indexOf('\n    function ', economicsStart + 20);
+const economicsSource = app.slice(economicsStart, economicsEnd);
+assert(
+    economicsSource.includes("if (data.status === 'not_configured')") &&
+        economicsSource.includes("return '';"),
+    'unconfigured economics must not add a duplicate setup card to finance overview'
+);
+[
+    'Сначала зафиксируйте план объекта',
+    'Официальный прогноз пока не рассчитывается',
+    'Настроить плановую базу',
+].forEach((label) => {
+    assert(!economicsSource.includes(label), `duplicate economics setup copy must be removed: ${label}`);
+});
 
 [
     'Плановая база',
@@ -69,6 +98,12 @@ assert(
     '.finance-cash-overview',
     '.finance-plan-summary',
     '.finance-filter-bar',
+    '.finance-delete-button',
+    '.finance-delete-dialog',
+    '.finance-payables-callout',
+    '.finance-payables-board',
+    '.finance-payable-row',
+    '.finance-payment-dialog',
 ].forEach((selector) => {
     assert(financeStyles.includes(selector), `finance redesign style is missing: ${selector}`);
 });

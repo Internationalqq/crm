@@ -56,6 +56,19 @@ class ApiRouteDispatchTests(unittest.TestCase):
 
                 self.assertEqual(calls, [(expected, path)])
 
+    def test_finance_delete_dispatches_only_for_exact_entry_path(self) -> None:
+        handler = object.__new__(server.PMBIHandler)
+        calls: list[str] = []
+        responses: list[tuple[int, dict]] = []
+        handler.api_delete_finance_entry = lambda path: calls.append(path)
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+
+        server.PMBIHandler.handle_api(handler, "DELETE", "/api/finances/73")
+        server.PMBIHandler.handle_api(handler, "DELETE", "/api/finances/73/update")
+
+        self.assertEqual(calls, ["/api/finances/73"])
+        self.assertEqual(responses[-1][1], {"error": "not_found"})
+
 
 if __name__ == "__main__":
     unittest.main()

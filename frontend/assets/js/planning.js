@@ -334,8 +334,6 @@
         var visibleItems = allWorkItems;
         var workProgress = workProgressForRows(project.id, sectionTitle, allWorkItems);
         var progress = workProgress;
-        var isOpen = isScheduleSectionOpen(project.id, section, false);
-        var digest = finalSectionWorkDigest(section);
         var allStages = state.stagesByProject[project.id] || [];
         var stageMap = buildStageLookup(allStages);
         var includeProjectStages = String(section.estimateSourceType || 'legacy').toLowerCase() === 'legacy';
@@ -345,34 +343,37 @@
             return canonicalEstimateSectionTitle(rootSectionTitleForStage(stage, stageMap)) === sectionTitle;
         }).map(function (stage) {
             var meta = [stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' • ');
-            return '<div class="material-row work-row schedule-stage-row"><div class="work-row-main"><b>' + escapeHtml(stage.title || 'Этап') + '</b><small>' + escapeHtml(meta || 'Этап работ') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+            return '<div class="section-work-check schedule-work-duration-row is-stage"><div class="schedule-work-check-main">' +
+                '<span class="section-work-stage-icon" aria-hidden="true"><i data-lucide="milestone"></i></span>' +
+                '<span class="section-work-check-copy"><b>' + escapeHtml(stage.title || 'Этап') + '</b></span>' +
+                '<span class="section-work-register-volume"><small>Период</small><strong>' + escapeHtml(meta || 'Не указан') + '</strong></span>' +
+                '<span class="section-work-register-status"><small>Статус</small><strong>' + escapeHtml(statusLabel(stage.status_code)) + ' · ' + percent(stage.progress) + '%</strong></span>' +
+            '</div></div>';
         }).join('');
         var estimateWorkDetails = visibleItems.map(function (item) {
             var workDone = isScheduleWorkDone(project.id, sectionTitle, item);
             return '<div class="section-work-check schedule-work-duration-row' + (workDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
                 '<label class="schedule-work-check-main"><input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(sectionTitle) + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
-                    '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</b><small>' + escapeHtml(formatWorkLine(item) || '\u041e\u0431\u044a\u0435\u043c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</small></span></label>' +
+                    '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</b></span>' +
+                    '<span class="section-work-register-volume"><small>Объём</small><strong>' + escapeHtml(formatWorkLine(item) || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</strong></span>' +
+                    '<span class="section-work-register-status"><small>Статус</small><strong>' + (workDone ? 'Выполнено' : 'В плане') + '</strong></span></label>' +
             '</div>';
         }).join('');
         var workDetails = stageDetails + estimateWorkDetails;
         if (!workDetails) workDetails = '<div class="section-schedule-empty inline">Работ в разделе пока нет.</div>';
         var details = '<div class="section-schedule-detail-grid is-work-only">' +
-            '<section class="section-schedule-detail-column"><div class="section-schedule-detail-title"><strong>\u0420\u0430\u0431\u043e\u0442\u044b</strong><span>' + escapeHtml(String(workProgress.done) + ' из ' + String(workProgress.total)) + '</span></div><div class="section-schedule-detail-list">' + workDetails + '</div></section>' +
+            '<section class="section-schedule-detail-column"><span class="visually-hidden">\u0420\u0430\u0431\u043e\u0442\u044b</span><div class="section-schedule-detail-list">' + workDetails + '</div></section>' +
         '</div>';
-        return '<article class="section-schedule-card' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + (isOpen ? ' is-open' : '') + '">' +
-            '<div class="section-schedule-main">' +
-                '<div class="section-schedule-summary" role="button" tabindex="0" data-section-schedule-toggle data-project-id="' + escapeHtml(project.id) + '" data-section-key="' + escapeHtml(scheduleSectionKey(section)) + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
-                    '<div class="section-schedule-summary-head">' +
-                        '<div class="section-schedule-summary-copy">' +
-                            '<div class="section-schedule-heading">' + renderBulkSectionCheckbox(project.id, sectionTitle, 'work', progress) + '<div class="section-schedule-title"><h4>' + escapeHtml(sectionTitle) + '</h4></div></div>' +
-                        '</div>' +
-                        '<span class="section-schedule-chevron" aria-hidden="true">' + (isOpen ? '-' : '+') + '</span>' +
-                    '</div>' +
-                    renderWorkProgressStrip(workProgress, sectionTitle) +
-                    (digest.titles ? '<div class="section-schedule-caption">' + escapeHtml(digest.titles) + '</div>' : '') +
-                '</div>' +
-                renderScheduleSectionDetailsShell(isOpen, details) +
+        var sectionStateLabel = workProgress.total && workProgress.done >= workProgress.total ? 'Выполнено' : (workProgress.done > 0 ? 'В работе' : 'В плане');
+        var sectionStateClass = workProgress.total && workProgress.done >= workProgress.total ? 'success' : (workProgress.done > 0 ? 'warn' : 'neutral');
+        return '<article class="section-schedule-card section-work-register-section' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+            '<div class="section-work-section-row">' +
+                renderBulkSectionCheckbox(project.id, sectionTitle, 'work', progress) +
+                '<div class="section-schedule-title"><small>Раздел</small><h4>' + escapeHtml(sectionTitle) + '</h4></div>' +
+                '<div class="section-work-section-meta"><span class="section-work-section-volume"><small>Выполнено</small><strong>' + escapeHtml(String(workProgress.done) + ' из ' + String(workProgress.total)) + '</strong></span>' +
+                '<span class="section-work-section-status"><small>Статус</small><span class="badge ' + sectionStateClass + '">' + sectionStateLabel + ' · ' + escapeHtml(String(workProgress.percent || 0)) + '%</span></span></div>' +
             '</div>' +
+            '<div class="section-work-register-body">' + details + '</div>' +
         '</article>';
     }
 
@@ -408,11 +409,17 @@
             var group = estimateGroups[key];
             return '<section class="project-estimate-file-group" data-estimate-source="' + escapeHtml(key) + '">' +
                 renderScheduleEstimateHeading(group.meta, group.sections) +
+                '<div class="section-work-register-head section-work-register-master-head" aria-hidden="true"><span></span><span>Работа</span><span>Объём</span><span>Статус</span></div>' +
                 '<div class="section-schedule-list">' + group.sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div>' +
             '</section>';
         }).join('');
         return '<section class="card section-schedule-board">' +
-            '<div class="execution-summary">' + stat('\u0421\u0442\u0430\u0440\u0442', finalGraphDate(summary.startDate)) + stat('\u0414\u0435\u0434\u043b\u0430\u0439\u043d', finalGraphDate(scheduleEndDate)) + stat('\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c \u0434\u043d\u0435\u0439', daysLeft == null ? '-' : String(daysLeft), projectDeadlineState.kind) + stat('\u0420\u0430\u0437\u0434\u0435\u043b\u043e\u0432', String(sections.length)) + '</div>' +
+            '<div class="works-register-summary" aria-label="Сводка по работам">' +
+                '<div class="works-register-summary-item is-period"><span>Срок работ</span><strong>' + escapeHtml(finalGraphDate(summary.startDate)) + ' — ' + escapeHtml(finalGraphDate(scheduleEndDate)) + '</strong></div>' +
+                '<div class="works-register-summary-item is-' + escapeHtml(projectDeadlineState.kind || 'neutral') + '"><span>Осталось</span><strong>' + escapeHtml(daysLeft == null ? '—' : String(daysLeft) + ' дн.') + '</strong></div>' +
+                '<div class="works-register-summary-item"><span>Разделов</span><strong>' + escapeHtml(String(sections.length)) + '</strong></div>' +
+                '<div class="works-register-summary-item"><span>Готовность</span><strong>' + escapeHtml(String(overallProgress.percent || 0)) + '%</strong></div>' +
+            '</div>' +
             renderPinnedScheduleBrief(project, summary, sections) +
             '<div class="project-estimate-file-list">' + groupedSections + '</div></section>';
     }
@@ -684,18 +691,15 @@
 
     function renderSchedulePanel(stages, project) {
         stages = Array.isArray(stages) ? stages : [];
-        var topBar = project ? '<section class="schedule-project-topbar">' +
-            '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
-        '</section>' : '';
         var switcher = project ? renderProjectScheduleViewSwitcher(project) : '';
         if (project && projectScheduleViewMode(project.id) === 'market') {
-            return topBar + switcher + renderProjectScheduleMarketAnalysis(project);
+            return switcher + renderProjectScheduleMarketAnalysis(project);
         }
         if (project && projectScheduleViewMode(project.id) === 'table') {
-            return topBar + switcher + renderProjectSchedulePriceTables(project);
+            return switcher + renderProjectSchedulePriceTables(project);
         }
         var forecast = renderSectionScheduleForecast(project);
-        return topBar + switcher + forecast + renderAdditionalProjectStages(stages, project);
+        return switcher + forecast + renderAdditionalProjectStages(stages, project);
     }
 
     function renderProjectCalendarPanel(project) {
@@ -1563,8 +1567,11 @@
             state.sectionScheduleByProject[projectId] = data || null;
             callback(data || null);
         }).catch(function (err) {
+            var errorCode = err && err.payload && err.payload.error ? String(err.payload.error) : '';
             state.sectionScheduleByProject[projectId] = {
-                error: err && err.payload && err.payload.error ? err.payload.error : 'Не удалось рассчитать график по смете',
+                error: errorCode === 'works_required'
+                    ? 'Сначала загрузите смету с работами.'
+                    : (errorCode || 'Не удалось рассчитать график по смете'),
                 startDate: requestedStart,
                 sections: []
             };
@@ -2182,10 +2189,7 @@
         var notifications = details.notifications || null;
         var materials = Array.isArray(details.materials) ? details.materials : [];
         var tasks = Array.isArray(details.tasks) ? details.tasks : [];
-        var topBar = '<section class="schedule-project-topbar">' +
-            '<div class="schedule-project-topbar-copy"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><span class="muted">' + escapeHtml(project.address || project.client_name || 'Адрес не указан') + '</span></div>' +
-            (canManageSchedule() ? '<button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="calendar-cog" aria-hidden="true"></i><span>Автоплан графика</span></button>' : '') +
-        '</section>';
+        var actions = canManageSchedule() ? '<div class="schedule-project-actions"><button class="primary schedule-autoplan-button" type="button" data-auto-schedule-open data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="calendar-cog" aria-hidden="true"></i><span>Автоплан графика</span></button></div>' : '';
         var objectInfo = '<section class="schedule-object-info">' +
             dataItem('Заказчик', project.client_name || 'Не указан') +
             dataItem('Адрес', project.address || 'Не указан') +
@@ -2194,7 +2198,7 @@
             dataItem('Старт', project.started_at || '-') +
             dataItem('Дедлайн', project.deadline_at || '-') +
         '</section>';
-        return topBar +
+        return actions +
             objectInfo +
             renderSectionScheduleForecast(project) +
             renderScheduleActionCenter(project, stages, notifications, materials, tasks) +

@@ -13,8 +13,8 @@ body[data-page="projects"] [data-project-overview-section] {
 /* Multiple estimates: file -> section -> positions. */
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-list {
     display: grid;
-    gap: var(--space-5);
-    margin-top: var(--space-5);
+    gap: var(--space-4);
+    margin-top: var(--space-4);
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-group {
@@ -22,7 +22,7 @@ body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-group 
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     background: var(--color-surface);
-    box-shadow: var(--shadow-sm);
+    box-shadow: none;
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-head {
@@ -30,24 +30,24 @@ body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-head {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: var(--space-3);
     align-items: center;
-    padding: var(--space-4);
+    padding: 14px var(--space-4);
     border-bottom: 1px solid var(--color-border);
-    background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface));
+    background: var(--color-surface);
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-icon {
     display: grid;
-    width: 42px;
-    height: 42px;
+    width: 36px;
+    height: 36px;
     place-items: center;
     border-radius: var(--radius-md);
-    color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 13%, var(--color-surface));
+    color: var(--color-accent-hover);
+    background: var(--color-surface-selected);
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-icon svg {
-    width: 21px;
-    height: 21px;
+    width: 18px;
+    height: 18px;
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy {
@@ -65,10 +65,10 @@ body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy s
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy small {
     margin-bottom: 2px;
-    color: var(--color-accent);
-    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: .05em;
+    letter-spacing: .04em;
     text-transform: uppercase;
 }
 
@@ -78,20 +78,24 @@ body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-copy h
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-stats {
-    display: grid;
-    gap: 2px;
-    justify-items: end;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     color: var(--color-text-muted);
     font-size: 12px;
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-stats strong {
-    color: var(--color-text);
-    font-size: 13px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: 12px;
 }
 
 body[data-page="projects"] [data-panel="schedule"] .project-estimate-file-group > .section-schedule-list {
-    padding: var(--space-3);
+    gap: 0 !important;
+    padding: 0;
 }
 
 @media (max-width: 720px) {
@@ -1100,57 +1104,6 @@ body[data-page="projects"] .project-overview-pulse span:nth-child(3) {
 }
 
 /* Materials and work: one calm execution view, with market data kept separate. */
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    min-width: 0;
-    margin: 0 !important;
-    padding: var(--space-4);
-    border: 1px solid var(--color-border);
-    border-left: 3px solid var(--color-accent);
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
-    background: linear-gradient(110deg, var(--color-surface-accent), var(--color-surface) 58%);
-    box-shadow: var(--shadow-card);
-}
-
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar-copy {
-    gap: var(--space-1);
-}
-
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar-copy h3 {
-    color: var(--color-text) !important;
-    font-size: 20px !important;
-    font-weight: 780 !important;
-    letter-spacing: -.015em;
-}
-
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar-copy .muted {
-    color: var(--color-text-secondary) !important;
-    font-size: 13px;
-    line-height: var(--line-normal);
-}
-
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-height) !important;
-    padding-inline: var(--space-4) !important;
-    border-radius: var(--radius-md) !important;
-    white-space: nowrap;
-}
-
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button svg,
-body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button [data-lucide] {
-    width: 17px;
-    height: 17px;
-    flex: 0 0 17px;
-    stroke-width: 2;
-}
-
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher.market-toolbar {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1158,12 +1111,11 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .projec
     gap: var(--space-4);
     min-width: 0;
     margin: 0 0 var(--space-4) !important;
-    padding: var(--space-3) var(--space-4) var(--space-4) !important;
+    padding: var(--space-4) !important;
     border: 1px solid var(--color-border) !important;
-    border-top: 0 !important;
-    border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+    border-radius: var(--radius-lg) !important;
     background: var(--color-surface) !important;
-    box-shadow: var(--shadow-card) !important;
+    box-shadow: none !important;
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher h3 {
@@ -1184,10 +1136,10 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .projec
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented {
     display: inline-flex !important;
     align-items: center;
-    gap: var(--space-1) !important;
+    gap: 2px !important;
     min-width: max-content;
     padding: var(--space-1) !important;
-    border: 1px solid var(--color-border) !important;
+    border: 0 !important;
     border-radius: var(--radius-md) !important;
     background: var(--color-surface-subtle) !important;
 }
@@ -1211,10 +1163,10 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .projec
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button.active {
-    border-color: #cfe0f7 !important;
-    background: var(--color-surface-selected) !important;
+    border-color: var(--color-border) !important;
+    background: var(--color-surface) !important;
     color: var(--color-accent-hover) !important;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, .05) !important;
+    box-shadow: var(--shadow-card) !important;
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented button svg,
@@ -1530,15 +1482,62 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-board {
-    padding: var(--space-3) !important;
-    border: 1px solid var(--color-border) !important;
-    border-radius: var(--radius-md) !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    overflow: hidden;
+    margin: 0 0 var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-border);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card {
+    min-width: 0;
+    min-height: 72px;
+    padding: var(--space-3) var(--space-4) !important;
+    border: 0 !important;
+    border-right: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
     background: var(--color-surface) !important;
-    box-shadow: var(--shadow-card) !important;
+    box-shadow: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card:last-child {
+    border-right: 0 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card::after {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card span {
+    color: var(--color-text-secondary) !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: .04em;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card strong {
+    margin-top: var(--space-1) !important;
+    color: var(--color-text) !important;
+    font-size: 19px !important;
+    font-weight: 760 !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card.danger strong {
+    color: var(--color-danger) !important;
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-list {
-    gap: var(--space-2) !important;
+    gap: 0 !important;
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card,
@@ -1547,19 +1546,24 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-done,
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-list > .section-schedule-card:last-child {
     overflow: hidden;
-    border: 1px solid var(--color-border) !important;
-    border-radius: var(--radius-md) !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
     background: var(--color-surface) !important;
     box-shadow: none !important;
 }
 
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-list > .section-schedule-card:last-child {
+    border-bottom: 0 !important;
+}
+
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-card.is-open {
-    border-color: var(--color-border-strong) !important;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, .055) !important;
+    border-color: var(--color-border) !important;
+    box-shadow: none !important;
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary {
-    padding: var(--space-3) !important;
+    padding: var(--space-4) !important;
     background: var(--color-surface) !important;
 }
 
@@ -1601,10 +1605,10 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estima
     display: grid;
     gap: var(--space-2);
     min-width: 0;
-    padding: 10px var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-surface-subtle);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estimate-section-progress-line-head {
@@ -1632,7 +1636,7 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .estima
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-progress-bar {
     position: relative;
-    height: 9px !important;
+    height: 6px !important;
     overflow: visible !important;
     border: 0 !important;
     border-radius: 999px !important;
@@ -1658,8 +1662,8 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
     top: -29px !important;
     right: 0 !important;
     left: auto !important;
-    min-width: 38px;
-    padding: 3px 6px !important;
+    min-width: 34px;
+    padding: 2px 5px !important;
     border: 0 !important;
     border-radius: 999px !important;
     background: var(--color-surface-selected) !important;
@@ -1673,7 +1677,6 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
 
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-details {
     padding: 0 var(--space-4) var(--space-4) !important;
-    border-top: 1px solid var(--color-border);
     background: var(--color-surface-subtle);
 }
 
@@ -1690,7 +1693,7 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
 body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-detail-column {
     gap: var(--space-2);
     padding: var(--space-3);
-    border: 1px solid var(--color-border) !important;
+    border: 0 !important;
     border-radius: var(--radius-md) !important;
     background: var(--color-surface) !important;
 }
@@ -1786,18 +1789,9 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
 }
 
 @media (max-width: 720px) {
-    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar,
     body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher.market-toolbar {
         grid-template-columns: minmax(0, 1fr);
         align-items: stretch !important;
-    }
-
-    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-project-topbar {
-        display: grid;
-    }
-
-    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-autoplan-button {
-        width: 100%;
     }
 
     body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-schedule-view-switcher .segmented {
@@ -1849,12 +1843,25 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
         grid-template-columns: minmax(0, 1fr);
     }
 
-    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-board,
     body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-summary {
         padding: var(--space-3) !important;
     }
 
     body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-schedule-details {
         padding: 0 var(--space-3) var(--space-3) !important;
+    }
+}
+
+@media (max-width: 620px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card:nth-child(2) {
+        border-right: 0 !important;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .execution-summary .stat-card:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--color-border) !important;
     }
 }

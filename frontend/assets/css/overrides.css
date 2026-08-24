@@ -4991,6 +4991,26 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     align-items: start;
 }
 
+.daily-task-page-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 4px 0 8px;
+}
+
+.daily-task-page-head h1 {
+    margin: 8px 0 4px;
+    font-size: clamp(24px, 3vw, 34px);
+    line-height: 1.1;
+}
+
+.daily-task-page-head p {
+    max-width: 720px;
+    margin: 0;
+    color: var(--muted);
+}
+
 .daily-task-topline {
     display: grid;
     grid-template-columns: 148px 300px minmax(0, 1fr) auto;
@@ -5969,6 +5989,15 @@ body.daily-archive-opened {
 }
 
 @media (max-width: 640px) {
+    .daily-task-page-head {
+        align-items: start;
+        padding-top: 0;
+    }
+
+    .daily-task-page-head h1 {
+        font-size: 26px;
+    }
+
     .daily-task-topline {
         grid-template-columns: 1fr;
     }

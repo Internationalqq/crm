@@ -13,6 +13,7 @@ const frontendJs = [coreJs, dailyTasksJs, planningJs, procurementJs, operationsJ
 const authPy = fs.readFileSync(path.join(root, 'backend/auth.py'), 'utf8');
 const serverPy = fs.readFileSync(path.join(root, 'backend/server.py'), 'utf8');
 const projectsPy = fs.readFileSync(path.join(root, 'backend/projects.py'), 'utf8');
+const communicationsDocsPy = fs.readFileSync(path.join(root, 'backend/communications_docs.py'), 'utf8');
 const projectsHtml = fs.readFileSync(path.join(root, 'frontend/pages/projects.html'), 'utf8');
 const planningCss = fs.readFileSync(path.join(root, 'frontend/assets/css/planning.css'), 'utf8');
 
@@ -165,6 +166,17 @@ test('Project card editing follows project permission, while project delete is a
 test('Reminder bell loads visible projects before showing what is urgent', () => {
   assert.match(appJs, /state\.reminderProjectsLoading/);
   assert.match(appJs, /api\('\/api\/projects', \{ silentLoader: true \}\)/);
+  assert.match(appJs, /document\.documentElement\.dataset\.reminderBellBound/);
+  assert.match(appJs, /event\.target\.closest\('\[data-reminder-toggle\]'\)/);
+  assert.doesNotMatch(appJs, /button\.addEventListener\('click',[\s\S]{0,300}refreshReminderBell/);
+});
+
+test('Project shortages live in the reminder bell instead of a large projects card', () => {
+  assert.doesNotMatch(projectsHtml, /data-project-critical-card/);
+  assert.match(communicationsDocsPy, /"shortageAlerts": shortage_alerts/);
+  assert.match(appJs, /Array\.isArray\(notifications\.shortageAlerts\)/);
+  assert.match(appJs, /reminderShortageText\(shortage\)/);
+  assert.doesNotMatch(appJs, /items\.slice\(0, 20\)/);
 });
 
 test('Employee contacts are visible while team and access mutations stay role-protected', () => {

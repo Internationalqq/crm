@@ -23,7 +23,15 @@ const calendarPanelBlock = planningJs.slice(
   calendarPanelStart,
   planningJs.indexOf('function ensureProjectScheduleMarketAnalysis', calendarPanelStart),
 );
+const schedulePageDetailsStart = planningJs.indexOf('function renderScheduleProjectDetails');
+const schedulePageDetailsBlock = planningJs.slice(
+  schedulePageDetailsStart,
+  planningJs.indexOf('function renderScheduleProjectCard', schedulePageDetailsStart),
+);
 assert.doesNotMatch(schedulePanelBlock, /data-auto-schedule-open|renderAutoScheduleDrawer/);
+assert.doesNotMatch(schedulePanelBlock, /schedule-project-topbar|schedule-project-topbar-copy/);
+assert.doesNotMatch(schedulePageDetailsBlock, /schedule-project-topbar|schedule-project-topbar-copy/);
+assert.match(schedulePageDetailsBlock, /schedule-project-actions/);
 assert.match(calendarPanelBlock, /renderAutoScheduleDrawer\(project\)/);
 assert.match(calendarPanelBlock, /data-auto-schedule-open/);
 assert.match(calendarPanelBlock, /data-lucide="calendar-cog"/);
@@ -54,8 +62,10 @@ for (const removedListControl of [
   );
 }
 
-assert.match(projectsCss, /\[data-panel="schedule"\] \.schedule-project-topbar/);
+assert.doesNotMatch(projectsCss, /\[data-panel="schedule"\] \.schedule-project-topbar/);
 assert.match(projectsCss, /\[data-panel="schedule"\] \.project-schedule-view-switcher\.market-toolbar/);
+assert.match(projectsCss, /\[data-panel="schedule"\] \.execution-summary/);
+assert.match(projectsCss, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
 assert.match(projectsCss, /\[data-panel="schedule"\] \.estimate-section-progress-split/);
 assert.match(projectsCss, /\.estimate-section-progress-work-only[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(projectsCss, /\.section-schedule-detail-grid\.is-work-only[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
@@ -63,7 +73,7 @@ assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-progress
 assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-progress-value/);
 assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-chevron[\s\S]*?display: none !important/);
 assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-detail-list \.quantity-actual-editor/);
-assert.match(projectsCss, /height: 9px !important/);
+assert.match(projectsCss, /height: 6px !important/);
 
 assert.match(appCss, /ui-projects\.css\?v=[^"\n]*works-only-1/);
 assert.match(baseHtml, /works-only-1/);

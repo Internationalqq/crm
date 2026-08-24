@@ -20,6 +20,7 @@ assert.match(bulkBlock, /updateMaterialScheduleItemDom\(materialItem\.id, checke
 assert.match(appJs, /completeBulkSectionLocally\(scope, checked\);\s*input\.indeterminate = false;\s*updateBulkSectionCheckState\(scope\)/);
 assert.match(appJs, /function workMatchingKeys[\s\S]*?keys\.push\('id\|' \+ String\(item\.id\)\)[\s\S]*?keys\.push\(scheduleWorkKey\(sectionTitle, item\)\)/);
 assert.match(appJs, /renderBulkSectionCheckbox\(projectId, title, 'works', sectionProgress\)/);
+assert.match(appJs, /aria-label="Отметить весь раздел выполненным"/);
 assert.match(planningJs, /renderBulkSectionCheckbox\(project\.id, sectionTitle, 'work', progress\)/);
 assert.match(planningJs, /if \(forcedOpen\) return false;\s*if \(item && \(item\.isCompleted \|\| item\.is_completed\)\) return true/);
 assert.match(planningJs, /entry\.isCompleted = !!isDone/);

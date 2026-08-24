@@ -12,6 +12,7 @@
         user: null,
         currentUser: null,
         projects: [],
+        projectsLoaded: false,
         users: [],
         dailyTasks: [],
         dailyArchive: [],
@@ -1148,37 +1149,25 @@
     }
 
     function bindSidebarControls() {
+        applySidebarLayoutPreference();
         if (document.documentElement.dataset.sidebarControlsBound === '1') return;
         document.documentElement.dataset.sidebarControlsBound = '1';
-        applySidebarLayoutPreference();
-        qsa('[data-menu-toggle]').forEach(function (toggle) {
-            if (toggle.dataset.sidebarControlBound === '1') return;
-            toggle.dataset.sidebarControlBound = '1';
-            toggle.addEventListener('click', function (event) {
+        document.addEventListener('click', function (event) {
+            var menuToggle = event.target && event.target.closest ? event.target.closest('[data-menu-toggle]') : null;
+            var sidebarToggle = event.target && event.target.closest ? event.target.closest('[data-sidebar-toggle]') : null;
+            if (menuToggle) {
                 if (!isMobileSidebarViewport()) return;
                 event.preventDefault();
                 event.stopPropagation();
                 document.body.classList.toggle('menu-open');
                 syncSidebarControls();
-            });
-        });
-        qsa('[data-sidebar-toggle]').forEach(function (toggle) {
-            if (toggle.dataset.sidebarControlBound === '1') return;
-            toggle.dataset.sidebarControlBound = '1';
-            toggle.addEventListener('click', function (event) {
+                return;
+            }
+            if (sidebarToggle) {
                 if (isMobileSidebarViewport()) return;
                 event.preventDefault();
                 event.stopPropagation();
                 toggleDesktopSidebar();
-            });
-        });
-        document.addEventListener('click', function (event) {
-            var menuToggle = event.target && event.target.closest ? event.target.closest('[data-menu-toggle]') : null;
-            var sidebarToggle = event.target && event.target.closest ? event.target.closest('[data-sidebar-toggle]') : null;
-            if (menuToggle) {
-                return;
-            }
-            if (sidebarToggle) {
                 return;
             }
             if (!isMobileSidebarViewport() || !document.body.classList.contains('menu-open')) return;

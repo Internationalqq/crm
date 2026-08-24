@@ -640,6 +640,89 @@ def api_update_finance_entry(handler, path: str) -> None:
     handler.send_json(HTTPStatus.OK, {"ok": True})
 
 
+def api_delete_finance_entry(handler, path: str) -> None:
+    finance_id = parse_path_int(path, 2)
+    if not finance_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_finance_id"})
+        return
+    with db() as con:
+        row = con.execute("SELECT * FROM finance_entries WHERE id = ?", (finance_id,)).fetchone()
+        if not row:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "finance_not_found"})
+            return
+        project_id = int(row["project_id"])
+        user = handler.require_project_access(project_id)
+        if not user:
+            return
+        if not user_can_manage_finances(user):
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        has_allocations = con.execute(
+            "SELECT 1 FROM project_payment_allocations WHERE finance_entry_id = ? LIMIT 1",
+            (finance_id,),
+        ).fetchone()
+        if has_allocations:
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "finance_entry_has_payment_allocations",
+                    "message": (
+                        "Эта операция уже участвует в разнесении и стала частью финансовой истории. "
+                        "Удалить её нельзя — используйте сторно или отмену."
+                    ),
+                },
+            )
+            return
+        if str(row["status"] or "") != "planned" or row["document_id"]:
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "finance_entry_is_not_deletable_draft",
+                    "message": (
+                        "Удалять можно только ошибочный черновик без прикреплённого документа. "
+                        "Согласованные, оплаченные и документально подтверждённые операции "
+                        "сохраняются в истории — используйте отмену или сторно."
+                    ),
+                },
+            )
+            return
+        snapshot = dict(row)
+        try:
+            con.execute("DELETE FROM finance_entries WHERE id = ?", (finance_id,))
+        except sqlite3.IntegrityError as error:
+            if "allocated_finance_entry_cannot_be_deleted" not in str(error):
+                raise
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "finance_entry_has_payment_allocations",
+                    "message": (
+                        "Эта операция уже участвует в разнесении и стала частью финансовой истории. "
+                        "Удалить её нельзя — используйте сторно или отмену."
+                    ),
+                },
+            )
+            return
+        handler.recalc_project_finance_totals(con, project_id)
+        create_audit(
+            con,
+            user["id"],
+            "delete_finance_entry",
+            "finance_entry",
+            finance_id,
+            {
+                "project_id": project_id,
+                "document_preserved": bool(row["document_id"]),
+                "deleted_entry": snapshot,
+            },
+        )
+        con.commit()
+    handler.send_json(
+        HTTPStatus.OK,
+        {"ok": True, "deleted_id": finance_id, "project_id": project_id},
+    )
+
+
 def api_pay_invoice(handler) -> None:
     payer = handler.require_role({"admin", "director"})
     if not payer:

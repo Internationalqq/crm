@@ -518,23 +518,16 @@ body[data-page="schedule"] .schedule-project-body.is-open {
     border-top: 1px solid var(--color-border) !important;
 }
 
-body[data-page="schedule"] .schedule-project-topbar,
-body[data-page="schedule"] .schedule-project-topbar-copy,
 body[data-page="schedule"] .schedule-action-center,
 body[data-page="schedule"] .section-schedule-list,
 body[data-page="schedule"] .schedule-gantt-list {
     gap: var(--space-3) !important;
 }
 
-body[data-page="schedule"] .schedule-project-topbar {
+body[data-page="schedule"] .schedule-project-actions {
+    display: flex;
+    justify-content: flex-end;
     margin-bottom: var(--space-3);
-    padding-bottom: var(--space-3);
-    border-bottom: 1px solid var(--color-border);
-}
-
-body[data-page="schedule"] .schedule-project-topbar h3 {
-    color: var(--color-text) !important;
-    font-size: var(--text-xl) !important;
 }
 
 body[data-page="schedule"] .schedule-object-info {
@@ -1268,6 +1261,10 @@ body[data-page="logs"] .log-form .form-error:empty {
 
     body[data-page="schedule"] .schedule-project-body.is-open {
         padding: var(--space-3) !important;
+    }
+
+    body[data-page="schedule"] .schedule-project-actions .schedule-autoplan-button {
+        width: 100%;
     }
 
     body[data-page="schedule"] .schedule-object-info {

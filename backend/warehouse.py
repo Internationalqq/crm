@@ -5,6 +5,7 @@ import re
 import sqlite3
 import time
 import unicodedata
+import urllib.parse
 from datetime import date, timedelta
 from http import HTTPStatus
 from pathlib import Path

@@ -1,11 +1,11 @@
 <section class="dashboard-hero">
-    <div>
-        <p class="eyebrow">Рабочий центр</p>
-        <h2>PM.bi — панель строительных проектов</h2>
-        <p>Объекты, прогресс, риски, материалы, задачи и свежие события в одном месте.</p>
+    <div class="dashboard-hero-copy">
+        <p class="eyebrow">Стройка под контролем</p>
+        <h2>Управляйте объектами без слепых зон</h2>
+        <p>Прогресс, риски, материалы, задачи и свежие события — одна живая картина по всей стройке.</p>
     </div>
     <div class="hero-actions">
-        <a class="primary" href="/app/projects"><i data-lucide="building-2" aria-hidden="true"></i><span>Открыть объекты</span></a>
+        <a class="primary" href="/app/projects"><i data-lucide="building-2" aria-hidden="true"></i><span>Перейти к объектам</span></a>
         <a class="ghost" href="/app/logs"><i data-lucide="clipboard-list" aria-hidden="true"></i><span>Журнал работ</span></a>
         <a class="ghost" href="/app/warehouse"><i data-lucide="warehouse" aria-hidden="true"></i><span>Склад</span></a>
     </div>
@@ -62,11 +62,28 @@
     </div>
 
     <aside class="dashboard-side">
+        <section class="dashboard-autobot-card hidden" data-nav="autobot">
+            <div class="dashboard-autobot-content">
+                <span class="dashboard-autobot-kicker"><i data-lucide="sparkles" aria-hidden="true"></i>AI · закупки</span>
+                <h3>AutoBot знает рынок стройматериалов</h3>
+                <p>Разбирает сметы, находит тендеры и сравнивает цены — пока команда ведёт объект.</p>
+                <div class="dashboard-autobot-tags" aria-label="Возможности AutoBot">
+                    <span>Тендеры</span>
+                    <span>Сметы</span>
+                    <span>Цены</span>
+                </div>
+                <a class="dashboard-autobot-cta" href="/app/autobot">
+                    <span>Запустить AutoBot</span>
+                    <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+                </a>
+            </div>
+        </section>
+
         <section class="card accent-card">
             <div class="card-head">
                 <div>
-                    <span class="section-label">AI-помощник</span>
-                    <h3><i data-lucide="sparkles" aria-hidden="true"></i><span>Что сделать сегодня</span></h3>
+                    <span class="section-label">Оперативная сводка</span>
+                    <h3><i data-lucide="target" aria-hidden="true"></i><span>Фокус на сегодня</span></h3>
                 </div>
             </div>
             <div class="action-list" data-dashboard-actions>

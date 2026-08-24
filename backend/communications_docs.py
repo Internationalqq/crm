@@ -285,6 +285,40 @@ def api_project_notifications(handler, path: str) -> None:
         if status_code == "blocked" or (planned_end and planned_end < today and progress < 100):
             problem_stages.append(item)
     procurement = build_procurement_alerts(materials, stage_rows, today_date, section_start_dates) if user["role"] != "customer" else {"items": [], "summary": {"critical": 0, "soon": 0, "watch": 0}}
+    shortage_alerts = []
+    for material in materials:
+        if normalize_estimate_item_kind(material.get("itemKind")) == "work":
+            continue
+        missing_qty = float(material.get("missingQty") or 0)
+        if missing_qty <= 0:
+            continue
+        work_date = str(
+            material.get("stageStartDate")
+            or material.get("needByDate")
+            or material.get("stageEndDate")
+            or ""
+        )
+        parsed_work_date = parse_iso_date(work_date)
+        shortage_alerts.append(
+            {
+                "materialId": int(material.get("id") or 0),
+                "title": str(material.get("title") or ""),
+                "unit": str(material.get("unit") or ""),
+                "missingQty": missing_qty,
+                "sectionTitle": str(material.get("sectionTitle") or ""),
+                "stageTitle": str(material.get("stageTitle") or ""),
+                "needByDate": str(material.get("needByDate") or ""),
+                "workDate": work_date,
+                "daysUntilWork": (parsed_work_date - today_date).days if parsed_work_date else None,
+            }
+        )
+    shortage_alerts.sort(
+        key=lambda item: (
+            item["daysUntilWork"] is None,
+            item["daysUntilWork"] if item["daysUntilWork"] is not None else 10**9,
+            item["title"],
+        )
+    )
     data = {
         "today": today,
         "missingDailyReport": False if user["role"] == "customer" else not bool(latest_log and latest_log["report_date"] == today),
@@ -293,6 +327,7 @@ def api_project_notifications(handler, path: str) -> None:
         "dueSoonTasks": due_soon_tasks[:8],
         "blockerLogs": [dict(row) for row in blocker_logs],
         "problemStages": problem_stages[:8],
+        "shortageAlerts": shortage_alerts,
         "procurementAlerts": procurement["items"],
         "procurementSummary": procurement["summary"],
     }
@@ -863,6 +898,7 @@ def api_delete_daily_log(handler, path: str) -> None:
                         "project_id": project_id,
                         "title": log_row["title"],
                         "report_date": log_row["report_date"],
+                        "deleted_log": dict(log_row),
                     },
                     ensure_ascii=False,
                 ),

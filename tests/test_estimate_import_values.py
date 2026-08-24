@@ -53,6 +53,32 @@ class EstimateImportValueTests(unittest.TestCase):
         self.assertAlmostEqual(qty, 17.1)
         self.assertAlmostEqual(price, 5062.25)
 
+    def test_order_of_magnitude_mismatch_requires_review(self) -> None:
+        issue = server.estimate_item_value_issue(
+            {
+                "title": "Позиция из сметы Чебаркуля",
+                "quantity": 256,
+                "unit_price_rub": 202999.3945,
+                "price_from_estimate_rub": 519678.45,
+            },
+            7,
+        )
+
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["position"], 7)
+        self.assertAlmostEqual(issue["factor"], 100.0, places=4)
+
+    def test_small_rounding_difference_does_not_block_import(self) -> None:
+        issue = server.estimate_item_value_issue(
+            {
+                "quantity": 3,
+                "unit_price_rub": 100.01,
+                "price_from_estimate_rub": 300.0,
+            }
+        )
+
+        self.assertIsNone(issue)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,7 +13,7 @@ const css = read('frontend/assets/css/procurement.css');
 const server = read('backend/server.py');
 const auth = read('backend/auth.py');
 
-assert.match(projectsPage, /data-tab="estimate-reconciliation"[^>]*><i data-lucide="clipboard-check"[^>]*><\/i><span>Сверка сметы<\/span>/);
+assert.match(projectsPage, /data-tab="estimate-reconciliation"[^>]*><i data-lucide="clipboard-check"[^>]*><\/i><span><b>Сверка сметы<\/b>/);
 assert.match(projectsPage, /data-panel="estimate-reconciliation"/);
 assert.match(router, /estimate_reconciliation:\s*'\/assets\/js\/estimate-reconciliation\.js/);
 assert.match(router, /projects:\s*\[[^\]]*'estimate_reconciliation'/);

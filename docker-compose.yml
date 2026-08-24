@@ -47,6 +47,7 @@ services:
     environment:
       WEB_UI_HOST: 0.0.0.0
       WEB_UI_PORT: 8765
+      WEB_UI_MAX_UPLOAD_MB: ${WEB_UI_MAX_UPLOAD_MB:-100}
       PMBI_CRM_URL: http://crm:8080
       PMBI_PUBLIC_BASE_URL: ${PMBI_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
       PMBI_CRM_PUBLIC_URL: ${PMBI_CRM_PUBLIC_URL:-}
