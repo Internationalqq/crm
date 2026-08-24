@@ -80,6 +80,7 @@ assert.match(operationsJs, /data-report-create-selected/);
 assert.match(operationsJs, /aria-pressed=/);
 assert.match(operationsJs, /aria-current="date"/);
 assert.match(operationsJs, /projectReportCalendarCountLabel/);
+assert.match(operationsJs, /typeof PMBI\.isCurrentProject === 'function'/);
 assert.match(operationsJs, /class="report-calendar-month-copy"/);
 assert.match(operationsJs, /class="report-calendar-nav-mark"/);
 assert.match(operationsJs, /classes\.push\('is-weekend'\)/);
@@ -167,5 +168,6 @@ assert.match(routerJs, /app\.js\?v=[^']*report-refresh-8/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-9/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-apple-10/);
 assert.match(routerJs, /app\.js\?v=[^']*report-calendar-bridge-11/);
+assert.match(routerJs, /operations\.js\?v=[^']*report-load-12/);
 
 console.log('project_reports_frontend_ok');

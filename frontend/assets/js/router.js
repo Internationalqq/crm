@@ -22,7 +22,7 @@
         estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260821-estimate-reconciliation-1-crm-skeletons-1',
         warehouse_control: '/assets/js/warehouse-control.js?v=20260824-object-inventory-register-2-dialogs-3-portal-a11y-4',
         economics_management: '/assets/js/economics-management.js?v=20260821-economics-workspace-1-crm-skeletons-1-finance-workspace-1',
-        operations: '/assets/js/operations.js?v=20260820-project-navigation-1-price-table-1-crm-skeletons-1-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-report-submit-fix-6-object-control-1-reports-wording-7-report-refresh-8-report-calendar-9-report-calendar-apple-10'
+        operations: '/assets/js/operations.js?v=20260820-project-navigation-1-price-table-1-crm-skeletons-1-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-report-submit-fix-6-object-control-1-reports-wording-7-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-load-12'
     };
 
     var PAGE_MODULES = {

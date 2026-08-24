@@ -96,7 +96,12 @@
     function stat() { return appCall('stat', arguments); }
     function statusLabel() { return appCall('statusLabel', arguments); }
     function beginProjectLoading() { return appCall('beginProjectLoading', arguments); }
-    function isCurrentProject() { return appCall('isCurrentProject', arguments); }
+    function isCurrentProject() {
+        if (typeof PMBI.isCurrentProject === 'function') {
+            return PMBI.isCurrentProject.apply(PMBI, arguments);
+        }
+        return appCall('isCurrentProject', arguments);
+    }
     function openSideDrawer() { return appCall('openSideDrawer', arguments); }
     function closeSideDrawer() { return appCall('closeSideDrawer', arguments); }
     function ensureSideDrawerFromCard() { return appCall('ensureSideDrawerFromCard', arguments); }
