@@ -202,8 +202,14 @@
         root.dataset.autobotBound = '1';
         frame.dataset.autobotReady = '0';
         frameMessageHandler = function (event) {
-            if (event.source !== frame.contentWindow || !event.data || event.data.type !== 'autobot:feature-modal') return;
-            document.body.classList.toggle('autobot-modal-open', event.data.open === true);
+            if (event.source !== frame.contentWindow || !event.data) return;
+            if (event.data.type === 'autobot:feature-modal') {
+                document.body.classList.toggle('autobot-modal-open', event.data.open === true);
+                return;
+            }
+            if (event.data.type === 'autobot:scroll') {
+                document.body.classList.toggle('autobot-topbar-hidden', event.data.scrolled === true);
+            }
         };
         window.addEventListener('message', frameMessageHandler);
         frame.addEventListener('load', function () { handleFrameLoad(root, frame); });
@@ -234,7 +240,7 @@
             window.removeEventListener('message', frameMessageHandler);
             frameMessageHandler = null;
         }
-        document.body.classList.remove('autobot-modal-open');
+        document.body.classList.remove('autobot-modal-open', 'autobot-topbar-hidden');
     }
 
     PMBI.autobot = { __loaded: true, init: init, cleanup: cleanup };

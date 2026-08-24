@@ -34,9 +34,24 @@ body[data-page="autobot"] main.content {
 }
 
 body[data-page="autobot"].autobot-topbar-hidden .topbar {
-    transform: none !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
+    display: none !important;
+}
+
+body[data-page="autobot"].autobot-topbar-hidden .main {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+body[data-page="autobot"].autobot-topbar-hidden .autobot-workspace-head {
+    display: none !important;
+}
+
+body[data-page="autobot"].autobot-topbar-hidden main.content {
+    padding: 0 18px 18px !important;
+}
+
+body[data-page="autobot"].autobot-topbar-hidden .autobot-stage {
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
 }
 
 /* A feature dialog inside AutoBot receives the whole viewport, not a cropped iframe. */
@@ -356,6 +371,11 @@ body[data-page="autobot"] .autobot-offline-actions a {
 
     body[data-page="autobot"] .autobot-stage {
         gap: 9px;
+    }
+
+    body[data-page="autobot"].autobot-topbar-hidden main.content {
+        height: 100dvh;
+        padding: 0 !important;
     }
 
     body[data-page="autobot"] .autobot-heading-icon {

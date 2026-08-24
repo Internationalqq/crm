@@ -36,8 +36,11 @@ assert(css.includes('grid-template-rows: auto minmax(0, 1fr)'), 'workspace must 
 assert(css.includes('position: static !important'), 'CRM topbar must not stay pinned over AutoBot');
 assert(css.includes('body[data-page="autobot"].autobot-modal-open .topbar'), 'feature modals must reclaim the CRM topbar space');
 assert(css.includes('body[data-page="autobot"].autobot-modal-open .autobot-workspace-head'), 'feature modals must reclaim the workspace heading space');
-assert(script.includes("event.data.type !== 'autobot:feature-modal'"), 'AutoBot frame messages must control modal workspace mode');
+assert(script.includes("event.data.type === 'autobot:feature-modal'"), 'AutoBot frame messages must control modal workspace mode');
 assert(script.includes("classList.toggle('autobot-modal-open'"), 'modal workspace mode must be reflected on the CRM body');
+assert(script.includes("event.data.type === 'autobot:scroll'"), 'AutoBot frame scroll messages must be handled');
+assert(script.includes("classList.toggle('autobot-topbar-hidden'"), 'scrolling AutoBot must release the CRM header space');
+assert(css.includes('body[data-page="autobot"].autobot-topbar-hidden .autobot-workspace-head'), 'scrolling AutoBot must release the workspace heading space');
 assert(css.includes('@media (max-width: 720px)'), 'workspace must include a mobile layout');
 assert(css.includes('@media (prefers-reduced-motion: reduce)'), 'workspace must respect reduced-motion preferences');
 
