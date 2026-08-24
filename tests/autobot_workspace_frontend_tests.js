@@ -27,6 +27,10 @@ assert(script.includes("frame.addEventListener('load'"), 'AutoBot module must re
 assert(script.includes("frame.addEventListener('error'"), 'AutoBot module must react to a frame error');
 assert(script.includes('12000'), 'AutoBot module must expose an offline state after a bounded wait');
 assert(script.includes("searchParams.set('_pmbi_reload'"), 'reload must bypass a stale iframe response');
+assert(script.includes("base + '/healthz'"), 'iframe readiness must be verified through the AutoBot health endpoint');
+assert(script.includes('checkAutobotHealth(root)'), 'a frame load alone must not be treated as a healthy AutoBot');
+assert(script.includes('scheduleRetry(root, frame)'), 'AutoBot must retry automatically after a deploy-time outage');
+assert(script.includes('Math.min(10000'), 'automatic retries must use bounded backoff');
 
 assert(css.includes('grid-template-rows: auto minmax(0, 1fr)'), 'workspace must reserve the remaining viewport for AutoBot');
 assert(css.includes('position: static !important'), 'CRM topbar must not stay pinned over AutoBot');
