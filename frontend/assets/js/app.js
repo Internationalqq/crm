@@ -17,6 +17,7 @@
     var loadCurrentUser = PMBI.loadCurrentUser;
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
+    var bindHorizontalWheelScroll = PMBI.bindHorizontalWheelScroll;
     var safeReplaceChildren = PMBI.safeReplaceChildren;
     var showSkeleton = PMBI.showSkeleton;
     var refreshLucideIcons = PMBI.refreshLucideIcons;
@@ -82,6 +83,9 @@
     var canManageSuppliers = PMBI.canManageSuppliers;
     var canManageDocuments = PMBI.canManageDocuments;
     var canManageSchedule = PMBI.canManageSchedule;
+    function canApplyDailyReportMaterialActions() {
+        return !!(canManageSchedule && canManageSchedule()) || hasRole('purchaser');
+    }
     var nextPath = PMBI.nextPath;
     var userInitials = PMBI.userInitials;
     var readStoredJson = (window.PMBI.core && window.PMBI.core.readStoredJson) || window.readStoredJson || PMBI.readStoredJson;
@@ -462,6 +466,7 @@
         bindLogoutButtons();
 
         initAiAssistant();
+        initPositionEditor();
 
         qsa('[data-placeholder-form]').forEach(function (form) {
             form.addEventListener('submit', function (event) {
@@ -633,6 +638,23 @@
         qsa('[data-foreman-hidden]', root).forEach(function (node) {
             node.classList.toggle('hidden', isForemanRole());
         });
+        qsa('[data-project-quick-action]', root).forEach(function (node) {
+            var action = node.dataset.projectQuickAction || '';
+            var visible = true;
+            if (action === 'report') visible = !hasRole('customer');
+            if (action === 'document') visible = canManageDocuments();
+            if (action === 'material') visible = canManageSchedule();
+            if (action === 'task') visible = canCreateProjectTask();
+            if (action === 'invoice') visible = canSeeFinances();
+            node.classList.toggle('hidden', !visible);
+            node.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        });
+        qsa('.project-mobile-capture, .project-add-menu', root).forEach(function (container) {
+            var hasVisibleAction = qsa('[data-project-quick-action]', container).some(function (node) {
+                return !node.classList.contains('hidden');
+            });
+            container.classList.toggle('hidden', !hasVisibleAction);
+        });
         syncProjectTabVisibility(root);
     }
 
@@ -662,11 +684,18 @@
     function initPage() {
         if (page === 'dashboard') initDashboardPage();
         if (page === 'daily_tasks') initDailyTasksPage();
-        if (page === 'projects') loadUserDirectory(function () {
+        if (page === 'projects') {
+            // The project itself is the critical path for notification deep links.
+            // Directory and dashboard data are independent and can finish in the background.
+            loadUserDirectory(function () {});
             loadProjects(function () {
-                loadDashboard(renderProjectsPage);
+                renderProjectsPage();
+                loadDashboard(function () {
+                    renderProjectStats();
+                    renderProjectCritical();
+                });
             });
-        });
+        }
         if (page === 'warehouse') loadProjects(renderWarehousePage);
         if (page === 'suppliers') loadProjects(initSuppliersPage);
         if (page === 'schedule') loadProjects(renderSchedulePage);
@@ -958,8 +987,13 @@
         try {
             var closeParams = new URLSearchParams(location.search);
             closeParams.delete('openProject');
+            closeParams.delete('materialId');
+            closeParams.delete('workId');
+            closeParams.delete('stageId');
+            closeParams.delete('sectionTitle');
             var closeQuery = closeParams.toString();
             history.replaceState(null, '', location.pathname + (closeQuery ? '?' + closeQuery : ''));
+            syncRouterLocation();
         } catch (error) {}
     }
 
@@ -983,20 +1017,28 @@
         var tab = qs('[data-tab="' + tabName + '"]', root);
         var panel = qs('[data-panel="' + tabName + '"]', root);
         if (!tab || !panel) return;
-        qsa('[data-tab]', root).forEach(function (node) { node.classList.remove('active'); });
+        qsa('[data-tab]', root).forEach(function (node) {
+            node.classList.remove('active');
+            node.removeAttribute('aria-current');
+        });
         qsa('[data-panel]', root).forEach(function (node) {
             var active = node === panel;
             node.classList.toggle('active', active);
             node.hidden = !active;
         });
         tab.classList.add('active');
+        tab.setAttribute('aria-current', 'page');
         panel.hidden = false;
+        if (typeof tab.scrollIntoView === 'function') {
+            try { tab.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }); } catch (scrollError) {}
+        }
         qsa('.project-detail-nav details[open]', root).forEach(function (menu) { menu.open = false; });
         try {
             var tabParams = new URLSearchParams(location.search);
             if (tabName === 'overview') tabParams.delete('tab');
             else tabParams.set('tab', tabName);
             history.replaceState(null, '', location.pathname + (tabParams.toString() ? ('?' + tabParams.toString()) : ''));
+            syncRouterLocation();
         } catch (historyError) {}
         if (tabName === 'finance' && canSeeFinances() && state.selectedProject) {
             loadProjectFinances(state.selectedProject.id, state.projectLoadingToken);
@@ -1013,6 +1055,7 @@
         if (tabName === 'warehouse-control' && PMBI.warehouseControl && typeof PMBI.warehouseControl.loadSelectedProject === 'function') {
             PMBI.warehouseControl.loadSelectedProject(false).catch(function () {});
         }
+        if (state.selectedProject) focusProjectDeepLink(state.selectedProject.id);
     }
 
     function isProjectTabHidden(tabName) {
@@ -1052,7 +1095,9 @@
     function bindProjectTabClicks() {
         var detail = qs('[data-project-detail]');
         var tabsRoot = detail && qs('.project-detail-nav', detail);
-        if (!tabsRoot || tabsRoot.dataset.projectTabsBound === '1') return;
+        if (!tabsRoot) return;
+        if (bindHorizontalWheelScroll) bindHorizontalWheelScroll(qs('.project-tab-cluster > .tabs', tabsRoot));
+        if (tabsRoot.dataset.projectTabsBound === '1') return;
         tabsRoot.dataset.projectTabsBound = '1';
         tabsRoot.addEventListener('click', function (event) {
             var button = event.target && event.target.closest('[data-tab]');
@@ -1608,6 +1653,15 @@
         });
     }
 
+    function refreshOpenReportPreviewsForProject(projectId) {
+        qsa('[data-log-form]').forEach(function (form) {
+            var projectControl = form.elements && form.elements.namedItem ? form.elements.namedItem('project_id') : null;
+            var rawInput = form.elements && form.elements.namedItem ? form.elements.namedItem('raw_input') : null;
+            if (Number(projectControl && projectControl.value || 0) !== Number(projectId) || !rawInput || !rawInput.value.trim()) return;
+            rawInput.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
     function loadMaterials(projectId, callback) {
         if (state.materialsByProject[projectId]) {
             callback(state.materialsByProject[projectId]);
@@ -1616,6 +1670,7 @@
         api('/api/projects/' + projectId + '/materials-summary').then(function (data) {
             var items = Array.isArray(data.items) ? data.items : [];
             state.materialsByProject[projectId] = items;
+            refreshOpenReportPreviewsForProject(projectId);
             callback(items);
         }).catch(function () {
             callback([]);
@@ -4642,6 +4697,43 @@ function renderLogsDayView(project, logs) {
         return sentences.length ? sentences.join(' ') : reportSentence(rawText);
     }
 
+    function buildProjectReportTextFromMatches(text, workMatches, materialMatches) {
+        workMatches = Array.isArray(workMatches) ? workMatches : [];
+        materialMatches = Array.isArray(materialMatches) ? materialMatches : [];
+        var generatedParts = [];
+        var completedWorks = workMatches.filter(function (entry) { return entry.done; });
+        var partialWorks = workMatches.filter(function (entry) { return entry.partial; });
+        var purchasedMaterials = materialMatches.filter(function (entry) { return entry.purchasedQty > 0; });
+        var receivedMaterials = materialMatches.filter(function (entry) { return entry.receivedQty > 0; });
+        var usedMaterials = materialMatches.filter(function (entry) { return entry.usedQty > 0; });
+        if (completedWorks.length) {
+            generatedParts.push('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b \u0440\u0430\u0431\u043e\u0442\u044b: ' + completedWorks.map(function (entry) {
+                return entry.item.title;
+            }).join(', ') + '.');
+        }
+        if (partialWorks.length) {
+            generatedParts.push('\u0427\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b: ' + partialWorks.map(function (entry) {
+                return entry.item.title;
+            }).join(', ') + '.');
+        }
+        if (purchasedMaterials.length) {
+            generatedParts.push('\u0417\u0430\u043a\u0430\u0437\u0430\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b: ' + purchasedMaterials.map(function (entry) {
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + quantityPlanInfo(entry.item).unit;
+            }).join(', ') + '.');
+        }
+        if (receivedMaterials.length) {
+            generatedParts.push('\u041f\u0440\u0438\u043d\u044f\u0442\u044b \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435: ' + receivedMaterials.map(function (entry) {
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.receivedQty) + ' ' + quantityPlanInfo(entry.item).unit;
+            }).join(', ') + '.');
+        }
+        if (usedMaterials.length) {
+            generatedParts.push('\u0412 \u0440\u0430\u0431\u043e\u0442\u0443/\u043c\u043e\u043d\u0442\u0430\u0436 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u044b: ' + usedMaterials.map(function (entry) {
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + quantityPlanInfo(entry.item).unit;
+            }).join(', ') + '.');
+        }
+        return buildReadableProjectReportText(text, generatedParts);
+    }
+
     function buildProjectReportDraft(projectId, payload) {
         var text = String(payload && payload.raw_input || '').trim() || String(payload && payload.work_done || '').trim();
         var clauses = reportTextClauses(text);
@@ -4658,18 +4750,30 @@ function renderLogsDayView(project, logs) {
                 }
             });
 
-            materialCandidatesForProject(projectId).forEach(function (candidate) {
-                var result = reportMaterialResultFromClause(clause, candidate);
-                if (!result) return;
+            var clauseMaterialMatches = materialCandidatesForProject(projectId).map(function (candidate) {
+                return reportMaterialResultFromClause(clause, candidate);
+            }).filter(Boolean);
+            var bestMaterialScore = clauseMaterialMatches.reduce(function (score, result) {
+                return Math.max(score, Number(result.score || 0));
+            }, 0);
+            var bestMaterialMatches = clauseMaterialMatches.filter(function (result) {
+                return Number(result.score || 0) === bestMaterialScore;
+            });
+            bestMaterialMatches.forEach(function (result) {
                 var materialId = Number(result.item.id);
                 if (!materialMatchesMap[materialId]) {
                     materialMatchesMap[materialId] = {
                         item: result.item,
                         purchasedQty: 0,
+                        receivedQty: 0,
                         usedQty: 0
                     };
                 }
+                result.ambiguous = bestMaterialMatches.length > 1;
+                materialMatchesMap[materialId].ambiguous = !!(materialMatchesMap[materialId].ambiguous || result.ambiguous);
+                materialMatchesMap[materialId].actionEligible = !!(materialMatchesMap[materialId].actionEligible || result.actionEligible);
                 materialMatchesMap[materialId].purchasedQty += Number(result.purchasedQty || 0);
+                materialMatchesMap[materialId].receivedQty += Number(result.receivedQty || 0);
                 materialMatchesMap[materialId].usedQty += Number(result.usedQty || 0);
             });
         });
@@ -4679,40 +4783,21 @@ function renderLogsDayView(project, logs) {
             var entry = materialMatchesMap[key];
             var planned = quantityPlanInfo(entry.item).totalQty;
             if (planned > 0) {
-                entry.purchasedQty = Math.min(planned, entry.purchasedQty);
-                entry.usedQty = Math.min(planned, entry.usedQty);
+                var alreadyPurchased = Number(entry.item.purchasedQty || entry.item.purchased_qty || 0);
+                var alreadyReceived = Number(entry.item.receivedQty || entry.item.received_qty || 0);
+                var alreadyUsed = Number(entry.item.usedQty || entry.item.used_qty || 0) + Number(entry.item.writeoffQty || entry.item.writeoff_qty || 0);
+                entry.purchaseMaxQty = Math.max(planned - Math.max(alreadyPurchased, alreadyReceived), 0);
+                entry.receiptMaxQty = Math.max(planned - alreadyReceived, 0);
+                entry.useMaxQty = Math.max(Number(entry.item.stockBalanceQty != null ? entry.item.stockBalanceQty : (alreadyReceived - alreadyUsed)) || 0, 0);
+                entry.purchasedQty = Math.min(entry.purchaseMaxQty, entry.purchasedQty);
+                entry.receivedQty = Math.min(entry.receiptMaxQty, entry.receivedQty);
+                entry.usedQty = Math.min(entry.useMaxQty, entry.usedQty);
             }
             return entry;
         });
 
-        var generatedParts = [];
-        var completedWorks = workMatches.filter(function (entry) { return entry.done; });
-        var partialWorks = workMatches.filter(function (entry) { return entry.partial; });
-        var purchasedMaterials = materialMatches.filter(function (entry) { return entry.purchasedQty > 0; });
-        var usedMaterials = materialMatches.filter(function (entry) { return entry.usedQty > 0; });
-        if (completedWorks.length) {
-            generatedParts.push('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b \u0440\u0430\u0431\u043e\u0442\u044b: ' + completedWorks.map(function (entry) {
-                return entry.item.title;
-            }).join(', ') + '.');
-        }
-        if (partialWorks.length) {
-            generatedParts.push('\u0427\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b: ' + partialWorks.map(function (entry) {
-                return entry.item.title;
-            }).join(', ') + '.');
-        }
-        if (purchasedMaterials.length) {
-            generatedParts.push('\u0417\u0430\u043a\u0443\u043f\u043b\u0435\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b: ' + purchasedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + quantityPlanInfo(entry.item).unit;
-            }).join(', ') + '.');
-        }
-        if (usedMaterials.length) {
-            generatedParts.push('\u0412 \u0440\u0430\u0431\u043e\u0442\u0443/\u043c\u043e\u043d\u0442\u0430\u0436 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u044b: ' + usedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + quantityPlanInfo(entry.item).unit;
-            }).join(', ') + '.');
-        }
-
         return {
-            text: buildReadableProjectReportText(text, generatedParts),
+            text: buildProjectReportTextFromMatches(text, workMatches, materialMatches),
             workMatches: workMatches,
             materialMatches: materialMatches
         };
@@ -5154,13 +5239,18 @@ function renderLogsDayView(project, logs) {
             var openProjectId = Number(params.get('openProject') || 0);
             var openProjectTab = params.get('tab') || '';
             if (params.get('materialId')) openProjectTab = 'warehouse-control';
-            if (openProjectId && (!state.selectedProject || Number(state.selectedProject.id) !== openProjectId)) {
+            var projectDetailRoot = qs('[data-project-detail]');
+            var selectedProjectMatches = !!(state.selectedProject && Number(state.selectedProject.id) === openProjectId);
+            if (openProjectId && (!selectedProjectMatches || !projectDetailRoot || projectDetailRoot.hidden)) {
                 var matched = (state.projects || []).some(function (project) { return Number(project.id) === openProjectId; });
                 if (matched) {
                     openProject(openProjectId);
                     if (openProjectTab) activateProjectTab(openProjectTab);
                 }
+            } else if (openProjectId && openProjectTab) {
+                activateProjectTab(openProjectTab);
             }
+            if (openProjectId) focusProjectDeepLink(openProjectId);
         } catch (error) {
             console.error('renderProjectsPage failed', error);
             renderProjectList(Array.isArray(state.projects) ? state.projects : []);
@@ -5349,7 +5439,8 @@ function renderLogsDayView(project, logs) {
             requestedMaterialId = params.get('materialId') || '';
             params.set('openProject', String(projectId));
             if (requestedMaterialId) params.set('tab', 'warehouse-control');
-            history.replaceState(null, '', location.pathname + '?' + params.toString());
+            history.replaceState(null, '', location.pathname + '\u003f' + params.toString());
+            syncRouterLocation();
         } catch (historyError) {}
         function panel(name) { return qs('[data-panel="' + name + '"]'); }
         state.selectedProject = project;
@@ -5383,6 +5474,7 @@ function renderLogsDayView(project, logs) {
             bindProjectMarketToggles(project.id);
             bindProjectChainActions();
             if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(project.id);
+            focusProjectDeepLink(project.id);
         }
         function queueScheduleRender(stages) {
             if (scheduleRenderTimer) clearTimeout(scheduleRenderTimer);
@@ -5433,12 +5525,6 @@ function renderLogsDayView(project, logs) {
                     return match ? Object.assign({}, item, { warehouseMatch: match }) : item;
                 });
                 queueScheduleRender(state.stagesByProject[project.id] || []);
-                if (requestedMaterialId) setTimeout(function () {
-                    if (!isCurrentProject(project.id, loadingToken) || !PMBI.warehouseControl) return;
-                    PMBI.warehouseControl.load(project.id, false).then(function () {
-                        PMBI.warehouseControl.focusMaterial(requestedMaterialId, project.id);
-                    }).catch(function () {});
-                }, 180);
             });
         });
         loadMaterialInsights(project.id, function (insights) {
@@ -6166,8 +6252,15 @@ function renderLogsDayView(project, logs) {
 
     function reportHasPurchaseIntent(text) {
         return clauseHasAnyStem(text, [
-            'куп', 'закуп', 'зака', 'заве', 'дост', 'полу', 'прив', 'приобр',
-            'РєСѓРї', 'Р·Р°РєСѓ', 'Р·Р°РєР°', 'Р·Р°РІРµ', 'РґРѕСЃС‚', 'РїРѕР»Сѓ', 'РїСЂРёРІ'
+            'куп', 'закуп', 'зака', 'приобр',
+            'РєСѓРї', 'Р·Р°РєСѓ', 'Р·Р°РєР°'
+        ]);
+    }
+
+    function reportHasReceiptIntent(text) {
+        return clauseHasAnyStem(text, [
+            'заве', 'дост', 'полу', 'прив', 'приня', 'поставк', 'отгруз',
+            'Р·Р°РІРµ', 'РґРѕСЃС‚', 'РїРѕР»Сѓ', 'РїСЂРёРІ'
         ]);
     }
 
@@ -6239,18 +6332,33 @@ function renderLogsDayView(project, logs) {
         var needed = candidate.tokens.length >= 4 ? 2 : 1;
         if (score < needed) return null;
         var normalized = normalizeReportText(clauseText);
-        var qty = reportQuantityFromClause(clauseText, candidate.item);
-        var planned = Number(candidate.item.plannedQty || candidate.item.planned_qty || 0);
+        var item = candidate.item;
+        var qty = reportQuantityFromClause(clauseText, item);
+        var planned = Number(item.plannedQty || item.planned_qty || 0);
+        var purchasedAlready = Number(item.purchasedQty || item.purchased_qty || 0);
+        var receivedAlready = Number(item.receivedQty || item.received_qty || 0);
+        var usedAlready = Number(item.usedQty || item.used_qty || 0) + Number(item.writeoffQty || item.writeoff_qty || 0);
+        var toOrder = Math.max(planned - Math.max(purchasedAlready, receivedAlready), 0);
+        var toReceive = Math.max(Math.max(planned, purchasedAlready) - receivedAlready, 0);
+        var onSite = Math.max(Number(item.stockBalanceQty != null ? item.stockBalanceQty : (receivedAlready - usedAlready)) || 0, 0);
         var purchase = reportHasPurchaseIntent(normalized);
+        var receipt = reportHasReceiptIntent(normalized);
         var used = reportHasUseIntent(normalized);
-        if (!purchase && !used) used = true;
-        if (!qty && planned > 0 && reportHasPartialIntent(normalized)) qty = planned * 0.5;
-        if (!qty && planned > 0 && reportHasWholeIntent(normalized)) qty = planned;
+        if (receipt && /поставк|отгруз/.test(normalized)) used = false;
+        if (!qty && purchase) qty = toOrder;
+        if (!qty && receipt) qty = toReceive;
+        if (!qty && used && reportHasWholeIntent(normalized)) qty = onSite;
+        var purchasedQty = purchase ? Math.min(qty, planned > 0 ? toOrder : qty) : 0;
+        var receivedQty = receipt ? Math.min(qty, (planned > 0 || purchasedAlready > 0) ? toReceive : qty) : 0;
+        var usedQty = used ? Math.min(qty, onSite || qty) : 0;
         return {
-            item: candidate.item,
+            item: item,
             score: score,
-            purchasedQty: purchase ? qty : 0,
-            usedQty: used ? qty : 0
+            clauseText: clauseText,
+            actionEligible: purchase || receipt || used,
+            purchasedQty: purchasedQty,
+            receivedQty: receivedQty,
+            usedQty: usedQty
         };
     }
 
@@ -6362,6 +6470,53 @@ function renderLogsDayView(project, logs) {
             var workDone = form.work_done;
             var rawInput = form.raw_input;
             var titleInput = form.title;
+            var activeDraft = null;
+            var activeRawText = '';
+            function syncReportTextFromEffectQuantities() {
+                if (!previewRoot || !activeDraft) return;
+                qsa('[data-report-effect]', previewRoot).forEach(function (input) {
+                    var materialId = Number(input.getAttribute('data-item-id') || 0);
+                    var kind = input.getAttribute('data-effect-kind') || '';
+                    var card = input.closest ? input.closest('.report-effect-card') : null;
+                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+                    var qty = Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0);
+                    var entry = (activeDraft.materialMatches || []).find(function (candidate) {
+                        return Number(candidate && candidate.item && candidate.item.id || 0) === materialId;
+                    });
+                    if (!entry || !isFinite(qty) || qty < 0) return;
+                    if (kind === 'material_purchase') entry.purchasedQty = qty;
+                    if (kind === 'material_receipt') entry.receivedQty = qty;
+                    if (kind === 'material_use') entry.usedQty = qty;
+                });
+                activeDraft.text = buildProjectReportTextFromMatches(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
+                if (workDone) workDone.value = activeRawText ? activeDraft.text : '';
+                var textNode = qs('[data-report-preview-text]', previewRoot);
+                if (textNode) textNode.textContent = activeDraft.text || 'Текст появится после ввода.';
+            }
+            function refreshEffectsSummary() {
+                if (!previewRoot) return;
+                syncReportTextFromEffectQuantities();
+                qsa('[data-report-effect]', previewRoot).forEach(function (input) {
+                    var card = input.closest ? input.closest('.report-effect-card') : null;
+                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+                    if (qtyInput) qtyInput.disabled = !input.checked;
+                });
+                var count = qsa('[data-report-effect]:checked', previewRoot).filter(function (input) {
+                    var card = input.closest ? input.closest('.report-effect-card') : null;
+                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+                    return Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0) > 0;
+                }).length;
+                var summary = qs('[data-report-effects-summary]', previewRoot);
+                var titleNode = qs('[data-report-effects-title]', previewRoot);
+                var noteNode = qs('[data-report-effects-note]', previewRoot);
+                if (titleNode) titleNode.innerHTML = count
+                    ? 'Сохранится: отчёт · действий по материалам: <span data-report-effects-count>' + count + '</span>'
+                    : 'Сохранится только отчёт';
+                if (noteNode) noteNode.textContent = count
+                    ? 'Проверьте количество. Отмеченные действия попадут в учёт вместе с отчётом.'
+                    : 'Учёт материалов и работ не изменится.';
+                if (summary) summary.classList.toggle('is-report-only', count === 0);
+            }
             function refreshPreview() {
                 var rawText = rawInput ? rawInput.value.trim() : '';
                 var projectId = Number(form.project_id && form.project_id.value || 0);
@@ -6369,6 +6524,8 @@ function renderLogsDayView(project, logs) {
                     raw_input: rawText,
                     work_done: ''
                 });
+                activeDraft = draft;
+                activeRawText = rawText;
                 if (workDone) {
                     workDone.value = rawText ? draft.text : '';
                     workDone.dataset.autogenerated = '1';
@@ -6378,9 +6535,16 @@ function renderLogsDayView(project, logs) {
                     titleInput.dataset.autogenerated = '1';
                 }
                 if (previewRoot) previewRoot.innerHTML = renderReportPreviewHtml(projectId, rawText ? draft : { text: '', workMatches: [], materialMatches: [] });
+                refreshEffectsSummary();
             }
             if (rawInput) rawInput.addEventListener('input', refreshPreview);
             if (form.report_date) form.report_date.addEventListener('change', refreshPreview);
+            if (previewRoot) previewRoot.addEventListener('change', function (event) {
+                if (event.target && event.target.matches('[data-report-effect], [data-report-effect-qty]')) refreshEffectsSummary();
+            });
+            if (previewRoot) previewRoot.addEventListener('input', function (event) {
+                if (event.target && event.target.matches('[data-report-effect-qty]')) refreshEffectsSummary();
+            });
             refreshPreview();
         });
     };
@@ -6436,7 +6600,7 @@ function renderLogsDayView(project, logs) {
         var workMatches = Array.isArray(draft.workMatches) ? draft.workMatches : [];
         var materialMatches = Array.isArray(draft.materialMatches) ? draft.materialMatches : [];
         if (!draft.text && !workMatches.length && !materialMatches.length) {
-            return '<div class="report-preview-empty">Напиши в поле выше, что сделали или купили. Тут появится готовый текст отчета. Приход, расход и выполненные объёмы фиксируются во вкладке «Склад».</div>';
+            return '<div class="report-preview-empty"><b>Можно просто сказать, что произошло</b><span>Например: «Заказал дверные ручки. Привезли кабель 40 м. Ждём электрика».</span></div>';
         }
         function groupedBySection(entries, fallback) {
             var groups = {};
@@ -6454,34 +6618,57 @@ function renderLogsDayView(project, logs) {
                 return { title: title, entries: groups[title] };
             });
         }
+        var effectCount = 0;
+        function materialEffect(entry, kind, qty, maxQty, label, note) {
+            if (!canApplyDailyReportMaterialActions() || !(Number(qty) > 0) || !(Number(maxQty) > 0) || entry.ambiguous) return '';
+            effectCount += 1;
+            var item = entry.item || {};
+            var unit = quantityPlanInfo(item).unit || item.unit || '';
+            var actionId = kind + ':' + String(item.id || '') + ':' + String(effectCount);
+            var controlId = 'report-effect-' + String(item.id || 'item') + '-' + String(effectCount);
+            return '<div class="report-effect-card is-' + escapeHtml(kind) + '">' +
+                '<label class="report-effect-toggle" for="' + escapeHtml(controlId) + '">' +
+                    '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(Number(qty)) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
+                    '<span class="report-effect-check" aria-hidden="true">✓</span>' +
+                    '<span class="report-effect-copy"><b>' + escapeHtml(label) + '</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>' + escapeHtml(note) + '</small></span>' +
+                '</label>' +
+                '<label class="report-effect-quantity"><span>Количество</span><input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(Number(qty)) + '" data-report-effect-qty aria-label="Количество: ' + escapeHtml(item.title || 'материал') + '"><em>' + escapeHtml(unit || 'ед.') + '</em></label>' +
+            '</div>';
+        }
         var html = ['<div class="report-preview-board">'];
-        html.push('<section class="report-preview-card report-preview-card-main"><div class="report-preview-title"><strong>Текст отчета</strong><span>Будет сохранено автоматически</span></div><p>' + escapeHtml(draft.text || 'Текст появится после ввода.') + '</p></section>');
-        html.push('<section class="report-preview-card"><div class="report-preview-title"><strong>Работы</strong><span>Распознано из текста, без изменения факта</span></div>');
+        html.push('<section class="report-preview-card report-preview-card-main"><div class="report-preview-title"><strong>Текст отчёта</strong><span>Сохранится в журнале</span></div><p data-report-preview-text>' + escapeHtml(draft.text || 'Текст появится после ввода.') + '</p></section>');
+        html.push('<section class="report-preview-card"><div class="report-preview-title"><strong>Работы</strong><span>Пока только в журнал</span></div>');
         if (workMatches.length) {
             html.push('<div class="report-preview-sections">' + groupedBySection(workMatches, 'Работы').map(function (group) {
                 return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
                     var item = entry.item || {};
-                    return '<span class="' + (entry.partial ? 'is-partial' : 'is-done') + '">' + escapeHtml((entry.partial ? 'Частично: ' : 'Закрыть: ') + (item.title || 'Работа')) + '</span>';
+                    return '<span class="' + (entry.partial ? 'is-partial' : 'is-done') + '"><b>' + escapeHtml(entry.partial ? 'Частично' : 'Распознано') + '</b>' + escapeHtml(item.title || 'Работа') + '<small>Фактический объём не изменится без отдельного подтверждения в работах</small></span>';
                 }).join('') + '</div></div>';
             }).join('') + '</div>');
         } else {
             html.push('<div class="report-preview-muted">Пока не нашел работы из графика. Можно написать точнее название работы или раздел.</div>');
         }
-        html.push('</section><section class="report-preview-card"><div class="report-preview-title"><strong>Материалы</strong><span>Упоминания в отчёте, без складского списания</span></div>');
+        html.push('</section><section class="report-preview-card report-effects-card"><div class="report-preview-title"><strong>Материалы</strong><span>Выберите, что применить</span></div>');
         if (materialMatches.length) {
             html.push('<div class="report-preview-sections">' + groupedBySection(materialMatches, 'Материалы').map(function (group) {
-                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
+                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-effect-list">' + group.entries.map(function (entry) {
                     var item = entry.item || {};
-                    var bits = [];
-                    if (entry.purchasedQty > 0) bits.push('куплено ' + finalSectionSummaryNumber(entry.purchasedQty));
-                    if (entry.usedQty > 0) bits.push('в работу ' + finalSectionSummaryNumber(entry.usedQty));
-                    return '<span class="is-material">' + escapeHtml((item.title || 'Материал') + (bits.length ? ' - ' + bits.join(', ') + ' ' + quantityPlanInfo(item).unit : '')) + '</span>';
+                    if (entry.ambiguous) {
+                        return '<div class="report-effect-card is-review"><span class="report-effect-check" aria-hidden="true">?</span><span class="report-effect-copy"><b>Нужно уточнить позицию</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Нашлось несколько похожих материалов — изменение не применится</small></span></div>';
+                    }
+                    var actions = [
+                        materialEffect(entry, 'material_purchase', entry.purchasedQty, entry.purchaseMaxQty, 'Заказано', 'склад не увеличится'),
+                        materialEffect(entry, 'material_receipt', entry.receivedQty, entry.receiptMaxQty, 'Принято на объект', 'увеличит физический остаток'),
+                        materialEffect(entry, 'material_use', entry.usedQty, entry.useMaxQty, 'Передано в работу', 'уменьшит остаток на объекте')
+                    ].filter(Boolean);
+                    if (actions.length) return actions.join('');
+                    return '<div class="report-effect-card is-report-only"><span class="report-effect-check" aria-hidden="true">i</span><span class="report-effect-copy"><b>Только в отчёт</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Действие или количество не определено — учёт не изменится</small></span></div>';
                 }).join('') + '</div></div>';
             }).join('') + '</div>');
         } else {
-            html.push('<div class="report-preview-muted">Материалы пока не найдены. Если надо обновить закупку, напиши например: “купили все розетки”.</div>');
+            html.push('<div class="report-preview-muted">Материалы пока не найдены. Скажите точнее: «заказал дверные ручки» или «привезли кабель 40 м».</div>');
         }
-        html.push('</section></div>');
+        html.push('</section><div class="report-effects-summary" data-report-effects-summary><b data-report-effects-title>' + (effectCount ? 'Сохранится: отчёт · действий по материалам: <span data-report-effects-count>' + effectCount + '</span>' : 'Сохранится только отчёт') + '</b><small data-report-effects-note>' + (effectCount ? 'Проверьте количество. Отмеченные действия попадут в учёт вместе с отчётом.' : 'Учёт материалов и работ не изменится.') + '</small></div></div>');
         return html.join('');
     };
 
@@ -6528,6 +6715,7 @@ function renderLogsDayView(project, logs) {
         recognition: null,
         input: null,
         button: null,
+        baseValue: '',
         active: false
     };
     var reportVoiceUnsupportedWarned = false;
@@ -6575,6 +6763,8 @@ function renderLogsDayView(project, logs) {
         button.setAttribute('aria-pressed', stateName === 'active' ? 'true' : 'false');
         button.setAttribute('title', stateName === 'active' ? reportVoiceMessage('micActive') : reportVoiceMessage('micTitle'));
         button.setAttribute('aria-label', stateName === 'active' ? reportVoiceMessage('micActive') : reportVoiceMessage('micTitle'));
+        var label = qs('[data-report-voice-label]', button);
+        if (label) label.textContent = stateName === 'active' ? 'Готово' : 'Диктовать';
         if (stateName === 'error') {
             setTimeout(function () {
                 button.classList.remove('is-error');
@@ -6589,6 +6779,7 @@ function renderLogsDayView(project, logs) {
         reportVoiceState.recognition = null;
         reportVoiceState.input = null;
         reportVoiceState.button = null;
+        reportVoiceState.baseValue = '';
         if (!keepButtonState) setReportVoiceButtonState(button, 'idle');
         if (recognition) {
             try {
@@ -6623,17 +6814,20 @@ function renderLogsDayView(project, logs) {
         if (reportVoiceState.active) stopReportVoiceRecognition();
         var recognition = new Recognition();
         recognition.lang = 'ru-RU';
-        recognition.interimResults = false;
+        recognition.interimResults = true;
         recognition.continuous = true;
         recognition.onresult = function (event) {
             var parts = [];
-            for (var index = event.resultIndex; index < event.results.length; index += 1) {
+            for (var index = 0; index < event.results.length; index += 1) {
                 var result = event.results[index];
-                if (result && result.isFinal && result[0] && result[0].transcript) {
+                if (result && result[0] && result[0].transcript) {
                     parts.push(result[0].transcript);
                 }
             }
-            appendReportVoiceText(input, parts.join(' '));
+            var spoken = parts.join(' ').trim();
+            var baseValue = String(reportVoiceState.baseValue || '');
+            input.value = baseValue + (baseValue && spoken ? (/\s$/.test(baseValue) ? '' : ' ') : '') + spoken;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
         };
         recognition.onerror = function (event) {
             var isBlocked = event && (event.error === 'not-allowed' || event.error === 'service-not-allowed');
@@ -6649,6 +6843,7 @@ function renderLogsDayView(project, logs) {
             recognition: recognition,
             input: input,
             button: button,
+            baseValue: String(input.value || ''),
             active: true
         };
         setReportVoiceButtonState(button, 'active');
@@ -6664,6 +6859,8 @@ function renderLogsDayView(project, logs) {
     }
 
     function reportVoiceInputTargets(form) {
+        var primary = qs('[name="raw_input"]', form);
+        if (primary && !primary.disabled && !primary.readOnly) return [primary];
         return qsa('textarea, input', form).filter(function (input) {
             var type = String(input.getAttribute('type') || (input.tagName === 'TEXTAREA' ? 'textarea' : 'text')).toLowerCase();
             var textTypes = ['textarea', 'text', 'search', 'tel', 'url', 'email'];
@@ -6678,6 +6875,15 @@ function renderLogsDayView(project, logs) {
                 console.warn('Web Speech API is not supported in this browser.');
                 reportVoiceUnsupportedWarned = true;
             }
+            qsa('[data-log-form]').forEach(function (form) {
+                var input = qs('[name="raw_input"]', form);
+                if (!input || qs('[data-report-voice-unavailable]', form)) return;
+                var note = document.createElement('small');
+                note.className = 'report-voice-unavailable';
+                note.setAttribute('data-report-voice-unavailable', '');
+                note.textContent = 'Голосовой ввод недоступен в этом браузере — напишите отчёт текстом.';
+                input.parentNode.insertBefore(note, input.nextSibling);
+            });
             return;
         }
         qsa('[data-log-form]').forEach(function (form) {
@@ -6697,7 +6903,9 @@ function renderLogsDayView(project, logs) {
                 var button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'report-voice-button';
-                button.innerHTML = reportVoiceIconHtml();
+                var isMainReportInput = input.name === 'raw_input';
+                if (isMainReportInput) button.classList.add('is-primary');
+                button.innerHTML = reportVoiceIconHtml() + (isMainReportInput ? '<span class="report-voice-label" data-report-voice-label>Диктовать</span>' : '');
                 button.setAttribute('aria-pressed', 'false');
                 button.setAttribute('title', reportVoiceMessage('micTitle'));
                 button.setAttribute('aria-label', reportVoiceMessage('micTitle'));
@@ -7057,6 +7265,22 @@ function renderLogsDayView(project, logs) {
                 update();
             });
         });
+    }
+
+    function startPrimaryReportVoice(form) {
+        var input = form ? qs('[name="raw_input"]', form) : null;
+        if (!input) return false;
+        if (!reportSpeechRecognitionConstructor()) {
+            showReportVoiceToast('Голосовой ввод недоступен — напишите отчёт текстом.');
+            input.focus();
+            return false;
+        }
+        bindReportVoiceInputs();
+        var wrapper = input.closest ? input.closest('.report-voice-field') : null;
+        var button = wrapper ? qs('.report-voice-button', wrapper) : null;
+        if (!button) return false;
+        startReportVoiceRecognition(input, button);
+        return true;
     }
 
     function renderFinanceRow(item) {
@@ -7915,6 +8139,309 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    var activePositionEditor = null;
+    var positionEditorReturnFocus = null;
+    var positionEditorSubmitting = false;
+
+    function positionEditorItemFromRow(row) {
+        var projectId = Number(row.getAttribute('data-position-project') || (state.selectedProject && state.selectedProject.id) || 0);
+        var itemId = Number(row.getAttribute('data-position-id') || 0);
+        var kind = row.getAttribute('data-position-kind') === 'work' ? 'work' : 'material';
+        var source = ((state.materialsByProject && state.materialsByProject[projectId]) || []).find(function (item) {
+            return Number(item && item.id || 0) === itemId;
+        }) || {};
+        return {
+            projectId: projectId,
+            itemId: itemId,
+            kind: kind,
+            title: String(source.title != null ? source.title : (row.getAttribute('data-position-title') || '')).trim(),
+            unit: String(source.sourceUnit || source.unit || row.getAttribute('data-position-unit') || '').trim(),
+            plannedQty: source.sourcePlannedQty != null
+                ? source.sourcePlannedQty
+                : (source.planned_qty != null ? source.planned_qty : (source.plannedQty != null ? source.plannedQty : row.getAttribute('data-position-qty') || '')),
+            sectionTitle: String(source.sectionTitle || source.section_title || row.getAttribute('data-position-section') || '').trim()
+        };
+    }
+
+    function ensurePositionEditorModal() {
+        var existing = qs('[data-position-editor-modal]');
+        if (existing) return existing;
+        var modal = document.createElement('div');
+        modal.className = 'position-editor-overlay';
+        modal.hidden = true;
+        modal.setAttribute('data-position-editor-modal', '');
+        modal.innerHTML = '<section class="position-editor-card" role="dialog" aria-modal="true" aria-labelledby="position-editor-title" aria-describedby="position-editor-note">' +
+            '<header class="position-editor-head"><div class="position-editor-heading"><span class="position-editor-icon" aria-hidden="true"><i data-lucide="pencil-line"></i></span><div><span class="position-editor-kicker" data-position-editor-kicker>Сметная позиция</span><h2 id="position-editor-title">Редактировать позицию</h2></div></div><button class="position-editor-close" type="button" data-position-editor-close aria-label="Закрыть"><i data-lucide="x" aria-hidden="true"></i></button></header>' +
+            '<form class="position-editor-form" data-position-editor-form novalidate>' +
+                '<label class="position-editor-field is-wide"><span>Название</span><input name="title" maxlength="300" autocomplete="off" required></label>' +
+                '<div class="position-editor-grid"><label class="position-editor-field is-section"><span>Раздел</span><input name="section_title" maxlength="200" autocomplete="off" required></label><label class="position-editor-field"><span>Единица</span><input name="unit" maxlength="40" autocomplete="off" required></label><label class="position-editor-field"><span>Плановый объём</span><input name="planned_qty" type="number" min="0.000001" step="any" inputmode="decimal" required></label></div>' +
+                '<p class="position-editor-note" id="position-editor-note"><i data-lucide="info" aria-hidden="true"></i><span>Меняется плановая строка сметы. Выполненный факт, заказы, приходы и расходы сохранятся.</span></p>' +
+                '<div class="position-editor-error" data-position-editor-error role="alert" aria-live="polite" hidden></div>' +
+                '<footer class="position-editor-actions"><button class="ghost" type="button" data-position-editor-close>Отмена</button><button class="primary" type="submit" data-position-editor-save><i data-lucide="check" aria-hidden="true"></i><span>Сохранить</span></button></footer>' +
+            '</form>' +
+        '</section>';
+        document.body.appendChild(modal);
+        refreshLucideIcons(modal);
+        return modal;
+    }
+
+    function positionEditorErrorText(error) {
+        var code = String(error && error.payload && error.payload.error || '');
+        if (code === 'estimate_position_fields_required') return 'Заполните название, раздел, единицу и объём больше нуля.';
+        if (code === 'estimate_position_fields_too_long') return 'Одно из полей получилось слишком длинным.';
+        if (code === 'estimate_position_kind_mismatch') return 'Тип позиции изменился. Обновите страницу и попробуйте ещё раз.';
+        if (code === 'estimate_position_title_kind_conflict') return 'Название похоже на другой тип позиции. Уточните формулировку, чтобы материал не превратился в работу и наоборот.';
+        if (code === 'estimate_position_not_found') return 'Позиция больше не найдена в смете.';
+        if (code === 'forbidden') return 'У вас нет права редактировать сметные позиции.';
+        return appErrorMessage(error, 'Не удалось сохранить позицию. Попробуйте ещё раз.');
+    }
+
+    function closePositionEditor(restoreFocus) {
+        var modal = qs('[data-position-editor-modal]');
+        if (!modal || positionEditorSubmitting) return;
+        modal.hidden = true;
+        document.body.classList.remove('position-editor-open');
+        activePositionEditor = null;
+        if (restoreFocus && positionEditorReturnFocus && document.contains(positionEditorReturnFocus) && typeof positionEditorReturnFocus.focus === 'function') {
+            try { positionEditorReturnFocus.focus({ preventScroll: true }); } catch (focusError) { positionEditorReturnFocus.focus(); }
+        }
+        positionEditorReturnFocus = null;
+    }
+
+    function openPositionEditor(row, opener) {
+        if (!row || !canManageSchedule()) return false;
+        var item = positionEditorItemFromRow(row);
+        if (!item.projectId || !item.itemId) return false;
+        var modal = ensurePositionEditorModal();
+        var form = qs('[data-position-editor-form]', modal);
+        activePositionEditor = item;
+        positionEditorReturnFocus = opener && opener.nodeType === 1 ? opener : (document.activeElement || row);
+        positionEditorSubmitting = false;
+        form.elements.title.value = item.title;
+        form.elements.section_title.value = item.sectionTitle || 'Без раздела';
+        form.elements.unit.value = item.unit;
+        form.elements.planned_qty.value = String(item.plannedQty == null ? '' : item.plannedQty).replace(',', '.');
+        var kicker = qs('[data-position-editor-kicker]', modal);
+        if (kicker) kicker.textContent = item.kind === 'work' ? 'Работа' : 'Материал';
+        modal.classList.toggle('is-work', item.kind === 'work');
+        modal.classList.toggle('is-material', item.kind === 'material');
+        var error = qs('[data-position-editor-error]', modal);
+        if (error) { error.hidden = true; error.textContent = ''; }
+        modal.hidden = false;
+        document.body.classList.add('position-editor-open');
+        refreshLucideIcons(modal);
+        setTimeout(function () {
+            try { form.elements.title.focus({ preventScroll: true }); } catch (focusError) { form.elements.title.focus(); }
+            form.elements.title.select();
+        }, 0);
+        return true;
+    }
+
+    function refreshEditedPosition(item, response) {
+        var projectId = item.projectId;
+        var items = Array.isArray(response && response.items) ? response.items : [];
+        if (items.length) state.materialsByProject[projectId] = items;
+        var updated = response && response.item;
+        if (!updated && items.length) updated = items.find(function (candidate) { return Number(candidate.id || 0) === item.itemId; });
+        if (item.kind === 'material' && PMBI.warehouseControl) {
+            var patched = updated && typeof PMBI.warehouseControl.patchPosition === 'function'
+                ? PMBI.warehouseControl.patchPosition(projectId, updated)
+                : false;
+            var focusMaterial = function () {
+                if (typeof PMBI.warehouseControl.focusMaterial === 'function') PMBI.warehouseControl.focusMaterial(item.itemId, projectId);
+            };
+            if (patched) focusMaterial();
+            else if (typeof PMBI.warehouseControl.load === 'function') PMBI.warehouseControl.load(projectId, true).then(focusMaterial).catch(function () {});
+            return;
+        }
+        var project = state.projects.find(function (candidate) { return Number(candidate.id) === Number(projectId); }) || state.selectedProject;
+        if (item.kind === 'work' && project && PMBI.planning && typeof PMBI.planning.loadSectionScheduleForecast === 'function') {
+            PMBI.planning.loadSectionScheduleForecast(projectId, project.started_at || APP_TODAY, function () {
+                rerenderProjectMaterialAndWorkViews(projectId);
+                if (typeof PMBI.planning.focusProjectScheduleTarget === 'function') {
+                    PMBI.planning.focusProjectScheduleTarget({ workId: item.itemId }, projectId);
+                }
+            }, true);
+        }
+    }
+
+    function initPositionEditor() {
+        if (document.documentElement.dataset.positionEditorBound === '1') return;
+        document.documentElement.dataset.positionEditorBound = '1';
+        document.addEventListener('contextmenu', function (event) {
+            var row = event.target && event.target.closest ? event.target.closest('[data-position-editor]') : null;
+            if (!row || !canManageSchedule()) return;
+            event.preventDefault();
+            openPositionEditor(row, event.target);
+        });
+        document.addEventListener('keydown', function (event) {
+            var isContextKey = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+            if (!isContextKey) return;
+            var row = event.target && event.target.closest ? event.target.closest('[data-position-editor]') : null;
+            if (!row || !canManageSchedule()) return;
+            event.preventDefault();
+            openPositionEditor(row, event.target);
+        });
+        document.addEventListener('click', function (event) {
+            var close = event.target && event.target.closest ? event.target.closest('[data-position-editor-close]') : null;
+            if (!close) return;
+            event.preventDefault();
+            closePositionEditor(true);
+        });
+        var modal = ensurePositionEditorModal();
+        modal.addEventListener('mousedown', function (event) {
+            if (event.target === modal) closePositionEditor(true);
+        });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closePositionEditor(true);
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            var focusable = qsa('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', modal).filter(function (node) { return !node.hidden; });
+            if (!focusable.length) return;
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
+        var form = qs('[data-position-editor-form]', modal);
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            if (!activePositionEditor || positionEditorSubmitting) return;
+            var qty = Number(String(form.elements.planned_qty.value || '').replace(',', '.'));
+            var title = form.elements.title.value.trim();
+            var unit = form.elements.unit.value.trim();
+            var sectionTitle = form.elements.section_title.value.trim();
+            var error = qs('[data-position-editor-error]', modal);
+            if (!title || !unit || !sectionTitle || !Number.isFinite(qty) || qty <= 0) {
+                error.textContent = 'Заполните название, раздел, единицу и объём больше нуля.';
+                error.hidden = false;
+                return;
+            }
+            var item = Object.assign({}, activePositionEditor);
+            var save = qs('[data-position-editor-save]', modal);
+            positionEditorSubmitting = true;
+            save.disabled = true;
+            save.setAttribute('aria-busy', 'true');
+            error.hidden = true;
+            api('/api/projects/' + item.projectId + '/estimate-items/' + item.itemId + '/update', {
+                method: 'POST',
+                body: JSON.stringify({ title: title, unit: unit, plannedQty: qty, sectionTitle: sectionTitle, expectedKind: item.kind })
+            }).then(function (response) {
+                positionEditorSubmitting = false;
+                closePositionEditor(false);
+                refreshEditedPosition(item, response || {});
+                showAppNotice(item.kind === 'work' ? 'Работа обновлена' : 'Материал обновлён', 'success');
+            }).catch(function (requestError) {
+                error.textContent = positionEditorErrorText(requestError);
+                error.hidden = false;
+            }).finally(function () {
+                positionEditorSubmitting = false;
+                save.disabled = false;
+                save.removeAttribute('aria-busy');
+            });
+        });
+    }
+
+    var positionHighlightTimer = null;
+    var materialDeepLinkToken = 0;
+
+    function highlightPositionRow(row) {
+        if (!row) return false;
+        if (positionHighlightTimer) clearTimeout(positionHighlightTimer);
+        qsa('.position-target-focus').forEach(function (candidate) {
+            if (candidate !== row) candidate.classList.remove('position-target-focus');
+        });
+        row.classList.add('position-target-focus');
+        var reducedMotion = false;
+        try { reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (motionError) {}
+        if (typeof row.scrollIntoView === 'function') {
+            try { row.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center', inline: 'nearest' }); } catch (scrollError) { row.scrollIntoView(); }
+        }
+        positionHighlightTimer = setTimeout(function () {
+            row.classList.remove('position-target-focus');
+            positionHighlightTimer = null;
+        }, reducedMotion ? 1400 : 2400);
+        return true;
+    }
+
+    function projectDeepLinkTarget(sourceUrl) {
+        var url = sourceUrl instanceof URL ? sourceUrl : new URL(sourceUrl || location.href, location.href);
+        var params = url.searchParams;
+        return {
+            projectId: Number(params.get('openProject') || 0),
+            tab: params.get('tab') || '',
+            materialId: Number(params.get('materialId') || 0),
+            workId: Number(params.get('workId') || 0),
+            stageId: Number(params.get('stageId') || 0),
+            sectionTitle: params.get('sectionTitle') || ''
+        };
+    }
+
+    function syncRouterLocation() {
+        if (PMBI.router && typeof PMBI.router.syncCurrentUrl === 'function') PMBI.router.syncCurrentUrl();
+    }
+
+    function consumeProjectDeepLink(kind) {
+        try {
+            var params = new URLSearchParams(location.search);
+            if (kind === 'material') params.delete('materialId');
+            if (kind === 'work') params.delete('workId');
+            if (kind === 'stage') params.delete('stageId');
+            if (kind === 'work' || kind === 'stage') params.delete('sectionTitle');
+            history.replaceState(history.state, '', location.pathname + (params.toString() ? ('?' + params.toString()) : ''));
+            syncRouterLocation();
+        } catch (historyError) {}
+    }
+
+    function focusProjectDeepLink(projectId, sourceUrl) {
+        projectId = Number(projectId || 0);
+        if (!projectId || !state.selectedProject || Number(state.selectedProject.id) !== projectId) return false;
+        var target = projectDeepLinkTarget(sourceUrl || location.href);
+        if (target.projectId && target.projectId !== projectId) return false;
+        if (target.materialId && PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+            var requestToken = ++materialDeepLinkToken;
+            PMBI.warehouseControl.load(projectId, false).then(function () {
+                if (requestToken !== materialDeepLinkToken) return;
+                var current = projectDeepLinkTarget(location.href);
+                if (current.materialId !== target.materialId || current.projectId !== projectId) return;
+                if (PMBI.warehouseControl.focusMaterial(target.materialId, projectId)) consumeProjectDeepLink('material');
+            }).catch(function () {});
+            return true;
+        }
+        if ((target.workId || target.stageId || target.sectionTitle) && PMBI.planning && typeof PMBI.planning.focusProjectScheduleTarget === 'function') {
+            var focused = PMBI.planning.focusProjectScheduleTarget(target, projectId);
+            if (focused) consumeProjectDeepLink(target.workId ? 'work' : 'stage');
+            return focused;
+        }
+        return false;
+    }
+
+    function handleReminderNavigation(sourceUrl) {
+        var url = sourceUrl instanceof URL ? sourceUrl : new URL(sourceUrl || '', location.href);
+        if (page !== 'projects' || url.pathname !== '/app/projects') return false;
+        var target = projectDeepLinkTarget(url);
+        if (!target.projectId) return false;
+        var project = state.projects.find(function (item) { return Number(item.id) === target.projectId; });
+        var detail = qs('[data-project-detail]');
+        if (!project || !detail) return false;
+        try {
+            if (url.href !== location.href) history.pushState({}, '', url.href);
+        } catch (historyError) {}
+        if (!state.selectedProject || Number(state.selectedProject.id) !== target.projectId || detail.hidden) openProject(target.projectId);
+        var tab = target.materialId ? 'warehouse-control' : ((target.workId || target.stageId) ? 'schedule' : (target.tab || 'overview'));
+        activateProjectTab(tab);
+        focusProjectDeepLink(target.projectId, url);
+        return true;
+    }
+
+    var reminderRequestToken = 0;
+    var reminderRefreshInFlight = false;
+    var reminderLastItems = [];
+    var reminderLastStatus = { failedCount: 0, totalProjects: 0, fullFailure: false };
+
     function reminderProjectTitle(projectId) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
         return project ? project.title : 'Объект';
@@ -7945,18 +8472,16 @@ function renderLogsDayView(project, logs) {
 
     function reminderTaskText(task, stateText) {
         var bits = [
-            task.title || 'Задача',
             task.assignee_name ? ('исполнитель: ' + task.assignee_name) : '',
-            task.due_at ? stateText + ' ' + task.due_at : ''
+            task.due_at ? stateText + ' ' + formatDisplayDate(task.due_at) : ''
         ];
         return bits.filter(Boolean).join(' • ');
     }
 
     function reminderStageText(stage) {
         var bits = [
-            stage.title || 'Этап',
             stage.progress != null ? ('готовность ' + percent(stage.progress) + '%') : '',
-            stage.planned_end ? ('план до ' + stage.planned_end) : '',
+            stage.planned_end ? ('план до ' + formatDisplayDate(stage.planned_end)) : '',
             stage.status_code ? ('статус: ' + statusLabel(stage.status_code)) : ''
         ];
         return bits.filter(Boolean).join(' • ');
@@ -7964,18 +8489,31 @@ function renderLogsDayView(project, logs) {
 
     function reminderProcurementText(alert) {
         var bits = [
-            alert.title || 'Материал',
-            alert.orderByDate ? ('заказать до ' + alert.orderByDate) : '',
-            alert.startDate ? ('нужно к старту ' + alert.startDate) : '',
-            alert.leadDays ? ('срок поставки ' + alert.leadDays + ' дн.') : ''
+            alert.phase === 'order' && Number(alert.toOrderQty || alert.missingQty || 0) > 0
+                ? ('заказать ' + quantityText(alert.toOrderQty || alert.missingQty) + (alert.unit ? (' ' + alert.unit) : ''))
+                : '',
+            alert.phase === 'order' && Number(alert.toReceiveQty || 0) > 0
+                ? ('уже заказано, ждём ' + quantityText(alert.toReceiveQty) + (alert.unit ? (' ' + alert.unit) : ''))
+                : '',
+            alert.phase === 'delivery' && Number(alert.toReceiveQty || 0) > 0
+                ? ('ждём ' + quantityText(alert.toReceiveQty) + (alert.unit ? (' ' + alert.unit) : ''))
+                : (alert.leadDays ? ('срок поставки ' + alert.leadDays + ' дн.') : ''),
+            (alert.needOnSiteDate || alert.startDate) ? ('на объект к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate)) : ''
         ];
         return bits.filter(Boolean).join(' • ');
+    }
+
+    function reminderProcurementSortAt(alert) {
+        if (!alert) return '';
+        return alert.phase === 'delivery'
+            ? (alert.needOnSiteDate || alert.startDate || alert.orderByDate || '')
+            : (alert.orderByDate || alert.needOnSiteDate || alert.startDate || '');
     }
 
     function reminderShortageText(alert) {
         var bits = [
             'Не хватает ' + quantityText(alert.missingQty) + (alert.unit ? (' ' + alert.unit) : ''),
-            alert.workDate ? ('нужно к работе ' + alert.workDate) : (alert.needByDate ? ('нужно к ' + alert.needByDate) : '')
+            alert.workDate ? ('нужно к работе ' + formatDisplayDate(alert.workDate)) : (alert.needByDate ? ('нужно к ' + formatDisplayDate(alert.needByDate)) : '')
         ];
         return bits.filter(Boolean).join(' • ');
     }
@@ -7985,103 +8523,285 @@ function renderLogsDayView(project, logs) {
         var title = project.title || 'Объект';
         var items = [];
         if (!notifications) return items;
-        if (notifications.missingDailyReport) {
-            items.push({ kind: 'danger', label: 'Нет отчета сегодня', title: title, scope: 'Отчеты / дневной журнал', text: 'Нужно добавить отчет за сегодня.', href: '/app/projects?openProject=' + projectId });
+        if (notifications.missingDailyReport && new Date().getHours() >= 17) {
+            items.push({ group: 'journal', projectId: projectId, kind: 'warn', sortAt: notifications.today || APP_TODAY, label: 'Закройте день', subject: 'Отчёт за сегодня', title: title, scope: 'Журнал объекта', text: 'Факт дня можно надиктовать за минуту.', href: '/app/projects?openProject=' + projectId + '&tab=reports' });
         }
         (notifications.overdueTasks || []).forEach(function (task) {
-            items.push({ kind: 'danger', label: 'Просрочена задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId });
+            items.push({ group: 'tasks', projectId: projectId, kind: 'danger', sortAt: task.due_at || '', label: 'Просрочено', subject: task.title || 'Задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId + '&tab=tasks' });
         });
         (notifications.dueSoonTasks || []).forEach(function (task) {
-            items.push({ kind: 'warn', label: 'Скоро срок', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'до'), href: '/app/projects?openProject=' + projectId });
+            items.push({ group: 'tasks', projectId: projectId, kind: 'warn', sortAt: task.due_at || '', label: 'Скоро срок', subject: task.title || 'Задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'до'), href: '/app/projects?openProject=' + projectId + '&tab=tasks' });
         });
         (notifications.blockerLogs || []).forEach(function (log) {
-            items.push({ kind: 'danger', label: 'Блокер', title: title, scope: reminderBlockerScope(log), text: (log.blockers || log.title || 'есть блокер') + (log.report_date ? ' • отчет от ' + log.report_date : ''), href: '/app/projects?openProject=' + projectId });
+            items.push({ group: 'journal', projectId: projectId, kind: 'danger', sortAt: log.report_date || '', label: 'Блокер', subject: 'Проблема из отчёта', title: title, scope: reminderBlockerScope(log), text: (log.blockers || log.title || 'Есть блокер') + (log.report_date ? ' • отчёт от ' + formatDisplayDate(log.report_date) : ''), href: '/app/projects?openProject=' + projectId + '&tab=reports' });
         });
         (notifications.problemStages || []).forEach(function (stage) {
-            items.push({ kind: 'warn', label: 'Проблемный этап', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId });
+            items.push({ group: 'works', projectId: projectId, kind: 'warn', sortAt: stage.planned_end || '', label: 'Проблемный этап', subject: stage.title || 'Этап работ', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId + '&tab=schedule&stageId=' + encodeURIComponent(stage.id || '') + '&sectionTitle=' + encodeURIComponent(stage.sectionTitle || stage.title || '') });
         });
         if (Array.isArray(notifications.shortageAlerts)) {
             var procurementByMaterialId = {};
+            var renderedProcurement = {};
             (notifications.procurementAlerts || []).forEach(function (alert) {
                 procurementByMaterialId[String(alert.materialId || '')] = alert;
             });
             notifications.shortageAlerts.forEach(function (shortage) {
-                var procurement = procurementByMaterialId[String(shortage.materialId || '')] || {};
+                var materialKey = String(shortage.materialId || '');
+                var procurement = procurementByMaterialId[materialKey] || {};
+                if (!procurement.materialId) return;
+                if (procurement.materialId) renderedProcurement[materialKey] = true;
                 var daysUntilWork = shortage.daysUntilWork == null || shortage.daysUntilWork === '' ? null : Number(shortage.daysUntilWork);
-                var kind = procurement.status === 'critical' || (daysUntilWork != null && Number.isFinite(daysUntilWork) && daysUntilWork <= 1) ? 'danger' : 'warn';
-                var label = procurement.status === 'critical' ? 'Закупка горит' : (procurement.status === 'soon' ? 'Скоро закупка' : 'Нехватка материала');
-                items.push({ kind: kind, label: label, title: title, scope: reminderProcurementScope(shortage), text: reminderShortageText(shortage), href: '/app/projects?openProject=' + projectId });
+                var urgentShortage = procurement.status === 'critical' || (daysUntilWork != null && Number.isFinite(daysUntilWork) && daysUntilWork <= 1);
+                var kind = urgentShortage ? 'danger' : (procurement.status === 'watch' ? 'info' : 'warn');
+                var merged = Object.assign({}, shortage, procurement);
+                var label = procurement.phase === 'delivery'
+                    ? ('Поставка к ' + formatDisplayDate(procurement.needOnSiteDate || procurement.startDate))
+                    : (procurement.orderByDate ? ('Заказать до ' + formatDisplayDate(procurement.orderByDate)) : (procurement.status === 'critical' ? 'Закупка горит' : (procurement.status === 'soon' ? 'Скоро закупка' : 'Нехватка материала')));
+                var procurementText = procurement.orderByDate ? reminderProcurementText(merged) : reminderShortageText(shortage);
+                items.push({ group: 'materials', projectId: projectId, kind: kind, sortAt: reminderProcurementSortAt(merged), label: label, subject: merged.title || shortage.title || 'Материал', title: title, scope: reminderProcurementScope(merged), text: procurementText, href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(shortage.materialId || '') });
+            });
+            (notifications.procurementAlerts || []).forEach(function (alert) {
+                if (renderedProcurement[String(alert.materialId || '')]) return;
+                var kind = alert.status === 'critical' ? 'danger' : (alert.status === 'soon' ? 'warn' : 'info');
+                var label = alert.phase === 'delivery'
+                    ? ('Поставка к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate))
+                    : (alert.orderByDate ? ('Заказать до ' + formatDisplayDate(alert.orderByDate)) : (kind === 'danger' ? 'Закупка горит' : 'Скоро закупка'));
+                items.push({ group: 'materials', projectId: projectId, kind: kind, sortAt: reminderProcurementSortAt(alert), label: label, subject: alert.title || 'Материал', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(alert.materialId || '') });
             });
         } else {
             (notifications.procurementAlerts || []).forEach(function (alert) {
-                var kind = alert.status === 'critical' ? 'danger' : 'warn';
-                items.push({ kind: kind, label: kind === 'danger' ? 'Закупка горит' : 'Скоро закупка', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId });
+                var kind = alert.status === 'critical' ? 'danger' : (alert.status === 'soon' ? 'warn' : 'info');
+                var label = alert.phase === 'delivery'
+                    ? ('Поставка к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate))
+                    : (alert.orderByDate ? ('Заказать до ' + formatDisplayDate(alert.orderByDate)) : (kind === 'danger' ? 'Закупка горит' : 'Скоро закупка'));
+                items.push({ group: 'materials', projectId: projectId, kind: kind, sortAt: reminderProcurementSortAt(alert), label: label, subject: alert.title || 'Материал', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(alert.materialId || '') });
             });
         }
         return items;
     }
 
-    function renderReminderBell(items, loading) {
+    function reminderSeverityRank(kind) {
+        var rank = { danger: 0, warn: 1, info: 2 }[kind];
+        return rank == null ? 9 : rank;
+    }
+
+    function reminderSeverityLabel(kind) {
+        return kind === 'danger' ? 'Срочно' : (kind === 'warn' ? 'Скоро' : 'Контроль');
+    }
+
+    function reminderGroupDefinitions() {
+        return [
+            { key: 'materials', title: 'Материалы', icon: 'package-search', order: 0 },
+            { key: 'tasks', title: 'Задачи', icon: 'list-checks', order: 1 },
+            { key: 'works', title: 'Работы и этапы', icon: 'hard-hat', order: 2 },
+            { key: 'journal', title: 'Журнал и блокеры', icon: 'notebook-pen', order: 3 },
+            { key: 'other', title: 'Прочее', icon: 'bell', order: 4 }
+        ];
+    }
+
+    function reminderSummaryMarkup(items) {
+        var counts = { danger: 0, warn: 0, info: 0 };
+        items.forEach(function (item) {
+            var key = Object.prototype.hasOwnProperty.call(counts, item.kind) ? item.kind : 'info';
+            counts[key] += 1;
+        });
+        return '<div class="reminder-summary" role="group" aria-label="Сводка уведомлений">' +
+            '<span class="is-danger"><b>' + counts.danger + '</b><small>Срочно</small></span>' +
+            '<span class="is-warn"><b>' + counts.warn + '</b><small>Скоро</small></span>' +
+            '<span class="is-info"><b>' + counts.info + '</b><small>Контроль</small></span>' +
+        '</div>';
+    }
+
+    function reminderItemMarkup(item) {
+        var kind = item.kind || 'info';
+        var subject = item.subject || item.label || 'Напоминание';
+        var accessibleLabel = [reminderSeverityLabel(kind), subject, item.label, item.title, item.scope, item.text].filter(Boolean).join('. ');
+        return '<a class="reminder-item is-' + escapeHtml(kind) + '" href="' + escapeHtml(item.href || '/app/projects') + '" aria-label="' + escapeHtml(accessibleLabel) + '">' +
+            '<span class="reminder-item-indicator" aria-hidden="true"></span>' +
+            '<span class="reminder-item-copy">' +
+                '<span class="reminder-item-topline"><strong class="reminder-item-title">' + escapeHtml(subject) + '</strong><span class="reminder-action-label">' + escapeHtml(item.label || reminderSeverityLabel(kind)) + '</span></span>' +
+                '<span class="reminder-item-context"><b>' + escapeHtml(item.title || 'Объект') + '</b>' + (item.scope ? '<em>' + escapeHtml(item.scope) + '</em>' : '') + '</span>' +
+                (item.text ? '<small class="reminder-item-detail">' + escapeHtml(item.text) + '</small>' : '') +
+            '</span>' +
+            '<span class="reminder-item-arrow" aria-hidden="true"><i data-lucide="chevron-right"></i></span>' +
+        '</a>';
+    }
+
+    function reminderGroupsMarkup(items) {
+        var definitions = reminderGroupDefinitions();
+        var byKey = {};
+        definitions.forEach(function (definition) { byKey[definition.key] = Object.assign({ items: [] }, definition); });
+        items.forEach(function (item) {
+            var key = byKey[item.group] ? item.group : 'other';
+            byKey[key].items.push(item);
+        });
+        var groups = definitions.map(function (definition) {
+            var group = byKey[definition.key];
+            group.items.sort(function (left, right) {
+                var severityDifference = reminderSeverityRank(left.kind) - reminderSeverityRank(right.kind);
+                if (severityDifference) return severityDifference;
+                return String(left.sortAt || '9999-12-31').localeCompare(String(right.sortAt || '9999-12-31'));
+            });
+            group.rank = group.items.length ? reminderSeverityRank(group.items[0].kind) : 9;
+            group.tone = group.rank === 0 ? 'danger' : (group.rank === 1 ? 'warn' : 'info');
+            return group;
+        }).filter(function (group) { return group.items.length; });
+        groups.sort(function (left, right) { return left.rank - right.rank || left.order - right.order; });
+        return '<div class="reminder-groups">' + groups.map(function (group) {
+            var headingId = 'reminder-group-' + group.key;
+            return '<section class="reminder-group is-' + group.tone + '" data-reminder-group="' + escapeHtml(group.key) + '" aria-labelledby="' + escapeHtml(headingId) + '">' +
+                '<header class="reminder-group-head"><span class="reminder-group-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(group.icon) + '"></i></span><strong id="' + escapeHtml(headingId) + '">' + escapeHtml(group.title) + '</strong><span class="reminder-group-count">' + group.items.length + '</span></header>' +
+                '<div class="reminder-group-list">' + group.items.map(reminderItemMarkup).join('') + '</div>' +
+            '</section>';
+        }).join('') + '</div>';
+    }
+
+    function syncReminderRefreshState(loading) {
+        qsa('[data-reminder-refresh]').forEach(function (control) {
+            control.disabled = !!loading;
+            control.setAttribute('aria-busy', loading ? 'true' : 'false');
+        });
+    }
+
+    function reminderPartialStatusMarkup(status) {
+        var failedCount = Number(status && status.failedCount || 0);
+        if (!failedCount) return '';
+        var totalProjects = Number(status && status.totalProjects || 0);
+        var checkedCount = Math.max(totalProjects - failedCount, 0);
+        return '<div class="reminder-partial" role="status">' +
+            '<span class="reminder-partial-icon" aria-hidden="true"><i data-lucide="cloud-alert"></i></span>' +
+            '<span class="reminder-partial-copy"><b>Часть данных недоступна</b><small>Проверено объектов: ' + checkedCount + ' из ' + totalProjects + '</small></span>' +
+            '<button class="reminder-retry-button" type="button" data-reminder-refresh>Повторить</button>' +
+        '</div>';
+    }
+
+    function reminderFailureMarkup() {
+        return '<div class="reminder-error" role="status">' +
+            '<span class="reminder-error-icon" aria-hidden="true"><i data-lucide="wifi-off"></i></span>' +
+            '<b>Не удалось проверить объекты</b>' +
+            '<span>Мы не будем показывать «всё спокойно», пока не получим актуальные данные.</span>' +
+            '<button class="reminder-retry-button" type="button" data-reminder-refresh><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Повторить</span></button>' +
+        '</div>';
+    }
+
+    function renderReminderBell(items, loading, status) {
         var button = qs('[data-reminder-toggle]');
         var count = qs('[data-reminder-count]');
         var list = qs('[data-reminder-list]');
         var subtitle = qs('[data-reminder-subtitle]');
         if (!button || !count || !list) return;
         items = Array.isArray(items) ? items : [];
-        button.classList.toggle('has-alerts', items.length > 0);
-        count.hidden = !items.length;
-        count.textContent = String(Math.min(99, items.length));
-        if (subtitle) subtitle.textContent = loading ? 'Проверяем объекты...' : (items.length ? String(items.length) + ' активных напоминаний' : 'Сейчас ничего не горит');
+        status = Object.assign({ failedCount: 0, totalProjects: 0, fullFailure: false }, status || {});
+        if (!loading) {
+            reminderLastItems = items.slice();
+            reminderLastStatus = Object.assign({}, status);
+        }
+        var badgeItems = items.filter(function (item) { return item.kind === 'danger' || item.kind === 'warn'; });
+        var hasRefreshError = Number(status.failedCount || 0) > 0;
+        button.classList.toggle('has-alerts', badgeItems.length > 0);
+        button.classList.toggle('has-error', hasRefreshError);
+        count.hidden = !badgeItems.length && !hasRefreshError;
+        count.textContent = badgeItems.length ? (badgeItems.length > 99 ? '99+' : String(badgeItems.length)) : (hasRefreshError ? '!' : '0');
+        var buttonLabel = items.length
+            ? ('Уведомления: активных ' + items.length + ', требуют внимания ' + badgeItems.length)
+            : (status.failedCount ? 'Уведомления: проверка не завершена' : 'Уведомления: срочных нет');
+        if (status.failedCount && items.length) buttonLabel += '. Проверка неполная';
+        button.setAttribute('aria-label', buttonLabel);
+        button.title = button.getAttribute('aria-label');
+        var projectIds = {};
+        items.forEach(function (item) { if (item.projectId) projectIds[String(item.projectId)] = true; });
+        if (subtitle) {
+            if (loading) subtitle.textContent = 'Проверяем объекты...';
+            else if (status.fullFailure) subtitle.textContent = 'Нужно повторить проверку';
+            else if (items.length) subtitle.textContent = 'Активных: ' + items.length + ' • объектов: ' + Object.keys(projectIds).length;
+            else if (status.failedCount) subtitle.textContent = 'Проверка выполнена не полностью';
+            else subtitle.textContent = 'На сейчас всё спокойно';
+        }
+        list.setAttribute('aria-busy', loading ? 'true' : 'false');
+        syncReminderRefreshState(loading);
         if (loading) {
-            list.innerHTML = '<div class="reminder-empty"></div>';
+            list.innerHTML = '<div class="reminder-loading" aria-label="Загружаем уведомления"><span></span><span></span><span></span></div>';
+            return;
+        }
+        if (status.fullFailure) {
+            list.innerHTML = reminderFailureMarkup();
+            syncReminderRefreshState(false);
+            refreshLucideIcons(list);
             return;
         }
         if (!items.length) {
-            list.innerHTML = '<div class="reminder-empty"><b>Все спокойно</b><span>Просрочек, блокеров и срочных закупок нет.</span></div>';
+            list.innerHTML = reminderPartialStatusMarkup(status) + (status.failedCount
+                ? '<div class="reminder-empty is-partial"><b>В проверенных объектах срочного нет</b><span>Остальные объекты пока не проверены.</span></div>'
+                : '<div class="reminder-empty"><span class="reminder-empty-icon" aria-hidden="true"><i data-lucide="circle-check-big"></i></span><b>На сейчас всё спокойно</b><span>Просрочек, блокеров и срочных закупок нет.</span></div>');
+            syncReminderRefreshState(false);
+            refreshLucideIcons(list);
             return;
         }
-        list.innerHTML = '<div class="reminder-list">' + items.map(function (item) {
-            return '<a class="reminder-item is-' + escapeHtml(item.kind || 'info') + '" href="' + escapeHtml(item.href || '/app/projects') + '">' +
-                '<div><span>' + escapeHtml(item.label || 'Напоминание') + '</span><b>' + escapeHtml(item.title || 'Объект') + '</b>' + (item.scope ? '<strong class="reminder-scope">Раздел: ' + escapeHtml(item.scope) + '</strong>' : '') + '<small>' + escapeHtml(item.text || '') + '</small></div>' +
-            '</a>';
-        }).join('') + '</div>';
+        list.innerHTML = reminderPartialStatusMarkup(status) + reminderSummaryMarkup(items) + reminderGroupsMarkup(items);
+        syncReminderRefreshState(false);
+        refreshLucideIcons(list);
     }
 
     function refreshReminderBell() {
         if (!qsa('[data-reminder-toggle]').length) return;
+        if (state.reminderProjectsLoading || reminderRefreshInFlight) return;
         if (!state.projectsLoaded) {
-            if (state.reminderProjectsLoading) {
-                renderReminderBell([], true);
-                return;
-            }
+            var projectsRequestToken = ++reminderRequestToken;
             state.reminderProjectsLoading = true;
-            renderReminderBell([], true);
+            renderReminderBell(reminderLastItems, true, reminderLastStatus);
             api('/api/projects', { silentLoader: true }).then(function (data) {
+                if (projectsRequestToken !== reminderRequestToken) return;
                 state.projects = Array.isArray(data.projects) ? data.projects : [];
                 state.projectsLoaded = true;
                 state.reminderProjectsLoading = false;
                 refreshReminderBell();
             }).catch(function () {
+                if (projectsRequestToken !== reminderRequestToken) return;
                 state.reminderProjectsLoading = false;
-                renderReminderBell([], false);
+                renderReminderBell([], false, { failedCount: 1, totalProjects: 0, fullFailure: true });
             });
             return;
         }
         if (!state.projects.length) {
-            renderReminderBell([], false);
+            renderReminderBell([], false, { failedCount: 0, totalProjects: 0, fullFailure: false });
             return;
         }
-        renderReminderBell([], true);
+        var notificationsRequestToken = ++reminderRequestToken;
+        reminderRefreshInFlight = true;
+        renderReminderBell(reminderLastItems, true, reminderLastStatus);
         Promise.all(state.projects.map(function (project) {
             return api('/api/projects/' + project.id + '/notifications').then(function (notifications) {
                 state.notificationsByProject[project.id] = notifications || {};
-                return buildReminderItemsForProject(project, notifications || {});
-            }).catch(function () { return []; });
-        })).then(function (groups) {
+                return { ok: true, items: buildReminderItemsForProject(project, notifications || {}) };
+            }).catch(function () { return { ok: false, items: [] }; });
+        })).then(function (results) {
+            if (notificationsRequestToken !== reminderRequestToken) return;
+            reminderRefreshInFlight = false;
             var items = [];
-            groups.forEach(function (group) { items = items.concat(group); });
-            renderReminderBell(items, false);
+            var failedCount = 0;
+            results.forEach(function (result) {
+                if (!result.ok) failedCount += 1;
+                items = items.concat(result.items || []);
+            });
+            renderReminderBell(items, false, {
+                failedCount: failedCount,
+                totalProjects: state.projects.length,
+                fullFailure: failedCount >= state.projects.length
+            });
+        }).catch(function () {
+            if (notificationsRequestToken !== reminderRequestToken) return;
+            reminderRefreshInFlight = false;
+            renderReminderBell([], false, { failedCount: state.projects.length, totalProjects: state.projects.length, fullFailure: true });
         });
+    }
+
+    function closeReminderPopover(restoreFocus) {
+        var popover = qs('[data-reminder-popover]');
+        var toggle = qs('[data-reminder-toggle]');
+        if (popover) popover.hidden = true;
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', 'false');
+            if (restoreFocus && typeof toggle.focus === 'function') toggle.focus();
+        }
     }
 
     function initReminderBell() {
@@ -8095,7 +8815,20 @@ function renderLogsDayView(project, logs) {
                 if (!popover) return;
                 popover.hidden = !popover.hidden;
                 toggle.setAttribute('aria-expanded', popover.hidden ? 'false' : 'true');
-                if (!popover.hidden) refreshReminderBell();
+                if (!popover.hidden) {
+                    refreshReminderBell();
+                    refreshLucideIcons(popover);
+                    var closeControl = qs('[data-reminder-close]', popover);
+                    if (closeControl && typeof closeControl.focus === 'function') {
+                        try { closeControl.focus({ preventScroll: true }); } catch (focusError) { closeControl.focus(); }
+                    }
+                }
+                return;
+            }
+            var close = event.target && event.target.closest ? event.target.closest('[data-reminder-close]') : null;
+            if (close) {
+                event.preventDefault();
+                closeReminderPopover(true);
                 return;
             }
             var refresh = event.target && event.target.closest ? event.target.closest('[data-reminder-refresh]') : null;
@@ -8104,12 +8837,22 @@ function renderLogsDayView(project, logs) {
                 refreshReminderBell();
                 return;
             }
+            var reminderLink = event.target && event.target.closest ? event.target.closest('.reminder-item') : null;
+            if (reminderLink) {
+                closeReminderPopover(false);
+                return;
+            }
             if (!popover) return;
             if (popover.hidden) return;
             if (event.target.closest('[data-reminder-popover]')) return;
-            popover.hidden = true;
-            var currentToggle = qs('[data-reminder-toggle]');
-            if (currentToggle) currentToggle.setAttribute('aria-expanded', 'false');
+            closeReminderPopover(false);
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key !== 'Escape') return;
+            var popover = qs('[data-reminder-popover]');
+            if (!popover || popover.hidden) return;
+            event.preventDefault();
+            closeReminderPopover(true);
         });
     }
 
@@ -8975,19 +9718,34 @@ function renderLogsDayView(project, logs) {
         var needed = candidate.tokens.length >= 4 ? 2 : 1;
         if (score < needed) return null;
         var normalized = normalizeReportText(clauseText);
-        var plan = quantityPlanInfo(candidate.item);
-        var qty = clampActualQty(reportQuantityFromClause(clauseText, candidate.item), plan.totalQty);
+        var item = candidate.item;
+        var plan = quantityPlanInfo(item);
+        var qty = clampActualQty(reportQuantityFromClause(clauseText, item), plan.totalQty);
+        var purchasedAlready = Number(item.purchasedQty || item.purchased_qty || 0);
+        var receivedAlready = Number(item.receivedQty || item.received_qty || 0);
+        var usedAlready = Number(item.usedQty || item.used_qty || 0) + Number(item.writeoffQty || item.writeoff_qty || 0);
+        var toOrder = Math.max(plan.totalQty - Math.max(purchasedAlready, receivedAlready), 0);
+        var orderedPending = Math.max(purchasedAlready - receivedAlready, 0);
+        var physicalRemaining = Math.max(plan.totalQty - receivedAlready, 0);
+        var onSite = Math.max(Number(item.stockBalanceQty != null ? item.stockBalanceQty : (receivedAlready - usedAlready)) || 0, 0);
         var purchase = reportHasPurchaseIntent(normalized);
+        var receipt = reportHasReceiptIntent(normalized);
         var used = reportHasUseIntent(normalized);
-        if (!purchase && !used) used = true;
-        if (!qty && plan.totalQty > 0 && reportHasPartialIntent(normalized)) qty = plan.totalQty * 0.5;
-        if (!qty && plan.totalQty > 0 && reportHasWholeIntent(normalized)) qty = plan.totalQty;
-        qty = clampActualQty(qty, plan.totalQty);
+        if (receipt && /поставк|отгруз/.test(normalized)) used = false;
+        if (!qty && purchase) qty = toOrder;
+        if (!qty && receipt) qty = orderedPending || (reportHasWholeIntent(normalized) ? physicalRemaining : 0);
+        if (!qty && used && reportHasWholeIntent(normalized)) qty = onSite;
         return {
-            item: candidate.item,
+            item: item,
             score: score,
-            purchasedQty: purchase ? qty : 0,
-            usedQty: used ? qty : 0
+            clauseText: clauseText,
+            actionEligible: purchase || receipt || used,
+            purchasedQty: purchase ? Math.min(qty, toOrder) : 0,
+            receivedQty: receipt ? Math.min(qty, physicalRemaining) : 0,
+            usedQty: used ? Math.min(qty, onSite) : 0,
+            purchaseMaxQty: toOrder,
+            receiptMaxQty: physicalRemaining,
+            useMaxQty: onSite
         };
     };
 
@@ -9526,17 +10284,23 @@ function renderLogsDayView(project, logs) {
             '</div>' +
             '<div class="topbar-actions">' +
                 '<div class="topbar-reminders-wrap">' +
-                    '<button class="topbar-icon-button reminder-circle" type="button" data-reminder-toggle aria-label="Уведомления" title="Уведомления">' +
+                    '<button class="topbar-icon-button reminder-circle" type="button" data-reminder-toggle aria-label="Уведомления: срочных нет" title="Уведомления: срочных нет" aria-expanded="false" aria-haspopup="dialog" aria-controls="reminder-center-popover">' +
                         '<i data-lucide="bell" aria-hidden="true"></i>' +
                         '<span class="reminder-count" data-reminder-count hidden>0</span>' +
                     '</button>' +
-                    '<div class="reminder-popover" data-reminder-popover hidden>' +
+                    '<div class="reminder-popover reminder-center" id="reminder-center-popover" data-reminder-popover role="dialog" aria-labelledby="reminder-center-title" hidden>' +
                         '<div class="reminder-popover-head">' +
-                            '<div>' +
-                                '<strong>Что горит</strong>' +
-                                '<span data-reminder-subtitle>Проверяем объекты...</span>' +
+                            '<div class="reminder-head-title">' +
+                                '<span class="reminder-head-mark" aria-hidden="true"><i data-lucide="bell-ring"></i></span>' +
+                                '<div>' +
+                                    '<strong id="reminder-center-title">Центр внимания</strong>' +
+                                    '<span data-reminder-subtitle aria-live="polite">Проверяем объекты...</span>' +
+                                '</div>' +
                             '</div>' +
-                            '<button class="ghost compact" type="button" data-reminder-refresh>Обновить</button>' +
+                            '<div class="reminder-head-actions">' +
+                                '<button class="reminder-head-button reminder-refresh-button" type="button" data-reminder-refresh aria-label="Обновить уведомления" title="Обновить уведомления"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Обновить</span></button>' +
+                                '<button class="reminder-head-button reminder-close-button" type="button" data-reminder-close aria-label="Закрыть уведомления" title="Закрыть"><i data-lucide="x" aria-hidden="true"></i></button>' +
+                            '</div>' +
                         '</div>' +
                         '<div data-reminder-list></div>' +
                     '</div>' +
@@ -9597,6 +10361,7 @@ function renderLogsDayView(project, logs) {
         state.user = user;
         state.currentUser = user;
         renderAppTopbar();
+        renderReminderBell(reminderLastItems, reminderRefreshInFlight || state.reminderProjectsLoading, reminderLastStatus);
         forceTopbarAvatar(user);
     });
 
@@ -9679,12 +10444,12 @@ function renderLogsDayView(project, logs) {
     function projectOverviewWidgetSupplyV2(materials) {
         var list = Array.isArray(materials) ? materials : [];
         var onSite = 0;
-        var onRoute = 0;
+        var ordered = 0;
         var required = 0;
         list.forEach(function (item) {
             var status = String(item && item.supplyStatus || '');
             if (status === 'in_stock') onSite += 1;
-            if (status === 'planned' || status === 'soon') onRoute += 1;
+            if (status === 'ordered') ordered += 1;
             if (status === 'required') required += 1;
         });
         return projectOverviewMetricV2(
@@ -9694,7 +10459,7 @@ function renderLogsDayView(project, logs) {
             required ? ('Критично закрыть: ' + required) : 'Склад и поставки под контролем',
             '<div class="project-overview-kpi-pairs">' +
                 '<div><span>На объекте</span><strong>' + escapeHtml(String(onSite)) + '</strong></div>' +
-                '<div><span>Едет</span><strong>' + escapeHtml(String(onRoute)) + '</strong></div>' +
+                '<div><span>Заказано</span><strong>' + escapeHtml(String(ordered)) + '</strong></div>' +
             '</div>'
         );
     }
@@ -9911,13 +10676,12 @@ function renderLogsDayView(project, logs) {
 
     function renderObjectQuickCaptureV3() {
         var actions = [];
-        if (canCreateProjectReport()) actions.push(objectControlQuickActionV3('report', 'Отчет', 'Закрыть день', 'notebook-pen'));
         if (canManageDocuments()) {
-            actions.push(objectControlQuickActionV3('document', 'Накладная', 'Зафиксировать приход', 'package-check', 'delivery_note'));
-            actions.push(objectControlQuickActionV3('document', 'Путевой', 'Техника и ГСМ', 'route', 'route_sheet'));
+            actions.push(objectControlQuickActionV3('document', 'Фото', 'Результат или проблема', 'camera', 'photo_report'));
         }
-        if (canSeeFinances()) actions.push(objectControlQuickActionV3('invoice', 'Счёт', 'Поставить к оплате', 'receipt-text'));
+        actions.push(objectControlQuickActionV3('material', 'Материал', 'Приход, расход, возврат', 'package-plus'));
         if (canCreateProjectTask()) actions.push(objectControlQuickActionV3('task', 'Задача', 'Ответственный и срок', 'list-plus'));
+        if (canSeeFinances()) actions.push(objectControlQuickActionV3('invoice', 'Счёт', 'Поставить к оплате', 'receipt-text'));
         if (!actions.length) return '';
         return '<section class="object-quick-capture" aria-label="Быстро добавить событие">' +
             '<div class="object-quick-capture-head"><strong>Записать событие</strong><span>Одна точка входа для ежедневной работы</span></div>' +
@@ -9926,10 +10690,11 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderObjectAttentionItemV3(item) {
+        var actionAttributes = objectControlActionAttributesV3(item);
         return '<article class="object-attention-item ' + (item.tone ? ('is-' + escapeHtml(item.tone)) : '') + '">' +
             '<span class="object-attention-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(item.icon || 'circle-alert') + '"></i></span>' +
             '<span class="object-attention-copy"><strong>' + escapeHtml(item.title) + '</strong><span>' + escapeHtml(item.text || '') + '</span></span>' +
-            '<button class="object-attention-action" type="button"' + objectControlActionAttributesV3(item) + '>' + escapeHtml(item.label || 'Открыть') + '</button>' +
+            (actionAttributes ? ('<button class="object-attention-action" type="button"' + actionAttributes + '>' + escapeHtml(item.label || 'Открыть') + '</button>') : '') +
         '</article>';
     }
 
@@ -10140,7 +10905,7 @@ function renderLogsDayView(project, logs) {
             attention.push({ tone: 'danger', icon: 'list-x', title: 'Просрочены задачи: ' + overdueTasks.length, text: 'Обновите срок или зафиксируйте результат — просрочка не должна висеть молча.', label: 'Разобрать', tab: 'tasks' });
         }
         if (notifications.missingDailyReport) {
-            attention.push({ tone: 'warning', icon: 'notebook-pen', title: 'За сегодня нет отчета', text: 'Вечером зафиксируйте объёмы, людей, технику, поставки, фото и блокеры.', label: 'Добавить отчет', quickAction: 'report' });
+            attention.push({ tone: 'warning', icon: 'notebook-pen', title: 'За сегодня нет отчета', text: 'Вечером зафиксируйте объёмы, людей, технику, поставки, фото и блокеры.' });
         }
         if (!hasRole('customer') && (!hasForeman || !hasBuyer)) {
             var missingRoles = [!hasForeman ? 'прораб' : '', !hasBuyer ? 'снабженец' : ''].filter(Boolean).join(' и ');
@@ -10229,6 +10994,7 @@ function renderLogsDayView(project, logs) {
     if (typeof buildProjectReportDraft === 'function') PMBI.app.buildProjectReportDraft = buildProjectReportDraft;
     if (typeof bindReportPreview === 'function') PMBI.app.bindReportPreview = bindReportPreview;
     if (typeof bindReportVoiceInputs === 'function') PMBI.app.bindReportVoiceInputs = bindReportVoiceInputs;
+    if (typeof startPrimaryReportVoice === 'function') PMBI.app.startPrimaryReportVoice = startPrimaryReportVoice;
     if (typeof reportAuthorInitials === 'function') PMBI.app.reportAuthorInitials = reportAuthorInitials;
     if (typeof reportCreatedDateTime === 'function') PMBI.app.reportCreatedDateTime = reportCreatedDateTime;
     if (typeof reportLogStatus === 'function') PMBI.app.reportLogStatus = reportLogStatus;
@@ -10255,6 +11021,10 @@ function renderLogsDayView(project, logs) {
     if (typeof groupMaterialsBySection === 'function') PMBI.app.groupMaterialsBySection = groupMaterialsBySection;
     if (typeof syncCurrentUserHeader === 'function') PMBI.app.syncCurrentUserHeader = syncCurrentUserHeader;
     if (typeof initReminderBell === 'function') PMBI.app.initReminderBell = initReminderBell;
+    if (typeof initPositionEditor === 'function') PMBI.app.initPositionEditor = initPositionEditor;
+    if (typeof highlightPositionRow === 'function') PMBI.app.highlightPositionRow = highlightPositionRow;
+    if (typeof focusProjectDeepLink === 'function') PMBI.app.focusProjectDeepLink = focusProjectDeepLink;
+    if (typeof handleReminderNavigation === 'function') PMBI.app.handleReminderNavigation = handleReminderNavigation;
     if (typeof renderAppTopbar === 'function') PMBI.app.renderAppTopbar = renderAppTopbar;
     if (typeof populateProjectCompanySelects === 'function') PMBI.app.populateProjectCompanySelects = populateProjectCompanySelects;
     if (typeof updateProjectInState === 'function') PMBI.app.updateProjectInState = updateProjectInState;
@@ -10274,6 +11044,7 @@ function renderLogsDayView(project, logs) {
     if (typeof renderTaskCreateModal === 'function') PMBI.app.renderTaskCreateModal = renderTaskCreateModal;
     if (typeof normalizeTaskTitle === 'function') PMBI.app.normalizeTaskTitle = normalizeTaskTitle;
     if (typeof loadProjectNotifications === 'function') PMBI.app.loadProjectNotifications = loadProjectNotifications;
+    if (typeof refreshReminderBell === 'function') PMBI.app.refreshReminderBell = refreshReminderBell;
     if (typeof loadMaterials === 'function') PMBI.app.loadMaterials = loadMaterials;
     if (typeof loadMaterialInsights === 'function') PMBI.app.loadMaterialInsights = loadMaterialInsights;
     if (typeof loadTasks === 'function') PMBI.app.loadTasks = loadTasks;

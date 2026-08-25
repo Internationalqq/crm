@@ -46,6 +46,10 @@ for (const selector of [
   '.report-section-required',
   '.report-create-plus',
   '.report-confirm-ready-mark',
+  '.report-voice-button.is-primary',
+  '.report-effect-card',
+  '.report-effect-check',
+  '.report-effects-summary',
 ]) {
   assert.ok(reportsCss.includes(selector), `Missing reports selector: ${selector}`);
 }
@@ -59,7 +63,7 @@ assert.match(reportsCss, /var\(--color-danger\)/);
 assert.match(reportsCss, /\.reports-drawer-frame\[data-open="1"\] \.reports-drawer-panel\s*\{[^}]*translate\(-50%, -50%\)/s);
 assert.match(reportsCss, /\.reports-drawer-frame \.reports-drawer-host\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/s);
 assert.match(reportsCss, /\.reports-drawer-frame \.report-modal-scroll\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
-assert.match(reportsCss, /height:\s*calc\(100dvh - 16px\) !important/);
+assert.match(reportsCss, /height:\s*100dvh !important/);
 const reportModalCss = reportsCss.slice(reportsCss.indexOf('/* Report drawer */'));
 assert.ok(reportModalCss.length > 0, 'The report modal layer must exist');
 assert.equal(
@@ -105,13 +109,12 @@ assert.match(operationsJs, /report-submit-arrow/);
 assert.match(operationsJs, /data-log-form novalidate/);
 assert.match(operationsJs, /form\.elements\.namedItem\(name\)/);
 assert.match(operationsJs, /reportTitle = '\\u041e\\u0442\\u0447\\u0435\\u0442 \\u0437\\u0430 ' \+ selectedDate/);
-assert.match(operationsJs, /showAppNotice\('\\u041e\\u0442\\u0447\\u0435\\u0442 \\u0441\\u043e\\u0445\\u0440\\u0430\\u043d\\u0451\\u043d\.', 'success'\)/);
-assert.match(operationsJs, /class="report-create-plus" aria-hidden="true">\+<\/span><span>Новый отчет<\/span>/);
-assert.equal(
-  operationsJs.includes('<i data-lucide="plus"></i><span>Новый отчет</span>'),
-  false,
-  'The create report button must not depend on an externally loaded plus icon',
-);
+assert.match(operationsJs, /Отчёт сохранён/);
+const finalReportsPanelStart = operationsJs.lastIndexOf('renderProjectReportsPanel = function');
+const finalReportsPanelEnd = operationsJs.indexOf('renderProjectReportForm = function', finalReportsPanelStart);
+const finalReportsPanelJs = operationsJs.slice(finalReportsPanelStart, finalReportsPanelEnd);
+assert.ok(finalReportsPanelStart > -1 && finalReportsPanelEnd > finalReportsPanelStart, 'The final reports panel override must exist');
+assert.equal(finalReportsPanelJs.includes('report-create-button'), false, 'The journal must not duplicate the persistent daily-report CTA');
 const reportModalFormStart = operationsJs.lastIndexOf('renderProjectReportForm = function');
 const reportModalFormEnd = operationsJs.indexOf('function bindProjectReportsCalendar', reportModalFormStart);
 const reportModalFormJs = operationsJs.slice(reportModalFormStart, reportModalFormEnd);
@@ -132,6 +135,23 @@ assert.equal(
 );
 assert.equal(reportModalFormJs.includes('name="confirm_report"'), false, 'Saving an object report must not be blocked by a confirmation checkbox');
 assert.match(operationsJs, /if \(data && data\.log\)/);
+assert.match(operationsJs, /client_request_id:\s*clientRequestId/);
+assert.match(operationsJs, /confirmed_actions:\s*confirmedActions/);
+assert.match(operationsJs, /data-report-only-submit/);
+assert.match(operationsJs, /data-report-effect/);
+assert.match(operationsJs, /data-report-effect-qty/);
+assert.match(operationsJs, /function currentLocalDateIso\(\)/);
+assert.match(operationsJs, /form\.dataset\.reportDateTouched/);
+assert.match(operationsJs, /data-effect-max/);
+assert.match(operationsJs, /function canApplyDailyReportMaterialActions\(\)/);
+assert.match(operationsJs, /daily_log_actions_forbidden/);
+assert.match(operationsJs, /daily_log_action_qty_exceeds_limit/);
+assert.match(operationsJs, /data\.appliedActions/);
+assert.match(operationsJs, /delete state\.materialsByProject\[projectId\]/);
+assert.match(operationsJs, /PMBI\.warehouseControl\.load\(projectId, true\)/);
+assert.match(operationsJs, /daily_log_has_applied_actions/);
+assert.match(operationsJs, /report-actions-locked/);
+assert.match(operationsJs, /Подтвердить и сохранить/);
 assert.match(operationsJs, /state\.projectLogsByProject\[projectId\] = updatedLogs/);
 assert.match(operationsJs, /name="workers_count" type="number"/);
 assert.match(operationsJs, /name="progress_percent" type="number"/);
@@ -150,11 +170,33 @@ assert.match(appJs, /refreshProjectReportsTab = function \(\) \{ return operatio
 assert.match(appJs, /Распознаны работы:/);
 assert.match(appJs, /Распознаны материалы:/);
 assert.equal(appJs.includes('Будут обновлены материалы:'), false);
+const finalMaterialMatcherStart = appJs.lastIndexOf('reportMaterialResultFromClause = function');
+const finalMaterialMatcherEnd = appJs.indexOf('effectiveMaterialFromReports = function', finalMaterialMatcherStart);
+const finalMaterialMatcherJs = appJs.slice(finalMaterialMatcherStart, finalMaterialMatcherEnd);
+assert.ok(finalMaterialMatcherStart > -1 && finalMaterialMatcherEnd > finalMaterialMatcherStart, 'The final material speech matcher must exist');
+assert.match(finalMaterialMatcherJs, /reportHasReceiptIntent/);
+assert.match(finalMaterialMatcherJs, /toOrder/);
+assert.match(finalMaterialMatcherJs, /orderedPending/);
+assert.doesNotMatch(finalMaterialMatcherJs, /if \(!purchase && !used\) used = true/);
+assert.match(appJs, /data-report-effect-qty/);
+assert.match(appJs, /Сохранится только отчёт/);
+assert.match(appJs, /function buildProjectReportTextFromMatches/);
+assert.match(appJs, /function syncReportTextFromEffectQuantities/);
+assert.match(appJs, /activeDraft\.text = buildProjectReportTextFromMatches/);
+assert.match(appJs, /data-report-preview-text/);
+assert.match(appJs, /function startPrimaryReportVoice\(form\)/);
+assert.match(appJs, /data-report-voice-unavailable/);
+assert.match(appJs, /data-effect-max=/);
+assert.match(appJs, /if \(!procurement\.materialId\) return/);
+assert.match(appJs, /уже заказано, ждём/);
 const legacyReportWord = /\u0440\u0430\u043f\u043e\u0440\u0442/i;
 assert.equal(legacyReportWord.test(operationsJs), false, 'Operations UI must consistently use the word Отчет');
 assert.equal(legacyReportWord.test(appJs), false, 'App UI must consistently use the word Отчет');
-assert.equal(legacyReportWord.test(projectsHtml), false, 'Projects page must consistently use the word Отчеты');
-assert.match(projectsHtml, />Отчеты<\/b>/);
+assert.equal(legacyReportWord.test(projectsHtml), false, 'Projects page must consistently use the word Отчёты');
+assert.match(projectsHtml, /data-tab="reports"[^>]*>[\s\S]*?<span>Журнал<\/span>/);
+assert.match(projectsHtml, /class="project-report-primary"[^>]*data-project-quick-action="report"/);
+assert.match(projectsHtml, /class="project-mobile-capture"[\s\S]*?data-project-quick-action="report"/);
+assert.match(projectsHtml, /data-project-quick-action="report" data-report-start-voice/);
 
 assert.match(routerJs, /operations\.js\?v=[^']*project-report-modal-1/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-modal-cool-2/);

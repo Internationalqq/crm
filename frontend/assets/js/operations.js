@@ -28,6 +28,7 @@
     var canViewPrivateContacts = PMBI.canViewPrivateContacts;
     var canManageDailyTasks = PMBI.canManageDailyTasks;
     var canManageSuppliers = PMBI.canManageSuppliers;
+    var canManageSchedule = PMBI.canManageSchedule;
     var canViewProjectEconomics = PMBI.canViewProjectEconomics || function () { return false; };
     var canDeleteProject = PMBI.canDeleteProject || function () { return hasRole('admin'); };
     var canSeeFinances = PMBI.canSeeFinances;
@@ -42,6 +43,11 @@
     var displayUserName = PMBI.displayUserName;
     var rememberUserInitial = PMBI.rememberUserInitial;
     var profileUserInitials = PMBI.profileUserInitials;
+
+    function currentLocalDateIso() {
+        var value = new Date();
+        return value.getFullYear() + '-' + String(value.getMonth() + 1).padStart(2, '0') + '-' + String(value.getDate()).padStart(2, '0');
+    }
 
     function appCall(name, args) {
         var fn = PMBI.app && PMBI.app[name];
@@ -142,6 +148,7 @@
         return appCall('forceTopbarAvatar', arguments);
     }
     function initReminderBell() { return appCall('initReminderBell', arguments); }
+    function refreshReminderBell() { return appCall('refreshReminderBell', arguments); }
     function renderAppTopbar() { return appCall('renderAppTopbar', arguments); }
     function bindUserMenu() { return appCall('bindUserMenu', arguments); }
     function initAiAssistant() { return appCall('initAiAssistant', arguments); }
@@ -168,6 +175,9 @@
     function reportLogStatus() { return appCall('reportLogStatus', arguments); }
     function renderProjectReportDeleteButton(projectId, log, compact) {
         if (!canCreateProjectReport() || !projectId || !log || !log.id) return '';
+        if (Number(log.has_applied_actions || log.hasAppliedActions || 0) > 0) {
+            return '<span class="report-actions-locked" title="Отчёт изменил учёт материалов и хранится как первичный документ"><i data-lucide="lock-keyhole"></i><span>Учёт применён</span></span>';
+        }
         return '<button class="ghost report-delete-btn' + (compact ? ' compact' : '') + '" type="button" data-project-report-delete="' + escapeHtml(log.id) + '" data-project-id="' + escapeHtml(projectId) + '" aria-label="Удалить отчет" title="Удалить отчет"><i data-lucide="trash-2"></i><span>Удалить</span></button>';
     }
     function bindProjectReportDeleteActions() {
@@ -200,7 +210,7 @@
                     });
                 }).catch(function (error) {
                     button.disabled = false;
-                    showAppNotice(appErrorMessage(error, 'Не удалось удалить отчет.'), 'error');
+                    showAppNotice(reportActionErrorMessage(error, 'Не удалось удалить отчёт.'), 'error');
                 });
             });
         });
@@ -1149,6 +1159,10 @@
         return !hasRole('customer');
     }
 
+    function canApplyDailyReportMaterialActions() {
+        return !!(canManageSchedule && canManageSchedule()) || hasRole('purchaser');
+    }
+
     function bindProjectReportAssistantActions() {
         qsa('[data-report-open-ai]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
@@ -1468,29 +1482,66 @@
         }, 120);
     }
 
+    function projectQuickActionAllowed(action) {
+        if (action === 'report') return canCreateProjectReport();
+        if (action === 'document') return typeof PMBI.canManageDocuments === 'function' && PMBI.canManageDocuments();
+        if (action === 'material') return typeof PMBI.canManageSchedule === 'function' && PMBI.canManageSchedule();
+        if (action === 'task') return hasRole('admin') || hasRole('director');
+        if (action === 'invoice') return canSeeFinances();
+        return true;
+    }
+
     function runProjectQuickAction(button) {
         var action = button.dataset.projectQuickAction || '';
         var menu = button.closest('details');
         if (menu) menu.open = false;
+        if (!projectQuickActionAllowed(action)) {
+            showAppNotice('У вашей роли нет доступа к этому действию.', 'error');
+            return;
+        }
         if (action === 'edit') {
             if (state.selectedProject) openProjectEdit(state.selectedProject.id);
             return;
         }
+        if (action === 'report') {
+            var projectId = Number(state.selectedProject && state.selectedProject.id || 0);
+            var startVoice = button.hasAttribute('data-report-start-voice');
+            if (!projectId) return;
+            var todayIso = currentLocalDateIso();
+            state.logsSelectedDateByProject[projectId] = todayIso;
+            state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(todayIso);
+            activateProjectTab('reports');
+            waitForProjectControl('[data-drawer-id="project-report-create"]', function (drawer) {
+                var form = qs('[data-log-form]', drawer);
+                if (form && form.report_date) {
+                    form.dataset.reportDateTouched = '0';
+                    form.report_date.value = todayIso;
+                    form.report_date.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                openSideDrawer(drawer);
+                if (startVoice && PMBI.app && typeof PMBI.app.startPrimaryReportVoice === 'function') {
+                    PMBI.app.startPrimaryReportVoice(form);
+                }
+                window.setTimeout(function () {
+                    var firstField = qs('textarea[name="raw_input"]', drawer);
+                    if (firstField) firstField.focus();
+                }, 80);
+            });
+            return;
+        }
         if (action === 'material') {
             activateProjectTab('warehouse-control');
+            waitForProjectControl('[data-warehouse-dialog-open="movement"]', function (control) {
+                control.click();
+            });
             return;
         }
         var config = {
-            report: { tab: 'reports', selector: '[data-open-project-report-create]' },
             document: { tab: 'documents', selector: '[data-document-upload-toggle], [data-document-empty-add]' },
             invoice: { tab: 'finance', selector: '[data-finance-open-modal="invoice"]' },
             task: { tab: 'tasks', selector: '[data-task-create-toggle]' }
         }[action];
         if (!config) return;
-        if (action === 'invoice' && !canSeeFinances()) {
-            showAppNotice('У вашей роли нет доступа к финансовым операциям.', 'error');
-            return;
-        }
         activateProjectTab(config.tab);
         waitForProjectControl(config.selector, function (control) {
             control.click();
@@ -1515,9 +1566,19 @@
             });
         });
         qsa('[data-project-quick-action]').forEach(function (button) {
+            var action = button.dataset.projectQuickAction || '';
+            var allowed = projectQuickActionAllowed(action);
+            button.classList.toggle('hidden', !allowed);
+            button.setAttribute('aria-hidden', allowed ? 'false' : 'true');
             if (button.dataset.quickActionBound === '1') return;
             button.dataset.quickActionBound = '1';
             button.addEventListener('click', function () { runProjectQuickAction(button); });
+        });
+        qsa('.project-mobile-capture, .project-add-menu').forEach(function (container) {
+            var visibleActions = qsa('[data-project-quick-action]', container).filter(function (button) {
+                return !button.classList.contains('hidden');
+            });
+            container.classList.toggle('hidden', visibleActions.length === 0);
         });
         qsa('[data-project-status-select]').forEach(function (select) {
             if (select.dataset.bound === '1') return;
@@ -3417,10 +3478,62 @@
         if (control && typeof control.focus === 'function') control.focus();
     }
 
+    function reportClientRequestId(form) {
+        if (form.dataset.clientRequestId) return form.dataset.clientRequestId;
+        var value = '';
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') value = window.crypto.randomUUID();
+        if (!value) value = 'daily-report-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+        form.dataset.clientRequestId = value;
+        return value;
+    }
+
+    function reportConfirmedActions(form, reportOnly, requestId) {
+        if (reportOnly || !canApplyDailyReportMaterialActions()) return [];
+        return qsa('[data-report-effect]:checked', form).map(function (input) {
+            var card = input.closest ? input.closest('.report-effect-card') : null;
+            var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+            return {
+                action_type: input.getAttribute('data-effect-kind') || '',
+                estimate_item_id: Number(input.getAttribute('data-item-id') || 0),
+                qty: Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0),
+                client_action_id: String(requestId || '') + ':' + (input.getAttribute('data-client-action-id') || '')
+            };
+        }).filter(function (action) {
+            return /^material_(purchase|receipt|use)$/.test(action.action_type) && action.estimate_item_id > 0 && action.qty > 0;
+        });
+    }
+
+    function reportActionErrorMessage(error, fallback) {
+        var code = error && error.payload && error.payload.error ? String(error.payload.error) : '';
+        var labels = {
+            bad_confirmed_actions: 'Не удалось прочитать выбранные действия. Обновите предпросмотр и повторите.',
+            too_many_confirmed_actions: 'В одном отчёте выбрано слишком много действий.',
+            bad_confirmed_action: 'Одно из распознанных действий заполнено неверно.',
+            bad_confirmed_action_type: 'Тип одного из действий не поддерживается.',
+            bad_confirmed_action_values: 'Проверьте материал и количество в распознанных действиях.',
+            bad_estimate_item_id: 'Материал не выбран.',
+            bad_qty: 'Количество должно быть больше нуля.',
+            bad_report_date: 'Проверьте дату отчёта.',
+            daily_log_actions_forbidden: 'У вас нет права менять учёт материалов. Сохраните запись кнопкой «Только отчёт».',
+            daily_log_action_no_quantity_limit: 'Для материала не задан плановый объём, поэтому действие нельзя применить из отчёта.',
+            daily_log_action_qty_exceeds_limit: 'Количество больше допустимого остатка. Проверьте заказ, поставку или наличие на объекте.',
+            estimate_item_project_mismatch: 'Материал не найден в смете этого объекта. Обновите страницу.',
+            estimate_item_not_material: 'Выбранная позиция относится к работам, а не к материалам.',
+            client_action_already_applied: 'Это действие уже применено в другом отчёте. Обновите страницу.',
+            daily_log_action_conflict: 'Отчёт уже сохранён или данные успели измениться. Обновите журнал.',
+            daily_log_has_applied_actions: 'Этот отчёт изменил учёт материалов, поэтому удалить его напрямую нельзя.'
+        };
+        return labels[code] || appErrorMessage(error, fallback);
+    }
+
     function bindLogForm() {
         qsa('[data-log-form]').forEach(function (form) {
             if (!form || form.dataset.bound === '1') return;
             form.dataset.bound = '1';
+            var boundDateControl = reportFormControl(form, 'report_date');
+            if (boundDateControl) boundDateControl.addEventListener('change', function (event) {
+                if (event.isTrusted) form.dataset.reportDateTouched = '1';
+            });
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
                 var error = qs('[data-log-error]', form) || qs('[data-log-error]');
@@ -3440,8 +3553,24 @@
                 var nextStepsControl = reportFormControl(form, 'next_steps');
                 var progressControl = reportFormControl(form, 'progress_percent');
                 var visibilityControl = reportFormControl(form, 'is_client_visible');
+                var reportOnly = !!(event.submitter && event.submitter.hasAttribute('data-report-only-submit'));
+                var invalidEffectQty = !reportOnly ? qsa('[data-report-effect]:checked', form).map(function (input) {
+                    var card = input.closest ? input.closest('.report-effect-card') : null;
+                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+                    return { toggle: input, qty: qtyInput };
+                }).find(function (entry) {
+                    if (!entry.qty || !(Number(entry.qty.value) > 0)) return true;
+                    var maxQty = Number(entry.toggle.getAttribute('data-effect-max') || entry.qty.getAttribute('max') || 0);
+                    return !(maxQty > 0) || Number(entry.qty.value) > maxQty + 1e-9;
+                }) : null;
+                var clientRequestId = reportClientRequestId(form);
+                var confirmedActions = reportConfirmedActions(form, reportOnly, clientRequestId);
                 var projectId = Number(projectControl && projectControl.value || 0);
-                var selectedDate = dateControl && dateControl.value ? dateControl.value : APP_TODAY;
+                var todayIso = currentLocalDateIso();
+                if (dateControl && form.dataset.reportDateTouched !== '1' && (!dateControl.value || dateControl.value === APP_TODAY)) {
+                    dateControl.value = todayIso;
+                }
+                var selectedDate = dateControl && dateControl.value ? dateControl.value : todayIso;
                 var sourceText = rawInputControl ? rawInputControl.value.trim() : '';
                 var reportText = workDoneControl ? workDoneControl.value.trim() : '';
                 if (!reportText) reportText = sourceText;
@@ -3454,6 +3583,10 @@
                 }
                 if (!reportText) {
                     showLogFormError(form, error, '\u041e\u043f\u0438\u0448\u0438\u0442\u0435, \u0447\u0442\u043e \u043f\u0440\u043e\u0438\u0437\u043e\u0448\u043b\u043e \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435.', rawInputControl || workDoneControl);
+                    return;
+                }
+                if (invalidEffectQty) {
+                    showLogFormError(form, error, 'Количество должно быть больше нуля и не превышать доступный остаток.', invalidEffectQty.qty);
                     return;
                 }
                 if (confirmControl && !confirmControl.checked) {
@@ -3476,7 +3609,9 @@
                             next_steps: nextStepsControl ? nextStepsControl.value.trim() : '',
                             progress_percent: progressControl ? progressControl.value : '',
                             raw_input: sourceText,
-                            is_client_visible: visibilityControl ? visibilityControl.value === '1' : true
+                            is_client_visible: visibilityControl ? visibilityControl.value === '1' : true,
+                            client_request_id: clientRequestId,
+                            confirmed_actions: confirmedActions
                         })
                     }).then(function (data) {
                         var keepProject = projectControl && projectControl.value ? projectControl.value : String(projectId);
@@ -3494,8 +3629,11 @@
                             renderLogsList(project, updatedLogs);
                         }
                         form.reset();
+                        delete form.dataset.clientRequestId;
                         if (projectControl) projectControl.value = keepProject;
-                        if (dateControl) dateControl.value = APP_TODAY;
+                        if (dateControl) dateControl.value = currentLocalDateIso();
+                        form.dataset.reportDateTouched = '0';
+                        if (rawInputControl) rawInputControl.dispatchEvent(new Event('input', { bubbles: true }));
                         state.logsSelectedDateByProject[projectId] = selectedDate;
                         state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
                         var pageSelect = qs('[data-logs-project]');
@@ -3508,7 +3646,18 @@
                         }
                         closeSideDrawer(qs('[data-drawer-id="log-create"]'));
                         closeSideDrawer(qs('[data-drawer-id="project-report-create"]'));
-                        showAppNotice('\u041e\u0442\u0447\u0435\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d.', 'success');
+                        var appliedCount = data && Array.isArray(data.appliedActions) ? data.appliedActions.length : 0;
+                        showAppNotice(appliedCount ? ('Отчёт сохранён · действий по материалам: ' + appliedCount + '.') : 'Отчёт сохранён.', 'success');
+                        if (appliedCount) {
+                            delete state.materialsByProject[projectId];
+                            loadMaterials(projectId, function () {
+                                rerenderProjectMaterialAndWorkViews(projectId);
+                            });
+                            if (PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+                                PMBI.warehouseControl.load(projectId, true).catch(function () {});
+                            }
+                        }
+                        refreshReminderBell();
                         loadProjectLogs(projectId, function (logs) {
                             loadProjectNotifications(projectId, function (notifications) {
                                 renderLogsStats(logs, notifications);
@@ -3518,7 +3667,7 @@
                             });
                         });
                     }).catch(function (err) {
-                        var message = appErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043e\u0442\u0447\u0435\u0442');
+                        var message = reportActionErrorMessage(err, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043e\u0442\u0447\u0435\u0442');
                         showLogFormError(form, error, message);
                     });
                 });
@@ -3564,7 +3713,7 @@
 
     function projectReportRelativeDate(isoDate) {
         if (!isoDate) return 'Ещё нет';
-        var diff = Math.round((projectReportDateTime(APP_TODAY) - projectReportDateTime(isoDate)) / 86400000);
+        var diff = Math.round((projectReportDateTime(currentLocalDateIso()) - projectReportDateTime(isoDate)) / 86400000);
         if (diff === 0) return 'Сегодня';
         if (diff === 1) return 'Вчера';
         return finalGraphDate(isoDate);
@@ -3662,7 +3811,7 @@
         if (!root) return;
         var uniqueDates = {};
         logs.forEach(function (log) { if (log.report_date) uniqueDates[log.report_date] = true; });
-        var todayTime = projectReportDateTime(APP_TODAY);
+        var todayTime = projectReportDateTime(currentLocalDateIso());
         var recentDays = Object.keys(uniqueDates).filter(function (isoDate) {
             var diff = Math.round((todayTime - projectReportDateTime(isoDate)) / 86400000);
             return diff >= 0 && diff < 7;
@@ -3728,10 +3877,9 @@
             '<section class="report-workspace-hero">' +
                 '<div class="report-workspace-heading">' +
                     '<span class="report-workspace-kicker"><i data-lucide="clipboard-check"></i>Журнал объекта</span>' +
-                    '<h3>Суточные отчёты</h3>' +
+                    '<h3>Дневной журнал</h3>' +
                     '<p>Факт работ по дням, прогресс и важные замечания по объекту «' + escapeHtml(project.title || 'Без названия') + '».</p>' +
                 '</div>' +
-                (canCreateProjectReport() ? '<button class="primary report-create-button" type="button" data-open-project-report-create><span class="report-create-plus" aria-hidden="true">+</span><span>Новый отчет</span></button>' : '') +
             '</section>' +
             '<div data-logs-alerts></div>' +
             '<section class="report-kpi-grid" data-logs-stats aria-label="Сводка по отчётам"></section>' +
@@ -3753,15 +3901,15 @@
 
     renderProjectReportForm = function (project) {
         if (!canCreateProjectReport()) return '';
-        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || APP_TODAY;
+        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || currentLocalDateIso();
         return '<section class="subsection report-intake-card report-chat-intake report-daily-form-card reports-drawer">' +
             '<header class="card-head report-form-head report-modal-header">' +
                 '<div class="report-modal-heading">' +
                     '<span class="report-modal-title-icon" aria-hidden="true"></span>' +
                     '<div class="report-modal-title-copy">' +
-                        '<div class="report-drawer-caption"><span>Новый отчет</span></div>' +
-                        '<h3 id="project-report-modal-title">Суточный отчёт</h3>' +
-                        '<span class="muted">Зафиксируйте события дня — система соберёт аккуратный текст для журнала объекта.</span>' +
+                        '<div class="report-drawer-caption"><span>Журнал объекта</span></div>' +
+                        '<h3 id="project-report-modal-title">Отчёт за день</h3>' +
+                        '<span class="muted">Надиктуйте события дня — система соберёт отчёт и предложит подтверждаемые действия.</span>' +
                         '<span class="report-modal-project">' + escapeHtml(project.title || 'Объект') + '</span>' +
                     '</div>' +
                 '</div>' +
@@ -3778,11 +3926,11 @@
                     '</div>' +
                 '</section>' +
                 '<section class="report-form-section report-form-main-section">' +
-                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">2</span><div><b>События дня</b><small>Работы, поставки, прогресс и всё важное по объекту</small></div><span class="report-section-required">Обязательно</span></div>' +
+                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">2</span><div><b>Расскажите, что произошло</b><small>Работы, заказы, поставки и проблемы — одной фразой</small></div><span class="report-section-required">Обязательно</span></div>' +
                     '<label class="report-chat-inputbox report-daily-textarea-field">' +
                         '<span>Опишите, что произошло</span>' +
                         '<textarea name="raw_input" rows="6" required placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
-                        '<small class="report-field-hint">Пишите свободно — текст отчета сформируется автоматически</small>' +
+                        '<small class="report-field-hint">Нажмите «Диктовать» или пишите свободно. Пример: «Заказал дверные ручки, привезли кабель 40 м»</small>' +
                     '</label>' +
                 '</section>' +
                 '<section class="report-form-section report-form-preview-section">' +
@@ -3803,14 +3951,14 @@
                     '</div>' +
                 '</details>' +
                 '<div class="assistant-confirm-card report-confirm-card">' +
-                    '<div class="report-confirm-heading"><span aria-hidden="true">✓</span><div><b>Проверьте перед сохранением</b><small>Сверьте распознанные работы и материалы. Склад и фактические объёмы автоматически не изменятся.</small></div></div>' +
+                    '<div class="report-confirm-heading"><span aria-hidden="true">✓</span><div><b>Проверьте распознанные действия</b><small>Отмеченные материалы применятся вместе с отчётом. Заказ не считается приходом на склад.</small></div></div>' +
                     '<div data-report-preview></div>' +
-                    '<div class="report-confirm report-confirm-ready"><span><b>Готово к сохранению</b><small>Проверьте данные отчета перед отправкой</small></span><span class="report-confirm-ready-mark" aria-hidden="true">✓</span></div>' +
+                    '<div class="report-confirm report-confirm-ready"><span><b>Вы контролируете изменения</b><small>Снимите галочку с действия, которое нужно оставить только в журнале</small></span><span class="report-confirm-ready-mark" aria-hidden="true">✓</span></div>' +
                 '</div>' +
                 '<div class="form-error" data-log-error></div>' +
                 '<div class="report-intake-actions">' +
-                    '<small>Отчет сохранится в журнале объекта</small>' +
-                    '<button class="primary report-submit-button" type="submit"><span>Сохранить отчет</span><span class="report-submit-arrow" aria-hidden="true">→</span></button>' +
+                    '<small>Отчёт и выбранные действия сохранятся одной операцией</small>' +
+                    '<span class="report-submit-group"><button class="ghost report-only-button" type="submit" data-report-only-submit>Только отчёт</button><button class="primary report-submit-button" type="submit"><span>Подтвердить и сохранить</span><span class="report-submit-arrow" aria-hidden="true">→</span></button></span>' +
                 '</div>' +
             '</form>' +
             '</div>' +
@@ -3828,7 +3976,11 @@
                 state.logsSelectedDateByProject[projectId] = button.dataset.logDate;
                 state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(button.dataset.logDate);
                 var form = qs('[data-log-form]');
-                if (form && form.report_date) form.report_date.value = button.dataset.logDate;
+                if (form && form.report_date) {
+                    form.dataset.reportDateTouched = '1';
+                    form.report_date.value = button.dataset.logDate;
+                    form.report_date.dispatchEvent(new Event('change', { bubbles: true }));
+                }
                 renderLogsCalendar(project, logs);
             });
         });
@@ -3836,7 +3988,7 @@
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
-                var current = state.logsCalendarMonthByProject[projectId] || logsMonthStartIso(APP_TODAY);
+                var current = state.logsCalendarMonthByProject[projectId] || logsMonthStartIso(currentLocalDateIso());
                 var date = new Date(current + 'T00:00:00Z');
                 date.setUTCMonth(date.getUTCMonth() + Number(button.dataset.logMonthShift || 0));
                 state.logsCalendarMonthByProject[projectId] = date.toISOString().slice(0, 10);
@@ -3847,10 +3999,15 @@
         if (todayButton && todayButton.dataset.bound !== '1') {
             todayButton.dataset.bound = '1';
             todayButton.addEventListener('click', function () {
-                state.logsSelectedDateByProject[projectId] = APP_TODAY;
-                state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(APP_TODAY);
+                var todayIso = currentLocalDateIso();
+                state.logsSelectedDateByProject[projectId] = todayIso;
+                state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(todayIso);
                 var form = qs('[data-log-form]');
-                if (form && form.report_date) form.report_date.value = APP_TODAY;
+                if (form && form.report_date) {
+                    form.dataset.reportDateTouched = '0';
+                    form.report_date.value = todayIso;
+                    form.report_date.dispatchEvent(new Event('change', { bubbles: true }));
+                }
                 renderLogsCalendar(project, logs);
             });
         }
@@ -3878,7 +4035,8 @@
         if (!root || !project) return;
         logs = Array.isArray(logs) ? logs : [];
         var projectId = Number(project.id);
-        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+        var todayIso = currentLocalDateIso();
+        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || project.started_at || todayIso;
         if (!state.logsCalendarMonthByProject[projectId]) state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
         var monthIso = state.logsCalendarMonthByProject[projectId];
         var monthDate = new Date(monthIso + 'T00:00:00Z');
@@ -3916,7 +4074,7 @@
             var classes = ['report-calendar-day'];
             if (isOutside) classes.push('is-outside');
             if (index % 7 >= 5) classes.push('is-weekend');
-            if (isoDate === APP_TODAY) classes.push('is-today');
+            if (isoDate === todayIso) classes.push('is-today');
             if (dayLogs.length) classes.push('has-report');
             if (hasRisk) classes.push('has-risk');
             if (selectedDate === isoDate) classes.push('is-selected');
@@ -3926,7 +4084,7 @@
                 ? '<span class="report-calendar-report-count"><i aria-hidden="true"></i><span>' + escapeHtml(reportCountLabel) + '</span></span>'
                 : '';
             if (hasRisk) statusHtml += '<span class="report-calendar-risk"><i aria-hidden="true"></i><span>Блокер</span></span>';
-            cells.push('<button class="' + classes.join(' ') + '" type="button" data-log-date="' + isoDate + '" aria-label="' + escapeHtml(label) + '" aria-pressed="' + (selectedDate === isoDate ? 'true' : 'false') + '"' + (isoDate === APP_TODAY ? ' aria-current="date"' : '') + '>' +
+            cells.push('<button class="' + classes.join(' ') + '" type="button" data-log-date="' + isoDate + '" aria-label="' + escapeHtml(label) + '" aria-pressed="' + (selectedDate === isoDate ? 'true' : 'false') + '"' + (isoDate === todayIso ? ' aria-current="date"' : '') + '>' +
                 '<span class="report-calendar-day-top"><strong>' + cursor.getUTCDate() + '</strong></span>' +
                 '<span class="report-calendar-day-status">' + statusHtml + '</span>' +
             '</button>');
@@ -3956,13 +4114,14 @@
         if (!root || !project) return;
         logs = projectReportSortedLogs(logs);
         var projectId = Number(project.id);
-        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || APP_TODAY;
+        var todayIso = currentLocalDateIso();
+        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || todayIso;
         var selectedLogs = logs.filter(function (log) { return log.report_date === selectedDate; });
-        var isToday = selectedDate === APP_TODAY;
+        var isToday = selectedDate === todayIso;
         var heading = '<div class="report-selected-day-head"><div><span class="report-pane-kicker">Выбранный день</span><h3>' + escapeHtml(formatRuDate(selectedDate)) + '</h3></div><span class="report-day-count' + (selectedLogs.length ? ' has-value' : '') + '" aria-label="Отчетов за день: ' + selectedLogs.length + '">' + selectedLogs.length + '</span></div>';
         if (!selectedLogs.length) {
             root.innerHTML = heading + '<div class="report-selected-day-empty"><span class="report-empty-icon"><i data-lucide="calendar-plus"></i></span><strong>' + (isToday ? 'Сегодня отчета ещё нет' : 'За этот день записей нет') + '</strong><p>' + (canCreateProjectReport() ? 'Можно сразу создать отчет — выбранная дата уже подставлена в форму.' : 'Выберите другую дату в календаре, чтобы открыть сохранённый отчет.') + '</p>' +
-                (canCreateProjectReport() ? '<button class="ghost compact" type="button" data-report-create-selected><i data-lucide="plus"></i><span>Создать за эту дату</span></button>' : '') + '</div>';
+                (canCreateProjectReport() && !isToday ? '<button class="ghost compact" type="button" data-report-create-selected><i data-lucide="plus"></i><span>Создать за эту дату</span></button>' : '') + '</div>';
             refreshLucideIcons(root);
             return;
         }

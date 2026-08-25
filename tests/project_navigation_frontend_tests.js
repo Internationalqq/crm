@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const projectsHtml = read('frontend/pages/projects.html');
+const coreJs = read('frontend/assets/js/core.js');
 const appJs = read('frontend/assets/js/app.js');
 const planningJs = read('frontend/assets/js/planning.js');
 const procurementJs = read('frontend/assets/js/procurement.js');
@@ -15,7 +16,10 @@ const scheduleTasksPy = read('backend/schedule_tasks.py');
 const serverPy = read('backend/server.py');
 
 assert.match(projectsHtml, /data-tab="schedule"><i data-lucide="hammer"[^>]*><\/i><span>Работы<\/span>/);
-assert.match(projectsHtml, /data-tab="calendar"><i data-lucide="calendar-days"[^>]*><\/i><span><b>Календарь<\/b>/);
+assert.match(projectsHtml, /data-tab="calendar"><i data-lucide="calendar-days"[^>]*><\/i><span>Календарь<\/span>/);
+assert.match(projectsHtml, /data-tab="reports"><i data-lucide="notebook-tabs"[^>]*><\/i><span>Журнал<\/span>/);
+assert.match(projectsHtml, /class="project-report-primary"[^>]*data-project-quick-action="report"/);
+assert.match(projectsHtml, /class="project-mobile-capture"[\s\S]*?<span>Отчёт<\/span>/);
 assert.match(projectsHtml, /data-panel="calendar"/);
 assert.doesNotMatch(projectsHtml, /data-tab="(?:materials|works)"/);
 assert.doesNotMatch(projectsHtml, /data-panel="(?:materials|works)"/);
@@ -25,21 +29,77 @@ assert.deepEqual(projectTabOrder, [
   'overview',
   'schedule',
   'warehouse-control',
-  'finance',
-  'documents',
   'tasks',
   'reports',
+  'documents',
+  'finance',
   'calendar',
   'production-schedule',
   'estimate-reconciliation',
 ]);
 assert.equal((projectsHtml.match(/<button class="tab(?: active)?" data-tab=/g) || []).length, projectTabOrder.length);
 assert.match(projectsHtml, /class="project-add-menu"/);
-assert.match(projectsHtml, /class="project-more-menu"/);
+assert.doesNotMatch(projectsHtml, /class="project-more-menu"|data-project-more-menu/);
+assert.match(projectsHtml, /aria-label="Разделы объекта"/);
 
 assert.match(appJs, /tabName === 'materials' \|\| tabName === 'works'/);
 assert.match(appJs, /tabName === 'calendar'.*loadSelectedProjectMaterialSchedule/);
 assert.match(appJs, /data-project-quick-tab="schedule"/);
+assert.match(appJs, /tab\.setAttribute\('aria-current', 'page'\)/);
+assert.match(appJs, /tab\.scrollIntoView\(\{ block: 'nearest', inline: 'nearest', behavior: 'smooth' \}\)/);
+assert.match(coreJs, /function bindHorizontalWheelScroll\(scroller\)/);
+assert.match(coreJs, /scroller\.scrollWidth <= scroller\.clientWidth \+ 1/);
+assert.match(coreJs, /event\.preventDefault\(\);[\s\S]*?scroller\.scrollLeft = next/);
+assert.match(coreJs, /\{ passive: false \}/);
+assert.match(appJs, /bindHorizontalWheelScroll\(qs\('\.project-tab-cluster > \.tabs', tabsRoot\)\)/);
+
+const horizontalWheelStart = coreJs.indexOf('function bindHorizontalWheelScroll(scroller)');
+const horizontalWheelEnd = coreJs.indexOf('\n    function readStoredJson', horizontalWheelStart);
+assert.ok(horizontalWheelStart > -1 && horizontalWheelEnd > horizontalWheelStart);
+const bindHorizontalWheelScroll = new Function(
+  coreJs.slice(horizontalWheelStart, horizontalWheelEnd) + '\nreturn bindHorizontalWheelScroll;',
+)();
+let wheelHandler = null;
+let wheelOptions = null;
+let listenerCount = 0;
+const fakeScroller = {
+  dataset: {},
+  scrollWidth: 1000,
+  clientWidth: 300,
+  scrollLeft: 0,
+  addEventListener(type, handler, options) {
+    assert.equal(type, 'wheel');
+    wheelHandler = handler;
+    wheelOptions = options;
+    listenerCount += 1;
+  },
+};
+bindHorizontalWheelScroll(fakeScroller);
+bindHorizontalWheelScroll(fakeScroller);
+assert.equal(listenerCount, 1, 'Wheel scrolling must only be bound once per scroller');
+assert.deepEqual(wheelOptions, { passive: false });
+let prevented = 0;
+const wheelEvent = (overrides = {}) => ({
+  defaultPrevented: false,
+  ctrlKey: false,
+  metaKey: false,
+  deltaX: 0,
+  deltaY: 120,
+  deltaMode: 0,
+  preventDefault() { prevented += 1; },
+  ...overrides,
+});
+wheelHandler(wheelEvent());
+assert.equal(fakeScroller.scrollLeft, 120);
+assert.equal(prevented, 1);
+fakeScroller.scrollLeft = 700;
+prevented = 0;
+wheelHandler(wheelEvent());
+assert.equal(fakeScroller.scrollLeft, 700);
+assert.equal(prevented, 1, 'At the horizontal edge the wheel must stay captured by the scroller');
+fakeScroller.scrollLeft = 100;
+wheelHandler(wheelEvent({ deltaX: 90, deltaY: 40 }));
+assert.equal(fakeScroller.scrollLeft, 100, 'Native horizontal trackpad gestures must not be converted');
 assert.doesNotMatch(appJs, /function ensureProjectWorksTab/);
 assert.doesNotMatch(operationsJs, /function ensureProjectWorksSurface/);
 

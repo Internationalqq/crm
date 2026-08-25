@@ -511,7 +511,7 @@
                 refreshWarehouse(projectId);
             }).catch(function (err) {
                 if (error) {
-                    error.textContent = err.payload && err.payload.error ? err.payload.error : 'Не удалось импортировать смету';
+                    error.textContent = err.payload && (err.payload.message || err.payload.error) ? (err.payload.message || err.payload.error) : 'Не удалось импортировать смету';
                     error.classList.add('active');
                 }
             });

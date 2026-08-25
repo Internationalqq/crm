@@ -57,6 +57,7 @@ from auth import (
     split_user_name,
     user_can_open,
     user_can_manage_roles,
+    user_can_manage_schedule,
     user_can_manage_users,
     user_can_submit_procurement_price,
     user_can_view_project_economics,
@@ -231,6 +232,7 @@ from communications_docs import (
     api_project_notifications as comm_api_project_notifications,
     api_upload_project_document as comm_api_upload_project_document,
     can_access_chat as comm_can_access_chat,
+    ensure_daily_log_actions_schema,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -1005,6 +1007,7 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
             "tasks",
             "chat_messages",
             "daily_logs",
+            "daily_log_actions",
             "audit_log",
             "object_assignments",
             "user_roles",
@@ -1118,9 +1121,32 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
                 equipment TEXT NOT NULL DEFAULT '',
                 blockers TEXT NOT NULL DEFAULT '',
                 next_steps TEXT NOT NULL DEFAULT '',
+                progress_percent REAL,
+                raw_input TEXT,
                 is_client_visible INTEGER NOT NULL DEFAULT 1,
+                client_request_id TEXT,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER
+            )
+        """,
+        "daily_log_actions": """
+            CREATE TABLE daily_log_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                daily_log_id INTEGER NOT NULL REFERENCES daily_logs(id) ON DELETE RESTRICT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action_type TEXT NOT NULL CHECK(action_type IN (
+                    'material_purchase', 'material_receipt', 'material_use'
+                )),
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE RESTRICT,
+                material_title_snapshot TEXT NOT NULL,
+                material_unit_snapshot TEXT NOT NULL,
+                qty REAL NOT NULL CHECK(qty > 0),
+                client_action_id TEXT NOT NULL,
+                stock_move_id INTEGER NOT NULL UNIQUE REFERENCES stock_moves(id) ON DELETE RESTRICT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(project_id, client_action_id)
             )
         """,
         "audit_log": """
@@ -3596,9 +3622,28 @@ def init_db() -> None:
                 progress_percent REAL,
                 raw_input TEXT,
                 is_client_visible INTEGER NOT NULL DEFAULT 1,
+                client_request_id TEXT,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_log_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                daily_log_id INTEGER NOT NULL REFERENCES daily_logs(id) ON DELETE RESTRICT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action_type TEXT NOT NULL CHECK(action_type IN (
+                    'material_purchase', 'material_receipt', 'material_use'
+                )),
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE RESTRICT,
+                material_title_snapshot TEXT NOT NULL,
+                material_unit_snapshot TEXT NOT NULL,
+                qty REAL NOT NULL CHECK(qty > 0),
+                client_action_id TEXT NOT NULL,
+                stock_move_id INTEGER NOT NULL UNIQUE REFERENCES stock_moves(id) ON DELETE RESTRICT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(project_id, client_action_id)
             );
 
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -3945,6 +3990,7 @@ def init_db() -> None:
         ensure_legacy_economics_schema(con)
         ensure_estimate_reconciliation_schema(con)
         ensure_warehouse_control_schema(con)
+        ensure_daily_log_actions_schema(con)
         ensure_sqlite_indexes(con)
         con.commit()
 
@@ -4925,6 +4971,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_save_material_schedule(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/materials"):
                 self.api_create_material(path)
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/estimate-items/\d+/update", path):
+                self.api_update_estimate_position(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/bootstrap"):
                 self.api_project_bootstrap(path)
             elif method == "POST" and path.startswith("/api/materials/") and path.endswith("/update"):
@@ -7421,6 +7469,118 @@ class PMBIHandler(BaseHTTPRequestHandler):
             items = material_summary_rows(con, int(material["project_id"]))
         self.send_json(HTTPStatus.OK, {"id": material_id, "items": items})
 
+    def api_update_estimate_position(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        item_id = parse_path_int(path, 4)
+        if not project_id or not item_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        if not user_can_manage_schedule(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+
+        payload = self.read_json()
+        allowed_fields = {
+            "title", "unit", "planned_qty", "plannedQty", "section_title", "sectionTitle",
+            "expected_kind", "expectedKind",
+        }
+        if any(key not in allowed_fields for key in payload):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_fields_forbidden"})
+            return
+
+        with db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            item = con.execute(
+                "SELECT * FROM estimate_items WHERE id = ? AND project_id = ?",
+                (item_id, project_id),
+            ).fetchone()
+            if not item:
+                con.rollback()
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_position_not_found"})
+                return
+
+            item_kind = resolved_estimate_item_kind(item)
+            expected_kind = normalize_estimate_item_kind(
+                payload.get("expected_kind", payload.get("expectedKind", item_kind))
+            )
+            if expected_kind != item_kind:
+                con.rollback()
+                self.send_json(HTTPStatus.CONFLICT, {"error": "estimate_position_kind_mismatch"})
+                return
+
+            title = re.sub(r"\s+", " ", str(payload.get("title", item["title"]) or "").strip())
+            unit = re.sub(r"\s+", " ", str(payload.get("unit", item["unit"]) or "").strip())
+            section_title = re.sub(
+                r"\s+",
+                " ",
+                str(payload.get("section_title", payload.get("sectionTitle", item["section_title"] or "")) or "").strip(),
+            ) or "Без раздела"
+            raw_qty = payload.get("planned_qty", payload.get("plannedQty", item["planned_qty"]))
+            planned_qty = normalize_estimate_planned_qty(unit, raw_qty)
+            if not title or not unit or planned_qty <= 0:
+                con.rollback()
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_fields_required"})
+                return
+            if len(title) > 300 or len(unit) > 40 or len(section_title) > 200:
+                con.rollback()
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_fields_too_long"})
+                return
+            kind_probe = dict(item)
+            kind_probe.update({"title": title, "unit": unit, "section_title": section_title})
+            if resolved_estimate_item_kind(kind_probe) != item_kind:
+                con.rollback()
+                self.send_json(HTTPStatus.CONFLICT, {"error": "estimate_position_title_kind_conflict"})
+                return
+
+            before = {
+                "title": str(item["title"] or ""),
+                "unit": str(item["unit"] or ""),
+                "planned_qty": float(item["planned_qty"] or 0),
+                "section_title": str(item["section_title"] or ""),
+                "item_kind": item_kind,
+            }
+            after = {
+                "title": title,
+                "unit": unit,
+                "planned_qty": planned_qty,
+                "section_title": section_title,
+                "item_kind": item_kind,
+            }
+            con.execute(
+                """
+                UPDATE estimate_items
+                SET title = ?, unit = ?, planned_qty = ?, section_title = ?, updated_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                (title, unit, planned_qty, section_title, now_ts(), item_id, project_id),
+            )
+            progress = recalc_project_progress(con, project_id, section_title)
+            create_audit(
+                con,
+                user["id"],
+                "update_estimate_position",
+                "estimate_item",
+                item_id,
+                {"project_id": project_id, "before": before, "after": after},
+            )
+            con.commit()
+            items = material_summary_rows(con, project_id)
+            updated_item = next((candidate for candidate in items if int(candidate["id"]) == item_id), None)
+
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "id": item_id,
+                "item": updated_item,
+                "items": items,
+                "itemKind": item_kind,
+                "progress": progress,
+            },
+        )
+
 
     def api_project_market_analysis(self, path: str) -> None:
         try:
@@ -7894,6 +8054,20 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
         with db() as con:
             if replace:
+                protected_actions = con.execute(
+                    "SELECT COUNT(*) FROM daily_log_actions WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()[0]
+                if protected_actions:
+                    self.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "estimate_replace_blocked_by_daily_log_actions",
+                            "message": "Полная замена сметы недоступна: по её позициям уже применён учёт из дневных отчётов. Загрузите новую версию без удаления истории и выполните сверку.",
+                            "actionCount": int(protected_actions),
+                        },
+                    )
+                    return
                 con.execute("DELETE FROM estimate_items WHERE project_id = ?", (project_id,))
                 con.execute("DELETE FROM project_estimates WHERE project_id = ?", (project_id,))
             imported = 0

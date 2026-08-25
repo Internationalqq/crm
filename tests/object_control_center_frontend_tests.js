@@ -11,16 +11,22 @@ const appCss = read('frontend/assets/app.css');
 const controlCss = read('frontend/assets/css/object-control.css');
 
 assert.match(appCss, /object-control\.css\?v=20260824-object-control-1/);
-assert.match(projectsHtml, /data-tab="overview"[^>]*>[\s\S]*?<span>Главное<\/span>/);
+assert.match(projectsHtml, /data-tab="overview"[^>]*aria-current="page"[^>]*>[\s\S]*?<span>Сводка<\/span>/);
 assert.match(projectsHtml, /data-tab="warehouse-control"[^>]*>[\s\S]*?<span>Материалы<\/span>/);
 assert.match(projectsHtml, /data-tab="finance"[^>]*>[\s\S]*?<span>Деньги<\/span>/);
+assert.match(projectsHtml, /data-tab="reports"[^>]*>[\s\S]*?<span>Журнал<\/span>/);
+assert.match(projectsHtml, /class="project-report-primary"[^>]*data-project-quick-action="report"/);
+assert.match(projectsHtml, /data-tab="tasks"[^>]*>[\s\S]*?<span>Задачи<\/span>/);
 assert.match(projectsHtml, /data-project-quick-action="report"/);
 assert.match(projectsHtml, /data-project-quick-action="document"/);
 assert.match(projectsHtml, /data-project-quick-action="invoice"/);
 assert.match(projectsHtml, /data-project-quick-action="task"/);
 assert.match(projectsHtml, /data-project-quick-action="material"/);
-assert.match(projectsHtml, /class="project-tab-cluster"[\s\S]*?data-tab="documents"[\s\S]*?class="project-more-menu"/);
+assert.match(projectsHtml, /data-project-quick-action="document" data-document-type="photo_report"/);
+assert.doesNotMatch(projectsHtml, /project-more-menu|data-project-more-menu/);
+assert.match(projectsHtml, /class="project-tab-cluster"[\s\S]*?data-tab="reports"[\s\S]*?data-tab="estimate-reconciliation"/);
 assert.match(controlCss, /\.project-tab-cluster\s*\{[\s\S]*?gap: 4px/);
+assert.match(controlCss, /\.project-tab-cluster\s*\{[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow: hidden;/);
 
 assert.match(appJs, /function objectControlFinanceOverviewV3/);
 assert.match(appJs, /config\.quickAction === 'invoice' && canSeeFinances\(\)/);
@@ -38,11 +44,14 @@ assert.match(appJs, /href="\/app\/projects\?openProject=/);
 assert.match(operationsJs, /function runProjectQuickAction/);
 assert.match(operationsJs, /refreshProjectOverview\(projectId\)/);
 assert.match(operationsJs, /showAppNotice\('Отчет удалён\.'/);
-assert.match(operationsJs, /report: \{ tab: 'reports'/);
+assert.match(operationsJs, /action === 'report'[\s\S]*?var todayIso = currentLocalDateIso\(\)[\s\S]*?logsSelectedDateByProject\[projectId\] = todayIso[\s\S]*?data-drawer-id="project-report-create"/);
 assert.match(operationsJs, /document: \{ tab: 'documents'/);
 assert.match(operationsJs, /invoice: \{ tab: 'finance'/);
 assert.match(operationsJs, /task: \{ tab: 'tasks'/);
 assert.match(operationsJs, /form\.doc_type\.value = documentType/);
+assert.match(operationsJs, /action === 'material'[\s\S]*?\[data-warehouse-dialog-open="movement"\][\s\S]*?control\.click\(\)/);
+assert.match(appJs, /'document', 'Фото', 'Результат или проблема', 'camera', 'photo_report'/);
+assert.match(appJs, /'material', 'Материал', 'Приход, расход, возврат', 'package-plus'/);
 
 for (const breakpoint of ['1180px', '940px', '720px', '520px']) {
   assert.match(controlCss, new RegExp(`@media \\(max-width: ${breakpoint.replace('.', '\\.')}\\)`));

@@ -7,6 +7,7 @@
     var state = PMBI.state;
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
+    var bindHorizontalWheelScroll = PMBI.bindHorizontalWheelScroll;
     var safeReplaceChildren = PMBI.safeReplaceChildren;
     var skeletonMarkup = PMBI.skeletonMarkup;
     var refreshLucideIcons = PMBI.refreshLucideIcons;
@@ -343,7 +344,7 @@
             return canonicalEstimateSectionTitle(rootSectionTitleForStage(stage, stageMap)) === sectionTitle;
         }).map(function (stage) {
             var meta = [stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' • ');
-            return '<div class="section-work-check schedule-work-duration-row is-stage"><div class="schedule-work-check-main">' +
+            return '<div class="section-work-check schedule-work-duration-row is-stage" data-stage-id="' + escapeHtml(stage.id || '') + '" data-section-title="' + escapeHtml(sectionTitle) + '"><div class="schedule-work-check-main">' +
                 '<span class="section-work-stage-icon" aria-hidden="true"><i data-lucide="milestone"></i></span>' +
                 '<span class="section-work-check-copy"><b>' + escapeHtml(stage.title || 'Этап') + '</b></span>' +
                 '<span class="section-work-register-volume"><small>Период</small><strong>' + escapeHtml(meta || 'Не указан') + '</strong></span>' +
@@ -352,7 +353,9 @@
         }).join('');
         var estimateWorkDetails = visibleItems.map(function (item) {
             var workDone = isScheduleWorkDone(project.id, sectionTitle, item);
-            return '<div class="section-work-check schedule-work-duration-row' + (workDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
+            var editUnit = item.sourceUnit || item.unit || '';
+            var editQty = item.sourcePlannedQty != null ? item.sourcePlannedQty : (item.planned_qty != null ? item.planned_qty : item.plannedQty || '');
+            return '<div class="section-work-check schedule-work-duration-row' + (workDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '" data-work-row data-position-editor data-position-kind="work" data-position-id="' + escapeHtml(item.id || '') + '" data-position-project="' + escapeHtml(project.id) + '" data-position-title="' + escapeHtml(item.title || '') + '" data-position-unit="' + escapeHtml(editUnit) + '" data-position-qty="' + escapeHtml(String(editQty)) + '" data-position-section="' + escapeHtml(sectionTitle) + '" title="Правый клик — редактировать позицию">' +
                 '<label class="schedule-work-check-main"><input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(sectionTitle) + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
                     '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</b></span>' +
                     '<span class="section-work-register-volume"><small>Объём</small><strong>' + escapeHtml(formatWorkLine(item) || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</strong></span>' +
@@ -366,7 +369,7 @@
         '</div>';
         var sectionStateLabel = workProgress.total && workProgress.done >= workProgress.total ? 'Выполнено' : (workProgress.done > 0 ? 'В работе' : 'В плане');
         var sectionStateClass = workProgress.total && workProgress.done >= workProgress.total ? 'success' : (workProgress.done > 0 ? 'warn' : 'neutral');
-        return '<article class="section-schedule-card section-work-register-section' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '">' +
+        return '<article class="section-schedule-card section-work-register-section' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '" data-section-title="' + escapeHtml(sectionTitle) + '">' +
             '<div class="section-work-section-row">' +
                 renderBulkSectionCheckbox(project.id, sectionTitle, 'work', progress) +
                 '<div class="section-schedule-title"><small>Раздел</small><h4>' + escapeHtml(sectionTitle) + '</h4></div>' +
@@ -683,7 +686,7 @@
         return '<section class="card section-schedule-board additional-project-stages"><div class="card-head"><div><h3>Дополнительные этапы работ</h3><span class="muted">Этапы объекта, которых пока нет в расчёте по смете.</span></div></div><div class="estimate-section-list">' + order.map(function (title) {
             var rows = groups[title].map(function (stage) {
                 var meta = [stage.planned_start && stage.planned_end ? (stage.planned_start + ' - ' + stage.planned_end) : '', stage.responsible || ''].filter(Boolean).join(' • ');
-                return '<div class="material-row work-row schedule-stage-row"><div class="work-row-main"><b>' + escapeHtml(stage.title || 'Этап') + '</b><small>' + escapeHtml(meta || 'Этап работ') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
+                return '<div class="material-row work-row schedule-stage-row" data-stage-id="' + escapeHtml(stage.id || '') + '" data-section-title="' + escapeHtml(title || '') + '"><div class="work-row-main"><b>' + escapeHtml(stage.title || 'Этап') + '</b><small>' + escapeHtml(meta || 'Этап работ') + '</small></div><div class="work-row-side"><span class="badge ' + stageStatusClass(stage.status_code) + '">' + escapeHtml(statusLabel(stage.status_code)) + ' • ' + percent(stage.progress) + '%</span></div></div>';
             }).join('');
             return '<section class="estimate-section estimate-section-card"><div class="card-head"><h3>' + escapeHtml(title || 'Работы без раздела') + '</h3></div><div class="materials-list">' + rows + '</div></section>';
         }).join('') + '</div></section>';
@@ -3466,6 +3469,45 @@
         }, 3000);
     }
 
+    function focusProjectScheduleTarget(target, projectId) {
+        target = target || {};
+        projectId = Number(projectId || (state.selectedProject && state.selectedProject.id) || 0);
+        if (!projectId || !state.selectedProject || Number(state.selectedProject.id) !== projectId) return false;
+        var panel = qs('[data-panel="schedule"]');
+        if (!panel) return false;
+        var row = null;
+        var workId = Number(target.workId || 0);
+        var stageId = Number(target.stageId || 0);
+        var allowSectionFallback = !workId && !stageId;
+        if (workId) row = qs('[data-work-row][data-position-id="' + String(workId) + '"]', panel);
+        if (!row && stageId) row = qs('[data-stage-id="' + String(stageId) + '"]', panel);
+        if (!row && stageId) {
+            allowSectionFallback = (state.stagesByProject[projectId] || []).some(function (stage) {
+                return Number(stage && stage.id || 0) === stageId;
+            });
+        }
+        if (!row && allowSectionFallback && target.sectionTitle) {
+            var expectedSection = canonicalEstimateSectionTitle(target.sectionTitle);
+            row = qsa('[data-section-title]', panel).find(function (candidate) {
+                return canonicalEstimateSectionTitle(candidate.getAttribute('data-section-title') || '') === expectedSection;
+            }) || null;
+            if (row && row.classList.contains('section-work-register-section')) {
+                row = qs('.section-work-section-row', row) || row;
+            }
+        }
+        if (!row) return false;
+        var focusTarget = qs('input, button, [tabindex]', row);
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            try { focusTarget.focus({ preventScroll: true }); } catch (focusError) { focusTarget.focus(); }
+        }
+        if (PMBI.app && typeof PMBI.app.highlightPositionRow === 'function') {
+            PMBI.app.highlightPositionRow(row);
+        } else if (typeof row.scrollIntoView === 'function') {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return true;
+    }
+
     function bindMaterialScheduleTimeline() {
         bindMaterialCalendarCells(document);
         if (document.body.dataset.materialScheduleDelegated === '1') return;
@@ -3769,6 +3811,7 @@
     function bindProductionScheduleInteractions(projectId) {
         var panel = qs('[data-panel="production-schedule"]');
         if (!panel) return;
+        if (bindHorizontalWheelScroll) bindHorizontalWheelScroll(qs('[data-production-table-scroll]', panel));
         qsa('[data-production-cell]', panel).forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -3966,6 +4009,7 @@
         if (typeof bindProductionScheduleInteractions === 'function') PMBI.planning.bindProductionScheduleInteractions = bindProductionScheduleInteractions;
         if (typeof loadSelectedProjectProductionSchedule === 'function') PMBI.planning.loadSelectedProjectProductionSchedule = loadSelectedProjectProductionSchedule;
         if (typeof focusProjectMaterialRow === 'function') PMBI.planning.focusProjectMaterialRow = focusProjectMaterialRow;
+        if (typeof focusProjectScheduleTarget === 'function') PMBI.planning.focusProjectScheduleTarget = focusProjectScheduleTarget;
         if (typeof bindMaterialScheduleTimeline === 'function') PMBI.planning.bindMaterialScheduleTimeline = bindMaterialScheduleTimeline;
     window.PMBI = PMBI;
 })();

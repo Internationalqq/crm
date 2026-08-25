@@ -26,7 +26,9 @@ const reminderStart = appJs.indexOf('function refreshReminderBell()');
 const reminderEnd = appJs.indexOf('function initReminderBell()', reminderStart);
 const reminderBlock = appJs.slice(reminderStart, reminderEnd);
 assert.match(reminderBlock, /if \(!state\.projectsLoaded\)/);
-assert.match(reminderBlock, /if \(!state\.projects\.length\) \{\s*renderReminderBell\(\[\], false\);\s*return;/);
+assert.match(reminderBlock, /if \(!state\.projects\.length\) \{\s*renderReminderBell\(\[\], false, \{ failedCount: 0, totalProjects: 0, fullFailure: false \}\);\s*return;/);
+assert.match(reminderBlock, /fullFailure: true/);
+assert.match(reminderBlock, /return \{ ok: false, items: \[\] \}/);
 
 assert.match(appJs, /loadProjectAssignments = function \(projectId, loadingToken\) \{\s*loadProjectHub\(projectId, state\.selectedProject, loadingToken\);/);
 assert.match(warehousePy, /^import urllib\.parse$/m);
@@ -34,7 +36,7 @@ assert.match(planningJs, /errorCode === 'works_required'\s*\? 'Сначала з
 assert.match(dailyTasksHtml, /<h1>Задачи сотрудников<\/h1>/);
 assert.match(dailyTasksHtml, /Назначайте задачи, следите за выполнением/);
 assert.match(warehouseControlJs, /warehouse-material-register-head/);
-assert.match(warehouseControlJs, /<span>Нужно по смете<\/span><span>Куплено<\/span><span>Привезено<\/span><span>Потрачено<\/span><span>Остаток<\/span>/);
+assert.match(warehouseControlJs, /<span>Нужно по смете<\/span><span>Заказано<\/span><span>Привезено<\/span><span>Потрачено<\/span><span>Остаток<\/span>/);
 assert.match(warehouseControlJs, /data-warehouse-dialog-open="movement"/);
 assert.match(warehouseControlJs, /data-warehouse-dialog-open="work-fact"/);
 assert.match(warehouseControlJs, /data-warehouse-dialog-open="norms"/);

@@ -181,6 +181,29 @@
         return Array.prototype.slice.call((root || document).querySelectorAll(selector));
     }
 
+    function bindHorizontalWheelScroll(scroller) {
+        if (!scroller || scroller.dataset.horizontalWheelBound === '1') return scroller || null;
+        scroller.dataset.horizontalWheelBound = '1';
+        scroller.addEventListener('wheel', function (event) {
+            if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
+            if (scroller.scrollWidth <= scroller.clientWidth + 1) return;
+            if (Math.abs(Number(event.deltaX || 0)) >= Math.abs(Number(event.deltaY || 0)) && Number(event.deltaX || 0)) return;
+
+            var delta = Number(event.deltaY || 0);
+            if (event.deltaMode === 1) delta *= 24;
+            if (event.deltaMode === 2) delta *= Math.max(1, scroller.clientWidth);
+            if (!delta) return;
+
+            var current = Number(scroller.scrollLeft || 0);
+            var maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+            var next = Math.max(0, Math.min(maximum, current + delta));
+            event.preventDefault();
+            if (Math.abs(next - current) < 0.5) return;
+            scroller.scrollLeft = next;
+        }, { passive: false });
+        return scroller;
+    }
+
     function readStoredJson(key) {
         try {
             return JSON.parse(window.localStorage.getItem(key) || '{}') || {};
@@ -1206,6 +1229,7 @@
         loadCurrentUser: loadCurrentUser,
         qs: qs,
         qsa: qsa,
+        bindHorizontalWheelScroll: bindHorizontalWheelScroll,
         readStoredJson: readStoredJson,
         writeStoredJson: writeStoredJson,
         safeReplaceChildren: safeReplaceChildren,

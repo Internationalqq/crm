@@ -15,11 +15,11 @@
             } catch (error) {}
         })();
     </script>
-    <link rel="stylesheet" href="/assets/app.css?v=20260824-photo-autobot-1-schedule-minimal-1-autobot-scroll-head-1-works-only-1-project-reports-workspace-1-documents-workspace-1-object-tasks-workspace-1-finance-workspace-1-project-report-modal-1-object-tabs-1-report-modal-cool-2-report-modal-native-3-report-modal-neutral-4-report-create-plus-5-finance-delete-1-object-control-1-payables-minimal-1-report-refresh-8-report-calendar-9-report-calendar-apple-10">
+    <link rel="stylesheet" href="/assets/app.css?v=20260824-photo-autobot-1-schedule-minimal-1-autobot-scroll-head-1-works-only-1-project-reports-workspace-1-documents-workspace-1-object-tasks-workspace-1-finance-workspace-1-project-report-modal-1-object-tabs-1-report-modal-cool-2-report-modal-native-3-report-modal-neutral-4-report-create-plus-5-finance-delete-1-object-control-1-payables-minimal-1-report-refresh-8-report-calendar-9-report-calendar-apple-10-foreman-nav-11-smart-daily-report-12-foreman-flow-14-reminder-center-2-position-editor-1">
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-    <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1"></script>
-    <script defer src="/assets/js/router.js?v=20260821-quantity-normalization-1-ui-project-schedule-cleanup-4-ui-iteration-4-final-ui-final-qa-1-mist-fade-3-crm-skeletons-1-works-only-1-project-reports-workspace-1-documents-workspace-1-finance-workspace-1-project-report-modal-1-autoplan-calendar-1-market-materials-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-20260824-project-alerts-in-bell-1-report-submit-fix-6-object-control-1-reports-wording-7-finance-overview-cleanup-1-reminder-bell-rebind-2-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-calendar-bridge-11-report-load-12"></script>
+    <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1-horizontal-wheel-3"></script>
+    <script defer src="/assets/js/router.js?v=20260821-quantity-normalization-1-ui-project-schedule-cleanup-4-ui-iteration-4-final-ui-final-qa-1-mist-fade-3-crm-skeletons-1-works-only-1-project-reports-workspace-1-documents-workspace-1-finance-workspace-1-project-report-modal-1-autoplan-calendar-1-market-materials-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-20260824-project-alerts-in-bell-1-report-submit-fix-6-object-control-1-reports-wording-7-finance-overview-cleanup-1-reminder-bell-rebind-2-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-calendar-bridge-11-report-load-12-foreman-nav-13-actions-14-smart-daily-report-15-foreman-flow-18-horizontal-wheel-1-reminder-center-2-position-editor-1"></script>
 </head>
 <body data-page="{{page}}">
     <div class="app-shell">
@@ -58,7 +58,7 @@
                 <div class="topbar-spacer" aria-hidden="true"></div>
                 <div class="topbar-actions">
                     <div class="topbar-reminders-wrap">
-                        <button class="topbar-circle reminder-circle" type="button" data-reminder-toggle aria-label="Напоминания" title="Напоминания">
+                        <button class="topbar-circle reminder-circle" type="button" data-reminder-toggle aria-label="Уведомления: срочных нет" title="Уведомления: срочных нет" aria-expanded="false" aria-haspopup="dialog" aria-controls="reminder-center-popover">
                             <span class="topbar-circle-icon" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
@@ -67,13 +67,19 @@
                             </span>
                             <span class="reminder-count" data-reminder-count hidden>0</span>
                         </button>
-                        <div class="reminder-popover" data-reminder-popover hidden>
+                        <div class="reminder-popover reminder-center" id="reminder-center-popover" data-reminder-popover role="dialog" aria-labelledby="reminder-center-title" hidden>
                             <div class="reminder-popover-head">
-                                <div>
-                                    <strong>Что горит</strong>
-                                    <span data-reminder-subtitle>Проверяем объекты...</span>
+                                <div class="reminder-head-title">
+                                    <span class="reminder-head-mark" aria-hidden="true"><i data-lucide="bell-ring"></i></span>
+                                    <div>
+                                        <strong id="reminder-center-title">Центр внимания</strong>
+                                        <span data-reminder-subtitle aria-live="polite">Проверяем объекты...</span>
+                                    </div>
                                 </div>
-                                <button class="ghost compact" type="button" data-reminder-refresh>Обновить</button>
+                                <div class="reminder-head-actions">
+                                    <button class="reminder-head-button reminder-refresh-button" type="button" data-reminder-refresh aria-label="Обновить уведомления" title="Обновить уведомления"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Обновить</span></button>
+                                    <button class="reminder-head-button reminder-close-button" type="button" data-reminder-close aria-label="Закрыть уведомления" title="Закрыть"><i data-lucide="x" aria-hidden="true"></i></button>
+                                </div>
                             </div>
                             <div data-reminder-list></div>
                         </div>

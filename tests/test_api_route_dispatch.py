@@ -69,6 +69,20 @@ class ApiRouteDispatchTests(unittest.TestCase):
         self.assertEqual(calls, ["/api/finances/73"])
         self.assertEqual(responses[-1][1], {"error": "not_found"})
 
+    def test_estimate_position_update_uses_exact_project_scoped_route(self) -> None:
+        handler = object.__new__(server.PMBIHandler)
+        calls: list[str] = []
+        responses: list[tuple[int, dict]] = []
+        handler.api_update_estimate_position = lambda path: calls.append(path)
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+
+        valid = "/api/projects/42/estimate-items/73/update"
+        server.PMBIHandler.handle_api(handler, "POST", valid)
+        server.PMBIHandler.handle_api(handler, "POST", valid + "/nested")
+
+        self.assertEqual(calls, [valid])
+        self.assertEqual(responses[-1][1], {"error": "not_found"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from datetime import date
 
 
@@ -211,6 +212,75 @@ def ensure_warehouse_control_schema(con: sqlite3.Connection) -> None:
         END;
         """
     )
+    migrate_legacy_purchase_receipts(con)
+
+
+def migrate_legacy_purchase_receipts(con: sqlite3.Connection) -> int:
+    """Preserve stock entered by the old UI where ``purchase`` also meant receipt."""
+
+    migration_key = "20260824_purchase_order_receipt_split_v1"
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS system_migrations (
+            migration_key TEXT PRIMARY KEY,
+            applied_at INTEGER NOT NULL
+        )
+        """
+    )
+    if con.execute(
+        "SELECT 1 FROM system_migrations WHERE migration_key = ?",
+        (migration_key,),
+    ).fetchone():
+        return 0
+
+    legacy_rows = con.execute(
+        """
+        SELECT purchase.project_id, purchase.estimate_item_id,
+               SUM(purchase.qty) AS purchase_qty,
+               MAX(purchase.created_by) AS created_by
+        FROM stock_moves purchase
+        WHERE purchase.move_type = 'purchase'
+          AND purchase.estimate_item_id IS NOT NULL
+          AND COALESCE(purchase.source_type, 'manual') <> 'daily_log_action'
+        GROUP BY purchase.project_id, purchase.estimate_item_id
+        HAVING SUM(purchase.qty) > 0
+           AND NOT EXISTS (
+               SELECT 1
+               FROM stock_moves receipt
+               WHERE receipt.project_id = purchase.project_id
+                 AND receipt.estimate_item_id = purchase.estimate_item_id
+                 AND receipt.move_type = 'receipt'
+           )
+        """
+    ).fetchall()
+    timestamp = int(time.time())
+    created = 0
+    for row in legacy_rows:
+        source_key = f"legacy-purchase-receipt:{int(row['estimate_item_id'])}"
+        cursor = con.execute(
+            """
+            INSERT OR IGNORE INTO stock_moves (
+                project_id, estimate_item_id, move_type, qty, price, comment,
+                created_by, created_at, source_type, source_id, source_key
+            ) VALUES (?, ?, 'receipt', ?, 0, ?, ?, ?, 'legacy_purchase_receipt_backfill', ?, ?)
+            """,
+            (
+                int(row["project_id"]),
+                int(row["estimate_item_id"]),
+                float(row["purchase_qty"]),
+                "Перенос старого прихода после разделения заказа и поставки",
+                row["created_by"],
+                timestamp,
+                int(row["estimate_item_id"]),
+                source_key,
+            ),
+        )
+        created += max(int(cursor.rowcount or 0), 0)
+    con.execute(
+        "INSERT INTO system_migrations (migration_key, applied_at) VALUES (?, ?)",
+        (migration_key, timestamp),
+    )
+    return created
 
 
 def _float(value: object, default: float = 0.0) -> float:

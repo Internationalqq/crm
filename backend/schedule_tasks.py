@@ -112,7 +112,8 @@ def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id
         SELECT
             e.id, e.project_id, e.title, e.section_title, e.stage_id, e.item_kind,
             e.planned_qty, e.is_completed,
-            COALESCE(SUM(CASE WHEN s.move_type IN ('purchase', 'receipt') THEN s.qty ELSE 0 END), 0) AS covered_qty
+            COALESCE(SUM(CASE WHEN s.move_type = 'purchase' THEN s.qty ELSE 0 END), 0) AS purchased_qty,
+            COALESCE(SUM(CASE WHEN s.move_type = 'receipt' THEN s.qty ELSE 0 END), 0) AS received_qty
         FROM estimate_items e
         LEFT JOIN stock_moves s ON s.estimate_item_id = e.id
         WHERE e.project_id = ? AND {live_where}
@@ -127,7 +128,7 @@ def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id
         bucket = section_totals.setdefault(sid, {"sectionId": sid, "sectionTitle": title, "total": 0, "done": 0, "percent": 0})
         bucket["total"] += 1
         planned = float(row["planned_qty"] or 0)
-        covered = float(row["covered_qty"] or 0)
+        covered = max(float(row["purchased_qty"] or 0), float(row["received_qty"] or 0))
         is_material = normalize_estimate_item_kind(resolved_estimate_item_kind(row)) != "work"
         purchased_done = is_material and planned > 0 and covered >= planned
         if int(row["is_completed"] or 0) == 1 or purchased_done:
@@ -571,7 +572,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         used = safe_float(row["used_qty"])
         writeoff = safe_float(row["writeoff_qty"])
         covered = max(purchased, received)
-        stock_base = received if received else purchased
+        stock_base = received
         stock_balance = stock_base - used - writeoff
         stock = max(stock_balance, 0)
         missing = max(planned - covered, 0)
@@ -590,8 +591,12 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         need_by_date = str(row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"] or "")
         soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
         if missing <= 0:
-            supply_status = "in_stock"
-            supply_label = "Есть в наличии"
+            if received >= planned:
+                supply_status = "in_stock"
+                supply_label = "На объекте"
+            else:
+                supply_status = "ordered"
+                supply_label = "Заказано, ждём поставку"
         elif need_by_date and need_by_date < TODAY_ISO:
             supply_status = "required"
             supply_label = "Требуется"
@@ -693,7 +698,7 @@ def build_material_schedule_payload(
             "sourceUrl": row["source_url"] or "",
         }
 
-    today = parse_iso_date(TODAY_ISO) or date.today()
+    today = date.today()
     items: list[dict] = []
     range_dates: list[date] = [today]
     summary = {
@@ -924,7 +929,13 @@ def build_procurement_alerts(
         if normalize_estimate_item_kind(material.get("itemKind", material.get("item_kind"))) == "work":
             continue
         missing_qty = float(material.get("missingQty", material.get("missing_qty", 0)) or 0)
-        if missing_qty <= 0:
+        purchased_qty = float(material.get("purchasedQty", material.get("purchased_qty", 0)) or 0)
+        received_qty = float(material.get("receivedQty", material.get("received_qty", 0)) or 0)
+        # A purchase records an order, while a receipt confirms that the material
+        # is physically on site.  Unordered demand must not be shown as in transit.
+        to_receive_qty = max(purchased_qty - received_qty, 0)
+        phase = "order" if missing_qty > 0 else ("delivery" if to_receive_qty > 0 else "done")
+        if phase == "done":
             continue
         raw_stage_id = material.get("stageId", material.get("stage_id"))
         try:
@@ -936,47 +947,80 @@ def build_procurement_alerts(
         stage_start = parse_iso_date(str((stage or {}).get("planned_start") or material.get("stageStartDate") or ""))
         if not stage_start and section_title:
             stage_start = parse_iso_date(section_start_dates.get(section_title))
-        if not stage_start:
+
+        explicit_need_on_site = parse_iso_date(
+            str(material.get("needByDate") or material.get("need_by_date") or "")
+        )
+        need_on_site = explicit_need_on_site or stage_start
+        if not need_on_site:
             continue
-        lead_days = estimate_material_lead_days(material)
-        order_by = parse_iso_date(str(material.get("needByDate", material.get("need_by_date", "")) or ""))
-        if not order_by:
-            order_by = stage_start - timedelta(days=lead_days)
-        days_until_start = (stage_start - today_date).days
+
+        estimated_lead_days = estimate_material_lead_days(material)
+        raw_lead_days = material.get("deliveryDays")
+        if raw_lead_days in (None, ""):
+            raw_lead_days = material.get("delivery_days")
+        try:
+            lead_days = int(raw_lead_days) if raw_lead_days not in (None, "") else int(estimated_lead_days)
+        except (TypeError, ValueError):
+            lead_days = int(estimated_lead_days)
+        lead_days = max(0, min(lead_days, 90))
+
+        order_by = need_on_site - timedelta(days=lead_days)
+        compatibility_start = stage_start or need_on_site
+        days_until_start = (compatibility_start - today_date).days
+        days_until_need = (need_on_site - today_date).days
         days_until_order = (order_by - today_date).days
-        if days_until_start > 30 and days_until_order > 14:
+        if phase == "order" and days_until_need > 30 and days_until_order > 14:
             continue
-        if days_until_order < 0:
+        if phase == "delivery" and days_until_need > 14:
+            continue
+        urgency_days = days_until_order if phase == "order" else days_until_need
+        if urgency_days < 0:
             status = "critical"
             summary["critical"] += 1
-        elif days_until_order <= 3:
-            status = "critical"
-            summary["critical"] += 1
-        elif days_until_order <= 10:
+        elif urgency_days <= 3:
             status = "soon"
             summary["soon"] += 1
         else:
             status = "watch"
             summary["watch"] += 1
-        action_window_days = max(0, days_until_order)
+        action_window_days = max(0, urgency_days)
         alerts.append(
             {
                 "materialId": int(material.get("id") or 0),
                 "title": str(material.get("title") or ""),
                 "unit": str(material.get("unit") or ""),
                 "missingQty": missing_qty,
+                "toOrderQty": missing_qty,
+                "toReceiveQty": to_receive_qty,
+                "purchasedQty": purchased_qty,
+                "receivedQty": received_qty,
+                "phase": phase,
                 "sectionTitle": section_title or str((stage or {}).get("title") or "").strip(),
                 "stageTitle": str(material.get("stageTitle") or (stage or {}).get("title") or section_title or "").strip(),
-                "startDate": stage_start.isoformat(),
+                "startDate": compatibility_start.isoformat(),
+                "needOnSiteDate": need_on_site.isoformat(),
                 "orderByDate": order_by.isoformat(),
                 "leadDays": int(lead_days),
                 "daysUntilStart": int(days_until_start),
+                "daysUntilNeed": int(days_until_need),
                 "daysUntilOrder": int(days_until_order),
+                "urgencyDays": int(urgency_days),
                 "actionWindowDays": int(action_window_days),
                 "status": status,
             }
         )
-    alerts.sort(key=lambda item: (item["daysUntilOrder"], item["daysUntilStart"], item["title"]))
+    status_priority = {"critical": 0, "soon": 1, "watch": 2}
+    phase_priority = {"delivery": 0, "order": 1}
+    alerts.sort(
+        key=lambda item: (
+            status_priority.get(item["status"], 3),
+            item["urgencyDays"],
+            item["daysUntilNeed"],
+            phase_priority.get(item["phase"], 2),
+            item["title"],
+        )
+    )
     return {"items": alerts[:10], "summary": summary}
 
 

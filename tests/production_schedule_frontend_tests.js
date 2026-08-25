@@ -28,6 +28,7 @@ assert.match(planningJs, /action: 'recalculate'/);
 assert.match(planningJs, /api\('\/api\/projects\/' \+ projectId \+ '\/production-schedule'/);
 assert.match(planningJs, /data-graph-duration-input/);
 assert.match(planningJs, /section-schedule-override/);
+assert.match(planningJs, /bindHorizontalWheelScroll\(qs\('\[data-production-table-scroll\]', panel\)\)/);
 assert.match(planningCss, /\.production-schedule-table/);
 assert.match(planningCss, /position: sticky/);
 

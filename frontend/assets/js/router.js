@@ -14,15 +14,15 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        app: '/assets/js/app.js?v=20260824-photo-autobot-1-quantity-normalization-1-bulk-section-completion-1-crm-skeletons-1-works-only-1-project-reports-workspace-1-documents-workspace-1-object-tasks-workspace-1-finance-workspace-1-20260824-project-alerts-in-bell-1-finance-delete-1-object-control-1-reports-wording-7-payables-minimal-1-finance-overview-cleanup-1-reminder-bell-rebind-2-report-refresh-8-report-calendar-bridge-11-bulk-label-2',
+        app: '/assets/js/app.js?v=20260824-photo-autobot-1-quantity-normalization-1-bulk-section-completion-1-crm-skeletons-1-works-only-1-project-reports-workspace-1-documents-workspace-1-object-tasks-workspace-1-finance-workspace-1-20260824-project-alerts-in-bell-1-finance-delete-1-object-control-1-reports-wording-7-payables-minimal-1-finance-overview-cleanup-1-reminder-bell-rebind-2-report-refresh-8-report-calendar-bridge-11-bulk-label-2-foreman-nav-3-smart-daily-report-4-foreman-flow-7-horizontal-wheel-1-reminder-center-2-position-editor-1',
         autobot: '/assets/js/autobot.js?v=20260824-autobot-scroll-head-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260817-standup-inline-1',
-        planning: '/assets/js/planning.js?v=20260824-schedule-minimal-1-multi-estimate-files-1-production-halfday-1-price-table-4-sticky-viewport-1-bulk-section-completion-1-crm-skeletons-1-works-only-1-autoplan-calendar-1-market-materials-1-work-register-3-mobile-table-foundation-4-summary-checkboxes-5',
-        procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1',
+        planning: '/assets/js/planning.js?v=20260824-schedule-minimal-1-multi-estimate-files-1-production-halfday-1-price-table-4-sticky-viewport-1-bulk-section-completion-1-crm-skeletons-1-works-only-1-autoplan-calendar-1-market-materials-1-work-register-3-mobile-table-foundation-4-summary-checkboxes-5-horizontal-wheel-1-position-editor-1',
+        procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1-foreman-flow-1',
         estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260821-estimate-reconciliation-1-crm-skeletons-1',
-        warehouse_control: '/assets/js/warehouse-control.js?v=20260824-object-inventory-register-2-dialogs-3-portal-a11y-4',
+        warehouse_control: '/assets/js/warehouse-control.js?v=20260824-object-inventory-register-2-dialogs-3-portal-a11y-4-order-semantics-5-foreman-flow-6-position-editor-1',
         economics_management: '/assets/js/economics-management.js?v=20260821-economics-workspace-1-crm-skeletons-1-finance-workspace-1',
-        operations: '/assets/js/operations.js?v=20260820-project-navigation-1-price-table-1-crm-skeletons-1-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-report-submit-fix-6-object-control-1-reports-wording-7-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-load-12'
+        operations: '/assets/js/operations.js?v=20260820-project-navigation-1-price-table-1-crm-skeletons-1-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-report-submit-fix-6-object-control-1-reports-wording-7-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-load-12-foreman-actions-13-smart-daily-report-14-foreman-flow-16'
     };
 
     var PAGE_MODULES = {
@@ -168,6 +168,10 @@
         });
     }
 
+    function syncCurrentUrl() {
+        currentRouteUrl = new URL(location.href);
+    }
+
     function isModifiedClick(event) {
         return event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
     }
@@ -176,7 +180,8 @@
         __loaded: true,
         deferAppBoot: true,
         registerApp: registerApp,
-        navigate: navigate
+        navigate: navigate,
+        syncCurrentUrl: syncCurrentUrl
     };
     window.PMBI = PMBI;
 
@@ -186,6 +191,17 @@
         if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
         var url = new URL(link.href, location.href);
         if (url.origin !== location.origin || url.pathname.indexOf('/app') !== 0) return;
+        if (link.classList.contains('reminder-item') && PMBI.app && typeof PMBI.app.handleReminderNavigation === 'function') {
+            try {
+                if (PMBI.app.handleReminderNavigation(url, link)) {
+                    event.preventDefault();
+                    syncCurrentUrl();
+                    return;
+                }
+            } catch (localRouteError) {
+                console.error('Reminder navigation failed', localRouteError);
+            }
+        }
         event.preventDefault();
         navigate(url, true);
     }, true);

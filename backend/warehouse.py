@@ -391,7 +391,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         received = float(row["received_qty"])
         used = float(row["used_qty"])
         covered = max(purchased, received)
-        stock_base = received if received else purchased
+        stock_base = received
         stock = max(stock_base - used, 0)
         missing = max(planned - covered, 0)
         usage_progress = round(min(100, used / planned * 100), 1) if planned else 0
@@ -409,8 +409,12 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         need_by_date = str(row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"] or "")
         soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
         if missing <= 0:
-            supply_status = "in_stock"
-            supply_label = "Есть в наличии"
+            if received >= planned:
+                supply_status = "in_stock"
+                supply_label = "На объекте"
+            else:
+                supply_status = "ordered"
+                supply_label = "Заказано, ждём поставку"
         elif need_by_date and need_by_date < TODAY_ISO:
             supply_status = "required"
             supply_label = "Требуется"

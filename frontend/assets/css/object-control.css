@@ -7,13 +7,25 @@ body[data-page="projects"] .project-detail-nav {
 body[data-page="projects"] .project-tab-cluster {
     min-width: 0;
     display: flex;
-    flex: 0 1 auto;
+    flex: 1 1 auto;
     align-items: center;
     gap: 4px;
+    overflow: hidden;
 }
 
 body[data-page="projects"] .project-tab-cluster > .tabs {
-    flex: 0 1 auto;
+    width: 100%;
+    flex: 1 1 0;
+    scroll-padding-inline: 8px;
+    overscroll-behavior-x: contain;
+}
+
+body[data-page="projects"] .project-tab-cluster > .tabs .tab {
+    min-width: max-content;
+}
+
+body[data-page="projects"] .project-tab-cluster > .tabs .tab[data-tab="reports"] svg {
+    color: var(--color-accent);
 }
 
 body[data-page="projects"] .project-add-menu,
@@ -23,7 +35,44 @@ body[data-page="projects"] .project-more-menu {
 }
 
 body[data-page="projects"] .project-add-menu {
-    margin-left: auto;
+    margin-left: 0;
+}
+
+body[data-page="projects"] .project-report-primary {
+    min-height: var(--control-height);
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 16px;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    background: var(--color-accent);
+    color: #fff;
+    box-shadow: 0 7px 16px rgba(37, 99, 235, .2);
+    font-size: var(--text-sm);
+    font-weight: 780;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+body[data-page="projects"] .project-report-primary:hover {
+    border-color: var(--color-accent-hover);
+    background: var(--color-accent-hover);
+    box-shadow: 0 9px 20px rgba(37, 99, 235, .24);
+    transform: translateY(-1px);
+}
+
+body[data-page="projects"] .project-report-primary svg {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+}
+
+body[data-page="projects"] .project-mobile-capture {
+    display: none;
 }
 
 body[data-page="projects"] .project-add-menu > summary,
@@ -53,17 +102,18 @@ body[data-page="projects"] .project-more-menu > summary::-webkit-details-marker 
 }
 
 body[data-page="projects"] .project-add-menu > summary {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: #fff;
-    box-shadow: 0 6px 14px rgba(37, 99, 235, .18);
+    border-color: var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    box-shadow: none;
 }
 
 body[data-page="projects"] .project-add-menu > summary:hover,
 body[data-page="projects"] .project-add-menu[open] > summary {
-    border-color: var(--color-accent-hover);
-    background: var(--color-accent-hover);
-    box-shadow: 0 8px 18px rgba(37, 99, 235, .22);
+    border-color: #bfd5f2;
+    background: var(--color-surface-accent);
+    color: var(--color-accent-hover);
+    box-shadow: 0 5px 14px rgba(15, 23, 42, .08);
 }
 
 body[data-page="projects"] .project-more-menu > summary:hover,
@@ -969,6 +1019,68 @@ body[data-page="projects"] .object-loading-card {
 }
 
 @media (max-width: 720px) {
+    body[data-page="projects"] .project-report-primary {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] {
+        padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    }
+
+    body[data-page="projects"] .project-mobile-capture {
+        position: fixed;
+        right: 10px;
+        bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+        left: 10px;
+        z-index: 58;
+        display: grid;
+        grid-template-columns: 1fr 1.2fr 1fr;
+        align-items: end;
+        gap: 7px;
+        padding: 7px;
+        border: 1px solid rgba(203, 213, 225, .92);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, .96);
+        box-shadow: 0 16px 38px rgba(15, 23, 42, .18), 0 3px 10px rgba(15, 23, 42, .08);
+        backdrop-filter: blur(16px);
+    }
+
+    body[data-page="projects"] .project-mobile-capture > button {
+        min-height: 48px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--color-text-secondary);
+        font-size: 11px;
+        font-weight: 760;
+        cursor: pointer;
+    }
+
+    body[data-page="projects"] .project-mobile-capture > button.is-primary {
+        min-height: 56px;
+        margin-top: -12px;
+        border: 1px solid var(--color-accent);
+        background: var(--color-accent);
+        color: #fff;
+        box-shadow: 0 8px 18px rgba(37, 99, 235, .26);
+        font-size: 12px;
+    }
+
+    body[data-page="projects"] .project-mobile-capture svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    body[data-page="projects"] .project-mobile-capture > button.is-primary svg {
+        width: 21px;
+        height: 21px;
+    }
+
     body[data-page="projects"] .project-add-menu > summary,
     body[data-page="projects"] .project-more-menu > summary {
         min-height: var(--control-height-sm);
@@ -979,7 +1091,7 @@ body[data-page="projects"] .object-loading-card {
         position: fixed;
         top: auto;
         right: 10px;
-        bottom: 12px;
+        bottom: calc(82px + env(safe-area-inset-bottom, 0px));
         left: 10px;
         width: auto;
         max-height: min(70vh, 520px);
@@ -1090,6 +1202,8 @@ body[data-page="projects"] .object-loading-card {
 
     body[data-page="projects"] .object-quick-action,
     body[data-page="projects"] .object-snapshot-card,
+    body[data-page="projects"] .project-report-primary,
+    body[data-page="projects"] .project-mobile-capture > button,
     body[data-page="projects"] .project-add-menu > summary,
     body[data-page="projects"] .project-more-menu > summary {
         transition: none;

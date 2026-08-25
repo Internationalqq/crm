@@ -15,6 +15,7 @@ from warehouse_control import (  # noqa: E402
     build_warehouse_control,
     create_work_fact,
     ensure_warehouse_control_schema,
+    migrate_legacy_purchase_receipts,
     reverse_work_fact,
     upsert_work_material_norm,
 )
@@ -161,6 +162,30 @@ class WarehouseControlTests(unittest.TestCase):
         self.assertEqual(tile["receivedQty"], 0)
         self.assertEqual(tile["stockBalanceQty"], 0)
         self.assertFalse(tile["hasReceipt"])
+
+    def test_legacy_purchase_only_stock_is_backfilled_once(self) -> None:
+        self.con.execute("DELETE FROM system_migrations")
+        self.con.execute("DELETE FROM stock_moves WHERE estimate_item_id = 201")
+        self.con.execute(
+            "INSERT INTO stock_moves (project_id, estimate_item_id, move_type, qty, created_by, created_at) "
+            "VALUES (10, 201, 'purchase', 50, 1, 80)"
+        )
+
+        self.assertEqual(migrate_legacy_purchase_receipts(self.con), 1)
+        self.assertEqual(migrate_legacy_purchase_receipts(self.con), 0)
+        tile = next(
+            item for item in build_warehouse_control(self.con, 10)["materials"] if item["id"] == 201
+        )
+
+        self.assertEqual(tile["purchasedQty"], 50)
+        self.assertEqual(tile["receivedQty"], 50)
+        self.assertEqual(tile["stockBalanceQty"], 50)
+        self.assertEqual(
+            self.con.execute(
+                "SELECT COUNT(*) FROM stock_moves WHERE source_type = 'legacy_purchase_receipt_backfill'"
+            ).fetchone()[0],
+            1,
+        )
 
     def test_reversal_restores_stock_and_is_an_immutable_separate_record(self) -> None:
         self.add_norms()
