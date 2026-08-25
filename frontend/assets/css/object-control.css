@@ -2647,3 +2647,563 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] input[t
         border-bottom: 1px solid var(--color-border);
     }
 }
+
+/* Works/material register rhythm alignment: keep work rows as calm and readable as materials. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] {
+    padding: 6px 8px 24px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary {
+    margin: 0 4px 14px;
+    border-radius: 12px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item {
+    min-height: 60px;
+    display: grid;
+    align-content: center;
+    gap: 4px;
+    padding: 10px 14px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item span {
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item strong {
+    font-size: 16px;
+    line-height: 1.2;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-list {
+    gap: 14px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-check.schedule-work-duration-row:hover {
+    background: var(--color-surface-subtle) !important;
+    box-shadow: inset 3px 0 0 var(--color-accent) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.schedule-work-duration-row {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check-copy b,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-register-volume, .section-work-register-status) strong {
+    line-height: 1.3;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-title-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-title-line h4 {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-title-line > .bulk-section-check {
+    grid-column: auto;
+    grid-row: auto;
+    flex: 0 0 auto;
+    align-self: center;
+    justify-self: auto;
+    margin: 0;
+}
+
+@media (min-width: 721px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head,
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-work-check-main {
+        grid-template-columns: 22px minmax(260px, 1fr) 150px 118px;
+        gap: 14px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row {
+        grid-template-columns: 22px minmax(260px, 1fr) 150px 118px;
+        gap: 14px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row .section-schedule-title {
+        grid-column: 1 / span 2;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-volume {
+        grid-column: 3;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-status {
+        grid-column: 4;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .project-estimate-file-head {
+        min-height: 60px;
+        padding: 10px 14px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-master-head {
+        min-height: 40px;
+        padding-inline: 14px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row {
+        min-height: 62px;
+        padding: 10px 14px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-check.schedule-work-duration-row {
+        display: grid;
+        align-items: center;
+        min-height: 62px !important;
+        padding: 11px 14px !important;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] {
+        padding: 6px 4px 20px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary {
+        margin-inline: 0;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .works-register-summary-item {
+        min-height: 56px;
+        padding: 9px 11px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-check.schedule-work-duration-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: center;
+        min-height: 64px !important;
+        padding: 10px 8px !important;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row {
+        grid-template-columns: minmax(0, 1fr) 18px;
+        grid-template-rows: auto auto;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row .section-schedule-title {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-meta {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-title-line {
+        align-items: flex-start;
+    }
+}
+
+/* Material lifecycle: visually separate order, delivery and usage without turning the register into a rainbow. */
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow {
+    --warehouse-flow-color: var(--color-text-secondary);
+    --warehouse-flow-soft: var(--color-surface-subtle);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow.is-purchase {
+    --warehouse-flow-color: var(--color-accent, #2563eb);
+    --warehouse-flow-soft: var(--color-accent-soft, #eaf2ff);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow.is-receipt {
+    --warehouse-flow-color: var(--color-success, #15803d);
+    --warehouse-flow-soft: var(--color-success-soft, #edf9f0);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow.is-use {
+    --warehouse-flow-color: #6d5bd0;
+    --warehouse-flow-soft: #f3f0ff;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head > .warehouse-material-flow,
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow-label,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head > .warehouse-material-flow {
+    color: var(--warehouse-flow-color);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-material-register-head > .warehouse-material-flow, .warehouse-material-flow-label) svg,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow-label {
+    color: var(--warehouse-flow-color) !important;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow-value {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 25px;
+    align-items: center;
+    padding: 3px 7px;
+    border-radius: 7px;
+    color: var(--warehouse-flow-color) !important;
+    background: var(--warehouse-flow-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow-value small {
+    color: inherit !important;
+    opacity: .72;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow-value.is-empty {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    color: #94a3b8 !important;
+    background: transparent;
+    font-size: 15px !important;
+    font-weight: 650;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label svg {
+    color: #64748b;
+    opacity: .78;
+}
+
+/* The previous tablet table hid "Заказано". Keep every lifecycle value in a compact two-row register instead. */
+@media (min-width: 721px) and (max-width: 1080px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px 12px;
+        min-height: 0;
+        padding: 13px 12px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-material-select, .warehouse-material-title) {
+        grid-column: 1 / -1;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card .warehouse-material-cell,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card .warehouse-material-cell:nth-child(3) {
+        display: block;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell > span {
+        display: inline-flex;
+        margin-bottom: 3px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status {
+        grid-column: 1 / -1;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions {
+        grid-column: 5;
+        justify-self: end;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register.is-readonly .warehouse-material-status {
+        grid-column: 1 / -1;
+    }
+}
+
+/* Warehouse modal controls stay visible after dialogs move into the body portal. */
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-dialog-head > button svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    stroke-width: 2.2;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-move-fields {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill {
+    display: inline-flex !important;
+    min-height: 44px !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 12px !important;
+    border: 1px solid #bfdbfe !important;
+    border-radius: 10px !important;
+    color: var(--color-accent, #2563eb) !important;
+    background: var(--color-surface-accent, #eff6ff) !important;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill[hidden] {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill:hover {
+    border-color: #93c5fd !important;
+    background: #eaf2ff !important;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill > span {
+    font-size: 12px;
+    font-weight: 750;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill > small {
+    padding-left: 8px;
+    border-left: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 520px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-move-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-fill > small {
+        margin-left: auto;
+    }
+}
+
+/* Materials grouped by estimate section: one quiet divider, then full-width actionable rows. */
+body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-material-source-group, .warehouse-material-section-group) {
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-material-source-group, .warehouse-material-section-group)[hidden] {
+    display: none !important;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-group + .warehouse-material-source-group {
+    margin-top: 14px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-border);
+    background: #fff;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head > svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    color: #64748b;
+    stroke-width: 1.8;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head > div {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 8px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head small {
+    flex: 0 0 auto;
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head strong {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: 12px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head div > span {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-group + .warehouse-material-section-group {
+    margin-top: 8px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head {
+    display: flex;
+    min-width: 0;
+    min-height: 38px;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 12px;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    color: #475569;
+    background: #f6f8fb;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head > svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    color: #94a3b8;
+    stroke-width: 1.8;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head > span {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 7px;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head small {
+    flex: 0 0 auto;
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head strong {
+    overflow: hidden;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card.is-actionable {
+    cursor: pointer;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card.is-actionable:focus-within {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title :is(strong, h4) {
+    margin-top: 0;
+}
+
+@media (min-width: 1081px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register:not(.is-readonly) :is(.warehouse-material-register-head, .warehouse-material-card) {
+        grid-template-columns: minmax(250px, 2fr) repeat(5, minmax(78px, .6fr)) minmax(118px, .85fr);
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head > div,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head > span {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-source-head,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head {
+        padding-inline: 8px;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-section-head strong {
+        white-space: normal;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card {
+        grid-template-rows: auto auto auto auto;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] :is(.warehouse-material-select, .warehouse-material-title) {
+        grid-column: 1 / -1;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell > .warehouse-material-flow-label {
+        display: inline-flex;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow.is-purchase {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow.is-receipt {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-flow.is-use {
+        grid-column: 3;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-plan {
+        grid-column: 1;
+        grid-row: 3;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-balance {
+        grid-column: 2;
+        grid-row: 3;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status {
+        grid-column: 1 / -1;
+        grid-row: 4;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-actions {
+        grid-column: 3;
+        grid-row: 4;
+        justify-self: end;
+    }
+
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register.is-readonly .warehouse-material-status {
+        grid-column: 1 / -1;
+    }
+}

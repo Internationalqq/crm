@@ -4114,7 +4114,7 @@ body.reports-drawer-open {
 }
 
 /* Final layout guard: fixed full-height desktop sidebar without page gaps. */
-@media (min-width: 721px) {
+@media (min-width: 901px) {
     .app-shell,
     body.sidebar-collapsed .app-shell,
     html.sidebar-pref-collapsed .app-shell {
@@ -4132,40 +4132,44 @@ body.reports-drawer-open {
         left: 0 !important;
         z-index: 9990 !important;
         width: 224px !important;
-        min-width: 224px !important;
-        max-width: 224px !important;
+        min-width: 0 !important;
+        max-width: none !important;
         height: 100vh !important;
         min-height: 100vh !important;
         max-height: 100vh !important;
         overflow-x: hidden !important;
         overflow-y: auto !important;
+        transform: none !important;
+        transition: width .18s cubic-bezier(.2, .8, .2, 1);
+    }
+
+    .sidebar-toggle {
+        display: inline-flex !important;
     }
 
     .main {
-        width: calc(100vw - 224px) !important;
-        max-width: calc(100vw - 224px) !important;
+        width: auto !important;
+        max-width: none !important;
         min-width: 0 !important;
         margin-left: 224px !important;
         box-sizing: border-box;
-        transition: width .28s cubic-bezier(.22, .61, .36, 1), margin-left .28s cubic-bezier(.22, .61, .36, 1);
+        transition: margin-left .18s cubic-bezier(.2, .8, .2, 1);
     }
 
     body.sidebar-collapsed .sidebar,
     html.sidebar-pref-collapsed .sidebar {
         width: 72px !important;
-        min-width: 72px !important;
-        max-width: 72px !important;
+        min-width: 0 !important;
+        max-width: none !important;
     }
 
     body.sidebar-collapsed .main,
     html.sidebar-pref-collapsed .main {
-        width: calc(100vw - 72px) !important;
-        max-width: calc(100vw - 72px) !important;
         margin-left: 72px !important;
     }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
     .app-shell,
     body.sidebar-collapsed .app-shell,
     html.sidebar-pref-collapsed .app-shell {
@@ -4195,13 +4199,13 @@ body.reports-drawer-open {
 }
 
 /* Final sidebar collapse guard: Lucide icons only, no legacy pseudo-icons/text layers. */
-@media (max-width: 720px) {
+@media (max-width: 900px) {
     .sidebar-toggle {
         display: none !important;
     }
 }
 
-@media (min-width: 721px) {
+@media (min-width: 901px) {
     .menu-btn,
     .menu-btn.topbar-icon-button {
         display: none !important;
@@ -4215,11 +4219,11 @@ body.reports-drawer-open {
     pointer-events: none !important;
 }
 
-@media (min-width: 721px) {
+@media (min-width: 901px) {
     body.sidebar-collapsed .sidebar,
     html.sidebar-pref-collapsed .sidebar {
-        padding-left: 8px !important;
-        padding-right: 8px !important;
+        padding-left: 10px !important;
+        padding-right: 10px !important;
         overflow-x: hidden !important;
     }
 

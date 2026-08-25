@@ -198,16 +198,79 @@ test('Production schedule has a project tab, editable cells, and a sticky day ta
   assert.match(planningJs, /data-production-cell/);
   assert.match(planningJs, /action: 'set_cell'/);
   assert.match(planningJs, /action: 'recalculate'/);
+  assert.match(planningJs, /preserve_manual: true/);
+  for (const action of ['add_operation', 'update_operation', 'delete_operation', 'split_operation', 'reorder_operations', 'save_template']) {
+    assert.match(planningJs, new RegExp(`['"]${action}['"]`));
+  }
+  assert.match(planningJs, /operation_id: productionPayloadId\(button\.dataset\.operationId\)/);
+  assert.match(planningJs, /data-production-operation-form/);
+  assert.match(planningJs, /data-production-operation-row/);
+  const payloadBuilder = planningJs.slice(
+    planningJs.indexOf('function productionOperationFormPayload'),
+    planningJs.indexOf('function productionOperationOrder')
+  );
+  assert.match(payloadBuilder, /if \(!operationId\)/);
+  assert.match(payloadBuilder, /planned_qty: values\.plannedQty/);
+  assert.match(payloadBuilder, /values\.plannedQty !== initial\.plannedQty/);
+  assert.doesNotMatch(payloadBuilder, /values\.plannedQty == null \? 0/);
+  assert.match(payloadBuilder, /values\.durationDays !== initial\.durationDays/);
+  assert.match(payloadBuilder, /values\.linkedIds\.join\('\|'\) !== productionSortedLinkIds\(initial\.linkedIds\)\.join\('\|'\)/);
+  assert.match(planningJs, /data-production-duration data-project-id/);
+  assert.match(planningJs, /data-production-duration-reset/);
+  assert.match(planningJs, /data-production-confirm-operation/);
+  assert.match(planningJs, /status: 'confirmed'/);
+  assert.match(planningJs, /data-production-reset-cells/);
+  assert.match(planningJs, /action: 'reset_cells'/);
+  assert.match(planningJs, /Связано со сметой/);
+  assert.match(planningJs, /Вне сметы/);
+  assert.match(planningJs, /Требует проверки/);
   assert.match(planningJs, /data-slot-number/);
+  assert.match(planningJs, /data-production-duration-step="-0\.5"/);
+  assert.match(planningJs, /data-production-duration-step="0\.5"/);
   assert.match(planningJs, /Объём работ/);
   assert.match(planningCss, /\.production-schedule-table/);
+  assert.match(planningCss, /\.production-duration-stepper/);
+  assert.match(planningCss, /\.production-operation-drawer/);
+  assert.match(planningCss, /\.production-work-row\.production-phase-teal/);
+  assert.doesNotMatch(planningCss, /production-phase-(?:amber|yellow)/);
+  assert.doesNotMatch(planningCss, /\.production-section-row th\s*\{[^}]*#f1e33b/s);
   assert.match(planningCss, /position: sticky/);
 });
 
-test('Existing graph exposes shared work durations and an automatic reset', () => {
-  assert.match(planningJs, /data-graph-duration-input/);
-  assert.match(planningJs, /section-schedule-override/);
-  assert.match(planningJs, /data-graph-duration-reset/);
+test('Visible works register omits graph duration and deadline controls', () => {
+  const sectionRowRender = planningJs.slice(
+    planningJs.indexOf('function renderSectionScheduleRow'),
+    planningJs.indexOf('function renderSectionScheduleForecast')
+  );
+  const sectionForecastRender = planningJs.slice(
+    planningJs.indexOf('function renderSectionScheduleForecast'),
+    planningJs.indexOf('function bindSectionScheduleRefresh')
+  );
+  const visibleWorksRegister = sectionRowRender + sectionForecastRender;
+  for (const removedVisibleToken of [
+    'data-graph-duration-editor',
+    'data-graph-duration-input',
+    'data-graph-duration-reset',
+    'schedule-work-duration-metrics',
+    'Авторасчёт',
+    'Длительность',
+    'Срок работ',
+    'Осталось',
+    '\\u0410\\u0432\\u0442\\u043e\\u0440\\u0430\\u0441\\u0447\\u0451\\u0442',
+    '\\u0414\\u043b\\u0438\\u0442\\u0435\\u043b\\u044c\\u043d\\u043e\\u0441\\u0442\\u044c',
+  ]) {
+    assert.equal(
+      visibleWorksRegister.includes(removedVisibleToken),
+      false,
+      `Visible works register still contains removed planning field: ${removedVisibleToken}`,
+    );
+  }
+  const summaryStart = sectionForecastRender.indexOf('works-register-summary');
+  const summaryEnd = sectionForecastRender.indexOf('renderPinnedScheduleBrief', summaryStart);
+  const summaryBlock = sectionForecastRender.slice(summaryStart, summaryEnd);
+  assert.equal((summaryBlock.match(/works-register-summary-item/g) || []).length, 4);
+  assert.match(summaryBlock, /<span>Разделов<\/span>[\s\S]*?<span>Работ<\/span>[\s\S]*?<span>Выполнено<\/span>[\s\S]*?<span>Готовность<\/span>/);
+  assert.match(appJs, /section-schedule-override/);
   assert.doesNotMatch(planningJs, /<small>Чел\/час<\/small>/);
   assert.match(planningJs, /item\.crewSize/);
 });

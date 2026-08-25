@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import re
 import sqlite3
 import time
 import urllib.parse
@@ -9,7 +11,7 @@ from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import display_user_name, user_can_manage_documents, user_can_manage_schedule, user_has_any_role
+from auth import display_user_name, user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_main_admin
 from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from sqlite_config import configure_connection
@@ -107,10 +109,11 @@ def live_estimate_items_where(con: sqlite3.Connection, alias: str = "e") -> str:
 
 def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id: str | None = None) -> dict:
     live_where = live_estimate_items_where(con, "e")
+    kind_override_select = ", e.item_kind_override" if "item_kind_override" in table_columns(con, "estimate_items") else ", NULL AS item_kind_override"
     rows = con.execute(
         f"""
         SELECT
-            e.id, e.project_id, e.title, e.section_title, e.stage_id, e.item_kind,
+            e.id, e.project_id, e.title, e.section_title, e.stage_id, e.item_kind{kind_override_select},
             e.planned_qty, e.is_completed,
             COALESCE(SUM(CASE WHEN s.move_type = 'purchase' THEN s.qty ELSE 0 END), 0) AS purchased_qty,
             COALESCE(SUM(CASE WHEN s.move_type = 'receipt' THEN s.qty ELSE 0 END), 0) AS received_qty
@@ -498,6 +501,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
 
     live_where = live_estimate_items_where(con, "e")
     estimate_columns = table_columns(con, "estimate_items")
+    kind_override_select = "e.item_kind_override" if "item_kind_override" in estimate_columns else "NULL AS item_kind_override"
     table_names = {
         str(item["name"])
         for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
@@ -526,6 +530,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             e.planned_qty,
             e.planned_price,
             e.item_kind,
+            {kind_override_select},
             e.section_title,
             e.article,
             e.procurement_status,
@@ -611,6 +616,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "id": row["id"],
                 "title": row["title"],
                 "itemKind": resolved_estimate_item_kind(row),
+                "itemKindSource": "manual" if str(row["item_kind_override"] or "") in {"material", "work"} else "auto",
                 "unit": display_unit,
                 "sourceUnit": row["unit"],
                 "sourcePlannedQty": safe_float(row["planned_qty"]),
@@ -1360,100 +1366,1002 @@ def load_work_schedule_overrides(
     }
 
 
-def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) -> dict:
-    project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
-    if not project:
-        raise LookupError("project_not_found")
-    live_where = live_estimate_items_where(con, "")
-    columns = table_columns(con, "estimate_items")
-    optional_columns = []
-    if "labor_hours_total" in columns:
-        optional_columns.append("labor_hours_total")
-    if "default_crew_size" in columns:
-        optional_columns.append("default_crew_size")
-    optional_sql = (", " + ", ".join(optional_columns)) if optional_columns else ""
-    raw_rows = con.execute(
-        f"""
-        SELECT id, title, unit, planned_qty, item_kind, section_title, article, notes{optional_sql}
-        FROM estimate_items
-        WHERE project_id = ? AND {live_where}
-        ORDER BY id
+PRODUCTION_OTMOSTKA_TEMPLATE_KEY = "otmostka-chebarkul-v1"
+PRODUCTION_DEFAULT_COLOR = "slate"
+PRODUCTION_COLOR_TOKENS = {"slate", "blue", "teal", "green", "violet", "rose"}
+PRODUCTION_ALLOWED_LINK_ROLES = {"work_basis", "material_signal", "manual_reference"}
+
+
+def production_table_exists(con: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table,),
+        ).fetchone()
+    )
+
+
+def production_manual_fields(value: object) -> set[str]:
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return set()
+    return {str(item) for item in parsed if isinstance(item, str)} if isinstance(parsed, list) else set()
+
+
+def production_encode_manual_fields(fields: set[str]) -> str:
+    return json.dumps(sorted(fields), ensure_ascii=False)
+
+
+def production_json_array(value: object) -> list:
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def production_article_digits(value: object) -> str:
+    return re.sub(r"\D+", "", str(value or ""))
+
+
+def production_estimate_signature(rows: list[sqlite3.Row | dict]) -> str:
+    signature_rows = []
+    for row in rows:
+        kind = normalize_estimate_item_kind(resolved_estimate_item_kind(row))
+        article = str(schedule_item_value(row, "article", default="") or "").strip().casefold()
+        title = " ".join(normalize_schedule_text(schedule_item_value(row, "title", default="")).split())
+        signature_rows.append((kind, article or title))
+    encoded = json.dumps(sorted(signature_rows), ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def production_estimate_rows(con: sqlite3.Connection, project_id: int) -> list[sqlite3.Row]:
+    estimate_columns = table_columns(con, "estimate_items")
+    has_sources = "estimate_source_id" in estimate_columns and production_table_exists(con, "project_estimates")
+    live_where = live_estimate_items_where(con, "e")
+    source_columns = (
+        ", source.source_type AS estimate_source_type, source.source_key AS estimate_source_key"
+        if has_sources else ""
+    )
+    source_join = (
+        "LEFT JOIN project_estimates source ON source.id = e.estimate_source_id AND source.project_id = e.project_id"
+        if has_sources else ""
+    )
+    return con.execute(
+        f"SELECT e.*{source_columns} FROM estimate_items e {source_join} WHERE e.project_id = ? AND {live_where} ORDER BY e.id",
+        (project_id,),
+    ).fetchall()
+
+
+def production_find_estimate(
+    rows: list[sqlite3.Row | dict],
+    *,
+    kind: str | None = None,
+    article_suffix: str = "",
+    all_keywords: tuple[str, ...] = (),
+    any_keywords: tuple[str, ...] = (),
+) -> sqlite3.Row | dict | None:
+    suffix_digits = production_article_digits(article_suffix)
+    for row in rows:
+        row_kind = normalize_estimate_item_kind(resolved_estimate_item_kind(row))
+        if kind and row_kind != kind:
+            continue
+        title = normalize_schedule_text(schedule_item_value(row, "title", default=""))
+        article_digits = production_article_digits(schedule_item_value(row, "article", default=""))
+        article_matches = bool(suffix_digits and article_digits.endswith(suffix_digits))
+        keyword_matches = bool(all_keywords) and all(keyword in title for keyword in all_keywords)
+        any_matches = bool(any_keywords) and any(keyword in title for keyword in any_keywords)
+        if article_matches or keyword_matches or any_matches:
+            return row
+    return None
+
+
+def production_row_qty(row: sqlite3.Row | dict | None, fallback: float = 0.0) -> float:
+    if not row:
+        return float(fallback)
+    try:
+        return float(schedule_item_value(row, "planned_qty", "plannedQty", default=fallback) or fallback)
+    except (TypeError, ValueError):
+        return float(fallback)
+
+
+def production_link(row: sqlite3.Row | dict | None, role: str) -> tuple[int, str] | None:
+    if not row:
+        return None
+    return (int(schedule_item_value(row, "id", default=0) or 0), role)
+
+
+def production_operation_seed(
+    generation_key: str,
+    title: str,
+    qty: float | None,
+    unit: str,
+    duration_days: float,
+    links: list[tuple[int, str] | None],
+    *,
+    color: str,
+    origin: str = "template",
+    template_key: str | None = PRODUCTION_OTMOSTKA_TEMPLATE_KEY,
+    status: str | None = None,
+) -> dict:
+    clean_links: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
+    for link in links:
+        if not link or not link[0] or link[1] not in PRODUCTION_ALLOWED_LINK_ROLES or link in seen:
+            continue
+        seen.add(link)
+        clean_links.append(link)
+    duration = positive_schedule_half_days(duration_days) or 1.0
+    return {
+        "generation_key": generation_key,
+        "title": title,
+        "planned_qty": None if qty is None else max(0.0, float(qty)),
+        "unit": unit,
+        "people_count": 1,
+        "shift_count": 1,
+        "brigade_count": 1,
+        "labor_hours_total": duration * SCHEDULE_SHIFT_HOURS,
+        "auto_duration_days": duration,
+        "origin": origin,
+        "status": status or ("linked" if clean_links else "outside_estimate"),
+        "color": color,
+        "template_key": template_key,
+        "links": clean_links,
+    }
+
+
+def production_scaled_days(current_qty: float, reference_qty: float, reference_days: float) -> float:
+    if current_qty <= 0 or reference_qty <= 0:
+        return positive_schedule_half_days(reference_days) or 1.0
+    return max(0.5, math.ceil((reference_days * current_qty / reference_qty) * 2 - 1e-9) / 2)
+
+
+def build_otmostka_template_seeds(
+    project: sqlite3.Row | dict,
+    rows: list[sqlite3.Row | dict],
+) -> list[dict] | None:
+    concrete = production_find_estimate(
+        rows,
+        kind="work",
+        article_suffix="69-01-016-02",
+        all_keywords=("отмост", "бетон"),
+    )
+    if not concrete:
+        return None
+    concrete_source_id = schedule_item_value(concrete, "estimate_source_id", "estimateSourceId")
+    concrete_section = normalize_progress_section_id(schedule_item_value(concrete, "section_title", "sectionTitle", default=""))
+    if concrete_source_id not in (None, "", 0, "0"):
+        scoped_rows = [
+            row for row in rows
+            if str(schedule_item_value(row, "estimate_source_id", "estimateSourceId", default="")) == str(concrete_source_id)
+        ]
+    elif concrete_section and concrete_section != "без раздела":
+        scoped_rows = [
+            row for row in rows
+            if normalize_progress_section_id(schedule_item_value(row, "section_title", "sectionTitle", default="")) == concrete_section
+        ]
+    else:
+        scoped_rows = rows
+    reinforcement = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="06-03-004-14",
+        any_keywords=("армирован",),
+    )
+    foundation_waterproofing = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="08-01-003-10",
+        all_keywords=("гидроизоляц", "обмазоч"),
+    )
+    joint_cutting = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="27-06-007-02",
+        all_keywords=("шв", "бетон"),
+    )
+    joint_sealing = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="46-08-022-01",
+        all_keywords=("гидроизоляц", "шв"),
+    )
+    canopy = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="12-01-045-01",
+        any_keywords=("козыр",),
+    )
+    plaster = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="61-02-001-01",
+        any_keywords=("штукатур",),
+    )
+    paint = production_find_estimate(
+        scoped_rows,
+        kind="work",
+        article_suffix="15-04-019-05",
+        any_keywords=("окраск",),
+    )
+    supporting = [reinforcement, foundation_waterproofing, joint_cutting, joint_sealing, canopy, plaster, paint]
+    project_title = normalize_schedule_text(schedule_item_value(project, "title", default=""))
+    known_chebarkul = project_title == "чб" or "чебарк" in project_title
+    if sum(item is not None for item in supporting) < 5 and not known_chebarkul:
+        return None
+
+    crushed_stone = production_find_estimate(scoped_rows, kind="material", any_keywords=("щебен", "щебн"))
+    mesh = production_find_estimate(scoped_rows, kind="material", any_keywords=("сетк",))
+    concrete_mix = production_find_estimate(scoped_rows, kind="material", all_keywords=("смес", "бетон"))
+    joint_material = production_find_estimate(scoped_rows, kind="material", article_suffix="14-5-04-01-0011")
+    if not joint_material:
+        joint_material = production_find_estimate(scoped_rows, kind="material", any_keywords=("гермет",))
+    metal = production_find_estimate(scoped_rows, kind="material", any_keywords=("металлоконструк",))
+    canopy_cover = production_find_estimate(scoped_rows, kind="material", any_keywords=("поликарбон", "профлист", "проф.лист"))
+    paint_material = production_find_estimate(scoped_rows, kind="material", any_keywords=("краск",))
+
+    concrete_qty = production_row_qty(concrete, 256)
+    crushed_qty = production_row_qty(crushed_stone, round(concrete_qty * 0.1, 3))
+    foundation_qty = production_row_qty(foundation_waterproofing, round(concrete_qty * 0.3, 3))
+    mesh_qty = production_row_qty(mesh, round(concrete_qty * 1.09375, 3))
+    formwork_qty = round(concrete_qty * (100 / 256), 3)
+    joint_qty = production_row_qty(joint_cutting or joint_sealing, round(concrete_qty / 3, 3))
+    canopy_qty = production_row_qty(canopy, 0)
+    plaster_qty = production_row_qty(plaster, 0)
+    paint_qty = production_row_qty(paint, plaster_qty)
+
+    key = PRODUCTION_OTMOSTKA_TEMPLATE_KEY
+    return [
+        production_operation_seed(f"template:{key}:01-demolition", "Демонтаж деревьев и кустарников", None, "шт", 2, [], color="slate"),
+        production_operation_seed(f"template:{key}:02-earthworks", "Разработка грунта для устройства щебня", crushed_qty, "м3", production_scaled_days(crushed_qty, 25.6, 2), [production_link(concrete, "manual_reference"), production_link(crushed_stone, "material_signal")], color="slate"),
+        production_operation_seed(f"template:{key}:03-crushed-base", "Устройство подстилающего выравнивающего слоя из щебня", crushed_qty, "м3", production_scaled_days(crushed_qty, 25.6, 3), [production_link(concrete, "manual_reference"), production_link(crushed_stone, "material_signal")], color="blue"),
+        production_operation_seed(f"template:{key}:04-foundation-waterproofing", "Устройство гидроизоляции фундамента в 1 слой мастикой h=1 м", foundation_qty, "м2", production_scaled_days(foundation_qty, 76.8, 2), [production_link(foundation_waterproofing, "work_basis")], color="blue"),
+        production_operation_seed(f"template:{key}:05-reinforcement", "Устройство армирующей сетки под отмостку", mesh_qty, "м2", production_scaled_days(mesh_qty, 280, 3), [production_link(reinforcement, "work_basis"), production_link(mesh, "material_signal")], color="violet"),
+        production_operation_seed(f"template:{key}:06-formwork", "Монтаж опалубки для бетонирования отмостки", formwork_qty, "шт", production_scaled_days(formwork_qty, 100, 3), [production_link(concrete, "manual_reference")], color="violet"),
+        production_operation_seed(f"template:{key}:07-concreting", "Бетонирование отмостки смесью маркой B15 t=15 см", concrete_qty, "м2", production_scaled_days(concrete_qty, 256, 7), [production_link(concrete, "work_basis"), production_link(concrete_mix, "material_signal")], color="green"),
+        production_operation_seed(f"template:{key}:08-expansion-joints", "Устройство деформационных швов отмостки", joint_qty, "кг", production_scaled_days(joint_qty, 85, 2), [production_link(joint_cutting, "work_basis")], color="teal"),
+        production_operation_seed(f"template:{key}:09-joint-waterproofing", "Гидроизоляция деф. швов полиуретановым герметиком", joint_qty, "кг", production_scaled_days(joint_qty, 85, 2), [production_link(joint_sealing, "work_basis"), production_link(joint_material, "material_signal")], color="teal"),
+        production_operation_seed(f"template:{key}:10-canopy-metal", "Монтаж металлических конструкций для козырьков приямков", canopy_qty, "м2", production_scaled_days(canopy_qty, 23.4, 2), [production_link(canopy, "work_basis"), production_link(metal, "material_signal")], color="violet"),
+        production_operation_seed(f"template:{key}:11-canopy-cover", "Монтаж козырьков из профлиста", canopy_qty, "м2", production_scaled_days(canopy_qty, 23.4, 2), [production_link(canopy, "manual_reference"), production_link(canopy_cover, "material_signal")], color="violet", status="needs_review"),
+        production_operation_seed(f"template:{key}:12-plaster", "Штукатурка стен приямков", plaster_qty, "м2", production_scaled_days(plaster_qty, 24.7, 2), [production_link(plaster, "work_basis")], color="rose"),
+        production_operation_seed(f"template:{key}:13-paint", "Окраска стен приямка в 2 слоя", paint_qty, "м2", production_scaled_days(paint_qty, 24.7, 2), [production_link(paint, "work_basis"), production_link(paint_material, "material_signal")], color="rose"),
+        production_operation_seed(f"template:{key}:14-removal", "Вывоз мусора, грунта, деревьев и кустарников", None, "м3", 2, [], color="slate"),
+        production_operation_seed(f"template:{key}:15-cleanup", "Уборка территории", None, "м3", 2, [], color="slate"),
+    ]
+
+
+def build_fallback_operation_seed(row: sqlite3.Row | dict) -> dict:
+    estimate = calculate_schedule_work_duration(row)
+    item_id = int(schedule_item_value(row, "id", default=0) or 0)
+    scope = classify_schedule_scope(str(schedule_item_value(row, "title", default="")))
+    colors = {
+        "prep": "slate",
+        "concrete": "green",
+        "roof": "violet",
+        "finishing": "rose",
+        "electrical": "blue",
+        "plumbing": "teal",
+    }
+    return {
+        "generation_key": f"estimate:{item_id}",
+        "title": str(schedule_item_value(row, "title", default="") or ""),
+        "planned_qty": production_row_qty(row),
+        "unit": str(schedule_item_value(row, "unit", default="") or ""),
+        "people_count": int(estimate["crew_size"]),
+        "shift_count": 1,
+        "brigade_count": 1,
+        "labor_hours_total": float(estimate["hours"]),
+        "auto_duration_days": float(estimate["auto_days"]),
+        "origin": "auto",
+        "status": "needs_review",
+        "color": colors.get(scope, PRODUCTION_DEFAULT_COLOR),
+        "template_key": None,
+        "links": [(item_id, "work_basis")],
+    }
+
+
+def production_recalculated_days(labor_hours: object, people: object, shifts: object, brigades: object, fallback: object) -> float:
+    labor = positive_schedule_float(labor_hours)
+    if labor is None:
+        return positive_schedule_half_days(fallback) or 1.0
+    capacity = max(1, (positive_schedule_int(people) or 1) * (positive_schedule_int(shifts) or 1) * (positive_schedule_int(brigades) or 1) * SCHEDULE_SHIFT_HOURS)
+    return max(0.5, math.ceil((labor / capacity) * 2 - 1e-9) / 2)
+
+
+def production_identity_text(value: object) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def production_saved_link_match(
+    raw_link: dict,
+    rows: list[sqlite3.Row | dict],
+) -> sqlite3.Row | dict | None:
+    """Match a learned link without guessing between duplicate estimate rows.
+
+    A source item key is the strongest portable hint, followed by article and
+    title. Section/source metadata only narrows a candidate set when that
+    metadata also exists in the new estimate. Returning ``None`` for a tie is
+    intentional: the generated operation is then marked ``needs_review`` and
+    no unrelated estimate row is linked silently.
+    """
+    source_item_key = production_identity_text(
+        schedule_item_value(raw_link, "sourceItemKey", "source_item_key", default="")
+    )
+    article = production_identity_text(schedule_item_value(raw_link, "article", default=""))
+    title = " ".join(
+        normalize_schedule_text(schedule_item_value(raw_link, "title", default="")).split()
+    )
+
+    def matching(key: str) -> list[sqlite3.Row | dict]:
+        if key == "source_item_key":
+            return [
+                row for row in rows
+                if production_identity_text(
+                    schedule_item_value(row, "source_item_key", "sourceItemKey", default="")
+                ) == source_item_key
+            ]
+        if key == "article":
+            return [
+                row for row in rows
+                if production_identity_text(schedule_item_value(row, "article", default="")) == article
+            ]
+        return [
+            row for row in rows
+            if " ".join(normalize_schedule_text(schedule_item_value(row, "title", default="")).split()) == title
+        ]
+
+    source_candidates = matching("source_item_key") if source_item_key else []
+    article_candidates = matching("article") if article else []
+    title_candidates = matching("title") if title else []
+
+    # A recycled row key must still agree with at least one available textual
+    # identity. If it does not, fall back to article/title matching.
+    candidates = source_candidates
+    textual_candidates = article_candidates or title_candidates
+    if candidates and textual_candidates:
+        textual_ids = {int(schedule_item_value(row, "id", default=0) or 0) for row in textual_candidates}
+        agreeing = [
+            row for row in candidates
+            if int(schedule_item_value(row, "id", default=0) or 0) in textual_ids
+        ]
+        candidates = agreeing or textual_candidates
+    elif not candidates:
+        candidates = article_candidates or title_candidates
+    if not candidates:
+        return None
+
+    def narrow(target: str, getter) -> None:
+        nonlocal candidates
+        if not target or len(candidates) <= 1:
+            return
+        narrowed = [row for row in candidates if getter(row) == target]
+        if narrowed:
+            candidates = narrowed
+
+    # Article and title together are safer than either one alone.
+    narrow(
+        article,
+        lambda row: production_identity_text(schedule_item_value(row, "article", default="")),
+    )
+    narrow(
+        title,
+        lambda row: " ".join(
+            normalize_schedule_text(schedule_item_value(row, "title", default="")).split()
+        ),
+    )
+    narrow(
+        source_item_key,
+        lambda row: production_identity_text(
+            schedule_item_value(row, "source_item_key", "sourceItemKey", default="")
+        ),
+    )
+
+    source_key = production_identity_text(
+        schedule_item_value(raw_link, "estimateSourceKey", "estimate_source_key", default="")
+    )
+    source_type = production_identity_text(
+        schedule_item_value(raw_link, "estimateSourceType", "estimate_source_type", default="")
+    )
+    section = production_identity_text(
+        canonical_estimate_section_title(
+            schedule_item_value(raw_link, "sectionTitle", "section_title", default="")
+        )
+    )
+    unit = production_identity_text(schedule_item_value(raw_link, "unit", default=""))
+    raw_item_kind = schedule_item_value(raw_link, "itemKind", "item_kind", default="")
+    item_kind = (
+        normalize_estimate_item_kind(raw_item_kind)
+        if production_identity_text(raw_item_kind)
+        else ""
+    )
+    narrow(
+        source_key,
+        lambda row: production_identity_text(
+            schedule_item_value(row, "estimate_source_key", "estimateSourceKey", default="")
+        ),
+    )
+    narrow(
+        source_type,
+        lambda row: production_identity_text(
+            schedule_item_value(row, "estimate_source_type", "estimateSourceType", default="")
+        ),
+    )
+    narrow(
+        section,
+        lambda row: production_identity_text(
+            canonical_estimate_section_title(
+                schedule_item_value(row, "section_title", "sectionTitle", default="")
+            )
+        ),
+    )
+    narrow(unit, lambda row: production_identity_text(schedule_item_value(row, "unit", default="")))
+    narrow(
+        item_kind,
+        lambda row: normalize_estimate_item_kind(resolved_estimate_item_kind(row)),
+    )
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def build_saved_template_seeds(
+    con: sqlite3.Connection,
+    signature: str,
+    rows: list[sqlite3.Row | dict],
+    project_id: int,
+) -> tuple[list[dict], str] | None:
+    if not production_table_exists(con, "production_schedule_templates"):
+        return None
+    template_rows = con.execute(
+        """
+        SELECT id, payload
+        FROM production_schedule_templates
+        WHERE signature = ? AND (source_project_id IS NULL OR source_project_id != ?)
+        ORDER BY updated_at DESC, id DESC
+        """,
+        (signature, project_id),
+    ).fetchall()
+    parsed_templates: list[tuple[int, dict]] = []
+    for template in template_rows:
+        try:
+            parsed = json.loads(str(template["payload"] or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("operations"), list):
+            parsed_templates.append((int(template["id"]), parsed))
+    if not parsed_templates:
+        return None
+    schedule_template = next((item for item in parsed_templates if item[1].get("scope", "schedule") == "schedule"), None)
+    selected = [schedule_template] if schedule_template else [
+        item for item in parsed_templates if item[1].get("scope") == "operation"
+    ]
+    if not selected:
+        return None
+
+    seeds: list[dict] = []
+    for template_id, template_payload in selected:
+        for index, raw_operation in enumerate(template_payload["operations"]):
+            if not isinstance(raw_operation, dict):
+                continue
+            mapped_links: list[tuple[int, str] | None] = []
+            ratio = 1.0
+            missing_link = False
+            for raw_link in raw_operation.get("links") or []:
+                if not isinstance(raw_link, dict):
+                    continue
+                current = production_saved_link_match(raw_link, rows)
+                if not current:
+                    missing_link = True
+                    continue
+                role = str(raw_link.get("role") or "manual_reference")
+                if role not in PRODUCTION_ALLOWED_LINK_ROLES:
+                    role = "manual_reference"
+                mapped_links.append(production_link(current, role))
+                old_qty = positive_schedule_float(raw_link.get("plannedQty"))
+                current_qty = production_row_qty(current)
+                if role == "work_basis" and old_qty and current_qty > 0:
+                    ratio = current_qty / old_qty
+            old_qty_value = raw_operation.get("plannedQty")
+            try:
+                planned_qty = None if old_qty_value is None else max(0.0, float(old_qty_value) * ratio)
+            except (TypeError, ValueError):
+                planned_qty = 0.0
+            old_days = positive_schedule_half_days(raw_operation.get("durationDays")) or positive_schedule_half_days(raw_operation.get("autoDays")) or 1.0
+            duration_days = max(0.5, math.ceil((old_days * ratio) * 2 - 1e-9) / 2)
+            links = [link for link in mapped_links if link]
+            status = "needs_review" if missing_link else ("linked" if links else "outside_estimate")
+            seed = production_operation_seed(
+                f"saved:{template_id}:{index:03d}",
+                str(raw_operation.get("title") or "Операция"),
+                planned_qty,
+                str(raw_operation.get("unit") or ""),
+                duration_days,
+                links,
+                color=production_valid_color(raw_operation.get("color")) or PRODUCTION_DEFAULT_COLOR,
+                origin="template",
+                template_key=f"saved:{template_id}",
+                status=status,
+            )
+            seed["people_count"] = positive_schedule_int(raw_operation.get("peopleCount")) or 1
+            seed["shift_count"] = positive_schedule_int(raw_operation.get("shiftCount")) or 1
+            seed["brigade_count"] = positive_schedule_int(raw_operation.get("brigadeCount")) or 1
+            seed["labor_hours_total"] = duration_days * seed["people_count"] * seed["shift_count"] * seed["brigade_count"] * SCHEDULE_SHIFT_HOURS
+            seeds.append(seed)
+    if not seeds:
+        return None
+    template_key = "+".join(f"saved:{template_id}" for template_id, _ in selected)
+    return seeds, template_key
+
+
+def production_source_links_snapshot(seed: dict, rows: list[sqlite3.Row | dict]) -> str:
+    by_id = {int(schedule_item_value(row, "id", default=0) or 0): row for row in rows}
+    snapshot = []
+    for estimate_item_id, role in seed.get("links") or []:
+        row = by_id.get(int(estimate_item_id))
+        snapshot.append(
+            {
+                "estimateItemId": int(estimate_item_id),
+                "role": role,
+                "title": str(schedule_item_value(row, "title", default="") or ""),
+                "article": str(schedule_item_value(row, "article", default="") or ""),
+                "plannedQty": production_row_qty(row),
+                "unit": str(schedule_item_value(row, "unit", default="") or ""),
+                "itemKind": normalize_estimate_item_kind(resolved_estimate_item_kind(row)) if row else "",
+                "sectionTitle": str(
+                    schedule_item_value(row, "section_title", "sectionTitle", default="") or ""
+                ),
+                "estimateSourceId": schedule_item_value(
+                    row, "estimate_source_id", "estimateSourceId", default=None
+                ),
+                "estimateSourceKey": str(
+                    schedule_item_value(row, "estimate_source_key", "estimateSourceKey", default="") or ""
+                ),
+                "estimateSourceType": str(
+                    schedule_item_value(row, "estimate_source_type", "estimateSourceType", default="") or ""
+                ),
+                "sourceItemKey": str(
+                    schedule_item_value(row, "source_item_key", "sourceItemKey", default="") or ""
+                ),
+            }
+        )
+    return json.dumps(snapshot, ensure_ascii=False)
+
+
+def sync_production_schedule_operations(
+    con: sqlite3.Connection,
+    project: sqlite3.Row | dict,
+    rows: list[sqlite3.Row | dict],
+) -> dict:
+    project_id = int(schedule_item_value(project, "id", default=0) or 0)
+    signature = production_estimate_signature(rows)
+    saved = build_saved_template_seeds(con, signature, rows, project_id)
+    seeds = saved[0] if saved else build_otmostka_template_seeds(project, rows)
+    mode = "saved_template" if saved else ("template" if seeds else "automatic")
+    template_key = saved[1] if saved else (PRODUCTION_OTMOSTKA_TEMPLATE_KEY if seeds else None)
+    work_rows = [row for row in rows if normalize_estimate_item_kind(resolved_estimate_item_kind(row)) == "work"]
+    if seeds is None:
+        seeds = [build_fallback_operation_seed(row) for row in work_rows]
+
+    suppressed = {
+        str(row["generation_key"])
+        for row in con.execute(
+            "SELECT generation_key FROM production_schedule_suppressed_keys WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+    }
+    seeds = [seed for seed in seeds if seed["generation_key"] not in suppressed]
+    target_keys = {str(seed["generation_key"]) for seed in seeds}
+
+    existing_rows = con.execute(
+        "SELECT * FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+        (project_id,),
+    ).fetchall()
+    for existing in existing_rows:
+        generation_key = str(existing["generation_key"])
+        if existing["origin"] not in {"auto", "template"} or generation_key in target_keys:
+            continue
+        live_ids = {int(schedule_item_value(row, "id", default=0) or 0) for row in rows}
+        linked_ids = {
+            int(row["estimate_item_id"])
+            for row in con.execute(
+                "SELECT estimate_item_id FROM production_schedule_operation_estimate_links WHERE operation_id = ?",
+                (int(existing["id"]),),
+            ).fetchall()
+        }
+        has_missing_source = int(existing["source_link_count"] or 0) > len(linked_ids & live_ids)
+        has_slots = bool(
+            con.execute(
+                "SELECT 1 FROM production_schedule_operation_slot_overrides WHERE operation_id = ? LIMIT 1",
+                (int(existing["id"]),),
+            ).fetchone()
+        )
+        is_edited = bool(production_manual_fields(existing["manual_fields"]) or existing["manual_duration_days"] is not None or has_slots)
+        if has_missing_source:
+            con.execute(
+                "UPDATE production_schedule_operations SET status = 'stale', updated_at = ? WHERE id = ? AND project_id = ?",
+                (now_ts(), int(existing["id"]), project_id),
+            )
+        elif not is_edited:
+            con.execute(
+                "DELETE FROM production_schedule_operations WHERE id = ? AND project_id = ?",
+                (int(existing["id"]), project_id),
+            )
+    existing_rows = con.execute(
+        "SELECT * FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+        (project_id,),
+    ).fetchall()
+    existing_by_key = {str(row["generation_key"]): row for row in existing_rows}
+    next_position = max([int(row["position"] or 0) for row in existing_rows] or [-1]) + 1
+    timestamp = now_ts()
+    for seed_index, seed in enumerate(seeds):
+        current = existing_by_key.get(seed["generation_key"])
+        snapshot = production_source_links_snapshot(seed, rows)
+        if not current:
+            position = seed_index if not existing_rows else next_position
+            next_position += 1
+            cursor = con.execute(
+                """
+                INSERT INTO production_schedule_operations (
+                    project_id, generation_key, title, planned_qty, unit,
+                    people_count, shift_count, brigade_count, labor_hours_total,
+                    auto_duration_days, position, origin, status, color,
+                    template_key, source_signature, source_link_count, source_links_snapshot, manual_fields,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)
+                """,
+                (
+                    project_id, seed["generation_key"], seed["title"], seed["planned_qty"], seed["unit"],
+                    seed["people_count"], seed["shift_count"], seed["brigade_count"], seed["labor_hours_total"],
+                    seed["auto_duration_days"], position, seed["origin"], seed["status"], seed["color"],
+                    seed["template_key"], signature, len({item_id for item_id, _ in seed["links"]}), snapshot, timestamp, timestamp,
+                ),
+            )
+            operation_id = int(cursor.lastrowid)
+        else:
+            operation_id = int(current["id"])
+            manual_fields = production_manual_fields(current["manual_fields"])
+            new_source_link_count = len({item_id for item_id, _ in seed["links"]})
+            lost_source_link = (
+                str(current["source_signature"] or "") != signature
+                and int(current["source_link_count"] or 0) > new_source_link_count
+            )
+            people = int(current["people_count"] or 1) if "people_count" in manual_fields else int(seed["people_count"])
+            shifts = int(current["shift_count"] or 1) if "shift_count" in manual_fields else int(seed["shift_count"])
+            brigades = int(current["brigade_count"] or 1) if "brigade_count" in manual_fields else int(seed["brigade_count"])
+            updates = {
+                "title": current["title"] if "title" in manual_fields else seed["title"],
+                "planned_qty": current["planned_qty"] if "planned_qty" in manual_fields else seed["planned_qty"],
+                "unit": current["unit"] if "unit" in manual_fields else seed["unit"],
+                "people_count": people,
+                "shift_count": shifts,
+                "brigade_count": brigades,
+                "color": current["color"] if "color" in manual_fields else seed["color"],
+                "labor_hours_total": seed["labor_hours_total"],
+                "auto_duration_days": production_recalculated_days(seed["labor_hours_total"], people, shifts, brigades, seed["auto_duration_days"]),
+                "source_signature": signature,
+                "source_link_count": int(current["source_link_count"] or 0) if "links" in manual_fields or lost_source_link else new_source_link_count,
+                "source_links_snapshot": current["source_links_snapshot"] if "links" in manual_fields or lost_source_link else snapshot,
+                "status": (
+                    current["status"] if "status" in manual_fields or current["status"] == "confirmed"
+                    else ("stale" if lost_source_link else seed["status"])
+                ),
+            }
+            con.execute(
+                """
+                UPDATE production_schedule_operations
+                SET title = ?, planned_qty = ?, unit = ?, people_count = ?, shift_count = ?,
+                    brigade_count = ?, color = ?, labor_hours_total = ?, auto_duration_days = ?,
+                    source_signature = ?, source_link_count = ?, source_links_snapshot = ?, status = ?,
+                    template_key = ?, updated_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                (
+                    updates["title"], updates["planned_qty"], updates["unit"], updates["people_count"],
+                    updates["shift_count"], updates["brigade_count"], updates["color"], updates["labor_hours_total"],
+                    updates["auto_duration_days"], updates["source_signature"], updates["source_link_count"],
+                    updates["source_links_snapshot"], updates["status"], seed["template_key"], timestamp,
+                    operation_id, project_id,
+                ),
+            )
+        current_after = production_operation_row(con, project_id, operation_id)
+        if "links" not in production_manual_fields(current_after["manual_fields"]):
+            con.execute("DELETE FROM production_schedule_operation_estimate_links WHERE operation_id = ?", (operation_id,))
+            for estimate_item_id, role in seed["links"]:
+                con.execute(
+                    """
+                    INSERT INTO production_schedule_operation_estimate_links (
+                        operation_id, estimate_item_id, link_role, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (operation_id, estimate_item_id, role, timestamp),
+                )
+
+    linked_ids = {
+        int(row["estimate_item_id"])
+        for row in con.execute(
+            """
+            SELECT DISTINCT link.estimate_item_id
+            FROM production_schedule_operation_estimate_links link
+            JOIN production_schedule_operations operation ON operation.id = link.operation_id
+            WHERE operation.project_id = ?
+            """,
+            (project_id,),
+        ).fetchall()
+    }
+    seeded_link_ids = {
+        int(estimate_item_id)
+        for seed in seeds
+        for estimate_item_id, _ in seed.get("links", [])
+    }
+    for row in work_rows:
+        item_id = int(schedule_item_value(row, "id", default=0) or 0)
+        if item_id in linked_ids or item_id in seeded_link_ids:
+            continue
+        seed = build_fallback_operation_seed(row)
+        if seed["generation_key"] in suppressed:
+            continue
+        snapshot = production_source_links_snapshot(seed, rows)
+        cursor = con.execute(
+            """
+            INSERT OR IGNORE INTO production_schedule_operations (
+                project_id, generation_key, title, planned_qty, unit, people_count,
+                shift_count, brigade_count, labor_hours_total, auto_duration_days,
+                position, origin, status, color, source_signature, source_link_count, source_links_snapshot,
+                manual_fields, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '[]', ?, ?)
+            """,
+            (
+                project_id, seed["generation_key"], seed["title"], seed["planned_qty"], seed["unit"],
+                seed["people_count"], 1, 1, seed["labor_hours_total"], seed["auto_duration_days"],
+                next_position, "auto", "needs_review", seed["color"], signature, snapshot, timestamp, timestamp,
+            ),
+        )
+        operation_id = int(cursor.lastrowid or 0) if cursor.rowcount else 0
+        if operation_id:
+            con.execute(
+                "INSERT INTO production_schedule_operation_estimate_links (operation_id, estimate_item_id, link_role, created_at) VALUES (?, ?, 'work_basis', ?)",
+                (operation_id, item_id, timestamp),
+            )
+            next_position += 1
+    return {"mode": mode, "templateKey": template_key, "sourceSignature": signature}
+
+
+def production_operation_base_slots(con: sqlite3.Connection, project_id: int) -> dict[int, set[int]]:
+    cursor_slot = 1
+    result: dict[int, set[int]] = {}
+    for operation in con.execute(
+        "SELECT id, auto_duration_days, manual_duration_days FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+        (project_id,),
+    ).fetchall():
+        duration = positive_schedule_half_days(operation["manual_duration_days"]) or positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
+        duration_slots = max(1, int(round(duration * 2)))
+        result[int(operation["id"])] = set(range(cursor_slot, cursor_slot + duration_slots))
+        cursor_slot += duration_slots
+    return result
+
+
+def migrate_legacy_production_schedule(con: sqlite3.Connection, project_id: int) -> None:
+    if con.execute("SELECT 1 FROM production_schedule_migration_state WHERE project_id = ?", (project_id,)).fetchone():
+        return
+    timestamp = now_ts()
+    primary_by_estimate: dict[int, int] = {}
+    rows = con.execute(
+        """
+        SELECT link.estimate_item_id, operation.id AS operation_id
+        FROM production_schedule_operation_estimate_links link
+        JOIN production_schedule_operations operation ON operation.id = link.operation_id
+        WHERE operation.project_id = ? AND link.link_role = 'work_basis'
+        ORDER BY operation.position, operation.id
         """,
         (project_id,),
     ).fetchall()
-    work_rows = [row for row in raw_rows if normalize_estimate_item_kind(row["item_kind"]) == "work"]
-    overrides = load_work_schedule_overrides(con, project_id, "production")
-    table_names = {
-        str(row["name"]) for row in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
-    }
-    slots_by_item: dict[int, dict[int, bool]] = {}
-    if "production_schedule_slot_overrides" in table_names:
-        slot_rows = con.execute(
-            """
-            SELECT estimate_item_id, slot_number, is_filled
-            FROM production_schedule_slot_overrides
-            WHERE project_id = ?
-            ORDER BY estimate_item_id, slot_number
-            """,
-            (project_id,),
-        ).fetchall()
-        for row in slot_rows:
-            slots_by_item.setdefault(int(row["estimate_item_id"]), {})[int(row["slot_number"])] = bool(row["is_filled"])
-    elif "production_schedule_cell_overrides" in table_names:
-        legacy_rows = con.execute(
-            """
-            SELECT estimate_item_id, day_number, is_filled
-            FROM production_schedule_cell_overrides
-            WHERE project_id = ?
-            ORDER BY estimate_item_id, day_number
-            """,
-            (project_id,),
-        ).fetchall()
-        for row in legacy_rows:
-            item_slots = slots_by_item.setdefault(int(row["estimate_item_id"]), {})
-            first_slot = int(row["day_number"]) * 2 - 1
-            item_slots[first_slot] = bool(row["is_filled"])
-            item_slots[first_slot + 1] = bool(row["is_filled"])
+    for row in rows:
+        primary_by_estimate.setdefault(int(row["estimate_item_id"]), int(row["operation_id"]))
 
-    cursor_slot = 1
-    day_count = 0
-    items: list[dict] = []
-    for row in work_rows:
-        item_id = int(row["id"])
-        item_override = overrides.get(item_id, {})
-        duration = calculate_schedule_work_duration(
-            row,
-            duration_override=item_override.get("duration_days"),
-            crew_override=item_override.get("crew_size"),
-        )
-        duration_slots = max(1, int(round(float(duration["duration_days"]) * 2)))
-        base_slots = set(range(cursor_slot, cursor_slot + duration_slots))
-        effective_slots = set(base_slots)
-        slot_overrides = slots_by_item.get(item_id, {})
-        for slot_number, is_filled in slot_overrides.items():
+    if production_table_exists(con, "work_schedule_overrides"):
+        overrides = con.execute(
+            """
+            SELECT estimate_item_id, duration_days, crew_size
+            FROM work_schedule_overrides
+            WHERE project_id = ? AND schedule_context = 'production'
+            """,
+            (project_id,),
+        ).fetchall()
+        for override in overrides:
+            operation_id = primary_by_estimate.get(int(override["estimate_item_id"]))
+            if not operation_id:
+                continue
+            operation = con.execute("SELECT manual_fields, manual_duration_days FROM production_schedule_operations WHERE id = ?", (operation_id,)).fetchone()
+            fields = production_manual_fields(operation["manual_fields"])
+            duration = positive_schedule_half_days(override["duration_days"])
+            crew = positive_schedule_int(override["crew_size"])
+            if duration is not None and operation["manual_duration_days"] is None:
+                fields.add("duration_days")
+                con.execute("UPDATE production_schedule_operations SET manual_duration_days = ? WHERE id = ?", (duration, operation_id))
+            if crew is not None:
+                fields.add("people_count")
+                con.execute("UPDATE production_schedule_operations SET people_count = ? WHERE id = ?", (crew, operation_id))
+            con.execute(
+                "UPDATE production_schedule_operations SET manual_fields = ?, updated_at = ? WHERE id = ?",
+                (production_encode_manual_fields(fields), timestamp, operation_id),
+            )
+
+    slot_rows: list[tuple[int, int, int]] = []
+    if production_table_exists(con, "production_schedule_slot_overrides"):
+        slot_rows = [
+            (int(row["estimate_item_id"]), int(row["slot_number"]), int(row["is_filled"]))
+            for row in con.execute(
+                "SELECT estimate_item_id, slot_number, is_filled FROM production_schedule_slot_overrides WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+        ]
+    elif production_table_exists(con, "production_schedule_cell_overrides"):
+        for row in con.execute(
+            "SELECT estimate_item_id, day_number, is_filled FROM production_schedule_cell_overrides WHERE project_id = ?",
+            (project_id,),
+        ).fetchall():
+            slot_rows.extend(
+                [
+                    (int(row["estimate_item_id"]), int(row["day_number"]) * 2 - 1, int(row["is_filled"])),
+                    (int(row["estimate_item_id"]), int(row["day_number"]) * 2, int(row["is_filled"])),
+                ]
+            )
+    base_slots = production_operation_base_slots(con, project_id)
+    legacy_by_operation: dict[int, dict[int, bool]] = {}
+    for estimate_item_id, slot_number, is_filled in slot_rows:
+        operation_id = primary_by_estimate.get(estimate_item_id)
+        if not operation_id:
+            continue
+        legacy_by_operation.setdefault(operation_id, {})[slot_number] = bool(is_filled)
+    for operation_id, overrides in legacy_by_operation.items():
+        effective_slots = set(base_slots.get(operation_id, set()))
+        for slot_number, is_filled in overrides.items():
             if is_filled:
                 effective_slots.add(slot_number)
             else:
                 effective_slots.discard(slot_number)
+        con.execute("DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ?", (operation_id,))
+        for slot_number in sorted(effective_slots):
+            con.execute(
+                """
+                INSERT INTO production_schedule_operation_slot_overrides (
+                    operation_id, slot_number, is_filled, created_at, updated_at
+                ) VALUES (?, ?, 1, ?, ?)
+                """,
+                (operation_id, slot_number, timestamp, timestamp),
+            )
+        con.execute(
+            "UPDATE production_schedule_operations SET placement_mode = 'manual', updated_at = ? WHERE id = ? AND project_id = ?",
+            (timestamp, operation_id, project_id),
+        )
+    con.execute(
+        "INSERT INTO production_schedule_migration_state (project_id, legacy_migrated_at) VALUES (?, ?)",
+        (project_id, timestamp),
+    )
+
+
+def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) -> dict:
+    project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        raise LookupError("project_not_found")
+    if not production_table_exists(con, "production_schedule_operations"):
+        raise RuntimeError("production_schedule_schema_missing")
+    raw_rows = production_estimate_rows(con, project_id)
+    generation = sync_production_schedule_operations(con, project, raw_rows)
+    migrate_legacy_production_schedule(con, project_id)
+
+    live_by_id = {int(row["id"]): row for row in raw_rows}
+    links_by_operation: dict[int, list[dict]] = {}
+    link_rows = con.execute(
+        """
+        SELECT link.operation_id, link.estimate_item_id, link.link_role
+        FROM production_schedule_operation_estimate_links link
+        JOIN production_schedule_operations operation ON operation.id = link.operation_id
+        WHERE operation.project_id = ?
+        ORDER BY link.operation_id, link.estimate_item_id, link.link_role
+        """,
+        (project_id,),
+    ).fetchall()
+    for link in link_rows:
+        estimate_id = int(link["estimate_item_id"])
+        estimate = live_by_id.get(estimate_id)
+        links_by_operation.setdefault(int(link["operation_id"]), []).append(
+            {
+                "estimateItemId": estimate_id,
+                "role": str(link["link_role"]),
+                "title": str(estimate["title"] or "") if estimate else "",
+                "unit": str(estimate["unit"] or "") if estimate else "",
+                "plannedQty": production_row_qty(estimate),
+                "itemKind": normalize_estimate_item_kind(resolved_estimate_item_kind(estimate)) if estimate else "",
+                "article": str(estimate["article"] or "") if estimate else "",
+                "sectionTitle": str(
+                    schedule_item_value(estimate, "section_title", "sectionTitle", default="") or ""
+                ) if estimate else "",
+                "estimateSourceId": schedule_item_value(
+                    estimate, "estimate_source_id", "estimateSourceId", default=None
+                ) if estimate else None,
+                "estimateSourceKey": str(
+                    schedule_item_value(estimate, "estimate_source_key", "estimateSourceKey", default="") or ""
+                ) if estimate else "",
+                "estimateSourceType": str(
+                    schedule_item_value(estimate, "estimate_source_type", "estimateSourceType", default="") or ""
+                ) if estimate else "",
+                "sourceItemKey": str(
+                    schedule_item_value(estimate, "source_item_key", "sourceItemKey", default="") or ""
+                ) if estimate else "",
+                "isStale": estimate is None,
+            }
+        )
+
+    slot_overrides: dict[int, dict[int, bool]] = {}
+    for row in con.execute(
+        """
+        SELECT slot.operation_id, slot.slot_number, slot.is_filled
+        FROM production_schedule_operation_slot_overrides slot
+        JOIN production_schedule_operations operation ON operation.id = slot.operation_id
+        WHERE operation.project_id = ?
+        ORDER BY slot.operation_id, slot.slot_number
+        """,
+        (project_id,),
+    ).fetchall():
+        slot_overrides.setdefault(int(row["operation_id"]), {})[int(row["slot_number"])] = bool(row["is_filled"])
+
+    cursor_slot = 1
+    day_count = 0
+    items: list[dict] = []
+    operation_rows = con.execute(
+        "SELECT * FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+        (project_id,),
+    ).fetchall()
+    for operation in operation_rows:
+        operation_id = int(operation["id"])
+        manual_duration = positive_schedule_half_days(operation["manual_duration_days"])
+        auto_duration = positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
+        duration_days = manual_duration if manual_duration is not None else auto_duration
+        duration_slots = max(1, int(round(duration_days * 2)))
+        base_slots = set(range(cursor_slot, cursor_slot + duration_slots))
+        stored_slots = slot_overrides.get(operation_id, {})
+        placement_mode = str(operation["placement_mode"] or "auto")
+        if placement_mode == "manual":
+            effective_slots = {slot_number for slot_number, is_filled in stored_slots.items() if is_filled}
+            overridden_slots = base_slots.symmetric_difference(effective_slots)
+        else:
+            effective_slots = set(base_slots)
+            for slot_number, is_filled in stored_slots.items():
+                if is_filled:
+                    effective_slots.add(slot_number)
+                else:
+                    effective_slots.discard(slot_number)
+            overridden_slots = set(stored_slots)
         auto_start_slot = cursor_slot
         auto_end_slot = cursor_slot + duration_slots - 1
         cursor_slot = auto_end_slot + 1
         if effective_slots:
             day_count = max(day_count, math.ceil(max(effective_slots) / 2))
         day_count = max(day_count, math.ceil(auto_end_slot / 2))
+        links = links_by_operation.get(operation_id, [])
+        linked_ids = sorted({int(link["estimateItemId"]) for link in links})
+        work_basis = next((link for link in links if link["role"] == "work_basis"), None)
+        status = str(operation["status"] or "needs_review")
+        live_link_ids = {int(link["estimateItemId"]) for link in links if not link["isStale"]}
+        if int(operation["source_link_count"] or 0) > len(live_link_ids) or any(link["isStale"] for link in links):
+            status = "stale"
+        manual_fields = production_manual_fields(operation["manual_fields"])
         items.append(
             {
-                "id": item_id,
-                "title": str(row["title"] or ""),
-                "unit": str(row["unit"] or ""),
-                "plannedQty": float(row["planned_qty"] or 0),
-                "sectionTitle": canonical_estimate_section_title(row["section_title"] or ""),
-                "crewSize": int(duration["crew_size"]),
-                "peopleCount": int(duration["crew_size"]),
-                "shiftCount": 1,
-                "brigadeCount": 1,
-                "shiftHours": int(duration["shift_hours"]),
-                "autoDays": float(duration["auto_days"]),
+                "id": operation_id,
+                "operationId": operation_id,
+                "estimateItemId": int(work_basis["estimateItemId"]) if work_basis else None,
+                "generationKey": str(operation["generation_key"]),
+                "title": str(operation["title"] or ""),
+                "unit": str(operation["unit"] or ""),
+                "plannedQty": None if operation["planned_qty"] is None else float(operation["planned_qty"]),
+                "sectionTitle": "",
+                "crewSize": int(operation["people_count"] or 1),
+                "peopleCount": int(operation["people_count"] or 1),
+                "shiftCount": int(operation["shift_count"] or 1),
+                "brigadeCount": int(operation["brigade_count"] or 1),
+                "shiftHours": SCHEDULE_SHIFT_HOURS,
+                "autoDays": auto_duration,
                 "durationDays": duration_slots / 2,
                 "effectiveDays": len(effective_slots) / 2,
                 "autoStartDay": math.ceil(auto_start_slot / 2),
@@ -1462,14 +2370,46 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "autoEndSlot": auto_end_slot,
                 "autoFilledSlots": sorted(base_slots),
                 "filledSlots": sorted(effective_slots),
-                "overriddenSlots": sorted(slot_overrides),
-                "isDurationOverridden": bool(duration["is_duration_overridden"]),
-                "isCrewOverridden": bool(duration["is_crew_overridden"]),
-                "confidence": duration["confidence"],
-                "method": duration["method"],
-                "sourceLabel": duration["source_label"],
+                "overriddenSlots": sorted(overridden_slots),
+                "isDurationOverridden": manual_duration is not None,
+                "isCrewOverridden": "people_count" in manual_fields,
+                "origin": str(operation["origin"] or "auto"),
+                "status": status,
+                "color": str(operation["color"] or PRODUCTION_DEFAULT_COLOR),
+                "position": int(operation["position"] or 0),
+                "templateKey": str(operation["template_key"] or ""),
+                "sourceSignature": str(operation["source_signature"] or ""),
+                "sourceLinkSnapshots": production_json_array(operation["source_links_snapshot"]),
+                "linkedEstimateItemIds": linked_ids,
+                "links": links,
+                "manualFields": sorted(manual_fields),
+                "placementMode": placement_mode,
+                "isEdited": bool(manual_fields or manual_duration is not None or overridden_slots),
+                "confidence": "template" if operation["origin"] == "template" else ("manual" if operation["origin"] == "manual" else "assumption"),
+                "method": f"production_{operation['origin']}",
+                "sourceLabel": "Шаблон графика производства" if operation["origin"] == "template" else "Операция графика производства",
             }
         )
+
+    estimate_options = [
+        {
+            "id": int(row["id"]),
+            "title": str(row["title"] or ""),
+            "unit": str(row["unit"] or ""),
+            "plannedQty": production_row_qty(row),
+            "itemKind": normalize_estimate_item_kind(resolved_estimate_item_kind(row)),
+            "sectionTitle": canonical_estimate_section_title(row["section_title"] or ""),
+            "article": str(row["article"] or ""),
+        }
+        for row in raw_rows
+    ]
+    generation.update(
+        {
+            "operationCount": len(items),
+            "needsReviewCount": sum(item["status"] in {"needs_review", "stale"} for item in items),
+            "hasManualOperations": any(item["origin"] == "manual" for item in items),
+        }
+    )
     return {
         "projectId": int(project["id"]),
         "projectTitle": str(project["title"] or ""),
@@ -1478,6 +2418,10 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
         "autoSlotCount": max(0, cursor_slot - 1),
         "items": items,
+        "operations": items,
+        "estimateOptions": estimate_options,
+        "generation": generation,
+        "template": {"key": generation.get("templateKey"), "matched": generation.get("mode") == "template"},
     }
 
 
@@ -2076,6 +3020,8 @@ def api_project_section_schedule_forecast(handler, path: str) -> None:
             optional_columns.append("e.labor_hours_total")
         if "default_crew_size" in columns:
             optional_columns.append("e.default_crew_size")
+        if "item_kind_override" in columns:
+            optional_columns.append("e.item_kind_override")
         table_names = {
             str(item["name"])
             for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
@@ -2113,7 +3059,7 @@ def api_project_section_schedule_forecast(handler, path: str) -> None:
     work_items = [
         row
         for row in rows
-        if normalize_estimate_item_kind(row["item_kind"]) == "work"
+        if normalize_estimate_item_kind(resolved_estimate_item_kind(row)) == "work"
     ]
     if not work_items:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "works_required"})
@@ -2155,11 +3101,12 @@ def api_update_section_schedule_override(handler, path: str) -> None:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_crew_size"})
         return
     with db() as con:
+        kind_override_select = ", item_kind_override" if "item_kind_override" in table_columns(con, "estimate_items") else ""
         item = con.execute(
-            "SELECT id, item_kind FROM estimate_items WHERE id = ? AND project_id = ?",
+            f"SELECT id, item_kind{kind_override_select} FROM estimate_items WHERE id = ? AND project_id = ?",
             (item_id, project_id),
         ).fetchone()
-        if not item or normalize_estimate_item_kind(item["item_kind"]) != "work":
+        if not item or normalize_estimate_item_kind(resolved_estimate_item_kind(item)) != "work":
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "work_not_found"})
             return
         if reset or (duration_days is None and crew_size is None):
@@ -2213,6 +3160,183 @@ def api_production_schedule(handler, path: str) -> None:
     handler.send_json(HTTPStatus.OK, schedule)
 
 
+def production_payload_value(payload: dict, *keys: str, default: object = None) -> object:
+    for key in keys:
+        if key in payload:
+            return payload.get(key)
+    return default
+
+
+def production_operation_row(con: sqlite3.Connection, project_id: int, operation_id: int) -> sqlite3.Row | None:
+    return con.execute(
+        "SELECT * FROM production_schedule_operations WHERE id = ? AND project_id = ?",
+        (operation_id, project_id),
+    ).fetchone()
+
+
+def resolve_production_operation_id(con: sqlite3.Connection, project_id: int, payload: dict) -> int | None:
+    explicit = production_payload_value(payload, "operation_id", "operationId")
+    legacy = production_payload_value(payload, "item_id", "itemId")
+    raw_id = explicit if explicit not in (None, "") else legacy
+    try:
+        candidate = int(raw_id)
+    except (TypeError, ValueError):
+        return None
+    if production_operation_row(con, project_id, candidate):
+        return candidate
+    if explicit not in (None, ""):
+        return None
+    linked = con.execute(
+        """
+        SELECT operation.id
+        FROM production_schedule_operations operation
+        JOIN production_schedule_operation_estimate_links link ON link.operation_id = operation.id
+        WHERE operation.project_id = ? AND link.estimate_item_id = ?
+        ORDER BY CASE link.link_role WHEN 'work_basis' THEN 0 ELSE 1 END, operation.position, operation.id
+        LIMIT 1
+        """,
+        (project_id, candidate),
+    ).fetchone()
+    return int(linked["id"]) if linked else None
+
+
+def production_valid_color(value: object) -> str | None:
+    color = str(value or "").strip()
+    return color.lower() if color.lower() in PRODUCTION_COLOR_TOKENS else None
+
+
+def production_valid_status(value: object) -> str | None:
+    status = str(value or "").strip().lower()
+    allowed = {
+        "draft", "linked", "outside_estimate", "needs_review", "confirmed",
+        "in_progress", "completed", "on_hold", "stale",
+    }
+    return status if status in allowed else None
+
+
+def production_parse_links(con: sqlite3.Connection, project_id: int, payload: dict) -> list[tuple[int, str]] | None:
+    has_links = any(key in payload for key in ("links", "linked_estimate_item_ids", "linkedEstimateItemIds"))
+    if not has_links:
+        return None
+    parsed: list[tuple[int, str | None]] = []
+    raw_links = payload.get("links")
+    if isinstance(raw_links, list):
+        for raw_link in raw_links:
+            if not isinstance(raw_link, dict):
+                raise ValueError("bad_links")
+            raw_id = production_payload_value(raw_link, "estimate_item_id", "estimateItemId", "id")
+            try:
+                item_id = int(raw_id)
+            except (TypeError, ValueError):
+                raise ValueError("bad_links") from None
+            role = str(production_payload_value(raw_link, "role", "link_role", "linkRole", default="") or "").strip().lower() or None
+            if role is not None and role not in PRODUCTION_ALLOWED_LINK_ROLES:
+                raise ValueError("bad_link_role")
+            parsed.append((item_id, role))
+    else:
+        raw_ids = production_payload_value(payload, "linked_estimate_item_ids", "linkedEstimateItemIds", default=[])
+        if not isinstance(raw_ids, list):
+            raise ValueError("bad_links")
+        for raw_id in raw_ids:
+            try:
+                parsed.append((int(raw_id), None))
+            except (TypeError, ValueError):
+                raise ValueError("bad_links") from None
+    unique_ids = sorted({item_id for item_id, _ in parsed if item_id > 0})
+    if len(unique_ids) != len({item_id for item_id, _ in parsed}) or any(item_id <= 0 for item_id, _ in parsed):
+        raise ValueError("bad_links")
+    found: dict[int, str] = {}
+    if unique_ids:
+        placeholders = ",".join("?" for _ in unique_ids)
+        live_where = live_estimate_items_where(con, "")
+        rows = con.execute(
+            f"SELECT * FROM estimate_items WHERE project_id = ? AND id IN ({placeholders}) AND {live_where}",
+            (project_id, *unique_ids),
+        ).fetchall()
+        found = {int(row["id"]): normalize_estimate_item_kind(resolved_estimate_item_kind(row)) for row in rows}
+    if set(unique_ids) != set(found):
+        raise ValueError("estimate_item_not_found")
+    result: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
+    for item_id, explicit_role in parsed:
+        role = explicit_role or ("work_basis" if found[item_id] == "work" else "material_signal")
+        link = (item_id, role)
+        if link not in seen:
+            seen.add(link)
+            result.append(link)
+    return result
+
+
+def production_replace_links(
+    con: sqlite3.Connection,
+    project_id: int,
+    operation_id: int,
+    links: list[tuple[int, str]],
+) -> None:
+    if not production_operation_row(con, project_id, operation_id):
+        raise LookupError("operation_not_found")
+    if links:
+        item_ids = sorted({item_id for item_id, _ in links})
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = con.execute(
+            f"SELECT id FROM estimate_items WHERE project_id = ? AND id IN ({placeholders})",
+            (project_id, *item_ids),
+        ).fetchall()
+        if {int(row["id"]) for row in rows} != set(item_ids):
+            raise ValueError("estimate_item_not_found")
+    con.execute("DELETE FROM production_schedule_operation_estimate_links WHERE operation_id = ?", (operation_id,))
+    timestamp = now_ts()
+    for estimate_item_id, role in links:
+        con.execute(
+            "INSERT INTO production_schedule_operation_estimate_links (operation_id, estimate_item_id, link_role, created_at) VALUES (?, ?, ?, ?)",
+            (operation_id, estimate_item_id, role, timestamp),
+        )
+    linked_rows: list[sqlite3.Row] = []
+    if links:
+        item_ids = sorted({item_id for item_id, _ in links})
+        placeholders = ",".join("?" for _ in item_ids)
+        linked_rows = con.execute(
+            f"SELECT * FROM estimate_items WHERE project_id = ? AND id IN ({placeholders})",
+            (project_id, *item_ids),
+        ).fetchall()
+    snapshot = production_source_links_snapshot({"links": links}, linked_rows)
+    con.execute(
+        "UPDATE production_schedule_operations SET source_link_count = ?, source_links_snapshot = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+        (len({item_id for item_id, _ in links}), snapshot, timestamp, operation_id, project_id),
+    )
+
+
+def production_normalize_positions(con: sqlite3.Connection, project_id: int) -> None:
+    rows = con.execute(
+        "SELECT id FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+        (project_id,),
+    ).fetchall()
+    for position, row in enumerate(rows):
+        con.execute(
+            "UPDATE production_schedule_operations SET position = ? WHERE id = ? AND project_id = ?",
+            (position, int(row["id"]), project_id),
+        )
+
+
+def production_set_manual_fields(
+    con: sqlite3.Connection,
+    project_id: int,
+    operation_id: int,
+    added_fields: set[str],
+    removed_fields: set[str] | None = None,
+) -> None:
+    operation = production_operation_row(con, project_id, operation_id)
+    if not operation:
+        raise LookupError("operation_not_found")
+    fields = production_manual_fields(operation["manual_fields"])
+    fields.update(added_fields)
+    fields.difference_update(removed_fields or set())
+    con.execute(
+        "UPDATE production_schedule_operations SET manual_fields = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+        (production_encode_manual_fields(fields), now_ts(), operation_id, project_id),
+    )
+
+
 def api_update_production_schedule(handler, path: str) -> None:
     project_id = parse_path_int(path, 2)
     if not project_id:
@@ -2227,85 +3351,513 @@ def api_update_production_schedule(handler, path: str) -> None:
     payload = handler.read_json()
     action = str(payload.get("action") or "set_cell").strip().lower()
     with db() as con:
-        if not con.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone():
+        project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
             return
+        raw_rows = production_estimate_rows(con, project_id)
+        sync_production_schedule_operations(con, project, raw_rows)
+        migrate_legacy_production_schedule(con, project_id)
         audit_payload: dict = {"project_id": project_id, "action": action}
+        timestamp = now_ts()
+
         if action == "set_cell":
+            operation_id = resolve_production_operation_id(con, project_id, payload)
             try:
-                item_id = int(payload.get("item_id", payload.get("itemId")))
-                slot_number = int(payload.get("slot_number", payload.get("slotNumber")))
+                slot_number = int(production_payload_value(payload, "slot_number", "slotNumber"))
             except (TypeError, ValueError):
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_cell"})
+                slot_number = 0
+            if not operation_id:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
                 return
             if slot_number < 1 or slot_number > 7300:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_slot_number"})
                 return
-            item = con.execute(
-                "SELECT id, item_kind FROM estimate_items WHERE id = ? AND project_id = ?",
-                (item_id, project_id),
-            ).fetchone()
-            if not item or normalize_estimate_item_kind(item["item_kind"]) != "work":
-                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "work_not_found"})
-                return
-            is_filled = 1 if payload.get("is_filled", payload.get("isFilled", False)) else 0
-            con.execute(
-                """
-                INSERT INTO production_schedule_slot_overrides (
-                    project_id, estimate_item_id, slot_number, is_filled, updated_by, created_at, updated_at
+            is_filled = 1 if production_payload_value(payload, "is_filled", "isFilled", default=False) else 0
+            operation = production_operation_row(con, project_id, operation_id)
+            if str(operation["placement_mode"] or "auto") != "manual":
+                current_schedule = build_production_schedule_payload(con, project_id)
+                current_item = next(item for item in current_schedule["items"] if int(item["id"]) == operation_id)
+                con.execute("DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ?", (operation_id,))
+                for current_slot in current_item["filledSlots"]:
+                    con.execute(
+                        """
+                        INSERT INTO production_schedule_operation_slot_overrides (
+                            operation_id, slot_number, is_filled, updated_by, created_at, updated_at
+                        ) VALUES (?, ?, 1, ?, ?, ?)
+                        """,
+                        (operation_id, int(current_slot), user["id"], timestamp, timestamp),
+                    )
+                con.execute(
+                    "UPDATE production_schedule_operations SET placement_mode = 'manual', updated_by = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                    (user["id"], timestamp, operation_id, project_id),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(project_id, estimate_item_id, slot_number) DO UPDATE SET
-                    is_filled = excluded.is_filled,
-                    updated_by = excluded.updated_by,
-                    updated_at = excluded.updated_at
-                """,
-                (project_id, item_id, slot_number, is_filled, user["id"], now_ts(), now_ts()),
-            )
-            audit_payload.update({"item_id": item_id, "slot_number": slot_number, "is_filled": bool(is_filled)})
+            if is_filled:
+                con.execute(
+                    """
+                    INSERT INTO production_schedule_operation_slot_overrides (
+                        operation_id, slot_number, is_filled, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, 1, ?, ?, ?)
+                    ON CONFLICT(operation_id, slot_number) DO UPDATE SET
+                        is_filled = 1,
+                        updated_by = excluded.updated_by,
+                        updated_at = excluded.updated_at
+                    """,
+                    (operation_id, slot_number, user["id"], timestamp, timestamp),
+                )
+            else:
+                con.execute(
+                    "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ? AND slot_number = ?",
+                    (operation_id, slot_number),
+                )
+            audit_payload.update({"operation_id": operation_id, "slot_number": slot_number, "is_filled": bool(is_filled)})
+
         elif action == "set_duration":
-            try:
-                item_id = int(payload.get("item_id", payload.get("itemId")))
-            except (TypeError, ValueError):
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_item_id"})
+            operation_id = resolve_production_operation_id(con, project_id, payload)
+            if not operation_id:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
                 return
-            duration_days = positive_schedule_half_days(payload.get("duration_days", payload.get("durationDays")))
+            reset = bool(payload.get("reset"))
+            duration_days = positive_schedule_half_days(production_payload_value(payload, "duration_days", "durationDays"))
+            if not reset and (duration_days is None or duration_days > 3650):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_duration_days"})
+                return
+            con.execute(
+                "UPDATE production_schedule_operations SET manual_duration_days = ?, updated_by = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                (None if reset else duration_days, user["id"], timestamp, operation_id, project_id),
+            )
+            production_set_manual_fields(
+                con,
+                project_id,
+                operation_id,
+                set() if reset else {"duration_days"},
+                {"duration_days"} if reset else set(),
+            )
+            audit_payload.update({"operation_id": operation_id, "duration_days": None if reset else duration_days, "reset": reset})
+
+        elif action == "add_operation":
+            title = str(payload.get("title") or "").strip()
+            if not title or len(title) > 500:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_title"})
+                return
+            raw_planned_qty = production_payload_value(payload, "planned_qty", "plannedQty")
+            if raw_planned_qty in (None, ""):
+                planned_qty = None
+            else:
+                try:
+                    planned_qty = float(raw_planned_qty)
+                except (TypeError, ValueError):
+                    planned_qty = -1
+            duration_days = positive_schedule_half_days(production_payload_value(payload, "duration_days", "durationDays", default=1))
+            people = positive_schedule_int(production_payload_value(payload, "people_count", "peopleCount", default=1))
+            shifts = positive_schedule_int(production_payload_value(payload, "shift_count", "shiftCount", default=1))
+            brigades = positive_schedule_int(production_payload_value(payload, "brigade_count", "brigadeCount", default=1))
+            color_raw = production_payload_value(payload, "color", default=PRODUCTION_DEFAULT_COLOR)
+            color = production_valid_color(color_raw)
+            status = production_valid_status(production_payload_value(payload, "status", default="needs_review"))
+            if planned_qty is not None and (not math.isfinite(planned_qty) or planned_qty < 0):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_planned_qty"})
+                return
             if duration_days is None or duration_days > 3650:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_duration_days"})
                 return
-            item = con.execute(
-                "SELECT id, item_kind FROM estimate_items WHERE id = ? AND project_id = ?",
-                (item_id, project_id),
-            ).fetchone()
-            if not item or normalize_estimate_item_kind(item["item_kind"]) != "work":
-                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "work_not_found"})
+            if not people or people > 999 or not shifts or shifts > 99 or not brigades or brigades > 999:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_capacity"})
                 return
+            if not color:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_color"})
+                return
+            if not status:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+                return
+            try:
+                links = production_parse_links(con, project_id, payload) or []
+            except ValueError as exc:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            max_position = con.execute(
+                "SELECT COALESCE(MAX(position), -1) AS value FROM production_schedule_operations WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()["value"]
+            position = int(max_position) + 1 if max_position is not None else 0
+            generation_key = f"manual:{project_id}:{time.time_ns()}"
+            manual_fields = {"title", "planned_qty", "unit", "people_count", "shift_count", "brigade_count", "duration_days", "color", "status"}
+            cursor = con.execute(
+                """
+                INSERT INTO production_schedule_operations (
+                    project_id, generation_key, title, planned_qty, unit, people_count,
+                    shift_count, brigade_count, labor_hours_total, auto_duration_days,
+                    manual_duration_days, position, origin, status, color, source_link_count,
+                    manual_fields, created_by, updated_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id, generation_key, title, planned_qty,
+                    str(payload.get("unit") or "").strip()[:40], people, shifts, brigades,
+                    duration_days * people * shifts * brigades * SCHEDULE_SHIFT_HOURS,
+                    duration_days, duration_days, position, status, color, len({item_id for item_id, _ in links}),
+                    production_encode_manual_fields(manual_fields), user["id"], user["id"], timestamp, timestamp,
+                ),
+            )
+            operation_id = int(cursor.lastrowid)
+            production_replace_links(con, project_id, operation_id, links)
+            audit_payload.update({"operation_id": operation_id, "title": title})
+
+        elif action == "update_operation":
+            operation_id = resolve_production_operation_id(con, project_id, payload)
+            operation = production_operation_row(con, project_id, operation_id or 0)
+            if not operation:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
+                return
+            updates: dict[str, object] = {}
+            manual_fields: set[str] = set()
+            if "title" in payload:
+                title = str(payload.get("title") or "").strip()
+                if not title or len(title) > 500:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_title"})
+                    return
+                updates["title"] = title
+                manual_fields.add("title")
+            if "planned_qty" in payload or "plannedQty" in payload:
+                raw_planned_qty = production_payload_value(payload, "planned_qty", "plannedQty")
+                if raw_planned_qty in (None, ""):
+                    planned_qty = None
+                else:
+                    try:
+                        planned_qty = float(raw_planned_qty)
+                    except (TypeError, ValueError):
+                        planned_qty = -1
+                if planned_qty is not None and (not math.isfinite(planned_qty) or planned_qty < 0):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_planned_qty"})
+                    return
+                updates["planned_qty"] = planned_qty
+                manual_fields.add("planned_qty")
+            if "unit" in payload:
+                updates["unit"] = str(payload.get("unit") or "").strip()[:40]
+                manual_fields.add("unit")
+            capacity_fields = (
+                ("people_count", "peopleCount", "people_count", 999),
+                ("shift_count", "shiftCount", "shift_count", 99),
+                ("brigade_count", "brigadeCount", "brigade_count", 999),
+            )
+            for snake, camel, column, maximum in capacity_fields:
+                if snake not in payload and camel not in payload:
+                    continue
+                value = positive_schedule_int(production_payload_value(payload, snake, camel))
+                if value is None or value > maximum:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_capacity"})
+                    return
+                updates[column] = value
+                manual_fields.add(column)
+            if "duration_days" in payload or "durationDays" in payload:
+                duration = positive_schedule_half_days(production_payload_value(payload, "duration_days", "durationDays"))
+                if duration is None or duration > 3650:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_duration_days"})
+                    return
+                updates["manual_duration_days"] = duration
+                manual_fields.add("duration_days")
+            if "color" in payload:
+                color = production_valid_color(payload.get("color"))
+                if not color:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_color"})
+                    return
+                updates["color"] = color
+                manual_fields.add("color")
+            if "status" in payload:
+                status = production_valid_status(payload.get("status"))
+                if not status:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_status"})
+                    return
+                updates["status"] = status
+                manual_fields.add("status")
+            try:
+                links = production_parse_links(con, project_id, payload)
+            except ValueError as exc:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            if links is not None:
+                if "links" not in payload:
+                    prior_roles = {
+                        int(row["estimate_item_id"]): str(row["link_role"])
+                        for row in con.execute(
+                            "SELECT estimate_item_id, link_role FROM production_schedule_operation_estimate_links WHERE operation_id = ? ORDER BY link_role",
+                            (operation_id,),
+                        ).fetchall()
+                    }
+                    links = [(estimate_item_id, prior_roles.get(estimate_item_id, role)) for estimate_item_id, role in links]
+                production_replace_links(con, project_id, operation_id, links)
+                manual_fields.add("links")
+                if str(operation["status"] or "") == "stale" and "status" not in payload:
+                    updates["status"] = "needs_review"
+                    manual_fields.add("status")
+            if updates:
+                assignments = ", ".join(f"{column} = ?" for column in updates)
+                con.execute(
+                    f"UPDATE production_schedule_operations SET {assignments}, updated_by = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                    (*updates.values(), user["id"], timestamp, operation_id, project_id),
+                )
+            if any(field in manual_fields for field in {"people_count", "shift_count", "brigade_count"}):
+                refreshed = production_operation_row(con, project_id, operation_id)
+                auto_duration = production_recalculated_days(
+                    refreshed["labor_hours_total"], refreshed["people_count"], refreshed["shift_count"], refreshed["brigade_count"], refreshed["auto_duration_days"]
+                )
+                con.execute(
+                    "UPDATE production_schedule_operations SET auto_duration_days = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                    (auto_duration, timestamp, operation_id, project_id),
+                )
+            production_set_manual_fields(con, project_id, operation_id, manual_fields)
+            audit_payload.update({"operation_id": operation_id, "fields": sorted(manual_fields)})
+
+        elif action == "delete_operation":
+            operation_id = resolve_production_operation_id(con, project_id, payload)
+            operation = production_operation_row(con, project_id, operation_id or 0)
+            if not operation:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
+                return
+            if operation["origin"] in {"auto", "template"}:
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO production_schedule_suppressed_keys (
+                        project_id, generation_key, created_by, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (project_id, str(operation["generation_key"]), user["id"], timestamp),
+                )
+            con.execute("DELETE FROM production_schedule_operations WHERE id = ? AND project_id = ?", (operation_id, project_id))
+            production_normalize_positions(con, project_id)
+            audit_payload.update({"operation_id": operation_id})
+
+        elif action == "split_operation":
+            operation_id = resolve_production_operation_id(con, project_id, payload)
+            operation = production_operation_row(con, project_id, operation_id or 0)
+            if not operation:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
+                return
+            duration = positive_schedule_half_days(operation["manual_duration_days"]) or positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
+            if str(operation["placement_mode"] or "auto") == "manual":
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "manual_placement_cannot_split"})
+                return
+            if duration < 1:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "duration_too_short_to_split"})
+                return
+            raw_parts = payload.get("parts")
+            if not isinstance(raw_parts, list) or len(raw_parts) < 2:
+                slots = max(2, int(round(duration * 2)))
+                first_slots = max(1, slots // 2)
+                raw_parts = [
+                    {"title": f"{operation['title']} — этап 1", "duration_days": first_slots / 2},
+                    {"title": f"{operation['title']} — этап 2", "duration_days": (slots - first_slots) / 2},
+                ]
+            if len(raw_parts) > 20 or any(not isinstance(part, dict) for part in raw_parts):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_parts"})
+                return
+            parsed_parts: list[dict] = []
+            for index, part in enumerate(raw_parts):
+                part_title = str(part.get("title") or f"{operation['title']} — этап {index + 1}").strip()
+                part_duration = positive_schedule_half_days(production_payload_value(part, "duration_days", "durationDays", default=duration / len(raw_parts)))
+                default_part_qty = None if operation["planned_qty"] is None else float(operation["planned_qty"]) / len(raw_parts)
+                raw_part_qty = production_payload_value(part, "planned_qty", "plannedQty", default=default_part_qty)
+                if raw_part_qty in (None, ""):
+                    part_qty = None
+                else:
+                    try:
+                        part_qty = float(raw_part_qty)
+                    except (TypeError, ValueError):
+                        part_qty = -1
+                if not part_title or len(part_title) > 500 or part_duration is None or part_duration > 3650 or (part_qty is not None and (not math.isfinite(part_qty) or part_qty < 0)):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_parts"})
+                    return
+                parsed_parts.append({"title": part_title, "duration": part_duration, "qty": part_qty, "unit": str(part.get("unit", operation["unit"]) or "")[:40]})
+            original_links = [
+                (int(row["estimate_item_id"]), str(row["link_role"]))
+                for row in con.execute(
+                    "SELECT estimate_item_id, link_role FROM production_schedule_operation_estimate_links WHERE operation_id = ?",
+                    (operation_id,),
+                ).fetchall()
+            ]
+            replacement_generation_key = str(operation["generation_key"])
+            replacement_origin = str(operation["origin"])
+            if operation["origin"] in {"auto", "template"}:
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO production_schedule_suppressed_keys (
+                        project_id, generation_key, created_by, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (project_id, str(operation["generation_key"]), user["id"], timestamp),
+                )
+                replacement_generation_key = f"manual:{project_id}:{time.time_ns()}:split-root"
+                replacement_origin = "manual"
             con.execute(
                 """
-                INSERT INTO work_schedule_overrides (
-                    project_id, estimate_item_id, schedule_context, duration_days, updated_by, created_at, updated_at
+                UPDATE production_schedule_operations
+                SET title = ?, planned_qty = ?, unit = ?, labor_hours_total = ?,
+                    auto_duration_days = ?, manual_duration_days = ?, status = 'needs_review',
+                    generation_key = ?, origin = ?, template_key = NULL,
+                    updated_by = ?, updated_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                (
+                    parsed_parts[0]["title"], parsed_parts[0]["qty"], parsed_parts[0]["unit"],
+                    parsed_parts[0]["duration"] * int(operation["people_count"] or 1) * int(operation["shift_count"] or 1) * int(operation["brigade_count"] or 1) * SCHEDULE_SHIFT_HOURS,
+                    parsed_parts[0]["duration"], parsed_parts[0]["duration"], replacement_generation_key, replacement_origin,
+                    user["id"], timestamp,
+                    operation_id, project_id,
+                ),
+            )
+            production_set_manual_fields(con, project_id, operation_id, {"title", "planned_qty", "unit", "duration_days", "status"})
+            con.execute(
+                "UPDATE production_schedule_operations SET position = position + ? WHERE project_id = ? AND position > ?",
+                (len(parsed_parts) - 1, project_id, int(operation["position"])),
+            )
+            created_ids = [operation_id]
+            for offset, part in enumerate(parsed_parts[1:], start=1):
+                cursor = con.execute(
+                    """
+                    INSERT INTO production_schedule_operations (
+                        project_id, generation_key, title, planned_qty, unit, people_count,
+                        shift_count, brigade_count, labor_hours_total, auto_duration_days,
+                        manual_duration_days, position, origin, status, color, source_signature,
+                        source_link_count, manual_fields, created_by, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'needs_review', ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_id, f"manual:{project_id}:{time.time_ns()}:{offset}", part["title"], part["qty"], part["unit"],
+                        operation["people_count"], operation["shift_count"], operation["brigade_count"],
+                        part["duration"] * int(operation["people_count"] or 1) * int(operation["shift_count"] or 1) * int(operation["brigade_count"] or 1) * SCHEDULE_SHIFT_HOURS,
+                        part["duration"], part["duration"], int(operation["position"]) + offset, operation["color"], operation["source_signature"],
+                        len({item_id for item_id, _ in original_links}),
+                        production_encode_manual_fields({"title", "planned_qty", "unit", "duration_days", "status"}),
+                        user["id"], user["id"], timestamp, timestamp,
+                    ),
                 )
-                VALUES (?, ?, 'production', ?, ?, ?, ?)
-                ON CONFLICT(project_id, estimate_item_id, schedule_context) DO UPDATE SET
-                    duration_days = excluded.duration_days,
-                    updated_by = excluded.updated_by,
+                new_id = int(cursor.lastrowid)
+                production_replace_links(con, project_id, new_id, original_links)
+                created_ids.append(new_id)
+            production_normalize_positions(con, project_id)
+            audit_payload.update({"operation_id": operation_id, "created_operation_ids": created_ids})
+
+        elif action == "reorder_operations":
+            raw_ids = production_payload_value(payload, "operation_ids", "operationIds")
+            if not isinstance(raw_ids, list):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_operation_ids"})
+                return
+            try:
+                operation_ids = [int(value) for value in raw_ids]
+            except (TypeError, ValueError):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_operation_ids"})
+                return
+            if len(operation_ids) != len(set(operation_ids)):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_operation_ids"})
+                return
+            owned = {
+                int(row["id"])
+                for row in con.execute("SELECT id FROM production_schedule_operations WHERE project_id = ?", (project_id,)).fetchall()
+            }
+            if not set(operation_ids).issubset(owned):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "operation_not_found"})
+                return
+            remaining = [
+                int(row["id"])
+                for row in con.execute(
+                    "SELECT id FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+                    (project_id,),
+                ).fetchall()
+                if int(row["id"]) not in set(operation_ids)
+            ]
+            for position, operation_id in enumerate(operation_ids + remaining):
+                con.execute(
+                    "UPDATE production_schedule_operations SET position = ?, updated_by = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                    (position, user["id"], timestamp, operation_id, project_id),
+                )
+            audit_payload.update({"operation_ids": operation_ids})
+
+        elif action == "recalculate":
+            # Synchronisation is intentionally non-destructive: manual operations,
+            # edited fields, manual duration and half-day cells remain intact.
+            if bool(production_payload_value(payload, "restore_deleted", "restoreDeleted", default=False)):
+                con.execute("DELETE FROM production_schedule_suppressed_keys WHERE project_id = ?", (project_id,))
+            generation = sync_production_schedule_operations(con, project, raw_rows)
+            audit_payload.update({"preserve_manual": True, "generation": generation, "restore_deleted": bool(production_payload_value(payload, "restore_deleted", "restoreDeleted", default=False))})
+
+        elif action == "save_template":
+            if not (user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})):
+                handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            name = str(payload.get("name") or f"Шаблон: {project['title']}").strip()
+            if not name or len(name) > 120:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_template_name"})
+                return
+            snapshot = build_production_schedule_payload(con, project_id)
+            signature = str(snapshot["generation"].get("sourceSignature") or "")
+            requested_operation_id = resolve_production_operation_id(con, project_id, payload)
+            if any(key in payload for key in ("operation_id", "operationId", "item_id", "itemId")) and not requested_operation_id:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
+                return
+            snapshot_items = [
+                item for item in snapshot["items"]
+                if requested_operation_id is None or int(item["id"]) == requested_operation_id
+            ]
+            template_payload = {
+                "version": 1,
+                "scope": "operation" if requested_operation_id is not None else "schedule",
+                "shiftHours": SCHEDULE_SHIFT_HOURS,
+                "operations": [
+                    {
+                        key: item.get(key)
+                        for key in (
+                            "title", "unit", "plannedQty", "peopleCount", "shiftCount", "brigadeCount",
+                            "autoDays", "durationDays", "origin", "status", "color", "links",
+                        )
+                    }
+                    for item in snapshot_items
+                ],
+            }
+            con.execute(
+                """
+                INSERT INTO production_schedule_templates (
+                    name, signature, payload, source_project_id, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(signature, name) DO UPDATE SET
+                    payload = excluded.payload,
+                    source_project_id = excluded.source_project_id,
+                    created_by = excluded.created_by,
                     updated_at = excluded.updated_at
                 """,
-                (project_id, item_id, duration_days, user["id"], now_ts(), now_ts()),
+                (name, signature, json.dumps(template_payload, ensure_ascii=False), project_id, user["id"], timestamp, timestamp),
             )
-            audit_payload.update({"item_id": item_id, "duration_days": duration_days})
-        elif action in {"reset_cells", "reset_all", "recalculate"}:
-            con.execute("DELETE FROM production_schedule_cell_overrides WHERE project_id = ?", (project_id,))
-            con.execute("DELETE FROM production_schedule_slot_overrides WHERE project_id = ?", (project_id,))
-            if action in {"reset_all", "recalculate"}:
+            audit_payload.update({"name": name, "signature": signature, "operation_id": requested_operation_id})
+
+        elif action in {"reset_cells", "reset_all"}:
+            con.execute(
+                "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id IN (SELECT id FROM production_schedule_operations WHERE project_id = ?)",
+                (project_id,),
+            )
+            con.execute(
+                "UPDATE production_schedule_operations SET placement_mode = 'auto', updated_at = ? WHERE project_id = ?",
+                (timestamp, project_id),
+            )
+            if action == "reset_all":
                 con.execute(
-                    "DELETE FROM work_schedule_overrides WHERE project_id = ? AND schedule_context = 'production'",
-                    (project_id,),
+                    "UPDATE production_schedule_operations SET manual_duration_days = NULL, updated_at = ? WHERE project_id = ? AND origin != 'manual'",
+                    (timestamp, project_id),
                 )
+                for operation in con.execute(
+                    "SELECT id, manual_fields FROM production_schedule_operations WHERE project_id = ? AND origin != 'manual'",
+                    (project_id,),
+                ).fetchall():
+                    fields = production_manual_fields(operation["manual_fields"])
+                    fields.discard("duration_days")
+                    con.execute(
+                        "UPDATE production_schedule_operations SET manual_fields = ? WHERE id = ? AND project_id = ?",
+                        (production_encode_manual_fields(fields), int(operation["id"]), project_id),
+                    )
+            audit_payload.update({"reset": action})
+
         else:
             handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_action"})
             return
-        mark_project_schedule_draft(con, project_id)
+
         create_audit(con, user["id"], "update_production_schedule", "project", project_id, audit_payload)
         con.commit()
         schedule = build_production_schedule_payload(con, project_id)
@@ -2605,6 +4157,16 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
+    raw_item_kind = payload.get("item_kind", payload.get("itemKind"))
+    item_kind = {
+        "work": "work",
+        "works": "work",
+        "material": "material",
+        "materials": "material",
+    }.get(str(raw_item_kind or "").strip().lower())
+    if not item_kind:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_bulk_item_kind"})
+        return
     path_parts = path.strip("/").split("/")
     path_section_raw = ""
     if len(path_parts) >= 6 and path_parts[3] == "sections":
@@ -2614,20 +4176,32 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
     section_title_raw = str(payload.get("section_title", payload.get("sectionTitle", "")) or "")
     section_id = normalize_progress_section_id(section_raw or section_title_raw)
     completed = 1 if payload.get("completed", True) else 0
+    item_ids_explicit = "item_ids" in payload or "itemIds" in payload
     raw_item_ids = payload.get("item_ids", payload.get("itemIds", []))
     item_ids: list[int] = []
+    if item_ids_explicit and not isinstance(raw_item_ids, list):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_bulk_item_ids"})
+        return
     if isinstance(raw_item_ids, list):
-        for raw_id in raw_item_ids:
-            try:
-                item_id = int(raw_id)
-            except (TypeError, ValueError):
-                continue
+        try:
+            parsed_item_ids = [int(raw_id) for raw_id in raw_item_ids]
+        except (TypeError, ValueError):
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_bulk_item_ids"})
+            return
+        if any(item_id <= 0 for item_id in parsed_item_ids):
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_bulk_item_ids"})
+            return
+        for item_id in parsed_item_ids:
             if item_id > 0 and item_id not in item_ids:
                 item_ids.append(item_id)
-    if not section_raw and not section_title_raw and not item_ids:
+    if item_ids_explicit and not item_ids:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "section_items_required"})
+        return
+    if not section_raw and not section_title_raw:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "section_required"})
         return
     with db() as con:
+        con.execute("BEGIN IMMEDIATE")
         rows = con.execute(f"SELECT * FROM estimate_items WHERE project_id = ? AND {live_estimate_items_where(con, '')}", (project_id,)).fetchall()
         stages = con.execute("SELECT id, title, parent_id FROM work_stages WHERE project_id = ?", (project_id,)).fetchall()
         stage_by_id = {int(stage["id"]): stage for stage in stages}
@@ -2642,6 +4216,15 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
             title = str(stage["title"] or "").strip()
             if section_id and normalize_progress_section_id(title) == section_id:
                 matched_stage_ids.add(int(stage["id"]))
+        preserved_stage_state = {}
+        if item_kind == "work" and item_ids_explicit:
+            preserved_stage_state = {
+                int(stage["id"]): (int(stage["progress"] or 0), str(stage["status_code"] or ""), stage["updated_at"])
+                for stage in con.execute(
+                    "SELECT id, progress, status_code, updated_at FROM work_stages WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
 
         def root_stage_id(stage_id: int | None) -> int | None:
             current = stage_by_id.get(int(stage_id or 0))
@@ -2656,21 +4239,75 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
                 guard += 1
             return int(root["id"]) if root else None
 
-        project_item_ids = {int(row["id"]) for row in rows}
-        target_ids = [item_id for item_id in item_ids if item_id in project_item_ids]
-        if not target_ids:
-            for row in rows:
-                row_stage_id = int(row["stage_id"] or 0) if row["stage_id"] else None
-                row_section_id = normalize_progress_section_id(estimate_row_section_title(con, row))
-                direct_section_id = normalize_progress_section_id(row["section_title"] or "")
-                row_root_stage_id = root_stage_id(row_stage_id)
-                if (
-                    (section_id and (row_section_id == section_id or direct_section_id == section_id))
-                    or (path_section_int and row_stage_id == path_section_int)
-                    or (row_root_stage_id and row_root_stage_id in matched_stage_ids)
-                ):
-                    target_ids.append(int(row["id"]))
-        for item_id in sorted(set(target_ids)):
+        def row_matches_section(row: sqlite3.Row) -> bool:
+            row_stage_id = int(row["stage_id"] or 0) if row["stage_id"] else None
+            row_section_id = normalize_progress_section_id(estimate_row_section_title(con, row))
+            direct_section_id = normalize_progress_section_id(row["section_title"] or "")
+            row_root_stage_id = root_stage_id(row_stage_id)
+            return bool(
+                (section_id and (row_section_id == section_id or direct_section_id == section_id))
+                or (path_section_int and row_stage_id == path_section_int)
+                or (row_root_stage_id and row_root_stage_id in matched_stage_ids)
+            )
+
+        def row_matches_kind(row: sqlite3.Row) -> bool:
+            return normalize_estimate_item_kind(resolved_estimate_item_kind(row)) == item_kind
+
+        row_by_id = {int(row["id"]): row for row in rows}
+        if item_ids_explicit:
+            invalid_item_ids = [
+                item_id
+                for item_id in item_ids
+                if item_id not in row_by_id
+                or not row_matches_kind(row_by_id[item_id])
+                or not row_matches_section(row_by_id[item_id])
+            ]
+            if invalid_item_ids:
+                con.rollback()
+                handler.send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "bulk_section_items_mismatch",
+                        "itemKind": item_kind,
+                        "invalidItemIds": invalid_item_ids,
+                    },
+                )
+                return
+            target_rows = [row_by_id[item_id] for item_id in item_ids]
+        else:
+            target_rows = [row for row in rows if row_matches_kind(row) and row_matches_section(row)]
+
+        selected_target_ids = [int(row["id"]) for row in target_rows]
+        purchased_status = "\u0417\u0430\u043a\u0443\u043f\u043b\u0435\u043d\u043e"
+
+        def row_needs_update(row: sqlite3.Row) -> bool:
+            expected_actual = float(row["planned_qty"] or 0) if completed else 0.0
+            if int(row["is_completed"] or 0) != completed:
+                return True
+            if abs(float(row["actual_qty"] or 0) - expected_actual) > 0.000001:
+                return True
+            return bool(
+                item_kind == "material"
+                and completed
+                and str(row["procurement_status"] or "") != purchased_status
+            )
+
+        target_ids = [int(row["id"]) for row in target_rows if row_needs_update(row)]
+        timestamp = now_ts()
+        if item_kind == "work":
+            for item_id in target_ids:
+                con.execute(
+                    """
+                    UPDATE estimate_items
+                    SET is_completed = ?,
+                        actual_qty = CASE WHEN ? = 1 THEN planned_qty ELSE 0 END,
+                        updated_at = ?
+                    WHERE id = ? AND project_id = ?
+                    """,
+                    (completed, completed, timestamp, item_id, project_id),
+                )
+        material_update_ids = target_ids if item_kind == "material" else []
+        for item_id in sorted(set(material_update_ids)):
             con.execute(
                 """
                 UPDATE estimate_items
@@ -2682,13 +4319,15 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
                 """,
                 (completed, completed, completed, "Закуплено", now_ts(), item_id, project_id),
             )
-        for stage_id in matched_stage_ids:
+        update_hidden_section_state = not (item_kind == "work" and item_ids_explicit)
+        stage_update_ids = matched_stage_ids if update_hidden_section_state else set()
+        for stage_id in stage_update_ids:
             con.execute(
                 "UPDATE work_stages SET progress = ?, status_code = ?, updated_at = ? WHERE id = ? AND project_id = ?",
                 (100 if completed else 0, "completed" if completed else "not_started", now_ts(), stage_id, project_id),
             )
 
-        task_cols = table_columns(con, "tasks")
+        task_cols = table_columns(con, "tasks") if update_hidden_section_state else set()
         task_completed_sql = ", completed_at = ?" if "completed_at" in task_cols else ""
         task_completed_args = ((now_iso() if completed else None),) if "completed_at" in task_cols else ()
         if "section_id" in task_cols and path_section_int:
@@ -2714,9 +4353,46 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
         elif matched_stage_ids:
             section_title = str(stage_by_id[sorted(matched_stage_ids)[0]]["title"] or section_title).strip()
         progress = recalc_project_progress(con, project_id, section_title)
+        if item_kind == "work" and item_ids_explicit:
+            for stage_id, (stage_progress, stage_status, stage_updated_at) in preserved_stage_state.items():
+                con.execute(
+                    """
+                    UPDATE work_stages
+                    SET progress = ?, status_code = ?, updated_at = ?
+                    WHERE id = ? AND project_id = ?
+                    """,
+                    (stage_progress, stage_status, stage_updated_at, stage_id, project_id),
+                )
         project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         items = material_summary_rows(con, project_id)
-        create_audit(con, user["id"], "bulk_complete_section", "project", project_id, {"section_id": section_id, "path_section_id": path_section_int, "completed": bool(completed), "items": len(target_ids)})
+        record_payload = {
+            "section_id": section_id,
+            "path_section_id": path_section_int,
+            "item_kind": item_kind,
+            "completed": bool(completed),
+            "items": len(target_ids),
+            "target_item_ids": selected_target_ids,
+            "changed_item_ids": target_ids,
+        }
+        if item_kind == "work" and item_ids_explicit and not target_ids:
+            con.commit()
+            handler.send_json(
+                HTTPStatus.OK,
+                {
+                    "success": True,
+                    "section_id": section_id,
+                    "itemKind": item_kind,
+                    "targetItemIds": selected_target_ids,
+                    "changedItemIds": [],
+                    "changedCount": 0,
+                    "project_progress": progress.get("totalProjectPercent", progress.get("projectProgress", 0)),
+                    "items": items,
+                    "progress": progress,
+                    "project": serialize_project(project_row, user),
+                },
+            )
+            return
+        create_audit(con, user["id"], "bulk_complete_section", "project", project_id, record_payload)
         con.execute(
             """
             INSERT INTO daily_logs (
@@ -2742,12 +4418,34 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
                 now_ts(),
             ),
         )
+        if item_kind == "work":
+            log_title = "Групповое завершение работ" if completed else "Работы раздела возвращены в работу"
+            log_action = "выполнены все работы" if completed else "возвращены в работу"
+        else:
+            log_title = "Групповое закрытие раздела" if completed else "Раздел снят с выполнения"
+            log_action = "закуплены все материалы" if completed else "сняты с выполнения все материалы"
+        con.execute(
+            """
+            UPDATE daily_logs
+            SET title = ?, work_done = ?, raw_input = ?
+            WHERE id = last_insert_rowid()
+            """,
+            (
+                log_title,
+                f"Раздел «{section_title}»: {log_action} ({len(target_ids)} поз.).",
+                json.dumps(record_payload, ensure_ascii=False),
+            ),
+        )
         con.commit()
     handler.send_json(
         HTTPStatus.OK,
         {
             "success": True,
             "section_id": section_id,
+            "itemKind": item_kind,
+            "targetItemIds": selected_target_ids,
+            "changedItemIds": target_ids,
+            "changedCount": len(target_ids),
             "project_progress": progress.get("totalProjectPercent", progress.get("projectProgress", 0)),
             "items": items,
             "progress": progress,

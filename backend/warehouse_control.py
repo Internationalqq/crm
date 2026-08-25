@@ -310,18 +310,42 @@ def _display_user(row: sqlite3.Row | dict) -> str:
 
 
 def _estimate_rows(con: sqlite3.Connection, project_id: int) -> tuple[list[dict], list[dict]]:
+    estimate_columns = _table_columns(con, "estimate_items")
+    table_names = {
+        str(row["name"])
+        for row in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    }
+    has_estimate_sources = "estimate_source_id" in estimate_columns and "project_estimates" in table_names
+    live_where = " AND COALESCE(e.is_deleted, 0) = 0" if "is_deleted" in estimate_columns else ""
+    source_select = """
+            , e.estimate_source_id,
+            source.source_type AS estimate_source_type,
+            source.source_key AS estimate_source_key,
+            source.external_id AS estimate_source_external_id,
+            source.tender_id AS estimate_tender_id,
+            source.title AS estimate_title,
+            source.file_name AS estimate_file_name,
+            source.source_reference AS estimate_source_reference
+    """ if has_estimate_sources else ""
+    source_join = (
+        "LEFT JOIN project_estimates source ON source.id = e.estimate_source_id AND source.project_id = e.project_id"
+        if has_estimate_sources else ""
+    )
     rows = con.execute(
-        """
-        SELECT id, title, unit, planned_qty, actual_qty, item_kind, section_title
-        FROM estimate_items
-        WHERE project_id = ?
-        ORDER BY id
+        f"""
+        SELECT e.id, e.title, e.unit, e.planned_qty, e.actual_qty, e.item_kind, e.section_title
+               {source_select}
+        FROM estimate_items e
+        {source_join}
+        WHERE e.project_id = ?{live_where}
+        ORDER BY e.id
         """,
         (project_id,),
     ).fetchall()
     works = []
     materials = []
     for row in rows:
+        source_id = row["estimate_source_id"] if has_estimate_sources else None
         payload = {
             "id": int(row["id"]),
             "title": str(row["title"] or ""),
@@ -330,6 +354,17 @@ def _estimate_rows(con: sqlite3.Connection, project_id: int) -> tuple[list[dict]
             "actualQty": _float(row["actual_qty"]),
             "itemKind": _kind(row["item_kind"]),
             "sectionTitle": str(row["section_title"] or ""),
+            "estimateSourceId": int(source_id) if source_id is not None else None,
+            "estimateSourceType": (
+                str(row["estimate_source_type"] or ("estimate" if source_id is not None else "legacy"))
+                if has_estimate_sources else "legacy"
+            ),
+            "estimateSourceKey": str(row["estimate_source_key"] or "") if has_estimate_sources else "",
+            "estimateSourceExternalId": str(row["estimate_source_external_id"] or "") if has_estimate_sources else "",
+            "estimateTenderId": str(row["estimate_tender_id"] or "") if has_estimate_sources else "",
+            "estimateTitle": str(row["estimate_title"] or "Ранее загруженная смета") if has_estimate_sources else "Ранее загруженная смета",
+            "estimateFileName": str(row["estimate_file_name"] or "Смета объекта") if has_estimate_sources else "Смета объекта",
+            "estimateSourceReference": str(row["estimate_source_reference"] or "") if has_estimate_sources else "",
         }
         (works if payload["itemKind"] == "work" else materials).append(payload)
     return works, materials

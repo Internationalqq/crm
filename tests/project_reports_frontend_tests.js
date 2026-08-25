@@ -20,6 +20,7 @@ assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-create-plus-5/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-refresh-8/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-calendar-9/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-calendar-apple-10/);
+assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-live-suggestions-16/);
 assert.ok(
   appCss.indexOf('project-reports.css') > appCss.indexOf('ui-qa.css'),
   'The reports layer must stay after the shared QA layer in the cascade',
@@ -50,6 +51,9 @@ for (const selector of [
   '.report-effect-card',
   '.report-effect-check',
   '.report-effects-summary',
+  '.report-live-assist',
+  '.report-live-suggestion',
+  '.report-live-picked-item',
 ]) {
   assert.ok(reportsCss.includes(selector), `Missing reports selector: ${selector}`);
 }
@@ -140,6 +144,7 @@ assert.match(operationsJs, /confirmed_actions:\s*confirmedActions/);
 assert.match(operationsJs, /data-report-only-submit/);
 assert.match(operationsJs, /data-report-effect/);
 assert.match(operationsJs, /data-report-effect-qty/);
+assert.match(operationsJs, /data-report-live-assist/);
 assert.match(operationsJs, /function currentLocalDateIso\(\)/);
 assert.match(operationsJs, /form\.dataset\.reportDateTouched/);
 assert.match(operationsJs, /data-effect-max/);
@@ -189,6 +194,11 @@ assert.match(appJs, /data-report-voice-unavailable/);
 assert.match(appJs, /data-effect-max=/);
 assert.match(appJs, /if \(!procurement\.materialId\) return/);
 assert.match(appJs, /уже заказано, ждём/);
+assert.match(appJs, /function reportLiveSuggestions\(projectId, rawText\)/);
+assert.match(appJs, /function reportSuggestionScore\(candidate, queryTokens, normalizedQuery\)/);
+assert.match(appJs, /data-report-suggestion=/);
+assert.match(appJs, /data-report-suggestion-remove=/);
+assert.match(appJs, /mergeManualSelections\(draft, rawText\)/);
 const legacyReportWord = /\u0440\u0430\u043f\u043e\u0440\u0442/i;
 assert.equal(legacyReportWord.test(operationsJs), false, 'Operations UI must consistently use the word Отчет');
 assert.equal(legacyReportWord.test(appJs), false, 'App UI must consistently use the word Отчет');
@@ -211,5 +221,7 @@ assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-9/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-apple-10/);
 assert.match(routerJs, /app\.js\?v=[^']*report-calendar-bridge-11/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-load-12/);
+assert.match(routerJs, /app\.js\?v=[^']*report-live-suggestions-16/);
+assert.match(routerJs, /operations\.js\?v=[^']*report-live-suggestions-16/);
 
 console.log('project_reports_frontend_ok');

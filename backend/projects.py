@@ -745,11 +745,24 @@ def api_delete_project(handler, path: str) -> None:
                 "DELETE FROM chat_messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id = ?)",
                 (project_id,),
             )
+        if table_exists(con, "production_schedule_operations"):
+            for child_table in (
+                "production_schedule_operation_slot_overrides",
+                "production_schedule_operation_estimate_links",
+            ):
+                if table_exists(con, child_table):
+                    con.execute(
+                        f"DELETE FROM {child_table} WHERE operation_id IN (SELECT id FROM production_schedule_operations WHERE project_id = ?)",
+                        (project_id,),
+                    )
         for table in [
             "finance_entries",
             "documents",
             "daily_logs",
             "tasks",
+            "production_schedule_operations",
+            "production_schedule_migration_state",
+            "production_schedule_suppressed_keys",
             "production_schedule_cell_overrides",
             "production_schedule_slot_overrides",
             "work_schedule_overrides",

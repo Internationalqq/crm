@@ -48,8 +48,43 @@ assert.match(detailsMarkup, /\\u0420\\u0430\\u0431\\u043e\\u0442\\u044b/);
 assert.doesNotMatch(detailsMarkup, /\\u041c\\u0430\\u0442\\u0435\\u0440\\u0438\\u0430\\u043b\\u044b/);
 assert.doesNotMatch(detailsMarkup, /materialProgress|materialRow/);
 
-for (const removedListControl of [
+const worksRowStart = planningJs.indexOf('function renderSectionScheduleRow');
+const worksForecastStart = planningJs.indexOf('function renderSectionScheduleForecast', worksRowStart);
+const worksForecastEnd = planningJs.indexOf('function bindSectionScheduleRefresh', worksForecastStart);
+const worksRowBlock = planningJs.slice(worksRowStart, worksForecastStart);
+const worksForecastBlock = planningJs.slice(worksForecastStart, worksForecastEnd);
+const visibleWorksRegister = worksRowBlock + worksForecastBlock;
+for (const removedVisibleToken of [
+  'data-graph-duration-editor',
+  'data-graph-duration-input',
+  'data-graph-duration-reset',
   'schedule-work-duration-metrics',
+  'Авторасчёт',
+  'Длительность',
+  'Срок работ',
+  'Осталось',
+  '\\u0410\\u0432\\u0442\\u043e\\u0440\\u0430\\u0441\\u0447\\u0451\\u0442',
+  '\\u0414\\u043b\\u0438\\u0442\\u0435\\u043b\\u044c\\u043d\\u043e\\u0441\\u0442\\u044c',
+]) {
+  assert.equal(
+    visibleWorksRegister.includes(removedVisibleToken),
+    false,
+    `Visible works register still contains removed planning field: ${removedVisibleToken}`,
+  );
+}
+
+const worksSummaryStart = worksForecastBlock.indexOf('works-register-summary');
+const worksSummaryEnd = worksForecastBlock.indexOf('renderPinnedScheduleBrief', worksSummaryStart);
+const worksSummaryBlock = worksForecastBlock.slice(worksSummaryStart, worksSummaryEnd);
+assert.equal((worksSummaryBlock.match(/works-register-summary-item/g) || []).length, 4);
+assert.match(worksSummaryBlock, /<span>Разделов<\/span>[\s\S]*?<span>Работ<\/span>[\s\S]*?<span>Выполнено<\/span>[\s\S]*?<span>Готовность<\/span>/);
+const sectionTitlePosition = worksRowBlock.indexOf('class="section-schedule-title"');
+const sectionMetaPosition = worksRowBlock.indexOf('class="section-work-section-meta"');
+const sectionBulkPosition = worksRowBlock.indexOf('renderBulkSectionCheckbox(project.id');
+assert.ok(sectionTitlePosition >= 0 && sectionBulkPosition > sectionTitlePosition && sectionMetaPosition > sectionBulkPosition);
+assert.match(worksRowBlock, /section-work-section-title-line"><h4>[\s\S]*?renderBulkSectionCheckbox\(project\.id, sectionTitle, 'work', progress\)/);
+
+for (const removedListControl of [
   '<small>Бригада</small>',
   '<small>Дней</small>',
   'Укрупнённо',

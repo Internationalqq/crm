@@ -114,7 +114,7 @@
                 '<div class="warehouse-control-selection" data-stock-selection-summary><i data-lucide="mouse-pointer-click"></i><span>Выберите материал — здесь сразу появятся план, приход, расход и остаток.</span></div>' +
                 '<div class="warehouse-control-move-fields">' +
                     '<label><span>Количество</span><div class="warehouse-control-qty-field"><input name="qty" type="number" min="0.001" step="0.001" required placeholder="Например, 10"><span data-stock-qty-unit>ед.</span></div></label>' +
-                    '<button class="ghost compact warehouse-control-fill" type="button" data-stock-fill-remaining hidden></button>' +
+                    '<button class="ghost compact warehouse-control-fill" type="button" data-stock-fill-remaining aria-label="Выбрать максимум" hidden><i data-lucide="arrow-up-to-line" aria-hidden="true"></i><span>Выбрать максимум</span><small data-stock-fill-remaining-value></small></button>' +
                 '</div>' +
                 '<label><span>Комментарий <small>необязательно</small></span><input name="comment" maxlength="500" placeholder="Накладная, поставщик или пояснение"></label>' +
                 '<div class="warehouse-control-operation-preview" data-stock-move-preview>Введите количество — покажем результат до сохранения.</div>' +
@@ -203,10 +203,114 @@
         '</div>';
     }
 
+    function materialFlowHeader(label, icon, tone) {
+        return '<span class="warehouse-material-flow is-' + escapeHtml(tone) + '"><i data-lucide="' + escapeHtml(icon) + '" aria-hidden="true"></i>' + escapeHtml(label) + '</span>';
+    }
+
+    function materialFlowCell(label, icon, tone, value, unit, context) {
+        var sourceValue = value == null || value === '' ? 0 : value;
+        var number = Number(sourceValue);
+        var isValid = Number.isFinite(number);
+        var formattedValue = isValid ? quantity(number) : '';
+        var formattedUnit = String(unit || '');
+        var hasValue = isValid && formattedValue !== '0';
+        var accessibleAmount = isValid ? formattedValue + (formattedUnit ? ' ' + formattedUnit : '') : 'нет данных';
+        var accessibleValue = label + ': ' + accessibleAmount + (context ? '. ' + context : '');
+        var visibleValue = hasValue
+            ? escapeHtml(formattedValue) + (formattedUnit ? ' <small>' + escapeHtml(formattedUnit) + '</small>' : '')
+            : '<span aria-hidden="true">—</span><span class="visually-hidden">' + escapeHtml(isValid ? accessibleAmount : 'Нет данных') + '</span>';
+        return '<div class="warehouse-material-cell warehouse-material-flow is-' + escapeHtml(tone) + '" data-label="' + escapeHtml(label) + '" aria-label="' + escapeHtml(accessibleValue) + '">' +
+            '<span class="warehouse-material-flow-label"><i data-lucide="' + escapeHtml(icon) + '" aria-hidden="true"></i>' + escapeHtml(label) + '</span>' +
+            '<strong class="warehouse-material-flow-value' + (hasValue ? '' : ' is-empty') + (isValid ? '' : ' is-invalid') + '">' + visibleValue + '</strong>' +
+        '</div>';
+    }
+
+    function materialEstimateSourceIdentity(item) {
+        item = item || {};
+        var sourceId = Number(item.estimateSourceId || 0);
+        if (sourceId) return 'id:' + String(sourceId);
+        var sourceKey = String(item.estimateSourceKey || '').trim();
+        if (sourceKey) return 'key:' + sourceKey;
+        return 'legacy';
+    }
+
+    function materialEstimateSourceMeta(item) {
+        item = item || {};
+        return {
+            key: materialEstimateSourceIdentity(item),
+            type: String(item.estimateSourceType || 'legacy').trim().toLowerCase() || 'legacy',
+            title: String(item.estimateTitle || 'Ранее загруженная смета').trim() || 'Ранее загруженная смета',
+            fileName: String(item.estimateFileName || 'Смета объекта').trim() || 'Смета объекта',
+            tenderId: String(item.estimateTenderId || '').trim()
+        };
+    }
+
+    function groupedMaterials(materials) {
+        var sources = [];
+        (materials || []).forEach(function (item) {
+            var meta = materialEstimateSourceMeta(item);
+            var source = sources.find(function (candidate) { return candidate.meta.key === meta.key; });
+            if (!source) {
+                source = { meta: meta, sections: [] };
+                sources.push(source);
+            }
+            var sectionTitle = String(item.sectionTitle || '').trim() || 'Без раздела';
+            var sectionKey = sectionTitle.toLocaleLowerCase('ru-RU');
+            var section = source.sections.find(function (candidate) { return candidate.key === sectionKey; });
+            if (!section) {
+                section = { key: sectionKey, title: sectionTitle, items: [] };
+                source.sections.push(section);
+            }
+            section.items.push(item);
+        });
+        return sources;
+    }
+
+    function materialSourceHeading(meta) {
+        var label = meta.type === 'tender' && meta.tenderId ? 'Тендер № ' + meta.tenderId : 'Смета';
+        var fileName = meta.fileName && meta.fileName !== meta.title
+            ? '<span title="' + escapeHtml(meta.fileName) + '">' + escapeHtml(meta.fileName) + '</span>'
+            : '';
+        return '<header class="warehouse-material-source-head"><i data-lucide="file-spreadsheet" aria-hidden="true"></i>' +
+            '<div><small>' + escapeHtml(label) + '</small><strong>' + escapeHtml(meta.title) + '</strong>' + fileName + '</div></header>';
+    }
+
+    function materialRow(payload, item, index) {
+        var stateLabel = materialState(item);
+        var planned = Number(item.plannedQty || 0);
+        var spent = Number(item.factUsedQty || 0) + Number(item.manualUsedQty || 0);
+        var unit = item.unit || '';
+        var searchText = [item.title, item.sectionTitle, item.unit, item.estimateTitle, item.estimateFileName]
+            .map(function (value) { return String(value || ''); }).join(' ').toLocaleLowerCase('ru-RU');
+        var actionable = Boolean(payload.canRecordFacts);
+        return '<article class="warehouse-material-card is-' + stateLabel[2] + (actionable ? ' is-actionable' : '') + '" data-select-material="' + escapeHtml(item.id) + '" data-position-editor data-position-kind="material" data-position-id="' + escapeHtml(item.id) + '" data-position-project="' + escapeHtml(payload.projectId || '') + '" data-position-title="' + escapeHtml(item.title || '') + '" data-position-unit="' + escapeHtml(item.unit || '') + '" data-position-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : '')) + '" data-position-section="' + escapeHtml(item.sectionTitle || '') + '" data-stock-state="' + escapeHtml(stateLabel[2]) + '" data-search-text="' + escapeHtml(searchText) + '" title="' + (actionable ? 'Нажмите — открыть операции; правый клик — редактировать' : 'Правый клик — редактировать позицию') + '" style="--warehouse-card-delay:' + Math.min(index * 35, 280) + 'ms">' +
+            (actionable ? '<button class="warehouse-material-select" type="button" data-select-material-button="' + escapeHtml(item.id) + '" aria-label="Открыть операции по материалу: ' + escapeHtml(item.title) + '"><span class="warehouse-material-title"><strong>' + escapeHtml(item.title) + '</strong></span></button>' : '<div class="warehouse-material-title"><h4>' + escapeHtml(item.title) + '</h4></div>') +
+            '<div class="warehouse-material-cell warehouse-material-plan" data-label="Нужно"><span>Нужно</span><strong>' + escapeHtml(quantity(planned)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
+            materialFlowCell('Заказано', 'shopping-cart', 'purchase', item.purchasedQty, unit, 'Нужно по смете: ' + quantity(planned) + (unit ? ' ' + unit : '')) +
+            materialFlowCell('Привезено', 'package-check', 'receipt', item.receivedQty, unit, '') +
+            materialFlowCell('Потрачено', 'package-minus', 'use', spent, unit, '') +
+            '<div class="warehouse-material-cell warehouse-material-balance" data-label="Остаток"><span>Остаток</span><strong class="' + (Number(item.stockBalanceQty || 0) < 0 ? 'is-negative' : '') + '">' + escapeHtml(quantity(item.stockBalanceQty)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
+            '<div class="warehouse-material-status"><span class="badge ' + stateLabel[1] + '">' + escapeHtml(stateLabel[0]) + '</span></div>' +
+        '</article>';
+    }
+
     function materialsTable(payload) {
         if (!(payload.materials || []).length) return '<section class="warehouse-control-card"><div class="warehouse-control-empty"><i data-lucide="package-open"></i><b>Материалов пока нет</b><span>Они появятся здесь после добавления в смету объекта.</span></div></section>';
+        var sources = groupedMaterials(payload.materials);
+        var rowIndex = 0;
+        var groupedRows = sources.map(function (source) {
+            var showSource = sources.length > 1 || source.meta.type !== 'legacy';
+            return '<section class="warehouse-material-source-group" data-warehouse-material-source-group data-material-source="' + escapeHtml(source.meta.key) + '">' +
+                (showSource ? materialSourceHeading(source.meta) : '') +
+                source.sections.map(function (section) {
+                    return '<section class="warehouse-material-section-group" data-warehouse-material-section-group data-material-section="' + escapeHtml(section.key) + '">' +
+                        '<div class="warehouse-material-section-head"><i data-lucide="layers-3" aria-hidden="true"></i><span><small>Раздел</small><strong>' + escapeHtml(section.title) + '</strong></span></div>' +
+                        section.items.map(function (item) { return materialRow(payload, item, rowIndex++); }).join('') +
+                    '</section>';
+                }).join('') +
+            '</section>';
+        }).join('');
         return '<section class="warehouse-control-card warehouse-control-stock-card">' +
-            '<div class="warehouse-control-card-head warehouse-control-inventory-head"><div><span class="section-label">Учёт по позициям</span><h3>Материалы на объекте</h3><p>Одна строка показывает план, движение и фактический остаток материала.</p></div><span class="warehouse-control-visible-count" data-warehouse-visible-count>' + escapeHtml(payload.materials.length) + ' позиций</span></div>' +
             '<div class="warehouse-control-tools">' +
                 '<label class="warehouse-control-search"><i data-lucide="search"></i><input type="search" data-warehouse-material-filter aria-label="Поиск материалов" placeholder="Найти материал по названию или разделу"></label>' +
                 '<div class="warehouse-control-filter-chips" data-warehouse-filter-chips>' +
@@ -218,27 +322,12 @@
                 '</div>' +
             '</div>' +
             '<div class="warehouse-material-grid warehouse-material-register' + (payload.canRecordFacts ? '' : ' is-readonly') + '" data-warehouse-material-grid>' +
-                '<div class="warehouse-material-register-head" aria-hidden="true"><span>Материал</span><span>Нужно по смете</span><span>Заказано</span><span>Привезено</span><span>Потрачено</span><span>Остаток</span><span>Состояние</span>' + (payload.canRecordFacts ? '<span>Действия</span>' : '') + '</div>' +
-                payload.materials.map(function (item, index) {
-                var stateLabel = materialState(item);
-                var planned = Number(item.plannedQty || 0);
-                var spent = Number(item.factUsedQty || 0) + Number(item.manualUsedQty || 0);
-                var unit = item.unit || '';
-                var searchText = (item.title + ' ' + (item.sectionTitle || '') + ' ' + (item.unit || '')).toLocaleLowerCase('ru-RU');
-                return '<article class="warehouse-material-card is-' + stateLabel[2] + '" data-select-material="' + escapeHtml(item.id) + '" data-position-editor data-position-kind="material" data-position-id="' + escapeHtml(item.id) + '" data-position-project="' + escapeHtml(payload.projectId || '') + '" data-position-title="' + escapeHtml(item.title || '') + '" data-position-unit="' + escapeHtml(item.unit || '') + '" data-position-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : '')) + '" data-position-section="' + escapeHtml(item.sectionTitle || '') + '" data-stock-state="' + escapeHtml(stateLabel[2]) + '" data-search-text="' + escapeHtml(searchText) + '" title="Правый клик — редактировать позицию" style="--warehouse-card-delay:' + Math.min(index * 35, 280) + 'ms">' +
-                    (payload.canRecordFacts ? '<button class="warehouse-material-select" type="button" data-select-material-button="' + escapeHtml(item.id) + '" aria-label="Выбрать материал: ' + escapeHtml(item.title) + '"><span class="warehouse-material-title"><small>' + escapeHtml(item.sectionTitle || 'Материал') + '</small><strong>' + escapeHtml(item.title) + '</strong></span></button>' : '<div class="warehouse-material-title"><small>' + escapeHtml(item.sectionTitle || 'Материал') + '</small><h4>' + escapeHtml(item.title) + '</h4></div>') +
-                    '<div class="warehouse-material-cell" data-label="Нужно"><span>Нужно</span><strong>' + escapeHtml(quantity(planned)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
-                    '<div class="warehouse-material-cell" data-label="Заказано" aria-label="Заказано ' + escapeHtml(quantity(item.purchasedQty)) + ' из ' + escapeHtml(quantity(planned)) + ' ' + escapeHtml(unit) + '"><span>Заказано</span><strong>' + escapeHtml(quantity(item.purchasedQty)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
-                    '<div class="warehouse-material-cell" data-label="Привезено"><span>Привезено</span><strong>' + escapeHtml(quantity(item.receivedQty)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
-                    '<div class="warehouse-material-cell" data-label="Потрачено"><span>Потрачено</span><strong>' + escapeHtml(quantity(spent)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
-                    '<div class="warehouse-material-cell warehouse-material-balance" data-label="Остаток"><span>Остаток</span><strong class="' + (Number(item.stockBalanceQty || 0) < 0 ? 'is-negative' : '') + '">' + escapeHtml(quantity(item.stockBalanceQty)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
-                    '<div class="warehouse-material-status"><span class="badge ' + stateLabel[1] + '">' + escapeHtml(stateLabel[0]) + '</span></div>' +
-                    (payload.canRecordFacts ? '<div class="warehouse-material-actions">' +
-                        '<button type="button" data-material-move="receipt" data-material-id="' + escapeHtml(item.id) + '" aria-label="Добавить приход"><i data-lucide="plus"></i><span>Приход</span></button>' +
-                        '<button type="button" data-material-move="use" data-material-id="' + escapeHtml(item.id) + '" aria-label="Добавить расход"' + (Number(item.stockBalanceQty || 0) <= 0 ? ' disabled' : '') + '><i data-lucide="minus"></i><span>Расход</span></button>' +
-                    '</div>' : '') +
-                '</article>';
-            }).join('') + '</div>' +
+                '<div class="warehouse-material-register-head" aria-hidden="true"><span>Материал</span><span>Нужно по смете</span>' +
+                    materialFlowHeader('Заказано', 'shopping-cart', 'purchase') +
+                    materialFlowHeader('Привезено', 'package-check', 'receipt') +
+                    materialFlowHeader('Потрачено', 'package-minus', 'use') +
+                    '<span>Остаток</span><span>Состояние</span></div>' +
+                groupedRows + '</div>' +
             '<div class="warehouse-control-no-results" data-warehouse-no-results hidden><i data-lucide="search-x"></i><b>Ничего не найдено</b><span>Попробуйте изменить запрос или фильтр.</span></div>' +
         '</section>';
     }
@@ -308,7 +397,7 @@
 
     function render(payload) {
         return '<section class="warehouse-control-workspace">' +
-            '<div class="warehouse-control-head"><div><span class="section-label">Склад объекта</span><h3>Материалы</h3><p>Нужно, заказано, привезено, потрачено и остаток — в одном реестре.</p></div>' + controlActions(payload) + '</div>' +
+            '<div class="warehouse-control-head"><div><h3>Материалы</h3><p>Нужно, заказано, привезено, потрачено и остаток — в одном реестре.</p></div>' + controlActions(payload) + '</div>' +
             inventorySummary(payload) +
             '<div class="warehouse-control-main">' + materialsTable(payload) + '</div>' +
             controlDialog('movement', 'Новая операция', 'Заказ, приход или расход материала.', stockMovementForm(payload), false) +
@@ -404,6 +493,7 @@
             dialogReturnFocus = opener || document.activeElement;
             dialog.hidden = false;
             document.body.classList.add('warehouse-control-dialog-open');
+            refreshLucideIcons(dialog);
             if (name === 'work-fact' || name === 'norms') {
                 qsa('details', dialog).forEach(function (details) { details.open = true; });
             }
@@ -450,8 +540,12 @@
                 row.hidden = !(matchesText && matchesState);
                 if (!row.hidden) visible += 1;
             });
-            var visibleCount = qs('[data-warehouse-visible-count]', panel);
-            if (visibleCount) visibleCount.textContent = visible + ' из ' + materials.length + ' позиций';
+            qsa('[data-warehouse-material-section-group]', panel).forEach(function (group) {
+                group.hidden = !qsa('[data-select-material]', group).some(function (row) { return !row.hidden; });
+            });
+            qsa('[data-warehouse-material-source-group]', panel).forEach(function (group) {
+                group.hidden = !qsa('[data-warehouse-material-section-group]', group).some(function (section) { return !section.hidden; });
+            });
             var empty = qs('[data-warehouse-no-results]', panel);
             if (empty) empty.hidden = visible !== 0;
         }
@@ -477,6 +571,7 @@
             var pickerClear = qs('[data-stock-material-clear]', stockForm);
             var selectionSummary = qs('[data-stock-selection-summary]', stockForm);
             var fillRemaining = qs('[data-stock-fill-remaining]', stockForm);
+            var fillRemainingValue = qs('[data-stock-fill-remaining-value]', stockForm);
             var quantityUnit = qs('[data-stock-qty-unit]', stockForm);
             var operationPreview = qs('[data-stock-move-preview]', stockForm);
             function selectedMaterial() {
@@ -486,9 +581,22 @@
 
             function operationSuggestion(item, kind) {
                 var planned = Number(item.plannedQty || 0);
-                if (kind === 'purchase') return Math.max(planned - Number(item.purchasedQty || 0), 0);
-                if (kind === 'receipt') return Math.max(Math.max(planned, Number(item.purchasedQty || 0)) - Number(item.receivedQty || 0), 0);
-                return Math.max(Number(item.stockBalanceQty || 0), 0);
+                var purchased = Number(item.purchasedQty || 0);
+                var received = Number(item.receivedQty || 0);
+                var suggestion;
+                if (kind === 'purchase') suggestion = Math.max(planned - Math.max(purchased, received), 0);
+                else if (kind === 'receipt') suggestion = Math.max(Math.max(planned, purchased) - received, 0);
+                else suggestion = Math.max(Number(item.stockBalanceQty || 0), 0);
+                return Math.max(Math.round(suggestion * 1000) / 1000, 0);
+            }
+
+            function clearStockMoveDraft() {
+                stockForm.elements.qty.value = '';
+                var errorNode = qs('[data-stock-move-error]', stockForm);
+                if (errorNode) {
+                    errorNode.textContent = '';
+                    errorNode.classList.remove('active');
+                }
             }
 
             function refreshSelection() {
@@ -498,7 +606,13 @@
                 if (!item) {
                     if (selectionSummary) selectionSummary.innerHTML = '<i data-lucide="mouse-pointer-click"></i><span>Выберите материал — здесь сразу появятся план, приход, расход и остаток.</span>';
                     if (quantityUnit) quantityUnit.textContent = 'ед.';
-                    if (fillRemaining) fillRemaining.hidden = true;
+                    if (fillRemaining) {
+                        fillRemaining.hidden = true;
+                        fillRemaining.removeAttribute('data-fill-value');
+                        fillRemaining.removeAttribute('title');
+                        fillRemaining.setAttribute('aria-label', 'Выбрать максимум');
+                    }
+                    if (fillRemainingValue) fillRemainingValue.textContent = '';
                     if (operationPreview) operationPreview.textContent = 'Введите количество — покажем результат до сохранения.';
                     refreshLucideIcons(selectionSummary || stockForm);
                     return;
@@ -510,8 +624,12 @@
                 var suggestion = operationSuggestion(item, kind);
                 if (fillRemaining) {
                     fillRemaining.hidden = !(suggestion > 0);
-                    fillRemaining.textContent = kind === 'purchase' ? 'Заказать недостающее: ' + quantity(suggestion) : (kind === 'receipt' ? 'Привезти остаток: ' + quantity(suggestion) : 'Списать весь остаток: ' + quantity(suggestion));
                     fillRemaining.setAttribute('data-fill-value', String(suggestion));
+                    var maximumText = quantity(suggestion) + (item.unit ? ' ' + item.unit : '');
+                    var maximumAction = kind === 'purchase' ? 'заказа' : (kind === 'receipt' ? 'прихода' : 'расхода');
+                    fillRemaining.setAttribute('aria-label', 'Выбрать максимум для ' + maximumAction + ': ' + maximumText);
+                    fillRemaining.setAttribute('title', 'Подставить ' + maximumText);
+                    if (fillRemainingValue) fillRemainingValue.textContent = maximumText;
                 }
                 if (operationPreview) {
                     if (!(qty > 0)) {
@@ -546,6 +664,7 @@
                 var item = materials.find(function (candidate) { return Number(candidate.id) === Number(materialId); });
                 if (!item) return;
                 openWarehouseDialog('movement', null, false);
+                if (Number(stockForm.elements.estimate_item_id.value || 0) !== Number(item.id)) clearStockMoveDraft();
                 stockForm.elements.estimate_item_id.value = String(item.id);
                 if (pickerInput) pickerInput.value = item.title;
                 if (pickerClear) pickerClear.hidden = false;
@@ -574,6 +693,7 @@
             if (pickerInput) {
                 pickerInput.addEventListener('focus', function () { renderPickerSuggestions(pickerInput.value); });
                 pickerInput.addEventListener('input', function () {
+                    if (stockForm.elements.estimate_item_id.value) clearStockMoveDraft();
                     stockForm.elements.estimate_item_id.value = '';
                     if (pickerClear) pickerClear.hidden = !pickerInput.value;
                     renderPickerSuggestions(pickerInput.value);
@@ -595,6 +715,7 @@
             }
             if (pickerClear) pickerClear.onclick = function () {
                 stockForm.elements.estimate_item_id.value = '';
+                clearStockMoveDraft();
                 pickerInput.value = '';
                 pickerClear.hidden = true;
                 refreshSelection();
@@ -602,9 +723,11 @@
             };
             stockForm.elements.qty.addEventListener('input', refreshSelection);
             if (fillRemaining) fillRemaining.onclick = function () {
-                stockForm.elements.qty.value = fillRemaining.getAttribute('data-fill-value') || '';
+                var maximum = Number(fillRemaining.getAttribute('data-fill-value') || 0);
+                if (!(maximum > 0)) return;
+                stockForm.elements.qty.value = String(maximum);
                 refreshSelection();
-                stockForm.elements.qty.focus();
+                stockForm.elements.qty.focus({ preventScroll: true });
             };
             syncStockMoveKind();
 
@@ -613,13 +736,12 @@
                     chooseMaterial(button.getAttribute('data-select-material-button'), null, true);
                 };
             });
-            qsa('[data-material-move]', panel).forEach(function (button) {
-                button.onclick = function (event) {
-                    event.stopPropagation();
-                    chooseMaterial(button.getAttribute('data-material-id'), button.getAttribute('data-material-move'), true);
+            qsa('[data-select-material].is-actionable', panel).forEach(function (row) {
+                row.onclick = function (event) {
+                    if (event.defaultPrevented || event.target.closest('button, a, input, select, textarea, label')) return;
+                    chooseMaterial(row.getAttribute('data-select-material'), null, true);
                 };
             });
-
             stockForm.onsubmit = function (event) {
                 event.preventDefault();
                 var errorNode = qs('[data-stock-move-error]', stockForm);
@@ -741,6 +863,7 @@
             portal.setAttribute('data-warehouse-control-portal', String(projectId));
             dialogNodes.forEach(function (dialog) { portal.appendChild(dialog); });
             document.body.appendChild(portal);
+            refreshLucideIcons(portal);
 
             dialogKeydownHandler = function (event) {
                 if (event.key !== 'Escape') return;
@@ -798,10 +921,9 @@
             button.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
         qsa('[data-select-material]', panel).forEach(function (item) { item.hidden = false; });
+        qsa('[data-warehouse-material-section-group], [data-warehouse-material-source-group]', panel).forEach(function (group) { group.hidden = false; });
         var empty = qs('[data-warehouse-no-results]', panel);
         if (empty) empty.hidden = true;
-        var count = qs('[data-warehouse-visible-count]', panel);
-        if (count) count.textContent = String(qsa('[data-select-material]', panel).length) + ' позиций';
         var selectButton = qs('[data-select-material-button]', card);
         if (selectButton) selectButton.focus({ preventScroll: true });
         if (PMBI.app && typeof PMBI.app.highlightPositionRow === 'function') {

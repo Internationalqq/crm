@@ -325,6 +325,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         return str(root["title"]).strip() if root and root["title"] else None
 
     estimate_columns = {str(item["name"]) for item in con.execute("PRAGMA table_info(estimate_items)").fetchall()}
+    kind_override_select = "e.item_kind_override" if "item_kind_override" in estimate_columns else "NULL AS item_kind_override"
     table_names = {
         str(item["name"])
         for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
@@ -354,6 +355,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             e.planned_qty,
             e.planned_price,
             e.item_kind,
+            {kind_override_select},
             e.section_title,
             e.article,
             e.procurement_status,
@@ -432,6 +434,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "id": row["id"],
                 "title": row["title"],
                 "itemKind": resolved_estimate_item_kind(row),
+                "itemKindSource": "manual" if str(row["item_kind_override"] or "") in {"material", "work"} else "auto",
                 "unit": display_unit,
                 "sourceUnit": row["unit"],
                 "sourcePlannedQty": float(row["planned_qty"]),
@@ -1068,9 +1071,11 @@ def api_warehouse_transfer(handler, path: str) -> None:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
             return
 
+        estimate_columns = {str(item["name"]) for item in con.execute("PRAGMA table_info(estimate_items)").fetchall()}
+        kind_override_select = ", item_kind_override" if "item_kind_override" in estimate_columns else ", NULL AS item_kind_override"
         material_rows = con.execute(
-            """
-            SELECT id, project_id, title, unit, planned_qty, planned_price, item_kind, section_title,
+            f"""
+            SELECT id, project_id, title, unit, planned_qty, planned_price, item_kind{kind_override_select}, section_title,
                    article, procurement_status, warehouse_source, warehouse_item_id, need_by_date, notes, stage_id
             FROM estimate_items
             WHERE project_id = ?
@@ -1865,6 +1870,9 @@ def api_update_supplier_offer(handler, path: str) -> None:
 
 
 def resolved_estimate_item_kind(item: dict | sqlite3.Row) -> str:
+    manual_kind = str(payload_get(item, "item_kind_override", "itemKindOverride") or "").strip().lower()
+    if manual_kind in {"material", "work"}:
+        return manual_kind
     code_kind = estimate_code_text_kind(" ".join(
         str(payload_get(item, key) or "")
         for key in (

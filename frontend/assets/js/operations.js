@@ -3932,6 +3932,7 @@
                         '<textarea name="raw_input" rows="6" required placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
                         '<small class="report-field-hint">Нажмите «Диктовать» или пишите свободно. Пример: «Заказал дверные ручки, привезли кабель 40 м»</small>' +
                     '</label>' +
+                    '<div class="report-live-assist" data-report-live-assist aria-live="polite" hidden></div>' +
                 '</section>' +
                 '<section class="report-form-section report-form-preview-section">' +
                     '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true">3</span><div><b>Готовый отчет</b><small>Так запись будет выглядеть в журнале объекта</small></div><span class="report-section-auto">Авто</span></div>' +

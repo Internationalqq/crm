@@ -5409,7 +5409,7 @@ function renderLogsDayView(project, logs) {
                 'works',
                 title,
                 index,
-                renderBulkSectionCheckbox(projectId, title, 'works', sectionProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
+                renderBulkSectionCheckbox(projectId, title, 'works', workProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
                 scheduleMeta.html + renderInlineMarketButton(projectId, 'works', 'inline-market-section') + sectionPresenceBadge('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress) + sectionPresenceBadge('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue) + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length + group.materialRows.length) + ' \u043f\u043e\u0437.') + '</span>',
                 '',
                 sectionProgressStrip(workProgress, materialProgressValue, title)
@@ -6462,6 +6462,91 @@ function renderLogsDayView(project, logs) {
         '</section>';
     };
 
+    function reportSuggestionKey(kind, candidate) {
+        var item = candidate && candidate.item || {};
+        return kind + ':' + String(item.id || normalizeReportText(item.title || 'position'));
+    }
+
+    function reportSuggestionSection(candidate, fallback) {
+        var item = candidate && candidate.item || {};
+        return String(candidate && candidate.sectionTitle || item.sectionTitle || item.section_title || item.stageTitle || fallback || '').trim();
+    }
+
+    function reportSuggestionScore(candidate, queryTokens, normalizedQuery) {
+        var item = candidate && candidate.item || {};
+        var title = normalizeReportText(item.title || '');
+        var section = normalizeReportText(reportSuggestionSection(candidate, ''));
+        var candidateTokens = Array.isArray(candidate && candidate.tokens) ? candidate.tokens : reportTokens(title);
+        var score = 0;
+        if (normalizedQuery.length >= 3 && title.indexOf(normalizedQuery) !== -1) score += 48;
+        queryTokens.forEach(function (queryToken) {
+            candidateTokens.forEach(function (candidateToken) {
+                if (queryToken === candidateToken) score += 16;
+                else if (queryToken.length >= 3 && (candidateToken.indexOf(queryToken) === 0 || queryToken.indexOf(candidateToken) === 0)) score += 8;
+            });
+            if (section.indexOf(queryToken) !== -1) score += 2;
+        });
+        return score;
+    }
+
+    function reportLiveSuggestions(projectId, rawText) {
+        var clauses = reportTextClauses(rawText);
+        var query = normalizeReportText(clauses.length ? clauses[clauses.length - 1] : rawText);
+        var queryTokens = reportTokens(query);
+        if (!query || query.length < 3 || !queryTokens.length) return [];
+        var suggestions = [];
+        workCandidatesForProject(projectId).forEach(function (candidate) {
+            var score = reportSuggestionScore(candidate, queryTokens, query);
+            if (score > 0) suggestions.push({ kind: 'work', candidate: candidate, score: score });
+        });
+        materialCandidatesForProject(projectId).forEach(function (candidate) {
+            var score = reportSuggestionScore(candidate, queryTokens, query);
+            if (score > 0) suggestions.push({ kind: 'material', candidate: candidate, score: score });
+        });
+        var seen = {};
+        return suggestions.sort(function (left, right) {
+            if (right.score !== left.score) return right.score - left.score;
+            return String(left.candidate.item.title || '').localeCompare(String(right.candidate.item.title || ''), 'ru');
+        }).filter(function (suggestion) {
+            var key = reportSuggestionKey(suggestion.kind, suggestion.candidate);
+            if (seen[key]) return false;
+            seen[key] = true;
+            return true;
+        }).slice(0, 8);
+    }
+
+    function reportManualMaterialEntry(candidate, rawText) {
+        var item = candidate && candidate.item || {};
+        var normalized = normalizeReportText(rawText);
+        var planned = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
+        var purchasedAlready = Number(item.purchasedQty || item.purchased_qty || 0);
+        var receivedAlready = Number(item.receivedQty || item.received_qty || 0);
+        var usedAlready = Number(item.usedQty || item.used_qty || 0) + Number(item.writeoffQty || item.writeoff_qty || 0);
+        var purchaseMaxQty = Math.max(planned - Math.max(purchasedAlready, receivedAlready), 0);
+        var receiptMaxQty = Math.max(Math.max(planned, purchasedAlready) - receivedAlready, 0);
+        var useMaxQty = Math.max(Number(item.stockBalanceQty != null ? item.stockBalanceQty : (receivedAlready - usedAlready)) || 0, 0);
+        var qty = reportQuantityFromClause(rawText, item);
+        var purchase = reportHasPurchaseIntent(normalized);
+        var receipt = reportHasReceiptIntent(normalized);
+        var used = reportHasUseIntent(normalized);
+        if (receipt && /поставк|отгруз/.test(normalized)) used = false;
+        if (!qty && purchase) qty = purchaseMaxQty;
+        if (!qty && receipt) qty = receiptMaxQty;
+        if (!qty && used && reportHasWholeIntent(normalized)) qty = useMaxQty;
+        return {
+            item: item,
+            ambiguous: false,
+            actionEligible: purchase || receipt || used,
+            purchaseMaxQty: purchaseMaxQty,
+            receiptMaxQty: receiptMaxQty,
+            useMaxQty: useMaxQty,
+            purchasedQty: purchase ? Math.min(qty, purchaseMaxQty || qty) : 0,
+            receivedQty: receipt ? Math.min(qty, receiptMaxQty || qty) : 0,
+            usedQty: used ? Math.min(qty, useMaxQty || qty) : 0,
+            selectedManually: true
+        };
+    }
+
     bindReportPreview = function () {
         qsa('[data-log-form]').forEach(function (form) {
             if (form.dataset.reportPreviewBound === '1') return;
@@ -6470,8 +6555,81 @@ function renderLogsDayView(project, logs) {
             var workDone = form.work_done;
             var rawInput = form.raw_input;
             var titleInput = form.title;
+            var liveAssist = qs('[data-report-live-assist]', form);
             var activeDraft = null;
             var activeRawText = '';
+            var activeSuggestionsByKey = {};
+            var manualSelections = {};
+
+            function sameSuggestionEntry(entry, selected) {
+                var entryItem = entry && entry.item || {};
+                var selectedItem = selected && selected.candidate && selected.candidate.item || {};
+                if (entryItem.id && selectedItem.id) return Number(entryItem.id) === Number(selectedItem.id);
+                return normalizeReportText(entryItem.title || '') === normalizeReportText(selectedItem.title || '');
+            }
+
+            function mergeManualSelections(draft, rawText) {
+                Object.keys(manualSelections).forEach(function (key) {
+                    var selected = manualSelections[key];
+                    if (!selected || !selected.candidate) return;
+                    if (selected.kind === 'work') {
+                        if (draft.workMatches.some(function (entry) { return sameSuggestionEntry(entry, selected); })) return;
+                        draft.workMatches.push({
+                            sectionTitle: reportSuggestionSection(selected.candidate, 'Работы'),
+                            item: selected.candidate.item,
+                            score: 100,
+                            done: !reportHasPartialIntent(rawText),
+                            partial: reportHasPartialIntent(rawText),
+                            selectedManually: true
+                        });
+                        return;
+                    }
+                    if (draft.materialMatches.some(function (entry) { return sameSuggestionEntry(entry, selected); })) return;
+                    draft.materialMatches.push(reportManualMaterialEntry(selected.candidate, rawText));
+                });
+                draft.text = buildProjectReportTextFromMatches(rawText, draft.workMatches, draft.materialMatches);
+                return draft;
+            }
+
+            function renderLiveAssist(rawText) {
+                if (!liveAssist) return;
+                var projectId = Number(form.project_id && form.project_id.value || 0);
+                var suggestions = reportLiveSuggestions(projectId, rawText).filter(function (suggestion) {
+                    return !manualSelections[reportSuggestionKey(suggestion.kind, suggestion.candidate)];
+                });
+                activeSuggestionsByKey = {};
+                suggestions.forEach(function (suggestion) {
+                    activeSuggestionsByKey[reportSuggestionKey(suggestion.kind, suggestion.candidate)] = suggestion;
+                });
+                var selectedItems = Object.keys(manualSelections).map(function (key) {
+                    var selected = manualSelections[key];
+                    var item = selected.candidate.item || {};
+                    var label = selected.kind === 'work' ? 'Работа' : 'Материал';
+                    return '<span class="report-live-picked-item is-' + selected.kind + '"><small>' + label + '</small><b>' + escapeHtml(item.title || 'Позиция') + '</b><button type="button" data-report-suggestion-remove="' + escapeHtml(key) + '" aria-label="Убрать позицию ' + escapeHtml(item.title || '') + '">×</button></span>';
+                }).join('');
+                var suggestionsHtml = suggestions.map(function (suggestion) {
+                    var item = suggestion.candidate.item || {};
+                    var key = reportSuggestionKey(suggestion.kind, suggestion.candidate);
+                    var label = suggestion.kind === 'work' ? 'Работа' : 'Материал';
+                    var section = reportSuggestionSection(suggestion.candidate, suggestion.kind === 'work' ? 'График работ' : 'Смета материалов');
+                    var unit = suggestion.kind === 'material' && item.unit ? (' · ' + item.unit) : '';
+                    return '<button class="report-live-suggestion is-' + suggestion.kind + '" type="button" data-report-suggestion="' + escapeHtml(key) + '">' +
+                        '<span class="report-live-kind">' + label + '</span>' +
+                        '<span class="report-live-copy"><b>' + escapeHtml(item.title || 'Позиция') + '</b><small>' + escapeHtml(section + unit) + '</small></span>' +
+                        '<span class="report-live-add" aria-hidden="true">+</span>' +
+                    '</button>';
+                }).join('');
+                var hasQuery = normalizeReportText(rawText).length >= 3;
+                liveAssist.hidden = !selectedItems && !hasQuery;
+                if (liveAssist.hidden) {
+                    liveAssist.innerHTML = '';
+                    return;
+                }
+                liveAssist.innerHTML =
+                    '<div class="report-live-assist-head"><div><b>Подсказки по объекту</b><span>Выберите, что вы имели в виду</span></div><small>' + (suggestions.length ? ('Найдено: ' + suggestions.length) : 'Можно продолжить ввод') + '</small></div>' +
+                    (selectedItems ? '<div class="report-live-picked">' + selectedItems + '</div>' : '') +
+                    (suggestionsHtml ? '<div class="report-live-suggestions">' + suggestionsHtml + '</div>' : '<div class="report-live-empty">Совпадений пока нет. Продолжайте писать название работы или материала.</div>');
+            }
             function syncReportTextFromEffectQuantities() {
                 if (!previewRoot || !activeDraft) return;
                 qsa('[data-report-effect]', previewRoot).forEach(function (input) {
@@ -6524,6 +6682,7 @@ function renderLogsDayView(project, logs) {
                     raw_input: rawText,
                     work_done: ''
                 });
+                draft = mergeManualSelections(draft, rawText);
                 activeDraft = draft;
                 activeRawText = rawText;
                 if (workDone) {
@@ -6535,6 +6694,7 @@ function renderLogsDayView(project, logs) {
                     titleInput.dataset.autogenerated = '1';
                 }
                 if (previewRoot) previewRoot.innerHTML = renderReportPreviewHtml(projectId, rawText ? draft : { text: '', workMatches: [], materialMatches: [] });
+                renderLiveAssist(rawText);
                 refreshEffectsSummary();
             }
             if (rawInput) rawInput.addEventListener('input', refreshPreview);
@@ -6544,6 +6704,26 @@ function renderLogsDayView(project, logs) {
             });
             if (previewRoot) previewRoot.addEventListener('input', function (event) {
                 if (event.target && event.target.matches('[data-report-effect-qty]')) refreshEffectsSummary();
+            });
+            if (liveAssist) liveAssist.addEventListener('click', function (event) {
+                var addButton = event.target && event.target.closest ? event.target.closest('[data-report-suggestion]') : null;
+                var removeButton = event.target && event.target.closest ? event.target.closest('[data-report-suggestion-remove]') : null;
+                if (addButton) {
+                    var suggestionKey = addButton.getAttribute('data-report-suggestion') || '';
+                    if (activeSuggestionsByKey[suggestionKey]) manualSelections[suggestionKey] = activeSuggestionsByKey[suggestionKey];
+                    refreshPreview();
+                    if (rawInput) rawInput.focus();
+                    return;
+                }
+                if (removeButton) {
+                    delete manualSelections[removeButton.getAttribute('data-report-suggestion-remove') || ''];
+                    refreshPreview();
+                    if (rawInput) rawInput.focus();
+                }
+            });
+            form.addEventListener('reset', function () {
+                manualSelections = {};
+                activeSuggestionsByKey = {};
             });
             refreshPreview();
         });
@@ -8142,11 +8322,20 @@ function renderLogsDayView(project, logs) {
     var activePositionEditor = null;
     var positionEditorReturnFocus = null;
     var positionEditorSubmitting = false;
+    var positionEditorDurationSubmitting = false;
+
+    function positionEditorHalfDay(value) {
+        var number = Number(String(value == null ? '' : value).replace(',', '.'));
+        if (!Number.isFinite(number) || number <= 0) return null;
+        return Math.max(0.5, Math.min(3650, Math.round(number * 2) / 2));
+    }
 
     function positionEditorItemFromRow(row) {
         var projectId = Number(row.getAttribute('data-position-project') || (state.selectedProject && state.selectedProject.id) || 0);
         var itemId = Number(row.getAttribute('data-position-id') || 0);
         var kind = row.getAttribute('data-position-kind') === 'work' ? 'work' : 'material';
+        var scheduleAutoDays = positionEditorHalfDay(row.getAttribute('data-position-auto-days'));
+        var scheduleDurationDays = positionEditorHalfDay(row.getAttribute('data-position-duration-days'));
         var source = ((state.materialsByProject && state.materialsByProject[projectId]) || []).find(function (item) {
             return Number(item && item.id || 0) === itemId;
         }) || {};
@@ -8159,7 +8348,10 @@ function renderLogsDayView(project, logs) {
             plannedQty: source.sourcePlannedQty != null
                 ? source.sourcePlannedQty
                 : (source.planned_qty != null ? source.planned_qty : (source.plannedQty != null ? source.plannedQty : row.getAttribute('data-position-qty') || '')),
-            sectionTitle: String(source.sectionTitle || source.section_title || row.getAttribute('data-position-section') || '').trim()
+            sectionTitle: String(source.sectionTitle || source.section_title || row.getAttribute('data-position-section') || '').trim(),
+            scheduleAutoDays: scheduleAutoDays,
+            scheduleDurationDays: scheduleDurationDays,
+            scheduleDurationOverridden: row.getAttribute('data-position-duration-overridden') === '1'
         };
     }
 
@@ -8174,7 +8366,15 @@ function renderLogsDayView(project, logs) {
             '<header class="position-editor-head"><div class="position-editor-heading"><span class="position-editor-icon" aria-hidden="true"><i data-lucide="pencil-line"></i></span><div><span class="position-editor-kicker" data-position-editor-kicker>Сметная позиция</span><h2 id="position-editor-title">Редактировать позицию</h2></div></div><button class="position-editor-close" type="button" data-position-editor-close aria-label="Закрыть"><i data-lucide="x" aria-hidden="true"></i></button></header>' +
             '<form class="position-editor-form" data-position-editor-form novalidate>' +
                 '<label class="position-editor-field is-wide"><span>Название</span><input name="title" maxlength="300" autocomplete="off" required></label>' +
+                '<fieldset class="position-editor-kind"><legend>Тип позиции</legend><div class="position-editor-kind-switch">' +
+                    '<label><input type="radio" name="position_kind" value="material"><span><i data-lucide="package" aria-hidden="true"></i>Материал</span></label>' +
+                    '<label><input type="radio" name="position_kind" value="work"><span><i data-lucide="hammer" aria-hidden="true"></i>Работа</span></label>' +
+                '</div><p class="position-editor-kind-warning" data-position-kind-warning role="status" aria-live="polite" hidden></p></fieldset>' +
                 '<div class="position-editor-grid"><label class="position-editor-field is-section"><span>Раздел</span><input name="section_title" maxlength="200" autocomplete="off" required></label><label class="position-editor-field"><span>Единица</span><input name="unit" maxlength="40" autocomplete="off" required></label><label class="position-editor-field"><span>Плановый объём</span><input name="planned_qty" type="number" min="0.000001" step="any" inputmode="decimal" required></label></div>' +
+                '<section class="position-editor-duration" data-position-duration-panel hidden><header><div><span>Обычный график</span><strong>Длительность работы</strong></div><small data-position-duration-auto-hint></small></header><div class="position-editor-duration-controls">' +
+                    '<div class="position-editor-duration-stepper" role="group" aria-label="Длительность работы в обычном графике"><button type="button" data-position-duration-step="-0.5" aria-label="Уменьшить на 0,5 дня">−</button><input name="schedule_duration_days" type="number" min="0.5" max="3650" step="0.5" inputmode="decimal" aria-label="Длительность работы, дней"><button type="button" data-position-duration-step="0.5" aria-label="Увеличить на 0,5 дня">+</button></div>' +
+                    '<button class="position-editor-duration-auto" type="button" data-position-duration-auto>Авто</button><span class="position-editor-duration-status" data-position-duration-status role="status" aria-live="polite"></span>' +
+                '</div><p>Сохраняется отдельно от строки сметы и не меняет «График производства».</p></section>' +
                 '<p class="position-editor-note" id="position-editor-note"><i data-lucide="info" aria-hidden="true"></i><span>Меняется плановая строка сметы. Выполненный факт, заказы, приходы и расходы сохранятся.</span></p>' +
                 '<div class="position-editor-error" data-position-editor-error role="alert" aria-live="polite" hidden></div>' +
                 '<footer class="position-editor-actions"><button class="ghost" type="button" data-position-editor-close>Отмена</button><button class="primary" type="submit" data-position-editor-save><i data-lucide="check" aria-hidden="true"></i><span>Сохранить</span></button></footer>' +
@@ -8190,10 +8390,58 @@ function renderLogsDayView(project, logs) {
         if (code === 'estimate_position_fields_required') return 'Заполните название, раздел, единицу и объём больше нуля.';
         if (code === 'estimate_position_fields_too_long') return 'Одно из полей получилось слишком длинным.';
         if (code === 'estimate_position_kind_mismatch') return 'Тип позиции изменился. Обновите страницу и попробуйте ещё раз.';
-        if (code === 'estimate_position_title_kind_conflict') return 'Название похоже на другой тип позиции. Уточните формулировку, чтобы материал не превратился в работу и наоборот.';
+        if (code === 'bad_estimate_position_kind') return 'Выберите тип позиции: материал или работа.';
+        if (code === 'estimate_position_title_kind_conflict') return 'Название похоже на другой тип. Выберите правильный тип выше или уточните название.';
+        if (code === 'estimate_position_kind_change_blocked') {
+            var blockers = Array.isArray(error.payload && error.payload.blockers) ? error.payload.blockers : [];
+            var labels = blockers.map(function (item) { return String(item && item.label || '').trim(); }).filter(Boolean);
+            return 'Перенос заблокирован, чтобы не потерять учёт.' + (labels.length ? (' Связано: ' + labels.slice(0, 3).join(', ') + (labels.length > 3 ? ' и другое.' : '.')) : '');
+        }
         if (code === 'estimate_position_not_found') return 'Позиция больше не найдена в смете.';
         if (code === 'forbidden') return 'У вас нет права редактировать сметные позиции.';
         return appErrorMessage(error, 'Не удалось сохранить позицию. Попробуйте ещё раз.');
+    }
+
+    function updatePositionEditorDurationState(modal, item) {
+        var panel = qs('[data-position-duration-panel]', modal);
+        var form = qs('[data-position-editor-form]', modal);
+        if (!panel || !form) return;
+        var selectedKind = form.elements.position_kind && form.elements.position_kind.value === 'work' ? 'work' : 'material';
+        var canEditDuration = !!item && item.kind === 'work' && selectedKind === 'work' && item.scheduleDurationDays != null;
+        panel.hidden = !canEditDuration;
+        if (!canEditDuration) return;
+        var input = form.elements.schedule_duration_days;
+        var autoButton = qs('[data-position-duration-auto]', panel);
+        var autoHint = qs('[data-position-duration-auto-hint]', panel);
+        if (input) {
+            if (!positionEditorDurationSubmitting) input.value = String(item.scheduleDurationDays || item.scheduleAutoDays || 0.5);
+            input.disabled = positionEditorDurationSubmitting;
+        }
+        if (autoHint) autoHint.textContent = item.scheduleAutoDays != null ? ('Авто: ' + String(item.scheduleAutoDays) + ' дн.') : 'Авторасчёт недоступен';
+        if (autoButton) autoButton.disabled = positionEditorDurationSubmitting || !item.scheduleDurationOverridden;
+        qsa('[data-position-duration-step]', panel).forEach(function (button) { button.disabled = positionEditorDurationSubmitting; });
+        panel.classList.toggle('is-overridden', !!item.scheduleDurationOverridden);
+    }
+
+    function updatePositionEditorKindState(modal, originalKind) {
+        var form = qs('[data-position-editor-form]', modal);
+        if (!form) return;
+        var selectedKind = form.elements.position_kind && form.elements.position_kind.value === 'work' ? 'work' : 'material';
+        var changed = selectedKind !== originalKind;
+        var kicker = qs('[data-position-editor-kicker]', modal);
+        var warning = qs('[data-position-kind-warning]', modal);
+        if (kicker) kicker.textContent = selectedKind === 'work' ? 'Работа' : 'Материал';
+        modal.classList.toggle('is-work', selectedKind === 'work');
+        modal.classList.toggle('is-material', selectedKind === 'material');
+        if (warning) {
+            warning.hidden = !changed;
+            warning.textContent = changed
+                ? (selectedKind === 'work'
+                    ? 'После сохранения позиция появится в «Работах». Перед переносом проверим связанный учёт.'
+                    : 'После сохранения позиция появится в «Материалах». Перед переносом проверим связанный учёт.')
+                : '';
+        }
+        updatePositionEditorDurationState(modal, activePositionEditor);
     }
 
     function closePositionEditor(restoreFocus) {
@@ -8221,10 +8469,10 @@ function renderLogsDayView(project, logs) {
         form.elements.section_title.value = item.sectionTitle || 'Без раздела';
         form.elements.unit.value = item.unit;
         form.elements.planned_qty.value = String(item.plannedQty == null ? '' : item.plannedQty).replace(',', '.');
-        var kicker = qs('[data-position-editor-kicker]', modal);
-        if (kicker) kicker.textContent = item.kind === 'work' ? 'Работа' : 'Материал';
-        modal.classList.toggle('is-work', item.kind === 'work');
-        modal.classList.toggle('is-material', item.kind === 'material');
+        form.elements.position_kind.value = item.kind;
+        updatePositionEditorKindState(modal, item.kind);
+        var durationStatus = qs('[data-position-duration-status]', modal);
+        if (durationStatus) { durationStatus.textContent = ''; durationStatus.classList.remove('is-error'); }
         var error = qs('[data-position-editor-error]', modal);
         if (error) { error.hidden = true; error.textContent = ''; }
         modal.hidden = false;
@@ -8240,10 +8488,42 @@ function renderLogsDayView(project, logs) {
     function refreshEditedPosition(item, response) {
         var projectId = item.projectId;
         var items = Array.isArray(response && response.items) ? response.items : [];
-        if (items.length) state.materialsByProject[projectId] = items;
+        if (Array.isArray(response && response.items)) state.materialsByProject[projectId] = items;
         var updated = response && response.item;
         if (!updated && items.length) updated = items.find(function (candidate) { return Number(candidate.id || 0) === item.itemId; });
-        if (item.kind === 'material' && PMBI.warehouseControl) {
+        var savedKind = String(response && response.itemKind || (updated && updated.itemKind) || item.targetKind || item.kind) === 'work' ? 'work' : 'material';
+        var kindChanged = savedKind !== item.kind;
+        var project = state.projects.find(function (candidate) { return Number(candidate.id) === Number(projectId); }) || state.selectedProject;
+
+        if (kindChanged) {
+            rerenderProjectMaterialAndWorkViews(projectId);
+            if (PMBI.planning && project && typeof PMBI.planning.loadSectionScheduleForecast === 'function') {
+                PMBI.planning.loadSectionScheduleForecast(projectId, project.started_at || APP_TODAY, function () {
+                    rerenderProjectMaterialAndWorkViews(projectId);
+                    if (savedKind === 'work' && typeof PMBI.planning.focusProjectScheduleTarget === 'function') {
+                        PMBI.planning.focusProjectScheduleTarget({ workId: item.itemId }, projectId);
+                    }
+                }, true);
+            }
+            if (savedKind === 'work') {
+                activateProjectTab('schedule');
+                if (PMBI.planning && typeof PMBI.planning.focusProjectScheduleTarget === 'function') {
+                    PMBI.planning.focusProjectScheduleTarget({ workId: item.itemId }, projectId);
+                }
+                if (PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+                    PMBI.warehouseControl.load(projectId, true).catch(function () {});
+                }
+            } else if (PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+                var materialLoad = PMBI.warehouseControl.load(projectId, true);
+                activateProjectTab('warehouse-control');
+                materialLoad.then(function () {
+                    if (typeof PMBI.warehouseControl.focusMaterial === 'function') PMBI.warehouseControl.focusMaterial(item.itemId, projectId);
+                }).catch(function () {});
+            }
+            return;
+        }
+
+        if (savedKind === 'material' && PMBI.warehouseControl) {
             var patched = updated && typeof PMBI.warehouseControl.patchPosition === 'function'
                 ? PMBI.warehouseControl.patchPosition(projectId, updated)
                 : false;
@@ -8254,8 +8534,7 @@ function renderLogsDayView(project, logs) {
             else if (typeof PMBI.warehouseControl.load === 'function') PMBI.warehouseControl.load(projectId, true).then(focusMaterial).catch(function () {});
             return;
         }
-        var project = state.projects.find(function (candidate) { return Number(candidate.id) === Number(projectId); }) || state.selectedProject;
-        if (item.kind === 'work' && project && PMBI.planning && typeof PMBI.planning.loadSectionScheduleForecast === 'function') {
+        if (savedKind === 'work' && project && PMBI.planning && typeof PMBI.planning.loadSectionScheduleForecast === 'function') {
             PMBI.planning.loadSectionScheduleForecast(projectId, project.started_at || APP_TODAY, function () {
                 rerenderProjectMaterialAndWorkViews(projectId);
                 if (typeof PMBI.planning.focusProjectScheduleTarget === 'function') {
@@ -8263,6 +8542,71 @@ function renderLogsDayView(project, logs) {
                 }
             }, true);
         }
+    }
+
+    function refreshPositionEditorSchedule(item) {
+        var project = state.projects.find(function (candidate) { return Number(candidate.id) === Number(item.projectId); }) || state.selectedProject;
+        if (!project || !PMBI.planning || typeof PMBI.planning.loadSectionScheduleForecast !== 'function') return;
+        PMBI.planning.loadSectionScheduleForecast(item.projectId, project.started_at || APP_TODAY, function () {
+            rerenderProjectMaterialAndWorkViews(item.projectId);
+        }, true);
+    }
+
+    function patchPositionEditorDurationRows(item) {
+        qsa('[data-position-editor][data-position-kind="work"]').forEach(function (row) {
+            if (Number(row.getAttribute('data-position-project') || 0) !== Number(item.projectId)) return;
+            if (Number(row.getAttribute('data-position-id') || 0) !== Number(item.itemId)) return;
+            row.setAttribute('data-position-duration-days', item.scheduleDurationDays == null ? '' : String(item.scheduleDurationDays));
+            row.setAttribute('data-position-auto-days', item.scheduleAutoDays == null ? '' : String(item.scheduleAutoDays));
+            row.setAttribute('data-position-duration-overridden', item.scheduleDurationOverridden ? '1' : '0');
+        });
+    }
+
+    function savePositionEditorDuration(reset, rawDays) {
+        if (!activePositionEditor || activePositionEditor.kind !== 'work' || positionEditorDurationSubmitting) return Promise.resolve(null);
+        var item = Object.assign({}, activePositionEditor);
+        var durationDays = reset ? null : positionEditorHalfDay(rawDays);
+        var modal = qs('[data-position-editor-modal]');
+        var status = modal ? qs('[data-position-duration-status]', modal) : null;
+        if (!reset && durationDays == null) {
+            if (status) { status.textContent = 'Укажите длительность от 0,5 дня.'; status.classList.add('is-error'); }
+            return Promise.resolve(null);
+        }
+        positionEditorDurationSubmitting = true;
+        if (status) { status.textContent = 'Сохраняем…'; status.classList.remove('is-error'); }
+        if (modal) updatePositionEditorDurationState(modal, activePositionEditor);
+        return api('/api/projects/' + item.projectId + '/section-schedule-override', {
+            method: 'POST',
+            body: JSON.stringify(reset
+                ? { item_id: item.itemId, reset: true }
+                : { item_id: item.itemId, duration_days: durationDays })
+        }).then(function (response) {
+            positionEditorDurationSubmitting = false;
+            item.scheduleDurationDays = reset ? item.scheduleAutoDays : durationDays;
+            item.scheduleDurationOverridden = !reset;
+            patchPositionEditorDurationRows(item);
+            if (activePositionEditor && activePositionEditor.projectId === item.projectId && activePositionEditor.itemId === item.itemId) {
+                activePositionEditor.scheduleDurationDays = item.scheduleDurationDays;
+                activePositionEditor.scheduleDurationOverridden = item.scheduleDurationOverridden;
+            }
+            if (modal && activePositionEditor) updatePositionEditorDurationState(modal, activePositionEditor);
+            if (status && activePositionEditor && activePositionEditor.projectId === item.projectId && activePositionEditor.itemId === item.itemId) {
+                status.textContent = reset ? 'Авторасчёт восстановлен' : 'Сохранено';
+                status.classList.remove('is-error');
+            }
+            refreshPositionEditorSchedule(item);
+            return response;
+        }).catch(function (error) {
+            positionEditorDurationSubmitting = false;
+            if (modal && activePositionEditor) updatePositionEditorDurationState(modal, activePositionEditor);
+            var message = appErrorMessage(error, reset ? 'Не удалось вернуть автоматическую длительность.' : 'Не удалось сохранить длительность работы.');
+            if (status && activePositionEditor && activePositionEditor.projectId === item.projectId && activePositionEditor.itemId === item.itemId) {
+                status.textContent = message;
+                status.classList.add('is-error');
+            }
+            showAppNotice(message, 'error');
+            return null;
+        });
     }
 
     function initPositionEditor() {
@@ -8307,6 +8651,36 @@ function renderLogsDayView(project, logs) {
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         });
         var form = qs('[data-position-editor-form]', modal);
+        form.addEventListener('change', function (event) {
+            if (!event.target || event.target.name !== 'position_kind' || !activePositionEditor) return;
+            updatePositionEditorKindState(modal, activePositionEditor.kind);
+            var error = qs('[data-position-editor-error]', modal);
+            if (error) { error.hidden = true; error.textContent = ''; }
+        });
+        qsa('[data-position-duration-step]', modal).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var input = form.elements.schedule_duration_days;
+                if (!input) return;
+                var current = positionEditorHalfDay(input.value) || (activePositionEditor && activePositionEditor.scheduleDurationDays) || 0.5;
+                var next = Math.max(0.5, Math.min(3650, Math.round((current + Number(button.dataset.positionDurationStep || 0)) * 2) / 2));
+                input.value = String(next);
+                savePositionEditorDuration(false, next);
+            });
+        });
+        if (form.elements.schedule_duration_days) {
+            form.elements.schedule_duration_days.addEventListener('change', function () {
+                savePositionEditorDuration(false, form.elements.schedule_duration_days.value);
+            });
+            form.elements.schedule_duration_days.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                savePositionEditorDuration(false, form.elements.schedule_duration_days.value);
+            });
+        }
+        var durationAuto = qs('[data-position-duration-auto]', modal);
+        if (durationAuto) {
+            durationAuto.addEventListener('click', function () { savePositionEditorDuration(true, null); });
+        }
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             if (!activePositionEditor || positionEditorSubmitting) return;
@@ -8314,6 +8688,7 @@ function renderLogsDayView(project, logs) {
             var title = form.elements.title.value.trim();
             var unit = form.elements.unit.value.trim();
             var sectionTitle = form.elements.section_title.value.trim();
+            var selectedKind = form.elements.position_kind.value === 'work' ? 'work' : 'material';
             var error = qs('[data-position-editor-error]', modal);
             if (!title || !unit || !sectionTitle || !Number.isFinite(qty) || qty <= 0) {
                 error.textContent = 'Заполните название, раздел, единицу и объём больше нуля.';
@@ -8321,6 +8696,7 @@ function renderLogsDayView(project, logs) {
                 return;
             }
             var item = Object.assign({}, activePositionEditor);
+            item.targetKind = selectedKind;
             var save = qs('[data-position-editor-save]', modal);
             positionEditorSubmitting = true;
             save.disabled = true;
@@ -8328,12 +8704,14 @@ function renderLogsDayView(project, logs) {
             error.hidden = true;
             api('/api/projects/' + item.projectId + '/estimate-items/' + item.itemId + '/update', {
                 method: 'POST',
-                body: JSON.stringify({ title: title, unit: unit, plannedQty: qty, sectionTitle: sectionTitle, expectedKind: item.kind })
+                body: JSON.stringify({ title: title, unit: unit, plannedQty: qty, sectionTitle: sectionTitle, expectedKind: item.kind, targetKind: selectedKind })
             }).then(function (response) {
                 positionEditorSubmitting = false;
                 closePositionEditor(false);
                 refreshEditedPosition(item, response || {});
-                showAppNotice(item.kind === 'work' ? 'Работа обновлена' : 'Материал обновлён', 'success');
+                var savedKind = String(response && response.itemKind || selectedKind) === 'work' ? 'work' : 'material';
+                var moved = savedKind !== item.kind;
+                showAppNotice(moved ? (savedKind === 'work' ? 'Перенесено в работы' : 'Перенесено в материалы') : (savedKind === 'work' ? 'Работа обновлена' : 'Материал обновлён'), 'success');
             }).catch(function (requestError) {
                 error.textContent = positionEditorErrorText(requestError);
                 error.hidden = false;
@@ -9306,13 +9684,21 @@ function renderLogsDayView(project, logs) {
         });
     }
 
-    function bulkCompleteSectionProgress(projectId, sectionId, completed, itemIds) {
+    function normalizeBulkSectionKind(value) {
+        value = String(value || '').trim().toLowerCase();
+        if (value === 'work' || value === 'works') return 'work';
+        if (value === 'material' || value === 'materials') return 'material';
+        return '';
+    }
+
+    function bulkCompleteSectionProgress(projectId, sectionId, completed, itemIds, itemKind) {
         return api('/api/projects/' + encodeURIComponent(projectId) + '/sections/' + encodeURIComponent(progressSectionId(sectionId)) + '/bulk-complete', {
             method: 'POST',
             body: JSON.stringify({
                 sectionId: progressSectionId(sectionId),
                 sectionTitle: sectionId || '',
                 itemIds: itemIds || [],
+                itemKind: normalizeBulkSectionKind(itemKind),
                 completed: completed !== false
             })
         }).then(function (data) {
@@ -9325,17 +9711,28 @@ function renderLogsDayView(project, logs) {
         return input && input.closest ? (input.closest('.estimate-section-collapsible') || input.closest('.section-schedule-card') || input.closest('.estimate-section')) : null;
     }
 
+    function sectionBulkInputs(scope, itemKind) {
+        if (!scope) return [];
+        var normalizedKind = normalizeBulkSectionKind(itemKind);
+        var selector = normalizedKind === 'work'
+            ? '[data-section-work-check]'
+            : (normalizedKind === 'material' ? '[data-section-material-check]' : '[data-section-material-check], [data-section-work-check]');
+        return qsa(selector, scope).filter(function (input) {
+            return !input.hasAttribute('data-bulk-section-check');
+        });
+    }
+
     function updateBulkSectionCheckState(scope) {
         if (!scope) return;
         var bulk = qs('[data-bulk-section-check]', scope);
-        var children = qsa('[data-section-material-check], [data-section-work-check]', scope).filter(function (input) {
-            return !input.hasAttribute('data-bulk-section-check');
-        });
+        var allChildren = sectionBulkInputs(scope, '');
+        var children = sectionBulkInputs(scope, bulk ? bulk.getAttribute('data-bulk-kind') : '');
         if (bulk) {
-            bulk.checked = !!(children.length && children.every(function (input) { return input.checked; }));
-            bulk.indeterminate = false;
+            var done = children.filter(function (input) { return input.checked; }).length;
+            bulk.checked = !!(children.length && done === children.length);
+            bulk.indeterminate = !!(done && done < children.length);
         }
-        updateRenderedSectionProgressFromDom(scope, children);
+        updateRenderedSectionProgressFromDom(scope, allChildren);
     }
 
     function updateRenderedSectionProgressFromDom(scope, children) {
@@ -9379,11 +9776,10 @@ function renderLogsDayView(project, logs) {
         });
     }
 
-    function bulkSectionItemIds(scope) {
+    function bulkSectionItemIds(scope, itemKind) {
         var ids = [];
         if (!scope) return ids;
-        qsa('[data-section-material-check], [data-section-work-check]', scope).forEach(function (input) {
-            if (input.hasAttribute('data-bulk-section-check')) return;
+        sectionBulkInputs(scope, itemKind).forEach(function (input) {
             var raw = input.getAttribute('data-material-id') || input.getAttribute('data-work-id') || '';
             var id = Number(raw || 0);
             if (id && ids.indexOf(id) === -1) ids.push(id);
@@ -9391,10 +9787,10 @@ function renderLogsDayView(project, logs) {
         return ids;
     }
 
-    function completeBulkSectionLocally(scope, checked) {
+    function completeBulkSectionLocally(scope, checked, itemKind) {
         if (!scope) return;
-        qsa('[data-section-material-check], [data-section-work-check]', scope).forEach(function (input) {
-            if (input.hasAttribute('data-bulk-section-check')) return;
+        var normalizedKind = normalizeBulkSectionKind(itemKind);
+        sectionBulkInputs(scope, normalizedKind).forEach(function (input) {
             var projectId = Number(input.getAttribute('data-project-id') || 0);
             var sectionTitle = input.getAttribute('data-section-title') || '';
             if (input.hasAttribute('data-section-work-check')) {
@@ -9424,7 +9820,10 @@ function renderLogsDayView(project, logs) {
                 if (checked) wrap.classList.remove('is-partial', 'work-row-partial', 'material-row-partial');
             }
         });
-        qsa('[data-actual-qty-input]', scope).forEach(function (input) {
+        qsa('[data-actual-qty-input]', scope).filter(function (input) {
+            var actualKind = normalizeBulkSectionKind(input.getAttribute('data-actual-kind'));
+            return !normalizedKind || actualKind === normalizedKind;
+        }).forEach(function (input) {
             var max = input.getAttribute('max') || input.getAttribute('data-item-qty') || '';
             input.value = checked ? max : '0';
             updateActualQuantityLabel(input, input.value);
@@ -9435,20 +9834,21 @@ function renderLogsDayView(project, logs) {
         var projectId = Number(input.getAttribute('data-project-id') || 0);
         var sectionTitle = input.getAttribute('data-section-title') || input.getAttribute('data-bulk-section-check') || '';
         var scope = sectionBulkScope(input);
-        var itemIds = bulkSectionItemIds(scope);
+        var bulkKind = normalizeBulkSectionKind(input.getAttribute('data-bulk-kind'));
+        var itemIds = bulkSectionItemIds(scope, bulkKind);
         var checked = !!input.checked;
-        completeBulkSectionLocally(scope, checked);
+        completeBulkSectionLocally(scope, checked, bulkKind);
         input.indeterminate = false;
         updateBulkSectionCheckState(scope);
         return withSubmitLock(input, function () {
-            return bulkCompleteSectionProgress(projectId, sectionTitle, checked, itemIds).then(function () {
+            return bulkCompleteSectionProgress(projectId, sectionTitle, checked, itemIds, bulkKind).then(function () {
                 if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
                     refreshSelectedProjectProgressViews(projectId);
                 }
             });
         }).catch(function (error) {
             input.checked = !checked;
-            completeBulkSectionLocally(scope, !checked);
+            completeBulkSectionLocally(scope, !checked, bulkKind);
             updateBulkSectionCheckState(scope);
             showAppNotice(appErrorMessage(error, 'Не удалось закрыть раздел'), 'error');
         });
@@ -9829,9 +10229,13 @@ function renderLogsDayView(project, logs) {
 
     function renderBulkSectionCheckbox(projectId, sectionTitle, kind, progress) {
         var sectionId = progressSectionId(sectionTitle || '');
+        var itemKind = normalizeBulkSectionKind(kind);
+        var itemLabel = itemKind === 'work' ? 'работы' : (itemKind === 'material' ? 'материалы' : 'позиции');
+        var ariaLabel = 'Отметить все ' + itemLabel + ' раздела выполненными';
         var checked = !!(progress && progress.total && progress.done >= progress.total);
-        return '<label class="bulk-section-check" title="Отметить весь раздел выполненным">' +
-            '<input type="checkbox" aria-label="Отметить весь раздел выполненным" data-bulk-section-check="' + escapeHtml(sectionId) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-bulk-kind="' + escapeHtml(kind || 'items') + '"' + (checked ? ' checked' : '') + '>' +
+        var disabled = !(progress && progress.total) ? ' disabled' : '';
+        return '<label class="bulk-section-check" title="' + escapeHtml(ariaLabel) + '">' +
+            '<input type="checkbox" aria-label="' + escapeHtml(ariaLabel) + '" data-bulk-section-check="' + escapeHtml(sectionId) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-bulk-kind="' + escapeHtml(itemKind) + '"' + (checked ? ' checked' : '') + disabled + '>' +
             '<span aria-hidden="true"></span>' +
         '</label>';
     }

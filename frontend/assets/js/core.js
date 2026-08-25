@@ -1134,7 +1134,9 @@
     }
 
     function isMobileSidebarViewport() {
-        return window.innerWidth <= 720;
+        return window.matchMedia
+            ? window.matchMedia('(max-width: 900px)').matches
+            : window.innerWidth <= 900;
     }
 
     function syncSidebarControls() {
@@ -1157,6 +1159,7 @@
             collapsed = window.localStorage.getItem('pmbi_sidebar_collapsed') === '1';
         } catch (error) {}
         document.body.classList.toggle('sidebar-collapsed', !isMobileSidebarViewport() && collapsed);
+        document.documentElement.classList.remove('sidebar-pref-collapsed');
         if (!isMobileSidebarViewport()) document.body.classList.remove('menu-open');
         syncSidebarControls();
     }
@@ -1165,6 +1168,7 @@
         if (isMobileSidebarViewport()) return;
         var collapsed = !document.body.classList.contains('sidebar-collapsed');
         document.body.classList.toggle('sidebar-collapsed', collapsed);
+        document.documentElement.classList.remove('sidebar-pref-collapsed');
         try {
             window.localStorage.setItem('pmbi_sidebar_collapsed', collapsed ? '1' : '0');
         } catch (error) {}

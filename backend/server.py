@@ -972,6 +972,126 @@ def table_exists(con: sqlite3.Connection, table: str) -> bool:
     ).fetchone() is not None
 
 
+def estimate_position_kind_change_activity(
+    con: sqlite3.Connection,
+    project_id: int,
+    item_id: int,
+    item: sqlite3.Row | dict,
+    target_kind: str,
+) -> list[dict]:
+    activity: list[dict] = []
+
+    def add_count(code: str, label: str, table: str, where: str, params: tuple) -> None:
+        if not table_exists(con, table):
+            return
+        count = int(con.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}", params).fetchone()[0])
+        if count:
+            activity.append({"code": code, "label": label, "count": count})
+
+    add_count(
+        "selected_offer",
+        "Выбранный поставщик или подрядчик",
+        "supplier_offers",
+        "project_id = ? AND estimate_item_id = ? AND status = 'selected'",
+        (project_id, item_id),
+    )
+
+    if table_exists(con, "project_commitment_lines") and table_exists(con, "project_commitments"):
+        commitment_count = int(con.execute(
+            """
+            SELECT COUNT(*)
+            FROM project_commitment_lines line
+            JOIN project_commitments commitment ON commitment.id = line.commitment_id
+            WHERE commitment.project_id = ? AND line.estimate_item_id = ?
+              AND commitment.status <> 'cancelled'
+            """,
+            (project_id, item_id),
+        ).fetchone()[0])
+        if commitment_count:
+            activity.append({"code": "commitments", "label": "Заказы и обязательства", "count": commitment_count})
+    add_count(
+        "actual_costs",
+        "Фактические затраты",
+        "project_actual_cost_entries",
+        "project_id = ? AND estimate_item_id = ?",
+        (project_id, item_id),
+    )
+
+    actual_qty = float(payload_get(item, "actual_qty") or 0)
+    is_completed = bool(int(payload_get(item, "is_completed") or 0))
+    if actual_qty > 0 or is_completed:
+        activity.append({"code": "recorded_progress", "label": "Внесённый факт или завершение", "count": 1})
+
+    if target_kind == "work":
+        add_count(
+            "stock_moves",
+            "Заказы, приходы или расходы",
+            "stock_moves",
+            "project_id = ? AND estimate_item_id = ?",
+            (project_id, item_id),
+        )
+        add_count(
+            "warehouse_transfers",
+            "Перемещения со склада",
+            "warehouse_transfers",
+            "project_id = ? AND estimate_item_id = ?",
+            (project_id, item_id),
+        )
+        add_count(
+            "daily_log_actions",
+            "Учёт из дневных отчётов",
+            "daily_log_actions",
+            "project_id = ? AND estimate_item_id = ?",
+            (project_id, item_id),
+        )
+        if table_exists(con, "project_work_fact_materials") and table_exists(con, "project_work_facts"):
+            material_fact_count = int(con.execute(
+                """
+                SELECT COUNT(*)
+                FROM project_work_fact_materials material
+                JOIN project_work_facts fact ON fact.id = material.fact_id
+                WHERE fact.project_id = ? AND material.material_item_id = ?
+                """,
+                (project_id, item_id),
+            ).fetchone()[0])
+            if material_fact_count:
+                activity.append({"code": "work_fact_materials", "label": "Списание по выполненным работам", "count": material_fact_count})
+        add_count(
+            "material_norms",
+            "Нормы расхода с этим материалом",
+            "work_material_norms",
+            "project_id = ? AND material_item_id = ? AND is_active = 1",
+            (project_id, item_id),
+        )
+        if payload_get(item, "warehouse_item_id") or str(payload_get(item, "warehouse_source") or "").strip():
+            activity.append({"code": "warehouse_link", "label": "Привязка к складской позиции", "count": 1})
+    else:
+        add_count(
+            "work_facts",
+            "Фактическое выполнение работы",
+            "project_work_facts",
+            "project_id = ? AND work_item_id = ?",
+            (project_id, item_id),
+        )
+        add_count(
+            "work_norms",
+            "Нормы расхода для этой работы",
+            "work_material_norms",
+            "project_id = ? AND work_item_id = ? AND is_active = 1",
+            (project_id, item_id),
+        )
+        schedule_count = 0
+        for table in ("work_schedule_overrides", "production_schedule_slot_overrides", "production_schedule_cell_overrides"):
+            if table_exists(con, table):
+                schedule_count += int(con.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE project_id = ? AND estimate_item_id = ?",
+                    (project_id, item_id),
+                ).fetchone()[0])
+        if schedule_count:
+            activity.append({"code": "schedule_settings", "label": "Ручные настройки графика", "count": schedule_count})
+    return activity
+
+
 def table_sql(con: sqlite3.Connection, table: str) -> str:
     row = con.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -1434,6 +1554,113 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY (project_id, estimate_item_id, slot_number)
             );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_operations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                generation_key TEXT NOT NULL,
+                title TEXT NOT NULL,
+                planned_qty REAL CHECK(planned_qty IS NULL OR planned_qty >= 0),
+                unit TEXT NOT NULL DEFAULT '',
+                people_count INTEGER NOT NULL DEFAULT 1 CHECK(people_count > 0),
+                shift_count INTEGER NOT NULL DEFAULT 1 CHECK(shift_count > 0),
+                brigade_count INTEGER NOT NULL DEFAULT 1 CHECK(brigade_count > 0),
+                labor_hours_total REAL,
+                auto_duration_days REAL NOT NULL DEFAULT 1
+                    CHECK(auto_duration_days > 0 AND auto_duration_days * 2 = CAST(auto_duration_days * 2 AS INTEGER)),
+                manual_duration_days REAL
+                    CHECK(manual_duration_days IS NULL OR (manual_duration_days > 0 AND manual_duration_days * 2 = CAST(manual_duration_days * 2 AS INTEGER))),
+                placement_mode TEXT NOT NULL DEFAULT 'auto' CHECK(placement_mode IN ('auto','manual')),
+                position INTEGER NOT NULL DEFAULT 0,
+                origin TEXT NOT NULL DEFAULT 'auto' CHECK(origin IN ('auto', 'template', 'manual')),
+                status TEXT NOT NULL DEFAULT 'needs_review'
+                    CHECK(status IN ('draft','linked','outside_estimate','needs_review','confirmed','in_progress','completed','on_hold','stale')),
+                color TEXT NOT NULL DEFAULT 'slate'
+                    CHECK(color IN ('slate','blue','teal','green','violet','rose')),
+                template_key TEXT,
+                source_signature TEXT,
+                source_link_count INTEGER NOT NULL DEFAULT 0,
+                source_links_snapshot TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(source_links_snapshot)),
+                manual_fields TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(manual_fields)),
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE (project_id, generation_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_operation_estimate_links (
+                operation_id INTEGER NOT NULL REFERENCES production_schedule_operations(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE CASCADE,
+                link_role TEXT NOT NULL DEFAULT 'manual_reference'
+                    CHECK(link_role IN ('work_basis', 'material_signal', 'manual_reference')),
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (operation_id, estimate_item_id, link_role)
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_operation_slot_overrides (
+                operation_id INTEGER NOT NULL REFERENCES production_schedule_operations(id) ON DELETE CASCADE,
+                slot_number INTEGER NOT NULL CHECK(slot_number > 0),
+                is_filled INTEGER NOT NULL DEFAULT 0 CHECK(is_filled IN (0, 1)),
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (operation_id, slot_number)
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_migration_state (
+                project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+                legacy_migrated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_suppressed_keys (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                generation_key TEXT NOT NULL,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, generation_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                source_project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE (signature, name)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_production_schedule_operations_project_position
+                ON production_schedule_operations(project_id, position, id);
+            CREATE INDEX IF NOT EXISTS idx_production_schedule_operation_links_estimate
+                ON production_schedule_operation_estimate_links(estimate_item_id, operation_id);
+
+            CREATE TRIGGER IF NOT EXISTS trg_production_operation_link_same_project_insert
+            BEFORE INSERT ON production_schedule_operation_estimate_links
+            FOR EACH ROW
+            WHEN (
+                SELECT project_id FROM production_schedule_operations WHERE id = NEW.operation_id
+            ) != (
+                SELECT project_id FROM estimate_items WHERE id = NEW.estimate_item_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'production_operation_cross_project_link');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_production_operation_link_same_project_update
+            BEFORE UPDATE OF operation_id, estimate_item_id ON production_schedule_operation_estimate_links
+            FOR EACH ROW
+            WHEN (
+                SELECT project_id FROM production_schedule_operations WHERE id = NEW.operation_id
+            ) != (
+                SELECT project_id FROM estimate_items WHERE id = NEW.estimate_item_id
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'production_operation_cross_project_link');
+            END;
 
             CREATE TABLE IF NOT EXISTS work_stages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3792,6 +4019,7 @@ def init_db() -> None:
             {
                 "stage_id": "INTEGER REFERENCES work_stages(id) ON DELETE SET NULL",
                 "item_kind": "TEXT NOT NULL DEFAULT 'material'",
+                "item_kind_override": "TEXT CHECK(item_kind_override IS NULL OR item_kind_override IN ('material','work'))",
                 "section_title": "TEXT",
                 "article": "TEXT",
                 "procurement_status": "TEXT NOT NULL DEFAULT 'Купить'",
@@ -3808,6 +4036,30 @@ def init_db() -> None:
             },
         )
         ensure_project_estimates_schema(con)
+
+        ensure_columns(
+            con,
+            "production_schedule_operations",
+            {
+                "source_link_count": "INTEGER NOT NULL DEFAULT 0",
+                "source_links_snapshot": "TEXT NOT NULL DEFAULT '[]'",
+                "placement_mode": "TEXT NOT NULL DEFAULT 'auto'",
+            },
+        )
+        con.execute(
+            """
+            UPDATE production_schedule_operations
+            SET color = 'slate'
+            WHERE color IS NULL OR color NOT IN ('slate','blue','teal','green','violet','rose')
+            """
+        )
+        con.execute(
+            """
+            UPDATE production_schedule_operations
+            SET placement_mode = 'auto'
+            WHERE placement_mode IS NULL OR placement_mode NOT IN ('auto','manual')
+            """
+        )
 
         con.execute(
             """
@@ -7485,7 +7737,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         payload = self.read_json()
         allowed_fields = {
             "title", "unit", "planned_qty", "plannedQty", "section_title", "sectionTitle",
-            "expected_kind", "expectedKind",
+            "expected_kind", "expectedKind", "target_kind", "targetKind",
         }
         if any(key not in allowed_fields for key in payload):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_fields_forbidden"})
@@ -7511,6 +7763,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.CONFLICT, {"error": "estimate_position_kind_mismatch"})
                 return
 
+            raw_target_kind = payload.get("target_kind", payload.get("targetKind"))
+            if raw_target_kind in (None, ""):
+                target_kind = item_kind
+            else:
+                target_kind = str(raw_target_kind).strip().lower()
+                if target_kind not in {"material", "work"}:
+                    con.rollback()
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_position_kind"})
+                    return
+            kind_changed = target_kind != item_kind
+
             title = re.sub(r"\s+", " ", str(payload.get("title", item["title"]) or "").strip())
             unit = re.sub(r"\s+", " ", str(payload.get("unit", item["unit"]) or "").strip())
             section_title = re.sub(
@@ -7530,9 +7793,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 return
             kind_probe = dict(item)
             kind_probe.update({"title": title, "unit": unit, "section_title": section_title})
-            if resolved_estimate_item_kind(kind_probe) != item_kind:
+            if not kind_changed and resolved_estimate_item_kind(kind_probe) != item_kind:
                 con.rollback()
                 self.send_json(HTTPStatus.CONFLICT, {"error": "estimate_position_title_kind_conflict"})
+                return
+
+            blockers = estimate_position_kind_change_activity(con, project_id, item_id, item, target_kind) if kind_changed else []
+            if blockers:
+                con.rollback()
+                self.send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "estimate_position_kind_change_blocked",
+                        "message": "Тип нельзя изменить: позиция уже участвует в учёте.",
+                        "fromKind": item_kind,
+                        "toKind": target_kind,
+                        "blockers": blockers,
+                    },
+                )
                 return
 
             before = {
@@ -7541,30 +7819,41 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "planned_qty": float(item["planned_qty"] or 0),
                 "section_title": str(item["section_title"] or ""),
                 "item_kind": item_kind,
+                "item_kind_override": str(payload_get(item, "item_kind_override") or ""),
             }
             after = {
                 "title": title,
                 "unit": unit,
                 "planned_qty": planned_qty,
                 "section_title": section_title,
-                "item_kind": item_kind,
+                "item_kind": target_kind,
+                "item_kind_override": target_kind if kind_changed else str(payload_get(item, "item_kind_override") or ""),
             }
+            stored_kind = target_kind if kind_changed else str(item["item_kind"] or item_kind)
+            stored_override = target_kind if kind_changed else (payload_get(item, "item_kind_override") or None)
             con.execute(
                 """
                 UPDATE estimate_items
-                SET title = ?, unit = ?, planned_qty = ?, section_title = ?, updated_at = ?
+                SET title = ?, unit = ?, planned_qty = ?, section_title = ?,
+                    item_kind = ?, item_kind_override = ?, updated_at = ?
                 WHERE id = ? AND project_id = ?
                 """,
-                (title, unit, planned_qty, section_title, now_ts(), item_id, project_id),
+                (title, unit, planned_qty, section_title, stored_kind, stored_override, now_ts(), item_id, project_id),
             )
             progress = recalc_project_progress(con, project_id, section_title)
+            if table_exists(con, "market_analysis_cache"):
+                con.execute("DELETE FROM market_analysis_cache WHERE project_id = ?", (project_id,))
+            if table_exists(con, "material_schedule_snapshots"):
+                con.execute("DELETE FROM material_schedule_snapshots WHERE project_id = ?", (project_id,))
+            if kind_changed:
+                mark_project_schedule_draft(con, project_id)
             create_audit(
                 con,
                 user["id"],
-                "update_estimate_position",
+                "change_estimate_position_kind" if kind_changed else "update_estimate_position",
                 "estimate_item",
                 item_id,
-                {"project_id": project_id, "before": before, "after": after},
+                {"project_id": project_id, "before": before, "after": after, "manual_override": kind_changed},
             )
             con.commit()
             items = material_summary_rows(con, project_id)
@@ -7576,7 +7865,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "id": item_id,
                 "item": updated_item,
                 "items": items,
-                "itemKind": item_kind,
+                "previousItemKind": item_kind,
+                "itemKind": target_kind,
+                "kindChanged": kind_changed,
+                "itemKindSource": "manual" if stored_override else "auto",
                 "progress": progress,
             },
         )
@@ -7854,7 +8146,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         """
                         UPDATE estimate_items
                         SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, stage_id = ?,
-                            item_kind = ?, section_title = ?, article = ?, need_by_date = ?, notes = ?,
+                            item_kind = CASE
+                                WHEN item_kind_override IN ('material','work') THEN item_kind_override
+                                ELSE ?
+                            END, section_title = ?, article = ?, need_by_date = ?, notes = ?,
                             labor_hours_total = ?, default_crew_size = ?, updated_at = ?, is_deleted = 0
                         WHERE id = ?
                         """,
@@ -8110,7 +8405,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     con.execute(
                         """
                         UPDATE estimate_items
-                        SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, item_kind = ?,
+                        SET title = ?, unit = ?, planned_qty = ?, planned_price = ?,
+                            item_kind = CASE
+                                WHEN item_kind_override IN ('material','work') THEN item_kind_override
+                                ELSE ?
+                            END,
                             section_title = ?, article = ?, labor_hours_total = ?, default_crew_size = ?,
                             need_by_date = ?, notes = ?, updated_at = ?, is_deleted = 0
                         WHERE id = ?
@@ -8673,6 +8972,9 @@ def main() -> None:
 
 
 def resolved_estimate_item_kind(item: dict | sqlite3.Row) -> str:
+    manual_kind = str(payload_get(item, "item_kind_override", "itemKindOverride") or "").strip().lower()
+    if manual_kind in {"material", "work"}:
+        return manual_kind
     code_kind = estimate_code_text_kind(" ".join(
         str(payload_get(item, key) or "")
         for key in (

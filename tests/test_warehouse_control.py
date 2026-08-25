@@ -163,6 +163,47 @@ class WarehouseControlTests(unittest.TestCase):
         self.assertEqual(tile["stockBalanceQty"], 0)
         self.assertFalse(tile["hasReceipt"])
 
+    def test_estimate_source_metadata_is_exposed_with_legacy_fallback(self) -> None:
+        legacy_tile = next(
+            item for item in build_warehouse_control(self.con, 10)["materials"] if item["id"] == 201
+        )
+        self.assertIsNone(legacy_tile["estimateSourceId"])
+        self.assertEqual(legacy_tile["estimateSourceType"], "legacy")
+        self.assertEqual(legacy_tile["estimateTitle"], "Ранее загруженная смета")
+        self.assertEqual(legacy_tile["estimateFileName"], "Смета объекта")
+
+        self.con.executescript(
+            """
+            ALTER TABLE estimate_items ADD COLUMN estimate_source_id INTEGER;
+            ALTER TABLE estimate_items ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;
+            CREATE TABLE project_estimates (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL,
+                source_type TEXT,
+                source_key TEXT,
+                external_id TEXT,
+                tender_id TEXT,
+                title TEXT,
+                file_name TEXT,
+                source_reference TEXT
+            );
+            INSERT INTO project_estimates VALUES
+                (41, 10, 'pdf', 'file:a', '', '', 'Смета А', 'estimate-a.pdf', ''),
+                (42, 10, 'pdf', 'file:b', '', '', 'Смета Б', 'estimate-b.pdf', '');
+            UPDATE estimate_items SET estimate_source_id = 41 WHERE id = 201;
+            UPDATE estimate_items SET estimate_source_id = 42 WHERE id = 202;
+            """
+        )
+
+        materials = build_warehouse_control(self.con, 10)["materials"]
+        tile = next(item for item in materials if item["id"] == 201)
+        glue = next(item for item in materials if item["id"] == 202)
+        self.assertEqual((tile["estimateSourceId"], tile["estimateTitle"], tile["estimateFileName"]), (41, "Смета А", "estimate-a.pdf"))
+        self.assertEqual((glue["estimateSourceId"], glue["estimateTitle"], glue["estimateFileName"]), (42, "Смета Б", "estimate-b.pdf"))
+
+        self.con.execute("UPDATE estimate_items SET is_deleted = 1 WHERE id = 202")
+        self.assertNotIn(202, {item["id"] for item in build_warehouse_control(self.con, 10)["materials"]})
+
     def test_legacy_purchase_only_stock_is_backfilled_once(self) -> None:
         self.con.execute("DELETE FROM system_migrations")
         self.con.execute("DELETE FROM stock_moves WHERE estimate_item_id = 201")
