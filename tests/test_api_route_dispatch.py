@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +83,41 @@ class ApiRouteDispatchTests(unittest.TestCase):
 
         self.assertEqual(calls, [valid])
         self.assertEqual(responses[-1][1], {"error": "not_found"})
+
+    def test_document_mutations_use_exact_routes(self) -> None:
+        handler = object.__new__(server.PMBIHandler)
+        calls: list[tuple[str, str]] = []
+        responses: list[tuple[int, dict]] = []
+        handler.api_update_document = lambda path: calls.append(("update", path))
+        handler.api_delete_document = lambda path: calls.append(("delete", path))
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+
+        server.PMBIHandler.handle_api(handler, "POST", "/api/documents/73/update")
+        server.PMBIHandler.handle_api(handler, "POST", "/api/documents/73/update/nested")
+        server.PMBIHandler.handle_api(handler, "DELETE", "/api/documents/73")
+        server.PMBIHandler.handle_api(handler, "DELETE", "/api/documents/73/view")
+
+        self.assertEqual(
+            calls,
+            [
+                ("update", "/api/documents/73/update"),
+                ("delete", "/api/documents/73"),
+            ],
+        )
+        self.assertEqual(responses[-1][1], {"error": "not_found"})
+
+    def test_document_delegate_methods_call_communications_handlers(self) -> None:
+        handler = object.__new__(server.PMBIHandler)
+
+        with (
+            mock.patch.object(server, "comm_api_update_document") as update_document,
+            mock.patch.object(server, "comm_api_delete_document") as delete_document,
+        ):
+            handler.api_update_document("/api/documents/73/update")
+            handler.api_delete_document("/api/documents/73")
+
+        update_document.assert_called_once_with(handler, "/api/documents/73/update")
+        delete_document.assert_called_once_with(handler, "/api/documents/73")
 
 
 if __name__ == "__main__":

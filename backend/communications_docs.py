@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import mimetypes
 import re
@@ -30,6 +31,45 @@ DOCUMENTS_DIR = DATA_DIR / "documents"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
 TODAY_ISO = date.today().isoformat()
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+DOCUMENT_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+DOCUMENT_TYPES = frozenset({
+    "contract", "estimate", "project_doc", "hidden_work_act", "inspection_act",
+    "executive", "technical_solution", "act", "service_act", "invoice",
+    "delivery_note", "upd", "transport_waybill", "route_sheet", "cash_receipt",
+    "photo_report", "letter", "correspondence", "archive", "finance", "other",
+    "file",
+})
+DOCUMENT_STATUSES = frozenset({
+    "draft", "submitted", "reviewed", "approved", "signed", "ready", "accepted",
+    "internal",
+})
+DOCUMENT_PROTECTED_STATUSES = frozenset({
+    "submitted", "reviewed", "approved", "signed", "ready", "accepted",
+})
+DOCUMENT_STATUS_RANK = {
+    "draft": 0,
+    "submitted": 1,
+    "reviewed": 2,
+    "approved": 3,
+    "signed": 4,
+    "ready": 5,
+    "accepted": 5,
+}
+DOCUMENT_INLINE_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".avif": "image/avif",
+    ".txt": "text/plain; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
+    ".csv": "text/plain; charset=utf-8",
+}
+LOGGER = logging.getLogger(__name__)
 
 DAILY_LOG_MATERIAL_ACTION_TYPES = {
     "material_purchase": "purchase",
@@ -165,6 +205,90 @@ def document_extension(name: str) -> str:
     return Path(name or "").suffix.lower()[:16]
 
 
+def document_inline_content_type(row: sqlite3.Row | dict) -> str | None:
+    item = dict(row)
+    extension = str(item.get("file_ext") or "").strip().lower()
+    if not extension:
+        extension = document_extension(str(item.get("original_name") or ""))
+    return DOCUMENT_INLINE_CONTENT_TYPES.get(extension)
+
+
+def resolve_document_storage_path(project_id: int, storage_path: str) -> Path:
+    candidate = Path(storage_path)
+    file_path = (candidate if candidate.is_absolute() else PROJECT_ROOT / candidate).resolve()
+    documents_root = DOCUMENTS_DIR.resolve()
+    allowed_directory = (DOCUMENTS_DIR / f"project_{project_id}").resolve()
+    allowed_directory.relative_to(documents_root)
+    file_path.relative_to(allowed_directory)
+    return file_path
+
+
+def document_payload(row: sqlite3.Row | dict) -> dict:
+    item = dict(row)
+    item["download_url"] = f"/api/documents/{item['id']}/download"
+    item["view_url"] = f"/api/documents/{item['id']}/view"
+    item["can_preview"] = bool(item.get("storage_path")) and bool(document_inline_content_type(item))
+    return item
+
+
+def document_reference_summary(con: sqlite3.Connection, document_id: int) -> list[dict]:
+    """Find every live foreign-key reference before destructive deletion."""
+
+    references: list[dict] = []
+    tables = con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    for table_row in tables:
+        table_name = str(table_row["name"])
+        quoted_table = '"' + table_name.replace('"', '""') + '"'
+        for foreign_key in con.execute(f"PRAGMA foreign_key_list({quoted_table})").fetchall():
+            if str(foreign_key["table"]) != "documents":
+                continue
+            column_name = str(foreign_key["from"])
+            quoted_column = '"' + column_name.replace('"', '""') + '"'
+            count = int(
+                con.execute(
+                    f"SELECT COUNT(*) FROM {quoted_table} WHERE {quoted_column} = ?",
+                    (document_id,),
+                ).fetchone()[0]
+            )
+            if count:
+                references.append({"table": table_name, "column": column_name, "count": count})
+    return references
+
+
+def record_document_file_cleanup_failure(
+    *,
+    user_id: int,
+    document_id: int,
+    project_id: int,
+    storage_path: str,
+    error: BaseException,
+) -> None:
+    LOGGER.warning(
+        "Document %s was deleted but its managed file could not be removed",
+        document_id,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    try:
+        with db() as con:
+            create_audit(
+                con,
+                user_id,
+                "document_file_cleanup_failed",
+                "document",
+                document_id,
+                {
+                    "project_id": project_id,
+                    "storage_path": storage_path,
+                    "error": type(error).__name__,
+                },
+            )
+            con.commit()
+    except (OSError, sqlite3.Error):
+        LOGGER.exception("Could not audit file cleanup failure for document %s", document_id)
+
+
 def executive_templates_for_stage(stage: sqlite3.Row | dict) -> list[dict]:
     title = str(stage["title"] if isinstance(stage, sqlite3.Row) else stage.get("title", ""))
     stage_kind = str(stage["stage_kind"] if isinstance(stage, sqlite3.Row) else stage.get("stage_kind", "work") or "work")
@@ -198,7 +322,7 @@ def executive_templates_for_stage(stage: sqlite3.Row | dict) -> list[dict]:
 
 
 def executive_ready_status(status: str | None) -> bool:
-    return str(status or "").strip() in {"reviewed", "approved", "signed", "ready"}
+    return str(status or "").strip() in {"reviewed", "approved", "signed", "ready", "accepted"}
 
 
 def api_project_notifications(handler, path: str) -> None:
@@ -421,11 +545,7 @@ def api_project_documents(handler, path: str) -> None:
             ).fetchall()
     documents = []
     for row in rows:
-        item = dict(row)
-        item["download_url"] = f"/api/documents/{row['id']}/download"
-        item["view_url"] = f"/api/documents/{row['id']}/view"
-        item["can_preview"] = bool(row["storage_path"]) and str(row["mime_type"] or "").startswith(("image/", "text/")) or str(row["file_ext"] or "") == ".pdf"
-        documents.append(item)
+        documents.append(document_payload(row))
     handler.send_json(HTTPStatus.OK, {"documents": documents})
 
 
@@ -622,10 +742,7 @@ def api_create_project_executive_doc(handler, path: str) -> None:
         ).fetchone()
         con.commit()
 
-    item = dict(row)
-    item["download_url"] = f"/api/documents/{row['id']}/download"
-    item["view_url"] = f"/api/documents/{row['id']}/view"
-    item["can_preview"] = False
+    item = document_payload(row)
     handler.send_json(HTTPStatus.CREATED, {"document": item})
 
 
@@ -656,56 +773,290 @@ def api_upload_project_document(handler, path: str) -> None:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "upload_too_large"})
         return
 
-    doc_type = str(form.getfirst("doc_type", "file")).strip() or "file"
-    status = str(form.getfirst("status", "draft")).strip() or "draft"
+    doc_type = (str(form.getfirst("doc_type", "file")).strip() or "file").lower()
+    status = (str(form.getfirst("status", "draft")).strip() or "draft").lower()
+    if doc_type not in DOCUMENT_TYPES:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_type"})
+        return
+    if status not in DOCUMENT_STATUSES:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_status"})
+        return
     is_client_visible = 1 if str(form.getfirst("is_client_visible", "0")).strip() in {"1", "true", "yes", "on"} else 0
     title = str(form.getfirst("title", "")).strip() or Path(original_name).stem
     notes = str(form.getfirst("notes", "")).strip() or None
+    if len(title) > 240:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_title_too_long"})
+        return
+    if notes and len(notes) > 4000:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_notes_too_long"})
+        return
+    raw_stage_id = str(form.getfirst("stage_id", "0")).strip()
+    try:
+        stage_id = int(raw_stage_id or "0") or None
+    except ValueError:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stage_id"})
+        return
+    if stage_id is not None and stage_id < 0:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stage_id"})
+        return
+    template_code = str(form.getfirst("template_code", "")).strip() or None
     file_ext = document_extension(original_name)
     mime_type = upload.type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
     storage_name = f"{now_ts()}_{secrets.token_hex(8)}{file_ext}"
     file_path = project_documents_dir(project_id) / storage_name
-    file_path.write_bytes(raw)
 
     with db() as con:
-        cur = con.execute(
-            """
-            INSERT INTO documents (
-                project_id, title, doc_type, status, original_name, storage_name, storage_path,
-                mime_type, file_ext, size_bytes, notes, uploaded_by, is_client_visible, created_at, updated_at,
-                stage_id, template_code, generated_by_system
+        con.execute("BEGIN IMMEDIATE")
+        stage = None
+        if stage_id is not None:
+            stage = con.execute(
+                "SELECT * FROM work_stages WHERE id = ? AND project_id = ?",
+                (stage_id, project_id),
+            ).fetchone()
+            if not stage:
+                con.rollback()
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_stage_not_found"})
+                return
+        if template_code:
+            template = EXECUTIVE_TEMPLATE_RULES.get(template_code)
+            allowed_template_codes = {
+                item["code"] for item in executive_templates_for_stage(stage)
+            } if stage else set()
+            if (
+                not stage
+                or not template
+                or str(template["doc_type"]) != doc_type
+                or template_code not in allowed_template_codes
+            ):
+                con.rollback()
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_template"})
+                return
+
+        try:
+            file_path.write_bytes(raw)
+            cur = con.execute(
+                """
+                INSERT INTO documents (
+                    project_id, title, doc_type, status, original_name, storage_name, storage_path,
+                    mime_type, file_ext, size_bytes, notes, uploaded_by, is_client_visible, created_at, updated_at,
+                    stage_id, template_code, generated_by_system
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    project_id,
+                    title,
+                    doc_type,
+                    status,
+                    original_name,
+                    storage_name,
+                    str(file_path.relative_to(PROJECT_ROOT)),
+                    mime_type,
+                    file_ext,
+                    len(raw),
+                    notes,
+                    user["id"],
+                    is_client_visible,
+                    now_ts(),
+                    now_ts(),
+                    stage_id,
+                    template_code,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            create_audit(
+                con,
+                user["id"],
+                "upload_document",
+                "document",
+                cur.lastrowid,
+                {"project_id": project_id, "title": title, "doc_type": doc_type},
+            )
+            row = con.execute(
+                """
+                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
+                FROM documents d
+                LEFT JOIN users u ON u.id = d.uploaded_by
+                LEFT JOIN work_stages s ON s.id = d.stage_id
+                WHERE d.id = ?
+                """,
+                (cur.lastrowid,),
+            ).fetchone()
+            con.commit()
+        except Exception:
+            con.rollback()
+            try:
+                if file_path.is_file():
+                    file_path.unlink()
+            except OSError:
+                LOGGER.exception("Could not clean up failed upload for project %s", project_id)
+            raise
+
+    item = document_payload(row)
+    handler.send_json(HTTPStatus.CREATED, {"document": item})
+
+
+def api_update_document(handler, path: str) -> None:
+    document_id = parse_path_int(path, 2)
+    if not document_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_id"})
+        return
+    user = handler.require_user()
+    if not user:
+        return
+
+    payload = handler.read_json()
+    if not isinstance(payload, dict):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_payload_must_be_object"})
+        return
+    immutable_fields = {
+        "id", "project_id", "projectId", "uploaded_by", "uploadedBy",
+        "original_name", "originalName", "storage_name", "storageName",
+        "storage_path", "storagePath", "mime_type", "mimeType", "file_ext",
+        "fileExt", "size_bytes", "sizeBytes", "template_code", "templateCode",
+        "generated_by_system", "generatedBySystem", "created_at", "createdAt",
+    }
+    if any(field in payload for field in immutable_fields):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "immutable_document_field"})
+        return
+
+    with db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if not row:
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "document_not_found"})
+            return
+        project_id = int(row["project_id"])
+        if not handler.can_access_project(user, project_id):
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
+            return
+        if not user_can_manage_documents(user):
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+
+        title = str(payload.get("title", row["title"]) or "").strip()
+        if not title:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_title_required"})
+            return
+        if len(title) > 240:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_title_too_long"})
+            return
+
+        current_doc_type = str(row["doc_type"] or "").strip().lower()
+        current_status = str(row["status"] or "").strip().lower()
+        doc_type = str(payload.get("doc_type", payload.get("docType", current_doc_type)) or "").strip().lower()
+        status = str(payload.get("status", current_status) or "").strip().lower()
+        if (
+            not DOCUMENT_CODE_RE.fullmatch(doc_type)
+            or (doc_type not in DOCUMENT_TYPES and doc_type != current_doc_type)
+        ):
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_type"})
+            return
+        if (
+            not DOCUMENT_CODE_RE.fullmatch(status)
+            or (status not in DOCUMENT_STATUSES and status != current_status)
+        ):
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_status"})
+            return
+
+        if current_status in DOCUMENT_PROTECTED_STATUSES:
+            if doc_type != current_doc_type:
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "document_classification_locked"})
+                return
+            current_rank = DOCUMENT_STATUS_RANK[current_status]
+            next_rank = DOCUMENT_STATUS_RANK.get(status)
+            if next_rank is None or next_rank < current_rank:
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "document_status_regression"})
+                return
+
+        notes_value = payload.get("notes", row["notes"])
+        notes = str(notes_value or "").strip() or None
+        if notes and len(notes) > 4000:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_notes_too_long"})
+            return
+
+        visibility_key = "is_client_visible" if "is_client_visible" in payload else "isClientVisible"
+        if visibility_key in payload:
+            visibility_value = payload[visibility_key]
+            if not isinstance(visibility_value, bool):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_visibility"})
+                return
+            is_client_visible = 1 if visibility_value else 0
+        else:
+            is_client_visible = int(row["is_client_visible"] or 0)
+
+        stage_key = "stage_id" if "stage_id" in payload else "stageId"
+        if stage_key in payload:
+            raw_stage_id = payload[stage_key]
+            if raw_stage_id is None or raw_stage_id == "" or raw_stage_id == 0 or raw_stage_id == "0":
+                stage_id = None
+            else:
+                try:
+                    stage_id = int(raw_stage_id)
+                except (TypeError, ValueError):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stage_id"})
+                    return
+                if stage_id <= 0:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stage_id"})
+                    return
+                stage = con.execute(
+                    "SELECT 1 FROM work_stages WHERE id = ? AND project_id = ?",
+                    (stage_id, project_id),
+                ).fetchone()
+                if not stage:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_stage_not_found"})
+                    return
+        else:
+            stage_id = row["stage_id"]
+
+        before = {
+            "title": row["title"],
+            "doc_type": row["doc_type"],
+            "status": row["status"],
+            "notes": row["notes"],
+            "is_client_visible": int(row["is_client_visible"] or 0),
+            "stage_id": row["stage_id"],
+        }
+        after = {
+            "title": title,
+            "doc_type": doc_type,
+            "status": status,
+            "notes": notes,
+            "is_client_visible": is_client_visible,
+            "stage_id": stage_id,
+        }
+        if doc_type != current_doc_type or status != current_status:
+            references = document_reference_summary(con, document_id)
+            if references:
+                handler.send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "document_classification_in_use",
+                        "reference_count": sum(int(item["count"]) for item in references),
+                    },
+                )
+                return
+        timestamp = now_ts()
+        con.execute(
+            """
+            UPDATE documents
+            SET title = ?, doc_type = ?, status = ?, notes = ?,
+                is_client_visible = ?, stage_id = ?, updated_at = ?
+            WHERE id = ?
             """,
             (
-                project_id,
-                title,
-                doc_type,
-                status,
-                original_name,
-                storage_name,
-                str(file_path.relative_to(PROJECT_ROOT)),
-                mime_type,
-                file_ext,
-                len(raw),
-                notes,
-                user["id"],
-                is_client_visible,
-                now_ts(),
-                now_ts(),
-                int(str(form.getfirst("stage_id", "0")).strip() or "0") or None,
-                str(form.getfirst("template_code", "")).strip() or None,
+                title, doc_type, status, notes, is_client_visible,
+                stage_id, timestamp, document_id,
             ),
         )
         create_audit(
             con,
             user["id"],
-            "upload_document",
+            "update_document",
             "document",
-            cur.lastrowid,
-            {"project_id": project_id, "title": title, "doc_type": doc_type},
+            document_id,
+            {"project_id": project_id, "before": before, "after": after},
         )
-        row = con.execute(
+        updated = con.execute(
             """
             SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
             FROM documents d
@@ -713,15 +1064,149 @@ def api_upload_project_document(handler, path: str) -> None:
             LEFT JOIN work_stages s ON s.id = d.stage_id
             WHERE d.id = ?
             """,
-            (cur.lastrowid,),
+            (document_id,),
         ).fetchone()
         con.commit()
 
-    item = dict(row)
-    item["download_url"] = f"/api/documents/{row['id']}/download"
-    item["view_url"] = f"/api/documents/{row['id']}/view"
-    item["can_preview"] = str(item["mime_type"] or "").startswith(("image/", "text/")) or str(item["file_ext"] or "") == ".pdf"
-    handler.send_json(HTTPStatus.CREATED, {"document": item})
+    handler.send_json(HTTPStatus.OK, {"document": document_payload(updated)})
+
+
+def api_delete_document(handler, path: str) -> None:
+    document_id = parse_path_int(path, 2)
+    if not document_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_id"})
+        return
+    user = handler.require_user()
+    if not user:
+        return
+
+    deleted: dict | None = None
+    remaining_storage_paths: list[str] = []
+    with db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if not row:
+            con.rollback()
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "document_not_found"})
+            return
+        project_id = int(row["project_id"])
+        if not handler.can_access_project(user, project_id):
+            con.rollback()
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
+            return
+        if not user_can_manage_documents(user):
+            con.rollback()
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+
+        if str(row["status"] or "").strip().lower() != "draft":
+            con.rollback()
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "document_not_deletable"})
+            return
+
+        references = document_reference_summary(con, document_id)
+        if references:
+            con.rollback()
+            handler.send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "document_in_use",
+                    "reference_count": sum(int(item["count"]) for item in references),
+                },
+            )
+            return
+
+        deleted = dict(row)
+        remaining_storage_paths = [
+            str(item["storage_path"])
+            for item in con.execute(
+                """
+                SELECT storage_path
+                FROM documents
+                WHERE id <> ? AND TRIM(COALESCE(storage_path, '')) <> ''
+                """,
+                (document_id,),
+            ).fetchall()
+        ]
+        create_audit(
+            con,
+            user["id"],
+            "delete_document",
+            "document",
+            document_id,
+            {
+                "project_id": project_id,
+                "deleted_document": {
+                    "title": row["title"],
+                    "doc_type": row["doc_type"],
+                    "status": row["status"],
+                    "original_name": row["original_name"],
+                    "storage_path": row["storage_path"],
+                    "is_client_visible": int(row["is_client_visible"] or 0),
+                },
+            },
+        )
+        try:
+            con.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            con.commit()
+        except sqlite3.IntegrityError:
+            con.rollback()
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "document_in_use"})
+            return
+
+    file_deleted = False
+    file_cleanup_failed = False
+    storage_path = str((deleted or {}).get("storage_path") or "").strip()
+    if storage_path:
+        try:
+            file_path = resolve_document_storage_path(project_id, storage_path)
+        except (OSError, RuntimeError, ValueError) as error:
+            file_cleanup_failed = True
+            record_document_file_cleanup_failure(
+                user_id=user["id"],
+                document_id=document_id,
+                project_id=project_id,
+                storage_path=storage_path,
+                error=error,
+            )
+        else:
+            shared_file = False
+            for other_storage_path in remaining_storage_paths:
+                try:
+                    other_candidate = Path(other_storage_path)
+                    other_file_path = (
+                        other_candidate if other_candidate.is_absolute() else PROJECT_ROOT / other_candidate
+                    ).resolve()
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                if other_file_path == file_path:
+                    shared_file = True
+                    break
+            if not shared_file:
+                try:
+                    if file_path.is_file():
+                        file_path.unlink()
+                        file_deleted = True
+                except OSError as error:
+                    file_cleanup_failed = True
+                    record_document_file_cleanup_failure(
+                        user_id=user["id"],
+                        document_id=document_id,
+                        project_id=project_id,
+                        storage_path=storage_path,
+                        error=error,
+                    )
+
+    handler.send_json(
+        HTTPStatus.OK,
+        {
+            "ok": True,
+            "deleted_id": document_id,
+            "project_id": project_id,
+            "file_deleted": file_deleted,
+            "file_cleanup_failed": file_cleanup_failed,
+        },
+    )
 
 
 def api_document_file(handler, path: str, inline: bool) -> None:
@@ -737,7 +1222,8 @@ def api_document_file(handler, path: str, inline: bool) -> None:
     if not row:
         handler.send_json(HTTPStatus.NOT_FOUND, {"error": "document_not_found"})
         return
-    if not handler.can_access_project(user, int(row["project_id"])):
+    project_id = int(row["project_id"])
+    if not handler.can_access_project(user, project_id):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
         return
     if user["role"] == "customer" and int(row["is_client_visible"] or 0) != 1:
@@ -747,21 +1233,21 @@ def api_document_file(handler, path: str, inline: bool) -> None:
     if not storage_path:
         handler.send_json(HTTPStatus.NOT_FOUND, {"error": "file_not_uploaded"})
         return
-    file_path = (PROJECT_ROOT / storage_path).resolve()
     try:
-        file_path.relative_to(PROJECT_ROOT.resolve())
-    except ValueError:
+        file_path = resolve_document_storage_path(project_id, str(storage_path))
+    except (OSError, RuntimeError, ValueError):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
         return
     if not file_path.is_file():
         handler.send_json(HTTPStatus.NOT_FOUND, {"error": "file_missing"})
         return
-    can_inline = str(row["mime_type"] or "").startswith(("image/", "text/")) or str(row["file_ext"] or "") == ".pdf"
+    inline_content_type = document_inline_content_type(row)
+    serve_inline = bool(inline and inline_content_type)
     handler.send_file(
         file_path,
-        str(row["mime_type"] or "application/octet-stream"),
+        inline_content_type if serve_inline else "application/octet-stream",
         str(row["original_name"] or row["title"] or f"document-{document_id}"),
-        inline=inline and can_inline,
+        inline=serve_inline,
     )
 
 

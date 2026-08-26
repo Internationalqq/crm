@@ -1096,7 +1096,7 @@
     }
 
     function canManageDocuments() {
-        return hasRole('admin') || hasRole('director') || hasRole('foreman') || hasRole('purchaser') || hasRole('financier') || hasRole('accountant');
+        return currentPermissions().fullAccess === true || hasRole('admin') || hasRole('director') || hasRole('foreman') || hasRole('purchaser') || hasRole('financier') || hasRole('accountant');
     }
 
     function canManageSchedule() {

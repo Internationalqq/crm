@@ -980,6 +980,7 @@
     }
 
     function closeProjectDetail() {
+        if (typeof documentWorkspaceCleanup === 'function') documentWorkspaceCleanup();
         state.selectedProject = null;
         var detail = qs('[data-project-detail]');
         if (detail) detail.hidden = true;
@@ -1295,10 +1296,12 @@
     function statusLabel(status) {
         return {
             draft: 'Черновик',
+            submitted: 'На согласовании',
             reviewed: 'Проверен',
             approved: 'Утвержден',
             signed: 'Подписан',
             ready: 'Готов',
+            accepted: 'Принят',
             internal: 'Внутренний',
             open: 'Открыто',
             in_progress: 'В работе',
@@ -3759,6 +3762,7 @@
             project_doc: 'Проектная документация',
             executive: 'Исполнительная документация',
             technical_solution: 'Техрешение',
+            service_act: 'Акт оказанных услуг',
             letter: 'Письмо',
             correspondence: 'Переписка',
             invoice: 'Счет',
@@ -3805,7 +3809,7 @@
     }
 
     function documentStatusTone(status) {
-        if (['reviewed', 'approved', 'signed', 'ready'].indexOf(status) !== -1) return 'is-success';
+        if (['reviewed', 'approved', 'signed', 'ready', 'accepted'].indexOf(status) !== -1) return 'is-success';
         if (status === 'draft') return 'is-draft';
         if (status === 'internal') return 'is-internal';
         return 'is-neutral';
@@ -3834,6 +3838,75 @@
         return value ? formatDisplayDate(value) : '';
     }
 
+    var documentWorkspaceCleanup = null;
+    var documentTypeChoices = [
+        'contract', 'estimate', 'project_doc', 'hidden_work_act', 'inspection_act',
+        'executive', 'technical_solution', 'act', 'service_act', 'invoice',
+        'delivery_note', 'upd', 'transport_waybill', 'route_sheet', 'cash_receipt',
+        'photo_report', 'letter', 'correspondence', 'archive', 'finance', 'other', 'file'
+    ];
+    var documentStatusChoices = ['draft', 'submitted', 'reviewed', 'approved', 'signed', 'ready', 'accepted', 'internal'];
+    var documentStatusRank = { draft: 0, submitted: 1, reviewed: 2, approved: 3, signed: 4, ready: 5, accepted: 5 };
+    var documentProtectedStatuses = ['submitted', 'reviewed', 'approved', 'signed', 'ready', 'accepted'];
+
+    function documentSelectOptions(values, labeler) {
+        return values.map(function (value) {
+            return '<option value="' + escapeHtml(value) + '">' + escapeHtml(labeler(value)) + '</option>';
+        }).join('');
+    }
+
+    function mountDocumentWorkspaceOverlays(projectId, canManage) {
+        var contextMenu = document.createElement('div');
+        contextMenu.className = 'document-context-menu';
+        contextMenu.setAttribute('data-document-context-menu', '');
+        contextMenu.setAttribute('role', 'menu');
+        contextMenu.setAttribute('aria-label', 'Действия с документом');
+        contextMenu.hidden = true;
+        contextMenu.innerHTML =
+            '<button type="button" role="menuitem" data-document-context-action="open"><i data-lucide="external-link"></i><span>Открыть</span></button>' +
+            '<button type="button" role="menuitem" data-document-context-action="download"><i data-lucide="download"></i><span>Скачать</span></button>' +
+            (canManage
+                ? '<span class="document-context-separator" role="separator"></span>' +
+                  '<button type="button" role="menuitem" data-document-context-action="edit"><i data-lucide="file-pen-line"></i><span>Редактировать</span></button>' +
+                  '<button class="is-danger" type="button" role="menuitem" data-document-context-action="delete"><i data-lucide="trash-2"></i><span>Удалить</span></button>'
+                : '');
+        document.body.appendChild(contextMenu);
+
+        var editor = null;
+        if (canManage) {
+            var stages = (state.stagesByProject && state.stagesByProject[projectId]) ? state.stagesByProject[projectId] : [];
+            var stageOptions = '<option value="">Без этапа</option>' + stages.map(function (stage) {
+                return '<option value="' + escapeHtml(stage.id) + '">' + escapeHtml(stage.title || ('Этап #' + stage.id)) + '</option>';
+            }).join('');
+            editor = document.createElement('div');
+            editor.className = 'document-editor-modal';
+            editor.setAttribute('data-document-editor-modal', '');
+            editor.hidden = true;
+            editor.innerHTML =
+                '<button class="document-editor-backdrop" type="button" data-document-editor-close tabindex="-1" aria-label="Закрыть окно"></button>' +
+                '<section class="document-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="document-editor-title">' +
+                    '<form data-document-editor-form>' +
+                        '<header class="document-editor-head"><div><span class="section-label">Карточка документа</span><h2 id="document-editor-title">Редактировать документ</h2><p data-document-editor-file></p></div>' +
+                        '<button class="document-icon-button" type="button" data-document-editor-close aria-label="Закрыть"><i data-lucide="x"></i></button></header>' +
+                        '<div class="document-editor-grid">' +
+                            '<label class="document-field document-field-wide"><span>Название</span><input name="title" maxlength="240" required autocomplete="off"></label>' +
+                            '<label class="document-field"><span>Тип документа</span><select name="doc_type">' + documentSelectOptions(documentTypeChoices, docTypeLabel) + '</select></label>' +
+                            '<label class="document-field"><span>Статус</span><select name="status">' + documentSelectOptions(documentStatusChoices, statusLabel) + '</select></label>' +
+                            '<label class="document-field"><span>Этап работ</span><select name="stage_id">' + stageOptions + '</select></label>' +
+                            '<label class="document-field document-field-wide"><span>Комментарий</span><textarea name="notes" rows="4" maxlength="4000" placeholder="Что важно знать об этом документе"></textarea></label>' +
+                        '</div>' +
+                        '<footer class="document-editor-footer"><label class="document-visibility-switch"><input type="checkbox" name="is_client_visible"><span aria-hidden="true"></span><strong>Доступен заказчику</strong><small>Заказчик увидит документ в своём кабинете</small></label>' +
+                        '<div class="document-editor-actions"><button class="ghost" type="button" data-document-editor-close>Отмена</button><button class="primary" type="submit" data-document-editor-save><i data-lucide="save"></i><span>Сохранить</span></button></div></footer>' +
+                        '<div class="form-error" data-document-editor-error role="alert" hidden></div>' +
+                    '</form>' +
+                '</section>';
+            document.body.appendChild(editor);
+        }
+        refreshLucideIcons(contextMenu);
+        if (editor) refreshLucideIcons(editor);
+        return { menu: contextMenu, editor: editor };
+    }
+
     function renderDocumentRow(doc) {
         var hasFile = !!doc.storage_path;
         var title = doc.title || doc.original_name || 'Документ без названия';
@@ -3850,7 +3923,14 @@
         var fileVisual = imageUrl
             ? '<div class="document-file-visual has-image" aria-hidden="true"><img src="' + escapeHtml(imageUrl) + '" alt="" loading="lazy" decoding="async"><span>' + escapeHtml(documentFileExtension(doc)) + '</span></div>'
             : '<div class="document-file-visual" aria-hidden="true"><i data-lucide="' + escapeHtml(documentTypeIcon(doc.doc_type, doc.file_ext)) + '"></i><span>' + escapeHtml(documentFileExtension(doc)) + '</span></div>';
-        return '<article class="document-row document-card ' + (hasFile ? 'has-file' : 'is-fileless') + '">' +
+        var hasContextActions = hasFile || canManageDocuments();
+        var moreAction = hasContextActions
+            ? '<button class="document-action is-menu" type="button" data-document-menu-button aria-haspopup="menu" aria-label="Действия с документом ' + escapeHtml(title) + '" title="Действия (правый клик)"><i data-lucide="ellipsis"></i></button>'
+            : '';
+        var contextAttributes = hasContextActions
+            ? ' tabindex="0" aria-label="' + escapeHtml(title) + '. Действия — правый клик или Shift+F10"'
+            : '';
+        return '<article class="document-row document-card ' + (hasFile ? 'has-file' : 'is-fileless') + '" data-document-card data-document-id="' + escapeHtml(doc.id) + '"' + contextAttributes + '>' +
             fileVisual +
             '<div class="document-card-content">' +
                 '<div class="document-card-title-row">' +
@@ -3866,7 +3946,7 @@
                 (details.length ? '<div class="document-card-meta">' + details.join('') + '</div>' : '') +
                 (doc.notes ? '<p class="document-card-note">' + escapeHtml(doc.notes) + '</p>' : '') +
             '</div>' +
-            '<div class="document-actions">' + actions + '</div>' +
+            '<div class="document-actions">' + actions + moreAction + '</div>' +
         '</article>';
     }
 
@@ -4036,6 +4116,16 @@
     function bindDocumentWorkspace(projectId, docs) {
         var root = qs('[data-documents-workspace]');
         if (!root) return;
+        if (typeof documentWorkspaceCleanup === 'function') documentWorkspaceCleanup();
+        var canManage = canManageDocuments();
+        var overlays = mountDocumentWorkspaceOverlays(projectId, canManage);
+        var contextMenu = overlays.menu;
+        var editor = overlays.editor;
+        var activeDocument = null;
+        var activeDocumentRow = null;
+        var editorReturnFocus = null;
+        var editorSubmitting = false;
+        var deletingDocumentId = null;
         var form = root.querySelector('[data-document-upload-form]');
         var toggles = Array.prototype.slice.call(root.querySelectorAll('[data-document-upload-toggle], [data-document-empty-add]'));
 
@@ -4061,6 +4151,360 @@
                 if (event.key === 'Escape') setUploadOpen(false);
             });
         }
+
+        function documentByRow(row) {
+            var documentId = Number(row && row.getAttribute('data-document-id') || 0);
+            return docs.find(function (doc) { return Number(doc.id) === documentId; }) || null;
+        }
+
+        function documentActionError(error, fallback) {
+            var errorCode = error && error.payload && error.payload.error;
+            return {
+                document_in_use: 'Документ связан с финансовой или производственной записью. Сначала отвяжите его от этой записи.',
+                document_not_deletable: 'Удалять можно только черновики. Проверенные, утверждённые и подписанные документы остаются в истории объекта.',
+                document_classification_in_use: 'Тип и статус связанного документа менять нельзя. Остальные поля можно отредактировать.',
+                document_classification_locked: 'Тип проверенного или утверждённого документа уже зафиксирован.',
+                document_status_regression: 'Финальный статус документа нельзя вернуть на более ранний этап.',
+                document_payload_must_be_object: 'Не удалось прочитать данные формы документа.',
+                document_title_required: 'Укажите название документа.',
+                document_title_too_long: 'Название документа слишком длинное.',
+                document_notes_too_long: 'Комментарий слишком длинный.',
+                document_stage_not_found: 'Выбранный этап не относится к этому объекту.',
+                bad_document_type: 'Выберите корректный тип документа.',
+                bad_document_status: 'Выберите корректный статус документа.',
+                bad_document_visibility: 'Не удалось сохранить настройку доступа.',
+                immutable_document_field: 'Файл и системные реквизиты документа нельзя изменить в этой форме.',
+                forbidden: 'У вас нет прав на управление документами.',
+                document_forbidden: 'Нет доступа к этому документу.',
+                document_not_found: 'Документ уже удалён или недоступен.'
+            }[errorCode] || appErrorMessage(error, fallback);
+        }
+
+        function closeContextMenu(restoreFocus) {
+            if (!contextMenu) return;
+            var focusWasInsideMenu = contextMenu.contains(document.activeElement);
+            contextMenu.hidden = true;
+            contextMenu.style.left = '';
+            contextMenu.style.top = '';
+            if (activeDocumentRow) activeDocumentRow.classList.remove('is-context-active');
+            if ((restoreFocus || focusWasInsideMenu) && activeDocumentRow && document.contains(activeDocumentRow)) activeDocumentRow.focus();
+            activeDocument = null;
+            activeDocumentRow = null;
+        }
+
+        function placeContextMenu(x, y) {
+            contextMenu.hidden = false;
+            contextMenu.style.visibility = 'hidden';
+            contextMenu.style.left = '0px';
+            contextMenu.style.top = '0px';
+            var inset = 8;
+            var width = contextMenu.offsetWidth || 220;
+            var height = contextMenu.offsetHeight || 180;
+            var left = Math.max(inset, Math.min(Number(x) || inset, window.innerWidth - width - inset));
+            var top = Math.max(inset, Math.min(Number(y) || inset, window.innerHeight - height - inset));
+            contextMenu.style.left = left + 'px';
+            contextMenu.style.top = top + 'px';
+            contextMenu.style.visibility = '';
+        }
+
+        function openContextMenu(row, x, y, focusMenu) {
+            var doc = documentByRow(row);
+            if (!doc || (!doc.storage_path && !canManage)) return false;
+            closeContextMenu(false);
+            activeDocument = doc;
+            activeDocumentRow = row;
+            row.classList.add('is-context-active');
+            var openAction = contextMenu.querySelector('[data-document-context-action="open"]');
+            var downloadAction = contextMenu.querySelector('[data-document-context-action="download"]');
+            var deleteAction = contextMenu.querySelector('[data-document-context-action="delete"]');
+            if (openAction) openAction.hidden = !doc.storage_path;
+            if (downloadAction) downloadAction.hidden = !doc.storage_path;
+            if (deleteAction) deleteAction.hidden = String(doc.status || '').toLowerCase() !== 'draft' || deletingDocumentId === Number(doc.id);
+            contextMenu.setAttribute('aria-label', 'Действия с документом ' + (doc.title || doc.original_name || 'без названия'));
+            placeContextMenu(x, y);
+            if (focusMenu) {
+                var firstAction = contextMenu.querySelector('button:not([hidden])');
+                if (firstAction) firstAction.focus({ preventScroll: true });
+            }
+            return true;
+        }
+
+        function ensureSelectValue(select, value, label) {
+            value = value == null ? '' : String(value);
+            if (value && !Array.prototype.some.call(select.options, function (option) { return option.value === value; })) {
+                var option = document.createElement('option');
+                option.value = value;
+                option.textContent = label || value;
+                select.appendChild(option);
+            }
+            select.value = value;
+        }
+
+        function closeDocumentEditor(restoreFocus) {
+            if (!editor || editorSubmitting) return;
+            editor.hidden = true;
+            document.body.classList.remove('document-editor-open');
+            var error = editor.querySelector('[data-document-editor-error]');
+            if (error) { error.hidden = true; error.textContent = ''; }
+            activeDocument = null;
+            if (restoreFocus && editorReturnFocus && document.contains(editorReturnFocus)) editorReturnFocus.focus();
+            editorReturnFocus = null;
+        }
+
+        function openDocumentEditor(doc, row) {
+            if (!editor || !doc || !canManage) return;
+            closeContextMenu(false);
+            activeDocument = doc;
+            editorReturnFocus = row || document.activeElement;
+            var editForm = editor.querySelector('[data-document-editor-form]');
+            editForm.elements.title.value = doc.title || doc.original_name || '';
+            ensureSelectValue(editForm.elements.doc_type, doc.doc_type || 'file', docTypeLabel(doc.doc_type));
+            ensureSelectValue(editForm.elements.status, doc.status || 'draft', statusLabel(doc.status));
+            var currentStatus = String(doc.status || 'draft').toLowerCase();
+            var classificationProtected = documentProtectedStatuses.indexOf(currentStatus) !== -1;
+            editForm.elements.doc_type.disabled = classificationProtected;
+            Array.prototype.forEach.call(editForm.elements.status.options, function (option) {
+                var nextRank = documentStatusRank[option.value];
+                option.disabled = classificationProtected && (nextRank == null || nextRank < documentStatusRank[currentStatus]);
+            });
+            var currentStages = (state.stagesByProject && state.stagesByProject[projectId]) ? state.stagesByProject[projectId] : [];
+            editForm.elements.stage_id.innerHTML = '<option value="">Без этапа</option>' + currentStages.filter(function (stage) {
+                return stage.stage_kind !== 'section';
+            }).map(function (stage) {
+                return '<option value="' + escapeHtml(stage.id) + '">' + escapeHtml(stage.title || ('Этап #' + stage.id)) + '</option>';
+            }).join('');
+            ensureSelectValue(editForm.elements.stage_id, doc.stage_id || '', doc.stage_title || (doc.stage_id ? ('Этап #' + doc.stage_id) : ''));
+            editForm.elements.notes.value = doc.notes || '';
+            editForm.elements.is_client_visible.checked = !!doc.is_client_visible;
+            var fileMeta = editor.querySelector('[data-document-editor-file]');
+            if (fileMeta) fileMeta.textContent = doc.original_name ? ('Файл: ' + doc.original_name) : 'Карточка без загруженного файла';
+            var error = editor.querySelector('[data-document-editor-error]');
+            if (error) { error.hidden = true; error.textContent = ''; }
+            editor.hidden = false;
+            document.body.classList.add('document-editor-open');
+            setTimeout(function () {
+                editForm.elements.title.focus({ preventScroll: true });
+                editForm.elements.title.select();
+            }, 0);
+        }
+
+        function openDocumentUrl(url) {
+            if (!url) return;
+            var opened = window.open(url, '_blank', 'noopener,noreferrer');
+            if (opened) opened.opener = null;
+        }
+
+        function focusDocumentWorkspaceAfterRefresh(documentId) {
+            requestAnimationFrame(function () {
+                var refreshedRoot = qs('[data-documents-workspace]');
+                if (!refreshedRoot) return;
+                var target = documentId
+                    ? refreshedRoot.querySelector('[data-document-id="' + Number(documentId) + '"]')
+                    : null;
+                if (!target) target = refreshedRoot.querySelector('h2, [data-document-search]');
+                if (!target) return;
+                if (target.tabIndex < 0 && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+                target.focus({ preventScroll: true });
+            });
+        }
+
+        function deleteDocument(doc, row) {
+            if (!doc || !canManage) return;
+            if (String(doc.status || '').toLowerCase() !== 'draft') {
+                showAppNotice(documentActionError({ payload: { error: 'document_not_deletable' } }, ''), 'warn');
+                return;
+            }
+            if (deletingDocumentId !== null) {
+                showAppNotice('Дождитесь завершения текущего удаления документа.', 'warn');
+                return;
+            }
+            var title = doc.title || doc.original_name || 'Документ без названия';
+            if (!window.confirm('Удалить документ «' + title + '»? Файл и карточка документа будут удалены без возможности восстановления.')) {
+                if (row && document.contains(row)) row.focus();
+                return;
+            }
+            deletingDocumentId = Number(doc.id);
+            if (row) {
+                row.classList.add('is-deleting');
+                row.setAttribute('aria-busy', 'true');
+            }
+            api('/api/documents/' + doc.id, { method: 'DELETE' }).then(function (result) {
+                if (result && result.file_cleanup_failed) {
+                    showAppNotice('Карточка удалена, но файл не удалось очистить автоматически. Ошибка записана в журнал.', 'warn');
+                } else {
+                    showAppNotice('Документ удалён.', 'success');
+                }
+                refreshProjectOverview(projectId);
+                return loadDocuments(projectId).then(function () { focusDocumentWorkspaceAfterRefresh(null); });
+            }).catch(function (error) {
+                showAppNotice(documentActionError(error, 'Не удалось удалить документ.'), 'error');
+            }).finally(function () {
+                deletingDocumentId = null;
+                if (row && document.contains(row)) {
+                    row.classList.remove('is-deleting');
+                    row.removeAttribute('aria-busy');
+                }
+            });
+        }
+
+        function onRootContextMenu(event) {
+            var row = event.target && event.target.closest ? event.target.closest('[data-document-card]') : null;
+            if (!row || !root.contains(row)) return;
+            if (!openContextMenu(row, event.clientX, event.clientY, true)) return;
+            event.preventDefault();
+        }
+
+        function onRootClick(event) {
+            var button = event.target && event.target.closest ? event.target.closest('[data-document-menu-button]') : null;
+            if (!button || !root.contains(button)) return;
+            var row = button.closest('[data-document-card]');
+            if (!row) return;
+            event.preventDefault();
+            var rect = button.getBoundingClientRect();
+            openContextMenu(row, rect.right, rect.bottom + 4, true);
+        }
+
+        function onRootKeydown(event) {
+            var isContextKey = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+            if (!isContextKey) return;
+            var row = event.target && event.target.closest ? event.target.closest('[data-document-card]') : null;
+            if (!row || !root.contains(row)) return;
+            var rect = row.getBoundingClientRect();
+            if (!openContextMenu(row, rect.left + Math.min(rect.width, 260), rect.top + Math.min(rect.height, 48), true)) return;
+            event.preventDefault();
+        }
+
+        function onOutsideClick(event) {
+            if (contextMenu.hidden || contextMenu.contains(event.target)) return;
+            if (event.target && event.target.closest && event.target.closest('[data-document-menu-button]')) return;
+            closeContextMenu(false);
+        }
+
+        function onDocumentKeydown(event) {
+            if (event.key !== 'Escape' || !contextMenu || contextMenu.hidden) return;
+            event.preventDefault();
+            closeContextMenu(true);
+        }
+
+        function onViewportChange() {
+            closeContextMenu(false);
+        }
+
+        root.addEventListener('contextmenu', onRootContextMenu);
+        root.addEventListener('click', onRootClick);
+        root.addEventListener('keydown', onRootKeydown);
+        document.addEventListener('click', onOutsideClick);
+        document.addEventListener('keydown', onDocumentKeydown);
+        window.addEventListener('resize', onViewportChange);
+        window.addEventListener('scroll', onViewportChange, true);
+
+        contextMenu.addEventListener('click', function (event) {
+            var actionButton = event.target && event.target.closest ? event.target.closest('[data-document-context-action]') : null;
+            if (!actionButton || !activeDocument) return;
+            var action = actionButton.getAttribute('data-document-context-action');
+            var doc = activeDocument;
+            var row = activeDocumentRow;
+            if (action !== 'edit') closeContextMenu(true);
+            if (action === 'open') openDocumentUrl(doc.view_url || doc.download_url);
+            else if (action === 'download') openDocumentUrl(doc.download_url);
+            else if (action === 'edit') openDocumentEditor(doc, row);
+            else if (action === 'delete') deleteDocument(doc, row);
+        });
+
+        contextMenu.addEventListener('keydown', function (event) {
+            if (event.key === 'Tab') {
+                closeContextMenu(false);
+                return;
+            }
+            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].indexOf(event.key) === -1) return;
+            var actions = Array.prototype.slice.call(contextMenu.querySelectorAll('button:not([hidden]):not([disabled])'));
+            if (!actions.length) return;
+            event.preventDefault();
+            var currentIndex = actions.indexOf(document.activeElement);
+            var nextIndex = event.key === 'Home' ? 0
+                : (event.key === 'End' ? actions.length - 1
+                    : (event.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1));
+            if (nextIndex < 0) nextIndex = actions.length - 1;
+            if (nextIndex >= actions.length) nextIndex = 0;
+            actions[nextIndex].focus();
+        });
+
+        if (editor) {
+            Array.prototype.slice.call(editor.querySelectorAll('[data-document-editor-close]')).forEach(function (button) {
+                button.addEventListener('click', function () { closeDocumentEditor(true); });
+            });
+            editor.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeDocumentEditor(true);
+                    return;
+                }
+                if (event.key !== 'Tab') return;
+                var focusable = Array.prototype.slice.call(editor.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')).filter(function (node) { return !node.hidden && node.tabIndex >= 0; });
+                if (!focusable.length) return;
+                var first = focusable[0];
+                var last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            });
+            var editForm = editor.querySelector('[data-document-editor-form]');
+            editForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                if (!activeDocument || editorSubmitting) return;
+                var title = editForm.elements.title.value.trim();
+                var error = editor.querySelector('[data-document-editor-error]');
+                if (!title) {
+                    error.textContent = 'Укажите название документа.';
+                    error.hidden = false;
+                    editForm.elements.title.focus();
+                    return;
+                }
+                var saveButton = editor.querySelector('[data-document-editor-save]');
+                var documentId = activeDocument.id;
+                editorSubmitting = true;
+                saveButton.disabled = true;
+                saveButton.setAttribute('aria-busy', 'true');
+                error.hidden = true;
+                api('/api/documents/' + documentId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: title,
+                        doc_type: editForm.elements.doc_type.value,
+                        status: editForm.elements.status.value,
+                        stage_id: editForm.elements.stage_id.value ? Number(editForm.elements.stage_id.value) : null,
+                        notes: editForm.elements.notes.value.trim(),
+                        is_client_visible: editForm.elements.is_client_visible.checked
+                    })
+                }).then(function () {
+                    editorSubmitting = false;
+                    closeDocumentEditor(true);
+                    showAppNotice('Документ обновлён.', 'success');
+                    refreshProjectOverview(projectId);
+                    return loadDocuments(projectId).then(function () { focusDocumentWorkspaceAfterRefresh(documentId); });
+                }).catch(function (requestError) {
+                    error.textContent = documentActionError(requestError, 'Не удалось сохранить документ.');
+                    error.hidden = false;
+                }).finally(function () {
+                    editorSubmitting = false;
+                    saveButton.disabled = false;
+                    saveButton.removeAttribute('aria-busy');
+                });
+            });
+        }
+
+        documentWorkspaceCleanup = function () {
+            root.removeEventListener('contextmenu', onRootContextMenu);
+            root.removeEventListener('click', onRootClick);
+            root.removeEventListener('keydown', onRootKeydown);
+            document.removeEventListener('click', onOutsideClick);
+            document.removeEventListener('keydown', onDocumentKeydown);
+            window.removeEventListener('resize', onViewportChange);
+            window.removeEventListener('scroll', onViewportChange, true);
+            document.body.classList.remove('document-editor-open');
+            if (contextMenu && contextMenu.parentNode) contextMenu.parentNode.removeChild(contextMenu);
+            if (editor && editor.parentNode) editor.parentNode.removeChild(editor);
+            documentWorkspaceCleanup = null;
+        };
 
         var list = root.querySelector('[data-documents-list]');
         var search = root.querySelector('[data-document-search]');
@@ -4197,24 +4641,27 @@
         var executiveRequest = hasRole('customer')
             ? Promise.resolve(null)
             : api('/api/projects/' + projectId + '/executive-docs').catch(function () { return null; });
-        Promise.all([docsRequest, executiveRequest]).then(function (result) {
-            if (!isCurrentProject(projectId, loadingToken)) return;
+        return Promise.all([docsRequest, executiveRequest]).then(function (result) {
+            if (!isCurrentProject(projectId, loadingToken)) return false;
             var data = result[0] || {};
             var executive = result[1];
             var docs = Array.isArray(data.documents) ? data.documents : [];
             var panel = qs('[data-panel="documents"]');
-            if (!panel) return;
+            if (!panel) return false;
             safeReplaceChildren(panel, renderDocumentsWorkspace(projectId, docs, executive));
             bindDocumentWorkspace(projectId, docs);
             bindDocumentUpload(projectId);
             bindExecutiveDocActions(projectId);
             refreshLucideIcons(panel);
+            return true;
         }).catch(function () {
-            if (!isCurrentProject(projectId, loadingToken)) return;
+            if (!isCurrentProject(projectId, loadingToken)) return false;
+            if (typeof documentWorkspaceCleanup === 'function') documentWorkspaceCleanup();
             safeReplaceChildren(qs('[data-panel="documents"]'), '<div class="documents-load-error"><span><i data-lucide="folder-x"></i></span><div><h3>Документы не загрузились</h3><p>Проверьте соединение и откройте раздел ещё раз.</p></div><button class="ghost" type="button" data-documents-retry>Повторить</button></div>');
             var retry = qs('[data-documents-retry]');
             if (retry) retry.addEventListener('click', function () { loadDocuments(projectId); });
             refreshLucideIcons(qs('[data-panel="documents"]'));
+            return false;
         });
     }
 
@@ -11193,17 +11640,30 @@ function renderLogsDayView(project, logs) {
 
     function syncProjectOverviewCover(project, documents) {
         var photo = projectPhotoDocuments(documents)[0];
-        if (!photo) return;
         var image = qs('[data-project-cover-image]');
         var cover = image && image.closest('[data-project-cover-state]');
         if (!image || !cover) return;
+        var label = qs('[data-project-cover-label]', cover);
+        var note = qs('[data-project-cover-note]', cover);
+        if (!photo) {
+            image.src = projectFallbackCoverUrl(project);
+            image.alt = '';
+            cover.dataset.projectCoverState = 'fallback';
+            cover.classList.remove('has-uploaded-photo');
+            cover.classList.add('is-curated-cover');
+            if (project) {
+                project.cover_photo_url = '';
+                project.cover_photo_title = '';
+            }
+            if (label) label.textContent = 'Визуальная обложка';
+            if (note) note.textContent = 'Загрузите фотоотчёт — свежий снимок станет обложкой.';
+            return;
+        }
         image.src = projectDocumentImageUrl(photo);
         image.alt = '';
         cover.dataset.projectCoverState = 'uploaded';
         cover.classList.add('has-uploaded-photo');
         cover.classList.remove('is-curated-cover');
-        var label = qs('[data-project-cover-label]', cover);
-        var note = qs('[data-project-cover-note]', cover);
         if (label) label.textContent = 'Фото с объекта';
         if (note) note.textContent = [photo.title || photo.original_name || '', documentDisplayDate(photo)].filter(Boolean).join(' · ');
     }
@@ -11568,6 +12028,7 @@ function renderLogsDayView(project, logs) {
 
     function cleanupBeforeRouteChange() {
         if (PMBI.autobot && typeof PMBI.autobot.cleanup === 'function') PMBI.autobot.cleanup();
+        if (typeof documentWorkspaceCleanup === 'function') documentWorkspaceCleanup();
         if (abortApiRequests) {
             abortApiRequests('projects-list');
             abortApiRequests('dashboard');

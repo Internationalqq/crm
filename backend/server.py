@@ -224,12 +224,14 @@ from communications_docs import (
     api_create_daily_log as comm_api_create_daily_log,
     api_create_project_executive_doc as comm_api_create_project_executive_doc,
     api_delete_daily_log as comm_api_delete_daily_log,
+    api_delete_document as comm_api_delete_document,
     api_document_file as comm_api_document_file,
     api_project_chats as comm_api_project_chats,
     api_project_daily_logs as comm_api_project_daily_logs,
     api_project_documents as comm_api_project_documents,
     api_project_executive_docs as comm_api_project_executive_docs,
     api_project_notifications as comm_api_project_notifications,
+    api_update_document as comm_api_update_document,
     api_upload_project_document as comm_api_upload_project_document,
     can_access_chat as comm_can_access_chat,
     ensure_daily_log_actions_schema,
@@ -5383,6 +5385,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_executive_docs(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/executive-docs"):
                 self.api_create_project_executive_doc(path)
+            elif method == "POST" and re.fullmatch(r"/api/documents/\d+/update", path):
+                self.api_update_document(path)
+            elif method == "DELETE" and re.fullmatch(r"/api/documents/\d+", path):
+                self.api_delete_document(path)
             elif method == "GET" and path.startswith("/api/documents/") and path.endswith("/download"):
                 self.api_document_file(path, inline=False)
             elif method == "GET" and path.startswith("/api/documents/") and path.endswith("/view"):
@@ -8661,6 +8667,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def api_upload_project_document(self, path: str) -> None:
         return comm_api_upload_project_document(self, path)
+
+    def api_update_document(self, path: str) -> None:
+        return comm_api_update_document(self, path)
+
+    def api_delete_document(self, path: str) -> None:
+        return comm_api_delete_document(self, path)
 
     def api_document_file(self, path: str, inline: bool) -> None:
         return comm_api_document_file(self, path, inline)
