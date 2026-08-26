@@ -1,6 +1,9 @@
 data/
 .env
 .env.docker
+# Local SSH credentials — never commit
+/.codex_ssh/
+/.ssh/
 *.sqlite3
 __pycache__/
 *.pyc
