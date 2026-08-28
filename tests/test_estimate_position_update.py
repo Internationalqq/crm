@@ -36,7 +36,9 @@ class EstimatePositionUpdateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_db_path = server.DB_PATH
+        self.original_bootstrap_path = server.BOOTSTRAP_PATH
         server.DB_PATH = Path(self.temp_dir.name) / "position-update.sqlite3"
+        server.BOOTSTRAP_PATH = Path(self.temp_dir.name) / "INITIAL_ADMIN.txt"
         server.init_db()
         with server.db() as con:
             self.admin_id = int(con.execute("SELECT id FROM users WHERE login = 'admin'").fetchone()[0])
@@ -75,6 +77,7 @@ class EstimatePositionUpdateTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         server.DB_PATH = self.original_db_path
+        server.BOOTSTRAP_PATH = self.original_bootstrap_path
         gc.collect()
         self.temp_dir.cleanup()
 
@@ -157,6 +160,79 @@ class EstimatePositionUpdateTests(unittest.TestCase):
                 (self.material_id,),
             ).fetchone()
         self.assertEqual(tuple(row), ("New material", 7, 250, "material", None))
+
+    def test_admin_can_update_price_with_before_after_audit(self) -> None:
+        handler = self.update(
+            self.work_id,
+            {
+                "title": "Old work",
+                "unit": "м2",
+                "plannedQty": 10,
+                "plannedPrice": "12,50",
+                "sectionTitle": "Old section",
+                "expectedKind": "work",
+            },
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        with server.db() as con:
+            row = con.execute(
+                "SELECT planned_price FROM estimate_items WHERE id = ?",
+                (self.work_id,),
+            ).fetchone()
+            audit = con.execute(
+                "SELECT payload FROM audit_log WHERE entity = 'estimate_item' AND entity_id = ? ORDER BY id DESC LIMIT 1",
+                (self.work_id,),
+            ).fetchone()
+        self.assertEqual(row["planned_price"], 12.5)
+        self.assertIn('"planned_price": 125.0', audit["payload"])
+        self.assertIn('"planned_price": 12.5', audit["payload"])
+
+    def test_foreman_cannot_update_price(self) -> None:
+        handler = self.update(
+            self.work_id,
+            {
+                "title": "Old work",
+                "unit": "м2",
+                "plannedQty": 10,
+                "plannedPrice": 1,
+                "sectionTitle": "Old section",
+                "expectedKind": "work",
+            },
+            role="foreman",
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(handler.response["error"], "price_fields_forbidden")
+        with server.db() as con:
+            price = con.execute(
+                "SELECT planned_price FROM estimate_items WHERE id = ?",
+                (self.work_id,),
+            ).fetchone()[0]
+        self.assertEqual(price, 125)
+
+    def test_price_must_be_finite_and_nonnegative(self) -> None:
+        for value in ("not-a-number", "NaN", "Infinity", -1):
+            with self.subTest(value=value):
+                handler = self.update(
+                    self.work_id,
+                    {
+                        "title": "Old work",
+                        "unit": "м2",
+                        "plannedQty": 10,
+                        "plannedPrice": value,
+                        "sectionTitle": "Old section",
+                        "expectedKind": "work",
+                    },
+                )
+                self.assertEqual(handler.status, HTTPStatus.BAD_REQUEST)
+                self.assertEqual(handler.response["error"], "estimate_position_price_invalid")
+        with server.db() as con:
+            price = con.execute(
+                "SELECT planned_price FROM estimate_items WHERE id = ?",
+                (self.work_id,),
+            ).fetchone()[0]
+        self.assertEqual(price, 125)
 
     def test_clean_material_can_move_to_work_and_manual_type_beats_fsbc_heuristic(self) -> None:
         with server.db() as con:

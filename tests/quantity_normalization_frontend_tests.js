@@ -30,6 +30,6 @@ assert.match(qaCss, /\.warehouse-volume\.is-missing/);
 
 assert.match(routerJs, /app\.js\?v=[^'\"]*quantity-normalization-1/);
 assert.match(routerJs, /procurement\.js\?v=20260821-quantity-normalization-1/);
-assert.match(baseHtml, /router\.js\?v=20260821-quantity-normalization-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*quantity-normalization-1/);
 
 console.log('quantity_normalization_frontend_ok');

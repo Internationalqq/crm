@@ -13,6 +13,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from schedule_tasks import build_procurement_alerts, estimate_material_lead_days  # noqa: E402
+from warehouse import estimate_material_lead_days as warehouse_estimate_material_lead_days  # noqa: E402
 
 
 def stage_rows(*rows: tuple[int, str, str]) -> list[sqlite3.Row]:
@@ -26,6 +27,18 @@ def stage_rows(*rows: tuple[int, str, str]) -> list[sqlite3.Row]:
 
 
 class ProcurementAlertTests(unittest.TestCase):
+    def test_warehouse_lead_day_estimator_uses_shared_scope_classifier(self) -> None:
+        material = {
+            "title": "\u041a\u0430\u0431\u0435\u043b\u044c",
+            "notes": "",
+            "unit": "m",
+            "plannedQty": 100,
+            "plannedPrice": 250,
+        }
+
+        self.assertEqual(warehouse_estimate_material_lead_days(material), 12)
+        self.assertEqual(estimate_material_lead_days(material), 12)
+
     def test_need_by_date_is_on_site_deadline_and_uses_explicit_delivery_days(self) -> None:
         procurement = build_procurement_alerts(
             [

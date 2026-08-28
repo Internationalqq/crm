@@ -11,6 +11,7 @@
     var frameMessageHandler = null;
     var connectionGeneration = 0;
     var retryAttempt = 0;
+    var automaticRetryLimit = 5;
 
     function refreshIcons(root) {
         if (PMBI.refreshLucideIcons) {
@@ -72,9 +73,16 @@
         }, 440);
     }
 
-    function autobotHealthUrl(root) {
-        var base = String(root.getAttribute('data-autobot-url') || '/autobot').replace(/\/+$/, '');
-        return new URL(base + '/healthz', window.location.href).href;
+    function autobotHealthUrl() {
+        return '/api/autobot/health';
+    }
+
+    function autobotFrameOrigin(root) {
+        try {
+            return new URL(String(root.getAttribute('data-autobot-url') || '/autobot'), window.location.href).origin;
+        } catch (error) {
+            return '';
+        }
     }
 
     async function checkAutobotHealth(root) {
@@ -83,7 +91,7 @@
         healthAbortController = controller;
         var timeout = window.setTimeout(function () { controller.abort(); }, 4500);
         try {
-            var response = await fetch(autobotHealthUrl(root), {
+            var response = await fetch(autobotHealthUrl(), {
                 cache: 'no-store',
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
@@ -120,6 +128,10 @@
 
     function scheduleRetry(root, frame) {
         if (retryTimer || !document.body.contains(root)) return;
+        if (retryAttempt >= automaticRetryLimit) {
+            markOffline(root, frame, 'AutoBot недоступен — повторите вручную');
+            return;
+        }
         retryAttempt += 1;
         var delay = Math.min(10000, 1000 * Math.pow(2, Math.min(retryAttempt - 1, 3)));
         setConnection(root, 'connecting', 'AutoBot перезапускается');
@@ -201,8 +213,9 @@
 
         root.dataset.autobotBound = '1';
         frame.dataset.autobotReady = '0';
+        var expectedFrameOrigin = autobotFrameOrigin(root);
         frameMessageHandler = function (event) {
-            if (event.source !== frame.contentWindow || !event.data) return;
+            if (!expectedFrameOrigin || event.origin !== expectedFrameOrigin || event.source !== frame.contentWindow || !event.data) return;
             if (event.data.type === 'autobot:feature-modal') {
                 document.body.classList.toggle('autobot-modal-open', event.data.open === true);
                 return;

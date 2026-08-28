@@ -117,6 +117,71 @@ class ProjectBootstrapSafetyTests(unittest.TestCase):
         self.assertEqual(stock_count, 1)
         self.assertEqual(stage_count, 0)
 
+    def test_replayed_bootstrap_task_key_is_idempotent(self) -> None:
+        payload = {
+            "replace_existing": False,
+            "tasks": [
+                {
+                    "title": "Проверить тендер и решение об участии",
+                    "description": "Стартовая задача AutoBot",
+                    "priority": "high",
+                    "client_request_id": "autobot:tender:12345678:starter",
+                }
+            ],
+        }
+
+        def call_bootstrap() -> None:
+            handler = FakeBootstrapHandler(
+                {"id": self.admin_id, "role": "admin", "roles": []},
+                payload,
+            )
+            server.PMBIHandler.api_project_bootstrap(
+                handler, f"/api/projects/{self.project_id}/bootstrap"
+            )
+            self.assertEqual(handler.status, HTTPStatus.OK)
+            self.assertEqual(handler.response["summary"]["tasks"], 1)
+
+        call_bootstrap()
+        with server.db() as con:
+            con.execute(
+                """
+                UPDATE projects
+                SET internal_schedule_status = 'approved', internal_schedule_version = 7,
+                    customer_schedule_status = 'approved', customer_schedule_version = 9
+                WHERE id = ?
+                """,
+                (self.project_id,),
+            )
+            con.commit()
+
+        call_bootstrap()
+
+        with server.db() as con:
+            tasks = con.execute(
+                """
+                SELECT title, client_request_id
+                FROM tasks
+                WHERE project_id = ?
+                """,
+                (self.project_id,),
+            ).fetchall()
+            project = con.execute(
+                """
+                SELECT internal_schedule_status, internal_schedule_version,
+                       customer_schedule_status, customer_schedule_version
+                FROM projects
+                WHERE id = ?
+                """,
+                (self.project_id,),
+            ).fetchone()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["title"], "Проверить тендер и решение об участии")
+        self.assertEqual(tasks[0]["client_request_id"], "autobot:tender:12345678:starter")
+        self.assertEqual(project["internal_schedule_status"], "approved")
+        self.assertEqual(project["internal_schedule_version"], 7)
+        self.assertEqual(project["customer_schedule_status"], "approved")
+        self.assertEqual(project["customer_schedule_version"], 9)
+
 
 if __name__ == "__main__":
     unittest.main()

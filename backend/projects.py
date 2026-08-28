@@ -13,14 +13,52 @@ from auth import (
     user_can_view_project_economics,
     user_has_any_role,
     user_is_hidden_admin,
+    user_is_guest,
     user_is_main_admin,
+    user_permissions,
 )
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
+
+PROJECT_PORTFOLIO_COMPANIES = (
+    ("uess", "УЭСС"),
+    ("pm", "ПМ"),
+    ("strategy", "Стратегия"),
+)
+
+
+def project_portfolio_company_code(value: object) -> str | None:
+    normalized = "".join(character for character in str(value or "").casefold() if character.isalnum())
+    aliases = {
+        "уэсс": "uess",
+        "uess": "uess",
+        "пм": "pm",
+        "pm": "pm",
+        "стратегия": "strategy",
+        "strategy": "strategy",
+    }
+    return aliases.get(normalized)
+
+
+def project_portfolio_company_options(con: sqlite3.Connection) -> list[dict]:
+    rows = con.execute(
+        "SELECT id, name FROM companies WHERE type = 'own_legal_entity' ORDER BY id"
+    ).fetchall()
+    by_code: dict[str, dict] = {}
+    labels = dict(PROJECT_PORTFOLIO_COMPANIES)
+    for row in rows:
+        code = project_portfolio_company_code(row["name"])
+        if code and code not in by_code:
+            by_code[code] = {
+                "id": int(row["id"]),
+                "code": code,
+                "name": labels[code],
+            }
+    return [by_code[code] for code, _label in PROJECT_PORTFOLIO_COMPANIES if code in by_code]
 
 
 def now_ts() -> int:
@@ -29,8 +67,7 @@ def now_ts() -> int:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def table_exists(con: sqlite3.Connection, table: str) -> bool:
@@ -254,9 +291,103 @@ def normalize_project_description(value: object) -> str | None:
     return text
 
 
-def serialize_project(row: sqlite3.Row, user: dict) -> dict:
+def project_list_serialization_metadata(
+    con: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+    user: dict,
+) -> dict[int, dict[str, object]]:
+    project_ids = [int(row["id"]) for row in rows]
+    metadata: dict[int, dict[str, object]] = {
+        project_id: {
+            "portfolio_company": None,
+            "assigned_foremen": [],
+            "cover_photo": None,
+        }
+        for project_id in project_ids
+    }
+    if not project_ids or user_is_guest(user):
+        return metadata
+
+    own_company_ids = sorted(
+        {
+            int(row["own_legal_entity_id"])
+            for row in rows
+            if row["own_legal_entity_id"]
+        }
+    )
+    companies: dict[int, str] = {}
+    if own_company_ids:
+        placeholders = ",".join("?" for _ in own_company_ids)
+        companies = {
+            int(company["id"]): str(company["name"] or "")
+            for company in con.execute(
+                f"SELECT id, name FROM companies WHERE type = 'own_legal_entity' AND id IN ({placeholders})",
+                own_company_ids,
+            ).fetchall()
+        }
+    for row in rows:
+        company_name = companies.get(int(row["own_legal_entity_id"] or 0))
+        company_code = project_portfolio_company_code(company_name)
+        if company_code:
+            metadata[int(row["id"])]["portfolio_company"] = company_code
+
+    visibility_filter = "AND is_client_visible = 1" if user["role"] in {"customer", "client"} else ""
+    for offset in range(0, len(project_ids), 500):
+        chunk = project_ids[offset : offset + 500]
+        placeholders = ",".join("?" for _ in chunk)
+        assigned_rows = con.execute(
+            f"""
+            SELECT object_id, user_id
+            FROM object_assignments
+            WHERE object_id IN ({placeholders}) AND role_code = 'foreman'
+            ORDER BY object_id, is_primary DESC, assigned_at DESC, id DESC
+            """,
+            chunk,
+        ).fetchall()
+        for assigned_row in assigned_rows:
+            metadata[int(assigned_row["object_id"])]["assigned_foremen"].append(
+                assigned_row["user_id"]
+            )
+
+        photo_rows = con.execute(
+            f"""
+            SELECT project_id, id, title
+            FROM documents
+            WHERE project_id IN ({placeholders})
+              AND storage_path IS NOT NULL
+              AND TRIM(storage_path) <> ''
+              AND (
+                  mime_type LIKE 'image/%'
+                  OR LOWER(COALESCE(file_ext, '')) IN ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+              )
+              {visibility_filter}
+            ORDER BY project_id, CASE WHEN doc_type = 'photo_report' THEN 0 ELSE 1 END, id DESC
+            """,
+            chunk,
+        ).fetchall()
+        for photo in photo_rows:
+            project_metadata = metadata[int(photo["project_id"])]
+            if project_metadata["cover_photo"] is None:
+                project_metadata["cover_photo"] = photo
+    return metadata
+
+
+def serialize_project(
+    row: sqlite3.Row,
+    user: dict,
+    serialization_metadata: dict[str, object] | None = None,
+) -> dict:
+    if user_is_guest(user):
+        return {
+            "id": int(row["id"]),
+            "title": str(row["title"] or ""),
+            "status": str(row["status"] or ""),
+            "progress": int(row["progress"] or 0),
+        }
     data = dict(row)
     data["description"] = normalize_project_description(data.get("description"))
+    data["portfolio_company"] = None
+    data["portfolio_company_label"] = None
     role = user["role"]
     data["cover_photo_url"] = None
     data["cover_photo_title"] = None
@@ -266,42 +397,29 @@ def serialize_project(row: sqlite3.Row, user: dict) -> dict:
     if role == "customer":
         for key in ["director_id", "foreman_id", "buyer_id", "client_user_id"]:
             data.pop(key, None)
-    try:
-        with db() as con:
-            assigned_rows = con.execute(
-                """
-                SELECT user_id
-                FROM object_assignments
-                WHERE object_id = ? AND role_code = 'foreman'
-                ORDER BY is_primary DESC, assigned_at DESC, id DESC
-                """,
-                (row["id"],),
-            ).fetchall()
-            data["assigned_foremen"] = [assigned_row["user_id"] for assigned_row in assigned_rows]
-
-            visibility_filter = "AND is_client_visible = 1" if role in {"customer", "client"} else ""
-            cover_photo = con.execute(
-                f"""
-                SELECT id, title
-                FROM documents
-                WHERE project_id = ?
-                  AND storage_path IS NOT NULL
-                  AND TRIM(storage_path) <> ''
-                  AND (
-                      mime_type LIKE 'image/%'
-                      OR LOWER(COALESCE(file_ext, '')) IN ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-                  )
-                  {visibility_filter}
-                ORDER BY CASE WHEN doc_type = 'photo_report' THEN 0 ELSE 1 END, id DESC
-                LIMIT 1
-                """,
-                (row["id"],),
-            ).fetchone()
-            if cover_photo:
-                data["cover_photo_url"] = f"/api/documents/{cover_photo['id']}/view"
-                data["cover_photo_title"] = cover_photo["title"] or "Фото объекта"
-    except sqlite3.Error:
-        data["assigned_foremen"] = []
+    if serialization_metadata is not None:
+        company_code = serialization_metadata.get("portfolio_company")
+        if company_code:
+            data["portfolio_company"] = company_code
+            data["portfolio_company_label"] = dict(PROJECT_PORTFOLIO_COMPANIES)[company_code]
+        data["assigned_foremen"] = list(
+            serialization_metadata.get("assigned_foremen") or []
+        )
+        cover_photo = serialization_metadata.get("cover_photo")
+        if cover_photo:
+            data["cover_photo_url"] = f"/api/documents/{cover_photo['id']}/view"
+            data["cover_photo_title"] = cover_photo["title"] or "\u0424\u043e\u0442\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0430"
+    else:
+        try:
+            with db() as con:
+                project_metadata = project_list_serialization_metadata(con, [row], user)
+            return serialize_project(
+                row,
+                user,
+                project_metadata.get(int(row["id"]), {}),
+            )
+        except sqlite3.Error:
+            data["assigned_foremen"] = []
     data["scheduleControl"] = project_schedule_payload(row)
     return data
 
@@ -394,12 +512,95 @@ def set_project_foremen(
     return valid_ids
 
 
+def set_project_purchasers(
+    con: sqlite3.Connection,
+    project_id: int,
+    purchaser_ids: list[int],
+    assigned_by: int,
+) -> list[int]:
+    project = con.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        raise ValueError("project_not_found")
+    cleaned_ids = list(dict.fromkeys(int(item) for item in purchaser_ids if int(item) > 0))
+    if cleaned_ids:
+        placeholders = ",".join("?" for _ in cleaned_ids)
+        rows = con.execute(
+            f"""
+            SELECT DISTINCT u.id
+            FROM users u
+            LEFT JOIN user_roles ur ON ur.user_id = u.id
+            LEFT JOIN roles r ON r.id = ur.role_id
+            WHERE u.id IN ({placeholders})
+              AND u.is_active = 1
+              AND (u.role IN ('purchaser', 'buyer') OR r.code IN ('purchaser', 'buyer'))
+            """,
+            cleaned_ids,
+        ).fetchall()
+        valid_id_set = {int(row["id"]) for row in rows}
+        valid_ids = [user_id for user_id in cleaned_ids if user_id in valid_id_set]
+        if len(valid_ids) != len(cleaned_ids):
+            raise ValueError("purchaser_not_found")
+    else:
+        valid_ids = []
+
+    previous_rows = con.execute(
+        "SELECT DISTINCT user_id FROM object_assignments WHERE object_id = ? AND role_code IN ('purchaser', 'buyer')",
+        (project_id,),
+    ).fetchall()
+    previous_ids = [int(row["user_id"]) for row in previous_rows]
+    con.execute(
+        "DELETE FROM object_assignments WHERE object_id = ? AND role_code IN ('purchaser', 'buyer')",
+        (project_id,),
+    )
+    for purchaser_id in valid_ids:
+        con.execute(
+            """
+            INSERT OR IGNORE INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+            VALUES (?, ?, 'purchaser', 'Снабженец объекта', ?, ?, ?)
+            """,
+            (project_id, purchaser_id, 1 if purchaser_id == valid_ids[0] else 0, assigned_by, now_ts()),
+        )
+        con.execute(
+            "INSERT OR IGNORE INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+            (purchaser_id, project_id),
+        )
+    for purchaser_id in previous_ids:
+        if purchaser_id in valid_ids:
+            continue
+        has_other_assignment = con.execute(
+            "SELECT 1 FROM object_assignments WHERE object_id = ? AND user_id = ? LIMIT 1",
+            (project_id, purchaser_id),
+        ).fetchone()
+        if not has_other_assignment:
+            con.execute(
+                "DELETE FROM user_project_access WHERE user_id = ? AND project_id = ?",
+                (purchaser_id, project_id),
+            )
+    con.execute(
+        "UPDATE projects SET buyer_id = ?, updated_at = ? WHERE id = ?",
+        (valid_ids[0] if valid_ids else None, now_ts(), project_id),
+    )
+    return valid_ids
+
+
 def api_projects(handler) -> None:
     user = handler.require_user()
     if not user:
         return
+    portfolio_companies: list[dict] = []
     with db() as con:
-        if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
+        if user_is_guest(user):
+            rows = con.execute(
+                """
+                SELECT p.id, p.title, p.status, p.progress
+                FROM projects p
+                JOIN user_project_access a ON a.project_id = p.id
+                WHERE a.user_id = ?
+                ORDER BY p.id DESC
+                """,
+                (user["id"],),
+            ).fetchall()
+        elif user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
             rows = con.execute(
                 """
                 SELECT id, title, client_id, customer_company_id, own_legal_entity_id,
@@ -461,8 +662,22 @@ def api_projects(handler) -> None:
                 """,
                 (user["id"],),
             ).fetchall()
-        projects = [serialize_project(row, user) for row in rows]
-    handler.send_json(HTTPStatus.OK, {"projects": projects})
+        try:
+            serialization_metadata = project_list_serialization_metadata(con, rows, user)
+        except sqlite3.Error:
+            serialization_metadata = {
+                int(row["id"]): {"assigned_foremen": []} for row in rows
+            }
+        projects = [
+            serialize_project(row, user, serialization_metadata.get(int(row["id"]), {}))
+            for row in rows
+        ]
+        if not user_is_guest(user):
+            portfolio_companies = project_portfolio_company_options(con)
+    handler.send_json(
+        HTTPStatus.OK,
+        {"projects": projects, "portfolioCompanies": portfolio_companies},
+    )
 
 
 def api_create_project(handler) -> None:
@@ -483,6 +698,9 @@ def api_create_project(handler) -> None:
         own_legal_entity_id = int(own_legal_entity_id) if own_legal_entity_id else None
     except (TypeError, ValueError):
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_company_id"})
+        return
+    if not own_legal_entity_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "own_legal_entity_required"})
         return
     if not title or not address:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_address_client_required"})
@@ -513,10 +731,10 @@ def api_create_project(handler) -> None:
                 client_name = customer_company["name"]
         if own_legal_entity_id:
             own_company = con.execute(
-                "SELECT id FROM companies WHERE id = ? AND type = 'own_legal_entity'",
+                "SELECT id, name FROM companies WHERE id = ? AND type = 'own_legal_entity'",
                 (own_legal_entity_id,),
             ).fetchone()
-            if not own_company:
+            if not own_company or not project_portfolio_company_code(own_company["name"]):
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "own_legal_entity_not_found"})
                 return
         if not client_name:
@@ -604,7 +822,14 @@ def api_create_project(handler) -> None:
             """,
             (project_id, now_ts()),
         )
-        create_audit(con, user["id"], "create_project", "project", project_id, {"title": title})
+        create_audit(
+            con,
+            user["id"],
+            "create_project",
+            "project",
+            project_id,
+            {"title": title, "own_legal_entity_id": own_legal_entity_id},
+        )
         con.commit()
         row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     handler.send_json(HTTPStatus.CREATED, {"project": serialize_project(row, user)})
@@ -620,6 +845,10 @@ def api_update_project(handler, path: str) -> None:
         return
     if not can_access_project(handler, user, project_id):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    permissions = user_permissions(user)
+    if not (permissions.get("fullAccess") or permissions.get("projects") == "edit"):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "project_edit_forbidden"})
         return
     payload = handler.read_json()
     with db() as con:
@@ -639,6 +868,23 @@ def api_update_project(handler, path: str) -> None:
         city = str(payload.get("city", current["city"] or "")).strip() or None
         region = str(payload.get("region", current["region"] or "")).strip() or None
         description = str(payload.get("description", current["description"] or "")).strip() or None
+        own_company_key_present = "own_legal_entity_id" in payload or "ownLegalEntityId" in payload
+        own_legal_entity_id = current["own_legal_entity_id"]
+        if own_company_key_present:
+            raw_own_company_id = payload.get("own_legal_entity_id", payload.get("ownLegalEntityId"))
+            try:
+                own_legal_entity_id = int(raw_own_company_id) if raw_own_company_id else None
+            except (TypeError, ValueError):
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_company_id"})
+                return
+            if own_legal_entity_id:
+                own_company = con.execute(
+                    "SELECT id, name FROM companies WHERE id = ? AND type = 'own_legal_entity'",
+                    (own_legal_entity_id,),
+                ).fetchone()
+                if not own_company or not project_portfolio_company_code(own_company["name"]):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "own_legal_entity_not_found"})
+                    return
 
         if not title or not address or not client_name:
             handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "title_address_client_required"})
@@ -673,6 +919,7 @@ def api_update_project(handler, path: str) -> None:
                 started_at = ?,
                 deadline_at = ?,
                 description = ?,
+                own_legal_entity_id = ?,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -689,11 +936,19 @@ def api_update_project(handler, path: str) -> None:
                 started_at,
                 deadline_at,
                 description,
+                own_legal_entity_id,
                 now_ts(),
                 project_id,
             ),
         )
-        create_audit(con, user["id"], "update_project", "project", project_id, {"title": title, "status": status})
+        create_audit(
+            con,
+            user["id"],
+            "update_project",
+            "project",
+            project_id,
+            {"title": title, "status": status, "own_legal_entity_id": own_legal_entity_id},
+        )
         con.commit()
         row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     handler.send_json(HTTPStatus.OK, {"project": serialize_project(row, user)})
@@ -784,6 +1039,18 @@ def api_delete_project(handler, path: str) -> None:
 
 
 def can_access_project(handler, user: dict, project_id: int) -> bool:
+    if user_is_guest(user):
+        with db() as con:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM user_project_access a
+                JOIN projects p ON p.id = a.project_id
+                WHERE a.user_id = ? AND a.project_id = ?
+                """,
+                (user["id"], project_id),
+            ).fetchone()
+        return bool(row)
     if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
         return True
     with db() as con:

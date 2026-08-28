@@ -203,7 +203,7 @@ def live_estimate_items(con: sqlite3.Connection, project_id: int) -> list[dict]:
         """
         SELECT id, title, unit, planned_qty, planned_price, item_kind, section_title, article
         FROM estimate_items
-        WHERE project_id = ?
+        WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0
         ORDER BY id
         """,
         (project_id,),

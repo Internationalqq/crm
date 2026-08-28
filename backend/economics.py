@@ -10,7 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from auth import user_can_manage_project_economics, user_can_view_project_economics
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +25,7 @@ def now_ts() -> int:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return configure_connection(sqlite3.connect(DB_PATH))
+    return connect_database(DB_PATH)
 
 
 def parse_path_int(path: str, index: int) -> int | None:

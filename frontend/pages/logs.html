@@ -47,7 +47,7 @@
                 <span class="section-label">Отчёты</span>
                 <h3>Лента по объекту</h3>
             </div>
-            <select class="search" data-logs-project></select>
+            <select class="search" data-logs-project aria-label="Фильтр отчётов по объекту"></select>
         </div>
         <div class="logs-list" data-logs-list>
             <div class="pmbi-skeleton-view pmbi-skeleton-view--feed" data-pmbi-skeleton="feed" aria-hidden="true">
@@ -74,10 +74,6 @@
             <label>
                 <span>Дата</span>
                 <input name="report_date" type="date" required>
-            </label>
-            <label>
-                <span>Прогресс объекта, %</span>
-                <input name="progress_percent" type="number" min="0" max="100" step="1" placeholder="Например: 64">
             </label>
             <label class="wide">
                 <span>Заголовок</span>
@@ -114,7 +110,7 @@
                 <span>Следующие шаги</span>
                 <input name="next_steps" placeholder="Что делаем дальше">
             </label>
-            <div class="form-error" data-log-error></div>
+            <div class="form-error" data-log-error role="alert" aria-atomic="true"></div>
             <button class="primary" type="submit">Сохранить отчёт</button>
         </form>
     </section>

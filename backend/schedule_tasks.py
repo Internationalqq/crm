@@ -11,10 +11,17 @@ from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import display_user_name, user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_main_admin
+from auth import (
+    display_user_name,
+    user_can_manage_documents,
+    user_can_manage_schedule,
+    user_has_any_role,
+    user_is_guest,
+    user_is_main_admin,
+)
 from operational_quantities import operational_quantity_plan
 from projects import serialize_project
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 from warehouse import (
     canonical_estimate_section_title,
     normalize_estimate_item_kind,
@@ -39,8 +46,7 @@ def now_iso() -> str:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def parse_path_int(path: str, index: int) -> int | None:
@@ -114,7 +120,7 @@ def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id
         f"""
         SELECT
             e.id, e.project_id, e.title, e.section_title, e.stage_id, e.item_kind{kind_override_select},
-            e.planned_qty, e.is_completed,
+            e.unit, e.planned_qty, e.actual_qty, e.is_completed,
             COALESCE(SUM(CASE WHEN s.move_type = 'purchase' THEN s.qty ELSE 0 END), 0) AS purchased_qty,
             COALESCE(SUM(CASE WHEN s.move_type = 'receipt' THEN s.qty ELSE 0 END), 0) AS received_qty
         FROM estimate_items e
@@ -128,25 +134,41 @@ def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id
     for row in rows:
         title = estimate_row_section_title(con, row)
         sid = normalize_progress_section_id(title)
-        bucket = section_totals.setdefault(sid, {"sectionId": sid, "sectionTitle": title, "total": 0, "done": 0, "percent": 0})
+        bucket = section_totals.setdefault(
+            sid,
+            {
+                "sectionId": sid,
+                "sectionTitle": title,
+                "total": 0,
+                "done": 0,
+                "percent": 0,
+                "_progress_units": 0.0,
+            },
+        )
         bucket["total"] += 1
-        planned = float(row["planned_qty"] or 0)
+        quantity_plan = operational_quantity_plan(row["planned_qty"], row["unit"])
+        planned = float(quantity_plan["total_qty"] or 0)
         covered = max(float(row["purchased_qty"] or 0), float(row["received_qty"] or 0))
         is_material = normalize_estimate_item_kind(resolved_estimate_item_kind(row)) != "work"
         purchased_done = is_material and planned > 0 and covered >= planned
-        if int(row["is_completed"] or 0) == 1 or purchased_done:
+        completed = int(row["is_completed"] or 0) == 1 or purchased_done
+        if completed:
             bucket["done"] += 1
+            bucket["_progress_units"] += 1
+        elif not is_material and planned > 0:
+            actual = max(float(row["actual_qty"] or 0), 0)
+            bucket["_progress_units"] += min(actual / planned, 1)
 
     for bucket in section_totals.values():
-        bucket["percent"] = int(round((bucket["done"] / bucket["total"]) * 100)) if bucket["total"] else 0
+        bucket["percent"] = int(round((bucket["_progress_units"] / bucket["total"]) * 100)) if bucket["total"] else 0
 
     target_section = section_totals.get(normalize_progress_section_id(section_id)) if section_id else None
     if not target_section and section_id:
         target_section = {"sectionId": normalize_progress_section_id(section_id), "sectionTitle": section_id, "total": 0, "done": 0, "percent": 0}
 
     total_positions = sum(item["total"] for item in section_totals.values())
-    total_done = sum(item["done"] for item in section_totals.values())
-    total_percent = int(round((total_done / total_positions) * 100)) if total_positions else 0
+    total_progress_units = sum(float(item["_progress_units"]) for item in section_totals.values())
+    total_percent = int(round((total_progress_units / total_positions) * 100)) if total_positions else 0
     status = "completed" if total_percent >= 100 and total_positions else ("active" if total_percent > 0 else None)
     if status:
         con.execute("UPDATE projects SET progress = ?, status = ?, updated_at = ? WHERE id = ?", (total_percent, status, now_ts(), project_id))
@@ -166,6 +188,9 @@ def recalc_project_progress(con: sqlite3.Connection, project_id: int, section_id
             "UPDATE work_stages SET progress = ?, status_code = ?, updated_at = ? WHERE id = ?",
             (bucket["percent"], status_code, now_ts(), stage["id"]),
         )
+
+    for bucket in section_totals.values():
+        bucket.pop("_progress_units", None)
 
     return {
         "section": target_section,
@@ -2139,6 +2164,72 @@ def production_operation_base_slots(con: sqlite3.Connection, project_id: int) ->
     return result
 
 
+def production_resize_manual_slot_snapshot(
+    con: sqlite3.Connection,
+    project_id: int,
+    operation_id: int,
+    duration_days: float,
+    updated_by: int | None,
+    timestamp: int,
+) -> None:
+    """Keep an explicitly placed row's painted span in sync with its duration.
+
+    Cell clicks deliberately may make ``effectiveDays`` differ from the nominal
+    duration.  Once the user changes that duration, however, the duration
+    control is expected to resize the painted span as well.  Preserve the
+    manual anchor/order: trim from the right, or extend after the last painted
+    half-day.  An empty manual row restarts at its current sequential baseline.
+    """
+    operation = production_operation_row(con, project_id, operation_id)
+    if not operation or str(operation["placement_mode"] or "auto") != "manual":
+        return
+
+    desired_count = max(1, int(round(float(duration_days) * 2)))
+    current_slots = [
+        int(row["slot_number"])
+        for row in con.execute(
+            """
+            SELECT slot_number
+            FROM production_schedule_operation_slot_overrides
+            WHERE operation_id = ? AND is_filled = 1
+            ORDER BY slot_number
+            """,
+            (operation_id,),
+        ).fetchall()
+    ]
+    if len(current_slots) == desired_count:
+        return
+
+    if current_slots:
+        resized_slots = current_slots[:desired_count]
+        next_slot = current_slots[-1] + 1
+        occupied = set(resized_slots)
+        while len(resized_slots) < desired_count:
+            if next_slot not in occupied:
+                resized_slots.append(next_slot)
+                occupied.add(next_slot)
+            next_slot += 1
+    else:
+        base_slots = production_operation_base_slots(con, project_id).get(operation_id, set())
+        resized_slots = sorted(base_slots)[:desired_count]
+
+    con.execute(
+        "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ?",
+        (operation_id,),
+    )
+    con.executemany(
+        """
+        INSERT INTO production_schedule_operation_slot_overrides (
+            operation_id, slot_number, is_filled, updated_by, created_at, updated_at
+        ) VALUES (?, ?, 1, ?, ?, ?)
+        """,
+        [
+            (operation_id, slot_number, updated_by, timestamp, timestamp)
+            for slot_number in resized_slots
+        ],
+    )
+
+
 def migrate_legacy_production_schedule(con: sqlite3.Connection, project_id: int) -> None:
     if con.execute("SELECT 1 FROM production_schedule_migration_state WHERE project_id = ?", (project_id,)).fetchone():
         return
@@ -2422,6 +2513,101 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         "estimateOptions": estimate_options,
         "generation": generation,
         "template": {"key": generation.get("templateKey"), "matched": generation.get("mode") == "template"},
+    }
+
+
+def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id: int) -> dict:
+    """Build the read-only public chart without syncing estimates or exposing editor metadata."""
+
+    project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        raise LookupError("project_not_found")
+    if not production_table_exists(con, "production_schedule_operations"):
+        return {
+            "projectId": int(project["id"]),
+            "projectTitle": str(project["title"] or ""),
+            "shiftHours": SCHEDULE_SHIFT_HOURS,
+            "dayCount": 0,
+            "autoDayCount": 0,
+            "items": [],
+        }
+
+    slot_overrides: dict[int, dict[int, bool]] = {}
+    if production_table_exists(con, "production_schedule_operation_slot_overrides"):
+        for row in con.execute(
+            """
+            SELECT slot.operation_id, slot.slot_number, slot.is_filled
+            FROM production_schedule_operation_slot_overrides slot
+            JOIN production_schedule_operations operation ON operation.id = slot.operation_id
+            WHERE operation.project_id = ?
+            ORDER BY slot.operation_id, slot.slot_number
+            """,
+            (project_id,),
+        ).fetchall():
+            slot_overrides.setdefault(int(row["operation_id"]), {})[int(row["slot_number"])] = bool(row["is_filled"])
+
+    cursor_slot = 1
+    day_count = 0
+    items: list[dict] = []
+    operation_rows = con.execute(
+        "SELECT * FROM production_schedule_operations WHERE project_id = ? ORDER BY position, id",
+        (project_id,),
+    ).fetchall()
+    for operation in operation_rows:
+        operation_id = int(operation["id"])
+        manual_duration = positive_schedule_half_days(operation["manual_duration_days"])
+        auto_duration = positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
+        duration_days = manual_duration if manual_duration is not None else auto_duration
+        duration_slots = max(1, int(round(duration_days * 2)))
+        base_slots = set(range(cursor_slot, cursor_slot + duration_slots))
+        stored_slots = slot_overrides.get(operation_id, {})
+        placement_mode = str(operation["placement_mode"] or "auto")
+        if placement_mode == "manual":
+            effective_slots = {slot_number for slot_number, is_filled in stored_slots.items() if is_filled}
+            overridden_slots = base_slots.symmetric_difference(effective_slots)
+        else:
+            effective_slots = set(base_slots)
+            for slot_number, is_filled in stored_slots.items():
+                if is_filled:
+                    effective_slots.add(slot_number)
+                else:
+                    effective_slots.discard(slot_number)
+            overridden_slots = set(stored_slots)
+        auto_start_slot = cursor_slot
+        auto_end_slot = cursor_slot + duration_slots - 1
+        cursor_slot = auto_end_slot + 1
+        if effective_slots:
+            day_count = max(day_count, math.ceil(max(effective_slots) / 2))
+        day_count = max(day_count, math.ceil(auto_end_slot / 2))
+        items.append(
+            {
+                "id": operation_id,
+                "operationId": operation_id,
+                "title": str(operation["title"] or ""),
+                "unit": str(operation["unit"] or ""),
+                "plannedQty": None if operation["planned_qty"] is None else float(operation["planned_qty"]),
+                "sectionTitle": "",
+                "crewSize": int(operation["people_count"] or 1),
+                "peopleCount": int(operation["people_count"] or 1),
+                "shiftCount": int(operation["shift_count"] or 1),
+                "brigadeCount": int(operation["brigade_count"] or 1),
+                "shiftHours": SCHEDULE_SHIFT_HOURS,
+                "durationDays": duration_slots / 2,
+                "effectiveDays": len(effective_slots) / 2,
+                "autoFilledSlots": sorted(base_slots),
+                "filledSlots": sorted(effective_slots),
+                "overriddenSlots": sorted(overridden_slots),
+                "color": str(operation["color"] or PRODUCTION_DEFAULT_COLOR),
+            }
+        )
+
+    return {
+        "projectId": int(project["id"]),
+        "projectTitle": str(project["title"] or ""),
+        "shiftHours": SCHEDULE_SHIFT_HOURS,
+        "dayCount": day_count,
+        "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
+        "items": items,
     }
 
 
@@ -3153,7 +3339,11 @@ def api_production_schedule(handler, path: str) -> None:
         return
     with db() as con:
         try:
-            schedule = build_production_schedule_payload(con, project_id)
+            schedule = (
+                build_guest_production_schedule_payload(con, project_id)
+                if user_is_guest(user)
+                else build_production_schedule_payload(con, project_id)
+            )
         except LookupError:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
             return
@@ -3433,6 +3623,20 @@ def api_update_production_schedule(handler, path: str) -> None:
                 set() if reset else {"duration_days"},
                 {"duration_days"} if reset else set(),
             )
+            resized_operation = production_operation_row(con, project_id, operation_id)
+            resized_duration = (
+                positive_schedule_half_days(resized_operation["manual_duration_days"])
+                or positive_schedule_half_days(resized_operation["auto_duration_days"])
+                or 1.0
+            )
+            production_resize_manual_slot_snapshot(
+                con,
+                project_id,
+                operation_id,
+                resized_duration,
+                user["id"],
+                timestamp,
+            )
             audit_payload.update({"operation_id": operation_id, "duration_days": None if reset else duration_days, "reset": reset})
 
         elif action == "add_operation":
@@ -3604,6 +3808,25 @@ def api_update_production_schedule(handler, path: str) -> None:
                 con.execute(
                     "UPDATE production_schedule_operations SET auto_duration_days = ?, updated_at = ? WHERE id = ? AND project_id = ?",
                     (auto_duration, timestamp, operation_id, project_id),
+                )
+            resized_operation = production_operation_row(con, project_id, operation_id)
+            capacity_changes_duration = (
+                any(field in manual_fields for field in {"people_count", "shift_count", "brigade_count"})
+                and resized_operation["manual_duration_days"] is None
+            )
+            if "duration_days" in manual_fields or capacity_changes_duration:
+                resized_duration = (
+                    positive_schedule_half_days(resized_operation["manual_duration_days"])
+                    or positive_schedule_half_days(resized_operation["auto_duration_days"])
+                    or 1.0
+                )
+                production_resize_manual_slot_snapshot(
+                    con,
+                    project_id,
+                    operation_id,
+                    resized_duration,
+                    user["id"],
+                    timestamp,
                 )
             production_set_manual_fields(con, project_id, operation_id, manual_fields)
             audit_payload.update({"operation_id": operation_id, "fields": sorted(manual_fields)})
@@ -4366,6 +4589,7 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
         project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         items = material_summary_rows(con, project_id)
         record_payload = {
+            "entry_kind": "section_progress",
             "section_id": section_id,
             "path_section_id": path_section_int,
             "item_kind": item_kind,

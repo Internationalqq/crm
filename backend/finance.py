@@ -10,7 +10,7 @@ import time
 from datetime import date
 from http import HTTPStatus
 from pathlib import Path
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 
 from auth import (
     user_can_manage_finances,
@@ -40,8 +40,7 @@ def now_ts() -> int:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def parse_path_int(path: str, index: int) -> int | None:
@@ -308,7 +307,7 @@ def api_project_finances(handler, path: str) -> None:
             """
             SELECT COALESCE(SUM(planned_qty * planned_price), 0)
             FROM estimate_items
-            WHERE project_id = ?
+            WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0
             """,
             (project_id,),
         ).fetchone()[0]

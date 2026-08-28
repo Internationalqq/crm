@@ -1117,6 +1117,52 @@
         return title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
 
+    function supplierModalFocusableNodes(modal) {
+        if (!modal) return [];
+        return qsa('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', modal).filter(function (node) {
+            return !node.classList.contains('supplier-create-backdrop') && !node.classList.contains('supplier-detail-backdrop') && node.getAttribute('aria-hidden') !== 'true';
+        });
+    }
+
+    function rememberSupplierModalFocus(modal) {
+        var active = document.activeElement;
+        modal._returnFocus = active && active !== document.body ? active : null;
+    }
+
+    function restoreSupplierModalFocus(modal) {
+        var returnFocus = modal && modal._returnFocus;
+        if (!qs('[data-supplier-create-modal][data-open="1"], [data-supplier-detail-modal][data-open="1"]') && returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
+            returnFocus.focus();
+        }
+    }
+
+    function bindSupplierModalEscape() {
+        if (document.body.dataset.supplierModalEscapeBound === '1') return;
+        document.body.dataset.supplierModalEscapeBound = '1';
+        document.addEventListener('keydown', function (event) {
+            var modal = qsa('[data-supplier-create-modal][data-open="1"], [data-supplier-detail-modal][data-open="1"]').slice(-1)[0];
+            if (!modal) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                if (modal.hasAttribute('data-supplier-create-modal')) closeSupplierCreateModal();
+                else closeSupplierDetailModal();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            var focusable = supplierModalFocusableNodes(modal);
+            if (!focusable.length) return;
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
+    }
+
     function setupSupplierCreateModal() {
         var modal = qs('[data-supplier-create-modal]');
         if (!modal || modal.dataset.bound === '1') return;
@@ -1129,9 +1175,7 @@
         qsa('[data-supplier-create-close]', modal).forEach(function (button) {
             button.addEventListener('click', closeSupplierCreateModal);
         });
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape') closeSupplierCreateModal();
-        });
+        bindSupplierModalEscape();
     }
 
     function openSupplierCreateModal() {
@@ -1142,11 +1186,12 @@
             error.textContent = '';
             error.classList.remove('active');
         }
+        rememberSupplierModalFocus(modal);
         modal.classList.remove('hidden');
         document.body.classList.add('supplier-create-open');
         requestAnimationFrame(function () {
             modal.setAttribute('data-open', '1');
-            var first = qs('input, select, textarea, button', modal);
+            var first = qs('[data-supplier-create-form] input:not([type="hidden"]), [data-supplier-create-form] select, [data-supplier-create-form] textarea', modal);
             if (first) first.focus();
         });
     }
@@ -1157,7 +1202,10 @@
         modal.removeAttribute('data-open');
         document.body.classList.remove('supplier-create-open');
         setTimeout(function () {
-            if (!modal.hasAttribute('data-open')) modal.classList.add('hidden');
+            if (!modal.hasAttribute('data-open')) {
+                modal.classList.add('hidden');
+                restoreSupplierModalFocus(modal);
+            }
         }, 220);
     }
 
@@ -1168,9 +1216,7 @@
         modal.addEventListener('click', function (event) {
             if (event.target.closest('[data-supplier-detail-close]')) closeSupplierDetailModal();
         });
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape') closeSupplierDetailModal();
-        });
+        bindSupplierModalEscape();
     }
 
     function supplierOfferById(offerId) {
@@ -1220,6 +1266,7 @@
         var type = offer.candidate_type || 'supplier';
         var price = Number(offer.price || 0) ? money(Number(offer.price || 0)) : '';
         var qty = [offer.qty || '', offer.unit || ''].filter(Boolean).join(' ');
+        var sourceUrl = safeExternalUrl(offer.source_url || '');
         return '<article class="supplier-detail-card">' +
             '<button class="ghost compact supplier-detail-close" type="button" data-supplier-detail-close>\u0417\u0430\u043a\u0440\u044b\u0442\u044c</button>' +
             '<div class="supplier-detail-head">' +
@@ -1238,7 +1285,7 @@
                 (canViewProcurementPrices() ? supplierDetailItem('\u0421\u0440\u0430\u0432\u043d\u0435\u043d\u0438\u0435', supplierOfferCompareText(offer)) : '') +
                 supplierDetailItem('\u0410\u0432\u0442\u043e\u0440', offer.author_name || '') +
             '</div>' +
-            (offer.source_url ? '<a class="supplier-detail-link" href="' + escapeHtml(offer.source_url) + '" target="_blank" rel="noreferrer"><i data-lucide="external-link"></i><span>\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a</span></a>' : '') +
+            (sourceUrl ? '<a class="supplier-detail-link" href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i><span>\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a</span></a>' : '') +
             '<section class="supplier-detail-notes"><h4>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</h4><p>' + escapeHtml(offer.notes || '\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439 \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d.') + '</p></section>' +
         '</article>';
     }
@@ -1247,12 +1294,15 @@
         var modal = qs('[data-supplier-detail-modal]');
         var offer = supplierOfferById(offerId);
         if (!modal || !offer) return;
+        rememberSupplierModalFocus(modal);
         safeReplaceChildren(qs('[data-supplier-detail-body]', modal), renderSupplierDetail(offer));
         refreshLucideIcons(modal);
         modal.classList.remove('hidden');
         document.body.classList.add('supplier-detail-open');
         requestAnimationFrame(function () {
             modal.setAttribute('data-open', '1');
+            var close = qs('[data-supplier-detail-close]', modal);
+            if (close) close.focus();
         });
     }
 
@@ -1262,7 +1312,10 @@
         modal.removeAttribute('data-open');
         document.body.classList.remove('supplier-detail-open');
         setTimeout(function () {
-            if (!modal.hasAttribute('data-open')) modal.classList.add('hidden');
+            if (!modal.hasAttribute('data-open')) {
+                modal.classList.add('hidden');
+                restoreSupplierModalFocus(modal);
+            }
         }, 200);
     }
 
@@ -1416,8 +1469,6 @@
         if (!offers.length) {
             safeReplaceChildren(root, '<p class="muted">\u041f\u043e \u043e\u0431\u044a\u0435\u043a\u0442\u0443 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u043a\u0430\u043d\u0434\u0438\u0434\u0430\u0442\u043e\u0432. \u0414\u043e\u0431\u0430\u0432\u044c \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u0430 \u0438\u043b\u0438 \u043f\u043e\u0434\u0440\u044f\u0434\u0447\u0438\u043a\u0430 \u0441\u043f\u0440\u0430\u0432\u0430.</p>');
             return;
-            root.innerHTML = '<p class="muted">По объекту пока нет кандидатов. Добавь первого поставщика или подрядчика справа.</p>';
-            return;
         }
         safeReplaceChildren(root, '<div class="suppliers-list counterparties-grid">' + offers.map(function (offer) {
             var compare = offer.compareToEstimate || {};
@@ -1427,6 +1478,7 @@
                 : (delta < 0 ? 'Экономия ' + money(Math.abs(delta)) : (delta > 0 ? 'Переплата ' + money(delta) : 'Ровно по смете'));
             var compareClass = delta == null ? '' : (delta > 0 ? 'danger' : '');
             var isFocused = materialId && Number(offer.estimate_item_id || 0) === materialId;
+            var sourceUrl = safeExternalUrl(offer.source_url || '');
             if (supplierOfferMatchesFocus(offer, supplierFocus)) isFocused = true;
             return '<form class="supplier-offer-row counterparty-card' + (isFocused ? ' supplier-offer-row-focused' : '') + '" data-supplier-edit-form data-offer-id="' + offer.id + '" data-supplier-company-id="' + escapeHtml(offer.company_id || offer.companyId || '') + '" data-supplier-company-name="' + escapeHtml(offer.company_name || offer.candidate_name || '') + '">' +
                 renderCounterpartyCard(offer, {
@@ -1436,7 +1488,7 @@
                 }).replace(/^<article class="counterparty-card">/, '').replace(/<\/article>$/, '') +
                 '<div class="supplier-offer-main"><b>' + escapeHtml(offer.candidate_name) + '</b><small>' +
                     escapeHtml((offer.company_name || 'без компании') + ' • ' + (offer.material_title || 'без привязки к смете') + ' • ' + (offer.author_name || '')) +
-                    (offer.source_url ? '<br><a href="' + escapeHtml(offer.source_url) + '" target="_blank" rel="noreferrer">Открыть источник</a>' : '') +
+                    (sourceUrl ? '<br><a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">Открыть источник</a>' : '') +
                 '</small></div>' +
                 '<select name="status">' +
                     '<option value="new"' + (offer.status === 'new' ? ' selected' : '') + '>Новый</option>' +
@@ -1591,7 +1643,10 @@
         if (!sources.length) return '<span class="muted">\u041d\u0435\u0442 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u043e\u0432</span>';
         var visible = sources.slice(0, 3).map(function (source) {
             var label = source.domain || source.title || '\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a';
-            return '<a href="' + escapeHtml(source.url || '#') + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>';
+            var sourceUrl = safeExternalUrl(source.url || '');
+            return sourceUrl
+                ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>'
+                : '<span>' + escapeHtml(label) + '</span>';
         }).join('');
         var more = row.sourceCount > 3 ? '<span class="market-source-more">+' + (row.sourceCount - 3) + '</span>' : '';
         return '<div class="market-sources">' + visible + more + '</div>';
@@ -2035,8 +2090,9 @@
                     : '<strong>' + escapeHtml(money(row.enteredPrice)) + '</strong>' +
                         activeOfferMeta.map(function (item) { return '<small>' + escapeHtml(item) + '</small>'; }).join('');
                 var source = row.marketSource || {};
-                var sourceCell = source.url
-                    ? '<a href="' + escapeHtml(source.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.name || '\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a') + '</a>'
+                var sourceUrl = safeExternalUrl(source.url || '');
+                var sourceCell = sourceUrl
+                    ? '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.name || '\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a') + '</a>'
                     : (source.name ? '<span>' + escapeHtml(source.name) + '</span>' : renderMarketSources(row));
                 return '<tr' + (procurementLimit.status === 'exceeded' ? ' class="market-row-limit-exceeded"' : '') + '>' +
                     '<td data-label="\u041f\u043e\u0437\u0438\u0446\u0438\u044f"><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(meta || '\u0411\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b\u0430') + '</small></td>' +
@@ -2389,9 +2445,9 @@
         api('/api/warehouse-items').then(function (data) {
             state.warehouseCatalog = Array.isArray(data.items) ? data.items : [];
             callback(state.warehouseCatalog);
-        }).catch(function () {
+        }).catch(function (error) {
             state.warehouseCatalog = [];
-            callback([]);
+            callback([], error);
         });
     }
 
@@ -2487,7 +2543,22 @@
         if (!root) return;
         showSkeleton(root, 'table', 1);
         showSkeleton(qs('[data-warehouse-analysis]'), 'stats', 2);
-        loadWarehouseCatalog(function (items) {
+        loadWarehouseCatalog(function (items, loadError) {
+            if (loadError) {
+                safeReplaceChildren(root,
+                    '<div class="warehouse-empty-state is-error" role="alert">' +
+                        '<i data-lucide="triangle-alert" aria-hidden="true"></i>' +
+                        '<b>\u0421\u043a\u043b\u0430\u0434 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u043b\u0441\u044f</b>' +
+                        '<span>\u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443.</span>' +
+                        '<button class="ghost compact" type="button" data-warehouse-retry>\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c</button>' +
+                    '</div>'
+                );
+                safeReplaceChildren(qs('[data-warehouse-analysis]'), '');
+                var retry = qs('[data-warehouse-retry]', root);
+                if (retry) retry.addEventListener('click', renderWarehousePage, { once: true });
+                refreshLucideIcons(root);
+                return;
+            }
             populateWarehouseCategories(items);
             renderWarehouseStats(items);
             renderWarehouseCatalog(warehouseFilteredItems(items));
@@ -2500,6 +2571,48 @@
 
     function currentWarehouseItem(itemId) {
         return (state.warehouseCatalog || []).find(function (item) { return Number(item.id) === Number(itemId); }) || null;
+    }
+
+    function warehouseModalFocusableNodes(modal) {
+        if (!modal) return [];
+        return qsa('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', modal).filter(function (node) {
+            return !node.classList.contains('warehouse-transfer-backdrop') && node.getAttribute('aria-hidden') !== 'true' && !node.closest('[hidden]');
+        });
+    }
+
+    function rememberWarehouseModalFocus(modal) {
+        if (!modal) return;
+        var active = document.activeElement;
+        modal._returnFocus = active && active !== document.body ? active : null;
+        if (document.body.dataset.warehouseModalKeyboardBound === '1') return;
+        document.body.dataset.warehouseModalKeyboardBound = '1';
+        document.addEventListener('keydown', function (event) {
+            var openModal = qs('[data-warehouse-transfer-modal]:not([hidden]), [data-warehouse-receipt-modal]:not([hidden])');
+            if (!openModal) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                if (openModal.hasAttribute('data-warehouse-receipt-modal')) closeWarehouseReceiptModal();
+                else closeWarehouseTransferModal();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            var focusable = warehouseModalFocusableNodes(openModal);
+            if (!focusable.length) return;
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (event.shiftKey && (document.activeElement === first || !openModal.contains(document.activeElement))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && (document.activeElement === last || !openModal.contains(document.activeElement))) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
+    }
+
+    function restoreWarehouseModalFocus(modal) {
+        var returnFocus = modal && modal._returnFocus;
+        if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') returnFocus.focus();
     }
 
     function openWarehouseTransferModal(itemId, forcedProjectId) {
@@ -2528,6 +2641,7 @@
             error.textContent = '';
             error.classList.remove('active');
         }
+        rememberWarehouseModalFocus(modal);
         modal.hidden = false;
         document.body.classList.add('warehouse-transfer-open');
         setTimeout(function () { if (form.qty) form.qty.focus(); }, 40);
@@ -2538,6 +2652,7 @@
         if (!modal) return;
         modal.hidden = true;
         document.body.classList.remove('warehouse-transfer-open');
+        restoreWarehouseModalFocus(modal);
     }
 
     function bindWarehouseTransferModal() {
@@ -2593,6 +2708,7 @@
     function openWarehouseReceiptModal(mode) {
         var modal = qs('[data-warehouse-receipt-modal]');
         if (!modal) return;
+        rememberWarehouseModalFocus(modal);
         modal.hidden = false;
         document.body.classList.add('warehouse-transfer-open');
         setWarehouseReceiptMode(mode || 'manual');
@@ -2610,6 +2726,7 @@
         if (!modal) return;
         modal.hidden = true;
         document.body.classList.remove('warehouse-transfer-open');
+        restoreWarehouseModalFocus(modal);
     }
 
     function setWarehouseReceiptMode(mode) {

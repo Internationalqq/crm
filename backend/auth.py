@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -19,6 +20,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 import jwt
+from PIL import Image, UnidentifiedImageError
 from sqlite_config import connect_database
 
 
@@ -27,11 +29,18 @@ DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
 AVATARS_DIR = DATA_DIR / "avatars"
 AVATAR_MAX_BYTES = 5 * 1024 * 1024
+AVATAR_MAX_PIXELS = 20_000_000
 AVATAR_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
     "image/gif": ".gif",
+}
+AVATAR_FORMATS = {
+    "image/png": "PNG",
+    "image/jpeg": "JPEG",
+    "image/webp": "WEBP",
+    "image/gif": "GIF",
 }
 
 
@@ -81,11 +90,28 @@ def save_avatar_upload(handler, avatar_item, user_id: int) -> tuple[bool, str | 
         return False, None
 
     content = avatar_item.file.read(AVATAR_MAX_BYTES + 1)
+    if not content:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_avatar"})
+        return False, None
     if len(content) > AVATAR_MAX_BYTES:
         handler.send_json(
             HTTPStatus.BAD_REQUEST,
             {"error": "avatar_too_large", "message": "Аватарка должна быть меньше 5 МБ"},
         )
+        return False, None
+
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            if (
+                str(image.format or "").upper() != AVATAR_FORMATS[mime_type]
+                or image.width <= 0
+                or image.height <= 0
+                or image.width * image.height > AVATAR_MAX_PIXELS
+            ):
+                raise ValueError("bad_avatar_image")
+            image.verify()
+    except (Image.DecompressionBombError, OSError, UnidentifiedImageError, ValueError):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_image"})
         return False, None
 
     storage_name = f"user_{user_id}_{now_ts()}_{secrets.token_hex(6)}{ext}"
@@ -117,9 +143,13 @@ PASSWORD_RESET_IP_LIMIT = 20
 PASSWORD_RESET_WINDOW_SECONDS = 60 * 60
 PASSWORD_CHANGE_BAD_ATTEMPT_LIMIT = 8
 PASSWORD_CHANGE_WINDOW_SECONDS = 15 * 60
+LOGIN_ACCOUNT_ATTEMPT_LIMIT = 10
+LOGIN_IP_ATTEMPT_LIMIT = 60
+LOGIN_ATTEMPT_WINDOW_SECONDS = 15 * 60
 
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
 PMBI_FORCE_SECURE_COOKIES = (os.environ.get("PMBI_FORCE_SECURE_COOKIES", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+PMBI_TRUST_PROXY_HEADERS = (os.environ.get("PMBI_TRUST_PROXY_HEADERS", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 PMBI_SMTP_HOST = (os.environ.get("PMBI_SMTP_HOST", "") or "").strip()
 PMBI_SMTP_PORT = env_int("PMBI_SMTP_PORT", 587)
 PMBI_SMTP_USERNAME = (os.environ.get("PMBI_SMTP_USERNAME", "") or "").strip()
@@ -164,6 +194,7 @@ ROLE_ALLOWED_PREFIXES = {
     "accountant": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects"],
     "client": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs"],
     "customer": ["/app", "/app/dashboard", "/app/projects", "/app/schedule", "/app/logs"],
+    "guest": ["/app/projects"],
 }
 
 ROLE_LABELS = {
@@ -177,6 +208,7 @@ ROLE_LABELS = {
     "accountant": "Бухгалтер",
     "customer": "Заказчик",
     "client": "Заказчик",
+    "guest": "Гость",
 }
 
 ROLE_DESCRIPTIONS = {
@@ -189,6 +221,7 @@ ROLE_DESCRIPTIONS = {
     "accountant": "Бухгалтер: работает с финансовыми и подтверждающими документами.",
     "customer": "Заказчик: ограниченный доступ к своим объектам.",
     "client": "Заказчик: устаревший код роли для совместимости.",
+    "guest": "Гостевой доступ только к отчётам и графику одного назначенного объекта.",
 }
 
 ALL_MODULES = [
@@ -215,6 +248,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "users"], "projects": "view", "dailyTasks": "own"},
     "customer": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
     "client": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
+    "guest": {"modules": ["projects"], "projects": "view", "guest": True},
 }
 
 LEGACY_ROLE_ALIASES = {
@@ -284,9 +318,10 @@ def now_ts() -> int:
 
 
 def handler_client_ip(handler) -> str:
-    forwarded_for = str(handler.headers.get("X-Forwarded-For", "") or "").split(",", 1)[0].strip()
-    if forwarded_for:
-        return forwarded_for[:80]
+    if PMBI_TRUST_PROXY_HEADERS:
+        forwarded_for = str(handler.headers.get("X-Forwarded-For", "") or "").split(",", 1)[0].strip()
+        if forwarded_for:
+            return forwarded_for[:80]
     try:
         return str(handler.client_address[0] or "")
     except Exception:
@@ -665,6 +700,7 @@ def user_payload(row: sqlite3.Row) -> dict:
         "displayName": display_name,
         "name": display_name,
         "avatarUrl": row["avatar_url"] if "avatar_url" in keys else None,
+        "isGuest": role == "guest" or "guest" in set(roles),
     }
 
 
@@ -762,6 +798,33 @@ def user_has_any_role(user: dict, roles: set[str]) -> bool:
     return bool(user_roles & roles)
 
 
+def user_is_guest(user: dict | None) -> bool:
+    return bool(user) and (bool(user.get("isGuest")) or user_has_any_role(user, {"guest"}))
+
+
+def user_default_path(user: dict | None) -> str:
+    return "/app/projects" if user_is_guest(user) else DEFAULT_AUTH_PATH
+
+
+def guest_api_allowed(method: str, path: str) -> bool:
+    """Guest API policy is intentionally default-deny and exact-route based."""
+
+    method = str(method or "").upper()
+    if (method, path) in {
+        ("POST", "/api/auth/login"),
+        ("POST", "/api/auth/logout"),
+        ("POST", "/api/auth/request-password-reset"),
+        ("GET", "/api/auth/me"),
+        ("GET", "/api/projects"),
+    }:
+        return True
+    if method == "GET" and re.fullmatch(r"/api/documents/\d+/view", path):
+        return True
+    return method == "GET" and bool(
+        re.fullmatch(r"/api/projects/\d+/(?:daily-logs|production-schedule)", path)
+    )
+
+
 def user_is_main_admin(user: dict) -> bool:
     return user_is_main_admin_account(user) or user_is_hidden_admin(user)
 
@@ -818,11 +881,13 @@ def redact_procurement_prices(value: object, user: dict | None) -> object:
 def user_can_open(user: dict, path: str) -> bool:
     if path in PUBLIC_STATIC_PATHS:
         return True
+    if user_is_guest(user):
+        return path == "/app/projects"
     if path == "/app/autobot" and not user_can_view_procurement_prices(user):
         return False
     if path == "/app":
-        return True
-    if path == "/app/users":
+        return not user_is_guest(user)
+    if path == "/app/users" and not user_is_guest(user):
         return True
     module_by_path = {
         "/app/dashboard": "dashboard",
@@ -912,7 +977,7 @@ def auth_config() -> dict[str, object]:
         "clerkPublishableKey": CLERK_PUBLISHABLE_KEY,
         "clerkSignInFallbackRedirectUrl": CLERK_SIGN_IN_FALLBACK_REDIRECT_URL,
         "clerkSignUpFallbackRedirectUrl": CLERK_SIGN_UP_FALLBACK_REDIRECT_URL,
-        "clerkAfterSignOutUrl": LOGIN_PATH,
+        "clerkAfterSignOutUrl": "/",
     }
 
 
@@ -927,7 +992,7 @@ def clerk_sign_in_script() -> str:
     )
 
 
-def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
+def _resolve_current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
     token = bearer_token(handler) or clerk_cookie_token(handler)
     if not token:
         return None, None
@@ -989,13 +1054,29 @@ def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
     return user_payload(refreshed), None
 
 
+def current_user_from_clerk(handler) -> tuple[dict | None, str | None]:
+    """Resolve Clerk authentication at most once for one HTTP request."""
+
+    cache_attribute = "_pmbi_clerk_auth_result"
+    if hasattr(handler, cache_attribute):
+        return getattr(handler, cache_attribute)
+    result = _resolve_current_user_from_clerk(handler)
+    setattr(handler, cache_attribute, result)
+    return result
+
+
 def current_user(handler) -> dict | None:
+    cache_attribute = "_pmbi_current_user"
+    if hasattr(handler, cache_attribute):
+        return getattr(handler, cache_attribute)
     if clerk_enabled():
         user, _error = current_user_from_clerk(handler)
         if user:
+            setattr(handler, cache_attribute, user)
             return user
     token = session_token(handler)
     if not token:
+        setattr(handler, cache_attribute, None)
         return None
     with db() as con:
         row = con.execute(
@@ -1007,9 +1088,9 @@ def current_user(handler) -> dict | None:
             """,
             (token_hash(token), now_ts()),
         ).fetchone()
-        if not row:
-            return None
-        return user_payload(row)
+        user = user_payload(row) if row else None
+    setattr(handler, cache_attribute, user)
+    return user
 
 
 def require_user(handler) -> dict | None:
@@ -1059,11 +1140,8 @@ def clear_session_cookie(handler) -> None:
 
 
 def api_login(handler) -> None:
-    if clerk_enabled():
-        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "clerk_enabled"})
-        return
+    previous_session_token = session_token(handler)
     content_type = handler.headers.get("Content-Type", "")
-    avatar_url_from_upload = None
     if "multipart/form-data" in content_type:
         form = handler.read_multipart()
 
@@ -1078,33 +1156,45 @@ def api_login(handler) -> None:
             return str(getattr(item, "value", "") or "")
 
         payload = {
-            "first_name": form_value("first_name"),
-            "last_name": form_value("last_name"),
-            "name": form_value("name"),
-            "avatar_url": form_value("avatar_url"),
+            "login": form_value("login"),
+            "password": form_value("password"),
+            "rememberMe": form_value("rememberMe").strip().lower()
+            in {"1", "true", "yes", "on"},
         }
         avatar_item = form["avatar"] if "avatar" in form else None
         if isinstance(avatar_item, list):
             avatar_item = avatar_item[0] if avatar_item else None
         if avatar_item is not None and getattr(avatar_item, "filename", ""):
-            mime_type = str(getattr(avatar_item, "type", "") or "").split(";", 1)[0].strip().lower()
-            ext = AVATAR_EXTENSIONS.get(mime_type)
-            if not ext:
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_avatar_type", "message": "Загрузите PNG, JPG, WEBP или GIF"})
-                return
-            content = avatar_item.file.read(AVATAR_MAX_BYTES + 1)
-            if len(content) > AVATAR_MAX_BYTES:
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "avatar_too_large", "message": "Аватарка должна быть меньше 5 МБ"})
-                return
-            AVATARS_DIR.mkdir(parents=True, exist_ok=True)
-            storage_name = f"user_{user['id']}_{now_ts()}_{secrets.token_hex(6)}{ext}"
-            (AVATARS_DIR / storage_name).write_bytes(content)
-            avatar_url_from_upload = f"/api/auth/avatar/{storage_name}"
+            handler.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "login_avatar_not_supported"},
+            )
+            return
     else:
         payload = handler.read_json()
     login = str(payload.get("login", "")).strip()
     password = str(payload.get("password", ""))
     remember_me = bool(payload.get("rememberMe") or payload.get("remember_me"))
+    login_rate_key = login.casefold() or "<empty>"
+    client_ip = handler_client_ip(handler)
+    account_limited = auth_rate_limited(
+        "login_account",
+        login_rate_key,
+        LOGIN_ACCOUNT_ATTEMPT_LIMIT,
+        LOGIN_ATTEMPT_WINDOW_SECONDS,
+    )
+    ip_limited = auth_rate_limited(
+        "login_ip",
+        client_ip,
+        LOGIN_IP_ATTEMPT_LIMIT,
+        LOGIN_ATTEMPT_WINDOW_SECONDS,
+    )
+    if account_limited or ip_limited:
+        handler.send_json(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            {"error": "too_many_login_attempts"},
+        )
+        return
     session_ttl = REMEMBER_SESSION_TTL_SECONDS if remember_me else SESSION_TTL_SECONDS
     with db() as con:
         row = con.execute(
@@ -1113,6 +1203,9 @@ def api_login(handler) -> None:
         ).fetchone()
         if not row or not verify_password(password, row["password_hash"]):
             handler.send_json(HTTPStatus.UNAUTHORIZED, {"error": "bad_credentials"})
+            return
+        if clerk_enabled() and normalize_role(row["role"]) != "guest":
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "clerk_enabled"})
             return
         token = secrets.token_urlsafe(32)
         timestamp = now_ts()
@@ -1134,7 +1227,18 @@ def api_login(handler) -> None:
             "INSERT INTO audit_log (user_id, action, entity, created_at) VALUES (?, 'login', 'user', ?)",
             (row["id"], now_ts()),
         )
+        if previous_session_token:
+            try:
+                con.execute(
+                    "DELETE FROM guest_sessions WHERE token_hash = ?",
+                    (token_hash(previous_session_token),),
+                )
+            except sqlite3.Error:
+                pass
         con.commit()
+
+    clear_auth_rate_limit("login_account", login_rate_key)
+    clear_auth_rate_limit("login_ip", client_ip)
 
     body = json.dumps({"user": user_payload(row)}, ensure_ascii=False).encode("utf-8")
     handler.send_response(HTTPStatus.OK)
@@ -1299,6 +1403,10 @@ def api_logout(handler) -> None:
     if token:
         with db() as con:
             con.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash(token),))
+            try:
+                con.execute("DELETE FROM guest_sessions WHERE token_hash = ?", (token_hash(token),))
+            except sqlite3.Error:
+                pass
             con.commit()
     body = json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8")
     handler.send_response(HTTPStatus.OK)

@@ -16,7 +16,7 @@ const server = read('backend/server.py');
 const backend = read('backend/warehouse_control.py');
 
 assert.match(projectsPage, /data-tab="warehouse-control"/);
-assert.match(projectsPage, /data-tab="warehouse-control"><i data-lucide="boxes"[^>]*><\/i><span>Материалы<\/span><\/button>/);
+assert.match(projectsPage, /data-tab="warehouse-control"[^>]*><i data-lucide="boxes"[^>]*><\/i><span>Материалы<\/span><\/button>/);
 assert.match(projectsPage, /data-panel="warehouse-control"/);
 assert.match(router, /warehouse_control:\s*'\/assets\/js\/warehouse-control\.js/);
 assert.match(router, /projects:\s*\[[^\]]*'warehouse_control'/);

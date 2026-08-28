@@ -90,8 +90,20 @@ class DailyLogMaterialActionTests(unittest.TestCase):
                 con.execute(
                     """
                     INSERT INTO estimate_items (
-                        project_id, title, unit, planned_qty, planned_price, item_kind, updated_at
-                    ) VALUES (?, 'Установка дверей', 'шт', 10, 0, 'work', ?)
+                        project_id, title, unit, planned_qty, planned_price, item_kind,
+                        section_title, updated_at
+                    ) VALUES (?, 'Облицовка стен', 'м2', 70, 0, 'work', 'Отделка', ?)
+                    """,
+                    (self.project_id, timestamp),
+                ).lastrowid
+            )
+            self.scaled_work_id = int(
+                con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price, item_kind,
+                        section_title, updated_at
+                    ) VALUES (?, 'Монтаж кабеля', '10 м', 7, 0, 'work', 'Электрика', ?)
                     """,
                     (self.project_id, timestamp),
                 ).lastrowid
@@ -132,6 +144,360 @@ class DailyLogMaterialActionTests(unittest.TestCase):
             "report_date": "2026-08-24",
             "client_request_id": request_id,
         }
+
+    def work_payload(
+        self,
+        request_id: str,
+        *,
+        mode: str,
+        value: float,
+        item_id: int | None = None,
+        value_key: str = "input_value",
+    ) -> dict:
+        payload = self.base_payload(request_id)
+        payload["work_done"] = "Выполнена часть работ"
+        action = {
+            "action_type": "work_progress",
+            "estimate_item_id": item_id or self.work_id,
+            "quantity_mode": mode,
+            "client_action_id": f"{request_id}:work",
+        }
+        action[value_key] = value
+        payload["confirmed_actions"] = [action]
+        return payload
+
+    def test_work_progress_delta_records_40_of_70_and_fractional_progress(self) -> None:
+        handler = self.create_log(
+            self.work_payload("work-delta-40", mode="delta_qty", value=40)
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.CREATED)
+        work_action = next(
+            action for action in handler.response["appliedActions"]
+            if action["kind"] == "work"
+        )
+        self.assertEqual(work_action["type"], "work_progress")
+        self.assertEqual(work_action["quantityMode"], "delta_qty")
+        self.assertEqual(work_action["qty"], 40)
+        self.assertEqual(work_action["actualBefore"], 0)
+        self.assertEqual(work_action["actualAfter"], 40)
+        self.assertEqual(work_action["plannedQty"], 70)
+        self.assertEqual(handler.response["log"]["has_applied_actions"], 1)
+
+        list_handler = FakeDailyLogHandler(self.admin, {})
+        communications_docs.api_project_daily_logs(
+            list_handler, f"/api/projects/{self.project_id}/daily-logs"
+        )
+        self.assertEqual(list_handler.status, HTTPStatus.OK)
+        self.assertEqual(list_handler.response["logs"][0]["has_applied_actions"], 1)
+
+        with server.db() as con:
+            estimate = con.execute(
+                "SELECT actual_qty, is_completed FROM estimate_items WHERE id = ?",
+                (self.work_id,),
+            ).fetchone()
+            journal = con.execute(
+                """
+                SELECT quantity_mode, input_value, qty, actual_before, actual_after,
+                       planned_qty_snapshot, work_unit_snapshot
+                FROM daily_log_work_actions
+                """
+            ).fetchone()
+            progress = recalc_project_progress(con, self.project_id, "Отделка")
+            audit_count = con.execute(
+                "SELECT COUNT(*) FROM audit_log WHERE action = 'apply_daily_log_work_action'"
+            ).fetchone()[0]
+
+        self.assertEqual(float(estimate["actual_qty"]), 40)
+        self.assertEqual(int(estimate["is_completed"]), 0)
+        self.assertEqual(journal["quantity_mode"], "delta_qty")
+        self.assertEqual(float(journal["input_value"]), 40)
+        self.assertEqual(float(journal["qty"]), 40)
+        self.assertEqual(float(journal["actual_before"]), 0)
+        self.assertEqual(float(journal["actual_after"]), 40)
+        self.assertEqual(float(journal["planned_qty_snapshot"]), 70)
+        self.assertEqual(progress["section"]["percent"], 57)
+        self.assertEqual(audit_count, 1)
+
+    def test_work_progress_target_percent_converts_to_physical_quantity(self) -> None:
+        handler = self.create_log(
+            self.work_payload("work-target-percent", mode="target_percent", value=40)
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.CREATED)
+        action = next(item for item in handler.response["appliedActions"] if item["kind"] == "work")
+        self.assertEqual(action["inputValue"], 40)
+        self.assertAlmostEqual(action["qty"], 28)
+        self.assertAlmostEqual(action["actualAfter"], 28)
+        with server.db() as con:
+            row = con.execute(
+                "SELECT actual_qty, is_completed FROM estimate_items WHERE id = ?",
+                (self.work_id,),
+            ).fetchone()
+        self.assertAlmostEqual(float(row["actual_qty"]), 28)
+        self.assertEqual(int(row["is_completed"]), 0)
+
+    def test_work_progress_marks_item_complete_exactly_at_plan(self) -> None:
+        first = self.create_log(
+            self.work_payload("work-complete-partial", mode="delta_qty", value=40)
+        )
+        complete = self.create_log(
+            self.work_payload("work-complete-target", mode="target_percent", value=100)
+        )
+
+        self.assertEqual(first.status, HTTPStatus.CREATED)
+        self.assertEqual(complete.status, HTTPStatus.CREATED)
+        action = next(item for item in complete.response["appliedActions"] if item["kind"] == "work")
+        self.assertEqual(action["qty"], 30)
+        self.assertEqual(action["actualBefore"], 40)
+        self.assertEqual(action["actualAfter"], 70)
+        with server.db() as con:
+            row = con.execute(
+                "SELECT actual_qty, is_completed FROM estimate_items WHERE id = ?",
+                (self.work_id,),
+            ).fetchone()
+        self.assertEqual(float(row["actual_qty"]), 70)
+        self.assertEqual(int(row["is_completed"]), 1)
+
+    def test_work_progress_accumulates_and_target_qty_applies_only_difference(self) -> None:
+        first = self.create_log(
+            self.work_payload("work-accumulate-1", mode="delta_qty", value=40)
+        )
+        second = self.create_log(
+            self.work_payload("work-accumulate-2", mode="delta_qty", value=20)
+        )
+        target = self.create_log(
+            self.work_payload(
+                "work-accumulate-target",
+                mode="target_qty",
+                value=65,
+                value_key="qty",
+            )
+        )
+
+        self.assertEqual(first.status, HTTPStatus.CREATED)
+        self.assertEqual(second.status, HTTPStatus.CREATED)
+        self.assertEqual(target.status, HTTPStatus.CREATED)
+        target_action = next(item for item in target.response["appliedActions"] if item["kind"] == "work")
+        self.assertEqual(target_action["inputValue"], 65)
+        self.assertEqual(target_action["qty"], 5)
+        self.assertEqual(target_action["actualBefore"], 60)
+        self.assertEqual(target_action["actualAfter"], 65)
+        with server.db() as con:
+            actual = con.execute(
+                "SELECT actual_qty FROM estimate_items WHERE id = ?", (self.work_id,)
+            ).fetchone()[0]
+            rows = con.execute(
+                "SELECT actual_before, actual_after FROM daily_log_work_actions ORDER BY id"
+            ).fetchall()
+        self.assertEqual(float(actual), 65)
+        self.assertEqual(
+            [(float(row["actual_before"]), float(row["actual_after"])) for row in rows],
+            [(0, 40), (40, 60), (60, 65)],
+        )
+
+    def test_work_progress_limits_and_non_increasing_target_are_atomic(self) -> None:
+        first = self.create_log(
+            self.work_payload("work-limit-base", mode="delta_qty", value=40)
+        )
+        too_much = self.create_log(
+            self.work_payload("work-limit-over", mode="delta_qty", value=31)
+        )
+        lower_target = self.create_log(
+            self.work_payload("work-limit-lower", mode="target_qty", value=35)
+        )
+        bad_percent = self.create_log(
+            self.work_payload("work-limit-percent", mode="target_percent", value=101)
+        )
+
+        self.assertEqual(first.status, HTTPStatus.CREATED)
+        self.assertEqual(too_much.status, HTTPStatus.CONFLICT)
+        self.assertEqual(too_much.response["error"], "daily_log_work_action_qty_exceeds_limit")
+        self.assertEqual(too_much.response["allowedQty"], 30)
+        self.assertEqual(lower_target.status, HTTPStatus.CONFLICT)
+        self.assertEqual(lower_target.response["error"], "daily_log_work_action_no_positive_delta")
+        self.assertEqual(bad_percent.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(bad_percent.response["error"], "bad_work_percent")
+        with server.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_logs").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_log_work_actions").fetchone()[0], 1)
+            self.assertEqual(
+                float(con.execute("SELECT actual_qty FROM estimate_items WHERE id = ?", (self.work_id,)).fetchone()[0]),
+                40,
+            )
+
+    def test_work_progress_request_replay_is_idempotent(self) -> None:
+        payload = self.work_payload("work-replay", mode="delta_qty", value=40)
+        first = self.create_log(payload)
+        replay = self.create_log(payload)
+        duplicate_payload = self.work_payload(
+            "work-replay-other-request", mode="delta_qty", value=1
+        )
+        duplicate_payload["confirmed_actions"][0]["client_action_id"] = "work-replay:work"
+        duplicate = self.create_log(duplicate_payload)
+
+        self.assertEqual(first.status, HTTPStatus.CREATED)
+        self.assertEqual(replay.status, HTTPStatus.OK)
+        self.assertTrue(replay.response["idempotentReplay"])
+        self.assertEqual(replay.response["appliedActions"], first.response["appliedActions"])
+        self.assertEqual(duplicate.status, HTTPStatus.CONFLICT)
+        self.assertEqual(duplicate.response["error"], "client_action_already_applied")
+        with server.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_logs").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_log_work_actions").fetchone()[0], 1)
+            self.assertEqual(
+                float(con.execute("SELECT actual_qty FROM estimate_items WHERE id = ?", (self.work_id,)).fetchone()[0]),
+                40,
+            )
+
+    def test_work_permission_and_mixed_action_failure_roll_back_everything(self) -> None:
+        forbidden_payload = self.base_payload("mixed-forbidden")
+        forbidden_payload["confirmed_actions"] = [
+            {
+                "action_type": "material_purchase",
+                "estimate_item_id": self.material_id,
+                "qty": 5,
+                "client_action_id": "mixed-forbidden:material",
+            },
+            {
+                "action_type": "work_progress",
+                "estimate_item_id": self.work_id,
+                "quantity_mode": "delta_qty",
+                "input_value": 10,
+                "client_action_id": "mixed-forbidden:work",
+            },
+        ]
+        forbidden = FakeDailyLogHandler(
+            {"id": self.admin_id, "role": "purchaser", "roles": []},
+            forbidden_payload,
+        )
+        communications_docs.api_create_daily_log(
+            forbidden, f"/api/projects/{self.project_id}/daily-logs"
+        )
+        self.assertEqual(forbidden.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(forbidden.response["error"], "daily_log_work_actions_forbidden")
+
+        invalid_payload = self.base_payload("mixed-invalid")
+        invalid_payload["confirmed_actions"] = [
+            {
+                "action_type": "material_purchase",
+                "estimate_item_id": self.material_id,
+                "qty": 5,
+                "client_action_id": "mixed-invalid:material",
+            },
+            {
+                "action_type": "work_progress",
+                "estimate_item_id": self.work_id,
+                "quantity_mode": "delta_qty",
+                "input_value": 71,
+                "client_action_id": "mixed-invalid:work",
+            },
+        ]
+        invalid = self.create_log(invalid_payload)
+        self.assertEqual(invalid.status, HTTPStatus.CONFLICT)
+        self.assertEqual(invalid.response["error"], "daily_log_work_action_qty_exceeds_limit")
+
+        with server.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_logs").fetchone()[0], 0)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_log_actions").fetchone()[0], 0)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_log_work_actions").fetchone()[0], 0)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM stock_moves").fetchone()[0], 0)
+            self.assertEqual(
+                float(con.execute("SELECT actual_qty FROM estimate_items WHERE id = ?", (self.work_id,)).fetchone()[0]),
+                0,
+            )
+
+    def test_scaled_work_unit_uses_physical_plan(self) -> None:
+        handler = self.create_log(
+            self.work_payload(
+                "work-scaled-unit",
+                mode="delta_qty",
+                value=40,
+                value_key="value",
+                item_id=self.scaled_work_id,
+            )
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.CREATED)
+        action = next(item for item in handler.response["appliedActions"] if item["kind"] == "work")
+        self.assertEqual(action["qty"], 40)
+        self.assertEqual(action["actualAfter"], 40)
+        self.assertEqual(action["plannedQty"], 70)
+        self.assertEqual(action["unit"], "м")
+        with server.db() as con:
+            row = con.execute(
+                "SELECT actual_qty, is_completed FROM estimate_items WHERE id = ?",
+                (self.scaled_work_id,),
+            ).fetchone()
+        self.assertEqual(float(row["actual_qty"]), 40)
+        self.assertEqual(int(row["is_completed"]), 0)
+
+    def test_report_with_work_progress_cannot_be_deleted_silently(self) -> None:
+        created = self.create_log(
+            self.work_payload("protected-work-report", mode="delta_qty", value=10)
+        )
+        delete_handler = FakeDailyLogHandler(self.admin, {})
+
+        communications_docs.api_delete_daily_log(
+            delete_handler,
+            f"/api/projects/{self.project_id}/daily-logs/{created.response['id']}/delete",
+        )
+
+        self.assertEqual(delete_handler.status, HTTPStatus.CONFLICT)
+        self.assertEqual(delete_handler.response["error"], "daily_log_has_applied_actions")
+        with server.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_logs").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_log_work_actions").fetchone()[0], 1)
+            self.assertEqual(
+                float(con.execute("SELECT actual_qty FROM estimate_items WHERE id = ?", (self.work_id,)).fetchone()[0]),
+                10,
+            )
+
+    def test_full_estimate_replace_is_blocked_after_work_progress(self) -> None:
+        self.create_log(
+            self.work_payload("protected-work-estimate", mode="delta_qty", value=10)
+        )
+        with server.db() as con:
+            work_row = con.execute(
+                "SELECT * FROM estimate_items WHERE id = ?", (self.work_id,)
+            ).fetchone()
+            activity = server.estimate_position_kind_change_activity(
+                con, self.project_id, self.work_id, work_row, "work"
+            )
+        self.assertIn(
+            "daily_log_work_actions",
+            {item["code"] for item in activity},
+        )
+        replace_handler = FakeDailyLogHandler(
+            self.admin,
+            {
+                "replace": True,
+                "items": [
+                    {
+                        "title": "Новая позиция",
+                        "unit": "шт",
+                        "planned_qty": 1,
+                        "planned_price": 0,
+                        "item_kind": "material",
+                    }
+                ],
+            },
+        )
+
+        server.PMBIHandler.api_import_estimate(
+            replace_handler, f"/api/projects/{self.project_id}/estimate-import"
+        )
+
+        self.assertEqual(replace_handler.status, HTTPStatus.CONFLICT)
+        self.assertEqual(
+            replace_handler.response["error"],
+            "estimate_replace_blocked_by_daily_log_actions",
+        )
+        self.assertEqual(replace_handler.response["actionCount"], 1)
+        with server.db() as con:
+            self.assertIsNotNone(
+                con.execute("SELECT id FROM estimate_items WHERE id = ?", (self.work_id,)).fetchone()
+            )
 
     def test_confirmed_actions_create_audited_stock_moves_transactionally(self) -> None:
         payload = self.base_payload("report-request-1")

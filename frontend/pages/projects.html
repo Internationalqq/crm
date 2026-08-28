@@ -18,6 +18,12 @@
             <input name="title" required placeholder="Например: объект по смете">
         </label>
         <label>
+            <span>Компания</span>
+            <select name="own_legal_entity_id" data-project-own-company required>
+                <option value="">Загрузка компаний…</option>
+            </select>
+        </label>
+        <label>
             <span>Заказчик</span>
             <input name="client_name" required placeholder="ООО Заказчик">
         </label>
@@ -38,7 +44,7 @@
             <span>Дедлайн</span>
             <input name="deadline_at" type="date">
         </label>
-        <div class="form-error" data-project-create-error></div>
+        <div class="form-error" data-project-create-error role="alert" aria-atomic="true"></div>
         <button class="primary" type="submit">Создать</button>
     </form>
 </section>
@@ -46,7 +52,13 @@
 <section class="card" data-project-overview-section>
     <div class="card-head">
         <h3>Список объектов</h3>
-        <input class="search" placeholder="Поиск по объектам" data-project-search>
+        <input class="search" aria-label="Поиск по объектам" placeholder="Поиск по объектам" data-project-search>
+    </div>
+    <div class="project-company-filter" data-project-company-filter role="group" aria-label="Фильтр объектов по компании">
+        <button class="is-active" type="button" data-project-company-filter-value="all" aria-pressed="true"><span>Все</span><b data-project-company-count="all">0</b></button>
+        <button type="button" data-project-company-filter-value="uess" aria-pressed="false"><span>УЭСС</span><b data-project-company-count="uess">0</b></button>
+        <button type="button" data-project-company-filter-value="pm" aria-pressed="false"><span>ПМ</span><b data-project-company-count="pm">0</b></button>
+        <button type="button" data-project-company-filter-value="strategy" aria-pressed="false"><span>Стратегия</span><b data-project-company-count="strategy">0</b></button>
     </div>
     <div class="projects-grid" data-projects-list>
         <div class="pmbi-skeleton-view pmbi-skeleton-view--cards" data-pmbi-skeleton="cards" aria-hidden="true">
@@ -61,17 +73,17 @@
             <i data-lucide="arrow-left" aria-hidden="true"></i>
         </a>
         <div class="project-tab-cluster">
-            <div class="tabs" aria-label="Разделы объекта">
-                <button class="tab active" data-tab="overview" aria-current="page"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Сводка</span></button>
-                <button class="tab" data-tab="schedule"><i data-lucide="hammer" aria-hidden="true"></i><span>Работы</span></button>
-                <button class="tab" data-tab="warehouse-control"><i data-lucide="boxes" aria-hidden="true"></i><span>Материалы</span></button>
-                <button class="tab" data-tab="tasks"><i data-lucide="list-checks" aria-hidden="true"></i><span>Задачи</span></button>
-                <button class="tab" data-tab="reports"><i data-lucide="notebook-tabs" aria-hidden="true"></i><span>Журнал</span></button>
-                <button class="tab" data-tab="documents"><i data-lucide="folder-open" aria-hidden="true"></i><span>Документы</span></button>
-                <button class="tab" data-tab="finance"><i data-lucide="wallet" aria-hidden="true"></i><span>Деньги</span></button>
-                <button class="tab" data-tab="calendar"><i data-lucide="calendar-days" aria-hidden="true"></i><span>Календарь</span></button>
-                <button class="tab" data-tab="production-schedule"><i data-lucide="calendar-range" aria-hidden="true"></i><span>График производства</span></button>
-                <button class="tab" data-tab="estimate-reconciliation"><i data-lucide="clipboard-check" aria-hidden="true"></i><span>Смета</span></button>
+            <div class="tabs" role="tablist" aria-label="Разделы объекта">
+                <button class="tab active" type="button" role="tab" id="project-tab-overview" data-tab="overview" aria-controls="project-panel-overview" aria-selected="true" aria-current="page"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Сводка</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-schedule" data-tab="schedule" aria-controls="project-panel-schedule" aria-selected="false" tabindex="-1"><i data-lucide="hammer" aria-hidden="true"></i><span>Работы</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-warehouse-control" data-tab="warehouse-control" aria-controls="project-panel-warehouse-control" aria-selected="false" tabindex="-1"><i data-lucide="boxes" aria-hidden="true"></i><span>Материалы</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-tasks" data-tab="tasks" aria-controls="project-panel-tasks" aria-selected="false" tabindex="-1"><i data-lucide="list-checks" aria-hidden="true"></i><span>Задачи</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-reports" data-tab="reports" aria-controls="project-panel-reports" aria-selected="false" tabindex="-1"><i data-lucide="notebook-tabs" aria-hidden="true"></i><span>Журнал</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-documents" data-tab="documents" aria-controls="project-panel-documents" aria-selected="false" tabindex="-1"><i data-lucide="folder-open" aria-hidden="true"></i><span>Документы</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-finance" data-tab="finance" aria-controls="project-panel-finance" aria-selected="false" tabindex="-1"><i data-lucide="wallet" aria-hidden="true"></i><span>Деньги</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-calendar" data-tab="calendar" aria-controls="project-panel-calendar" aria-selected="false" tabindex="-1"><i data-lucide="calendar-days" aria-hidden="true"></i><span>Календарь</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-production-schedule" data-tab="production-schedule" aria-controls="project-panel-production-schedule" aria-selected="false" tabindex="-1"><i data-lucide="calendar-range" aria-hidden="true"></i><span>График производства</span></button>
+                <button class="tab" type="button" role="tab" id="project-tab-estimate-reconciliation" data-tab="estimate-reconciliation" aria-controls="project-panel-estimate-reconciliation" aria-selected="false" tabindex="-1"><i data-lucide="clipboard-check" aria-hidden="true"></i><span>Сверка импорта</span></button>
             </div>
         </div>
         <button class="project-report-primary" type="button" data-project-quick-action="report" aria-label="Создать отчёт за сегодня" title="Создать отчёт за сегодня">
@@ -93,16 +105,16 @@
         <button class="is-primary" type="button" data-project-quick-action="report" data-report-start-voice><i data-lucide="mic" aria-hidden="true"></i><span>Отчёт</span></button>
         <button type="button" data-project-quick-action="material"><i data-lucide="package-plus" aria-hidden="true"></i><span>Материал</span></button>
     </nav>
-    <div class="tab-panel active" data-panel="overview"></div>
-    <div class="tab-panel" data-panel="schedule"></div>
-    <div class="tab-panel" data-panel="estimate-reconciliation"></div>
-    <div class="tab-panel" data-panel="warehouse-control"></div>
-    <div class="tab-panel" data-panel="calendar"></div>
-    <div class="tab-panel" data-panel="production-schedule"></div>
-    <div class="tab-panel" data-panel="reports"></div>
-    <div class="tab-panel" data-panel="tasks"></div>
-    <div class="tab-panel" data-panel="finance"></div>
-    <div class="tab-panel" data-panel="documents"></div>
+    <div class="tab-panel active" id="project-panel-overview" role="tabpanel" aria-labelledby="project-tab-overview" data-panel="overview"></div>
+    <div class="tab-panel" id="project-panel-schedule" role="tabpanel" aria-labelledby="project-tab-schedule" data-panel="schedule" hidden></div>
+    <div class="tab-panel" id="project-panel-estimate-reconciliation" role="tabpanel" aria-labelledby="project-tab-estimate-reconciliation" data-panel="estimate-reconciliation" hidden></div>
+    <div class="tab-panel" id="project-panel-warehouse-control" role="tabpanel" aria-labelledby="project-tab-warehouse-control" data-panel="warehouse-control" hidden></div>
+    <div class="tab-panel" id="project-panel-calendar" role="tabpanel" aria-labelledby="project-tab-calendar" data-panel="calendar" hidden></div>
+    <div class="tab-panel" id="project-panel-production-schedule" role="tabpanel" aria-labelledby="project-tab-production-schedule" data-panel="production-schedule" hidden></div>
+    <div class="tab-panel" id="project-panel-reports" role="tabpanel" aria-labelledby="project-tab-reports" data-panel="reports" hidden></div>
+    <div class="tab-panel" id="project-panel-tasks" role="tabpanel" aria-labelledby="project-tab-tasks" data-panel="tasks" hidden></div>
+    <div class="tab-panel" id="project-panel-finance" role="tabpanel" aria-labelledby="project-tab-finance" data-panel="finance" hidden></div>
+    <div class="tab-panel" id="project-panel-documents" role="tabpanel" aria-labelledby="project-tab-documents" data-panel="documents" hidden></div>
     <div class="tab-panel" data-panel="chat"></div>
     <div class="tab-panel" data-panel="ai"></div>
 </section>

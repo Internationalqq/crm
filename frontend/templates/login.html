@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ru">
 <head>
     <meta charset="utf-8">
@@ -6,17 +6,17 @@
     <meta name="robots" content="noindex,nofollow,noarchive">
     <title>Вход — PM.bi</title>
     <link rel="icon" type="image/png" href="/assets/logo.png?v=20260728-textfix2">
-    <link rel="stylesheet" href="/assets/app.css?v=20260824-schedule-minimal-1-ui-project-schedule-cleanup-4-ui-iteration-4-final-ui-final-qa-1-quantity-normalization-1-price-table-4-sticky-viewport-3-mist-fade-3-crm-skeletons-1-works-only-1-project-reports-workspace-1-finance-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-modal-neutral-4-report-create-plus-5-finance-delete-1-payables-minimal-1-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-live-suggestions-16-production-editor-3-position-duration-1">
-    <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1"></script>
-    <script defer src="/assets/js/app.js?v=20260821-quantity-normalization-1-bulk-section-completion-1-crm-skeletons-1-works-only-1-project-reports-workspace-1-finance-workspace-1-reports-wording-7-report-refresh-8-report-calendar-bridge-11-report-live-suggestions-16-position-duration-1"></script>
+    <link rel="stylesheet" href="/assets/app.css?v=20260826-production-scroll-align-1-production-zone-wheel-2-production-zone-cursor-3-production-compact-center-4-production-single-sticky-head-5-production-duration-lift-dotless-6-schedule-minimal-1-ui-project-schedule-cleanup-4-ui-iteration-4-final-ui-final-qa-1-quantity-normalization-1-price-table-4-sticky-viewport-3-mist-fade-3-crm-skeletons-1-works-only-1-project-reports-workspace-1-finance-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-finance-delete-1-payables-minimal-1-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-live-suggestions-16-production-editor-3-position-duration-1-login-guest-entry-20-production-moving-metrics-control-lift-7-report-picked-close-right-20-report-rich-shifts-21-credential-guest-22-report-draft-autosave-24-project-company-filter-25-company-filter-minimal-26-report-flow-cleanup-27-report-quantity-actions-29-report-icon-minimal-32-report-photo-tone-33-report-sheet-minimal-34-report-resource-remove-right-35-report-final-structured-36-report-saved-structured-37-report-browser-qa-39-report-touch-qa-40-report-unit-fallback-qa-43">
+    <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1-loader-cleanup-31"></script>
+    <script defer src="/assets/js/app.js?v=20260826-quantity-normalization-1-bulk-section-completion-1-crm-skeletons-1-works-only-1-project-reports-workspace-1-finance-workspace-1-reports-wording-7-report-refresh-8-report-calendar-bridge-11-report-live-suggestions-16-position-duration-1-logout-to-guest-19-report-voice-feedback-20-report-rich-shifts-21-credential-guest-22-report-draft-autosave-24-project-company-filter-25-report-parser-safety-28-report-quantity-actions-29-tabs-a11y-30-report-icon-minimal-32-report-sheet-minimal-34-report-final-structured-36-report-saved-structured-37-report-browser-qa-39-report-touch-qa-40-report-unit-fallback-qa-43"></script>
 </head>
 <body class="login-page" data-page="login">
     <main class="login-card">
         <section class="login-hero">
-            <div class="login-brand">
-                <img src="/assets/logo.png?v=20260728-textfix2" alt="PM.bi">
+            <a class="login-brand" href="/" data-login-home aria-label="PM.bi — на главную">
+                <img src="/assets/logo.png?v=20260728-textfix2" alt="">
                 <strong>PM.bi</strong>
-            </div>
+            </a>
             <h1>Закрытая CRM для строительных объектов</h1>
             <p>Объекты, сметы, склад, график работ, чаты, роли и контроль нехватки материалов — в одной системе.</p>
             <div class="login-points">
@@ -27,7 +27,7 @@
         </section>
         <section class="login-form">
             <h2>Вход</h2>
-            <p>Введите учётку, созданную администратором.</p>
+            <p>Введите выданный логин и пароль.</p>
             <form data-login-form>
                 <label>
                     <span>Логин</span>
@@ -41,7 +41,7 @@
                     <input name="rememberMe" type="checkbox">
                     <span>Запомнить меня</span>
                 </label>
-                <div class="form-error" data-login-error>Неверный логин или пароль</div>
+                <div class="form-error" data-login-error role="alert" aria-atomic="true">Неверный логин или пароль</div>
                 <button type="submit">Войти</button>
             </form>
             <details class="password-reset-panel" data-password-reset-panel>
@@ -51,7 +51,7 @@
                         <span>Email</span>
                         <input name="email" type="email" autocomplete="email" placeholder="name@company.ru">
                     </label>
-                    <div class="form-error" data-password-reset-error></div>
+                    <div class="form-error" data-password-reset-error role="alert" aria-atomic="true"></div>
                     <div class="form-success" data-password-reset-success></div>
                     <button type="submit" class="ghost">Отправить новый пароль</button>
                 </form>

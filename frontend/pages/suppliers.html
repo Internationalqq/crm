@@ -24,7 +24,7 @@
             <h3>Все предложения по объекту</h3>
             <label class="supplier-project-picker">
                 <i data-lucide="building-2" aria-hidden="true"></i>
-                <select class="search" data-suppliers-project></select>
+                <select class="search" data-suppliers-project aria-label="Выбрать объект для предложений"></select>
             </label>
         </div>
         <button class="primary suppliers-create-button suppliers-create-button-panel" type="button" data-supplier-create-open>
@@ -42,14 +42,14 @@
 
 <div class="supplier-detail-modal hidden" data-supplier-detail-modal>
     <button class="supplier-detail-backdrop" type="button" data-supplier-detail-close aria-label="Закрыть"></button>
-    <section class="supplier-detail-dialog" role="dialog" aria-modal="true" aria-label="Карточка контрагента">
+    <section class="supplier-detail-dialog" role="dialog" aria-modal="true" aria-label="Карточка контрагента" tabindex="-1">
         <div data-supplier-detail-body></div>
     </section>
 </div>
 
 <div class="supplier-create-modal hidden" data-supplier-create-modal>
     <button class="supplier-create-backdrop" type="button" data-supplier-create-close aria-label="Закрыть"></button>
-    <section class="supplier-create-dialog" role="dialog" aria-modal="true" aria-label="Создание контрагента">
+    <section class="supplier-create-dialog" role="dialog" aria-modal="true" aria-label="Создание контрагента" tabindex="-1">
         <form class="card form-card supplier-form supplier-create-form" data-supplier-create-form>
             <button class="ghost compact user-create-close" type="button" data-supplier-create-close>Закрыть</button>
             <h3>Создать контрагента</h3>
@@ -127,7 +127,7 @@
                 <span>Комментарий</span>
                 <textarea name="notes" rows="4" placeholder="Что ответили, условия, сроки поставки, что смутило"></textarea>
             </label>
-            <div class="form-error" data-supplier-create-error></div>
+            <div class="form-error" data-supplier-create-error role="alert" aria-atomic="true"></div>
             <button class="primary" type="submit">Сохранить контрагента</button>
         </form>
     </section>

@@ -24,11 +24,20 @@ assert.match(appJs, /title: form\.title \? form\.title\.value\.trim\(\)/);
 assert.match(appJs, /description: form\.description \? form\.description\.value\.trim\(\)/);
 assert.match(appJs, /function canCreateProjectTask\(\)/);
 assert.doesNotMatch(appJs, /class="inline-form" data-task-form/);
+const taskRowStart = appJs.indexOf('function renderTaskRow');
+const taskRowEnd = appJs.indexOf('function taskStatusFromDropList', taskRowStart);
+const taskRowBlock = appJs.slice(taskRowStart, taskRowEnd);
+assert.match(appJs, /function taskCompletionTime\(value\)/);
+assert.match(taskRowBlock, /taskCompletionTime\(completedAt\)/);
+assert.doesNotMatch(taskRowBlock, /dailyTaskTime\(/);
 
 assert.ok(appCss.includes('./css/tasks.css?v=20260823-object-tasks-workspace-1'));
 assert.ok(appCss.indexOf('./css/tasks.css') > appCss.indexOf('./css/components.css'), 'Task workspace CSS must follow legacy component styles');
 assert.match(baseHtml, /app\.css\?v=[^"\s]*object-tasks-workspace-1/);
 assert.match(routerJs, /app\.js\?v=[^'\s]*object-tasks-workspace-1/);
+assert.match(routerJs, /app\.js\?v=[^'\s]*report-browser-qa-39/);
+assert.match(routerJs, /app\.js\?v=[^'\s]*report-touch-qa-40/);
+assert.match(routerJs, /app\.js\?v=[^'\s]*report-unit-fallback-qa-43/);
 
 for (const selector of [
   '.task-workspace-head',

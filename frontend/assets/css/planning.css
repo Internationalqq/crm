@@ -124,16 +124,16 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-schedule-card {
-    overflow: hidden;
+    overflow: visible;
     padding: 0;
 }
 
 .production-schedule-head {
     align-items: flex-start;
     display: flex;
-    gap: 20px;
+    gap: 16px;
     justify-content: space-between;
-    padding: 20px;
+    padding: 14px 16px;
 }
 
 .production-schedule-head h3 {
@@ -150,9 +150,9 @@ body.cal-modal-open .calendar-modal-overlay {
     background: #f6f8fa;
     border-top: 1px solid #e2e7eb;
     color: #65717c;
-    font-size: 12px;
-    line-height: 1.45;
-    padding: 9px 20px;
+    font-size: 11px;
+    line-height: 1.35;
+    padding: 7px 16px;
 }
 
 .production-recalculate-note b {
@@ -163,24 +163,72 @@ body.cal-modal-open .calendar-modal-overlay {
     align-items: center;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     justify-content: flex-end;
 }
 
-.production-table-scroll {
+.production-scroll-hint {
+    align-items: center;
+    background: #fbfcfd;
+    border-top: 1px solid #e2e7eb;
+    color: #727d87;
+    display: flex;
+    font-size: 10px;
+    justify-content: flex-end;
+    line-height: 1.2;
+    min-height: 24px;
+    padding: 5px 10px;
+}
+
+.production-table-shell {
     border-top: 1px solid #20252a;
+    isolation: isolate;
     max-width: 100%;
-    overflow: auto;
     position: relative;
 }
 
+.production-table-scroll {
+    -webkit-overflow-scrolling: touch;
+    cursor: ew-resize;
+    max-height: min(64vh, 600px);
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: #aab4bd #eef1f3;
+    scrollbar-width: thin;
+    touch-action: pan-x pan-y;
+}
+
+.production-table-scroll:focus-visible {
+    outline: 2px solid #2f6fda;
+    outline-offset: -2px;
+}
+
+.production-table-scroll::-webkit-scrollbar {
+    height: 10px;
+}
+
+.production-table-scroll::-webkit-scrollbar-track {
+    background: #eef1f3;
+}
+
+.production-table-scroll::-webkit-scrollbar-thumb {
+    background: #aab4bd;
+    border: 3px solid #eef1f3;
+    border-radius: 999px;
+}
+
 .production-schedule-table {
+    --production-number-width: 40px;
+    --production-work-width: 340px;
     background: #fff;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 12px;
+    font-size: 11px;
     min-width: max-content;
     table-layout: fixed;
+    width: max-content;
 }
 
 .production-schedule-table th,
@@ -188,18 +236,19 @@ body.cal-modal-open .calendar-modal-overlay {
     border-bottom: 1px solid #3f4448;
     border-right: 1px solid #3f4448;
     box-sizing: border-box;
-    height: 34px;
+    height: 30px;
     margin: 0;
     padding: 0;
+    vertical-align: middle;
 }
 
 .production-schedule-table thead th {
     background: #f7f7f6;
     border-top: 0;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 800;
-    height: 64px;
-    line-height: 1.25;
+    height: 58px;
+    line-height: 1.2;
     position: sticky;
     text-align: center;
     top: 0;
@@ -207,72 +256,92 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-schedule-table .production-number-cell,
-.production-schedule-table .production-work-title,
+.production-schedule-table .production-work-title {
+    backface-visibility: hidden;
+    background: #fff;
+    position: sticky;
+    text-align: center;
+    transform: translateZ(0);
+    z-index: 3;
+}
+
+.production-schedule-table .production-number-cell,
+.production-schedule-table .production-work-title {
+    cursor: ns-resize;
+}
+
+.production-schedule-table .production-volume-cell,
+.production-schedule-table .production-people-cell,
+.production-schedule-table .production-shifts-cell,
+.production-schedule-table .production-brigades-cell,
+.production-schedule-table .production-duration-cell,
+.production-schedule-table .production-day-head {
+    cursor: ew-resize;
+}
+
+.production-schedule-table .production-number-cell {
+    left: 0;
+    min-width: var(--production-number-width);
+    width: var(--production-number-width);
+}
+
+.production-schedule-table .production-work-title {
+    left: var(--production-number-width);
+    min-width: var(--production-work-width);
+    padding: 4px 8px;
+    text-align: left;
+    width: var(--production-work-width);
+}
+
+.production-schedule-table .production-volume-cell {
+    min-width: 94px;
+    width: 94px;
+}
+
+.production-schedule-table .production-people-cell {
+    min-width: 56px;
+    width: 56px;
+}
+
+.production-schedule-table .production-shifts-cell {
+    min-width: 56px;
+    width: 56px;
+}
+
+.production-schedule-table .production-brigades-cell {
+    min-width: 64px;
+    width: 64px;
+}
+
+.production-schedule-table .production-duration-cell {
+    min-width: 88px;
+    width: 88px;
+}
+
 .production-schedule-table .production-volume-cell,
 .production-schedule-table .production-people-cell,
 .production-schedule-table .production-shifts-cell,
 .production-schedule-table .production-brigades-cell,
 .production-schedule-table .production-duration-cell {
-    background: #fff;
-    position: sticky;
+    font-variant-numeric: tabular-nums;
+    padding-inline: 4px;
     text-align: center;
-    z-index: 3;
-}
-
-.production-schedule-table .production-number-cell {
-    left: 0;
-    min-width: 44px;
-    width: 44px;
-}
-
-.production-schedule-table .production-work-title {
-    left: 44px;
-    min-width: 390px;
-    padding: 7px 10px;
-    text-align: left;
-    width: 390px;
-}
-
-.production-schedule-table .production-volume-cell {
-    left: 434px;
-    min-width: 105px;
-    width: 105px;
-}
-
-.production-schedule-table .production-people-cell {
-    left: 539px;
-    min-width: 70px;
-    width: 70px;
-}
-
-.production-schedule-table .production-shifts-cell {
-    left: 609px;
-    min-width: 70px;
-    width: 70px;
-}
-
-.production-schedule-table .production-brigades-cell {
-    left: 679px;
-    min-width: 80px;
-    width: 80px;
+    white-space: nowrap;
 }
 
 .production-schedule-table .production-duration-cell {
-    left: 759px;
-    min-width: 100px;
-    width: 100px;
+    padding-inline: 2px;
 }
 
 .production-schedule-table thead .production-number-cell,
-.production-schedule-table thead .production-work-title,
-.production-schedule-table thead .production-volume-cell,
-.production-schedule-table thead .production-people-cell,
-.production-schedule-table thead .production-shifts-cell,
-.production-schedule-table thead .production-brigades-cell,
-.production-schedule-table thead .production-duration-cell {
+.production-schedule-table thead .production-work-title {
     background: #f7f7f6;
     text-align: center;
     z-index: 8;
+}
+
+.production-table-shell.is-horizontally-scrolled .production-schedule-table .production-work-title {
+    box-shadow: 8px 0 12px -12px rgba(20, 30, 38, .9);
 }
 
 .production-schedule-table .production-work-title b,
@@ -287,17 +356,24 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-number-cell > span {
+    display: inline-grid;
+    place-items: center;
     vertical-align: middle;
 }
 
 .production-drag-handle {
     color: #9aa3ab;
     cursor: grab;
-    display: inline-block;
+    display: grid;
     font-size: 13px;
     letter-spacing: -4px;
-    margin-right: 7px;
-    padding-right: 4px;
+    left: 3px;
+    margin: 0;
+    padding: 2px;
+    place-items: center;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
     user-select: none;
 }
 
@@ -314,16 +390,8 @@ body.cal-modal-open .calendar-modal-overlay {
 .production-work-heading {
     align-items: center;
     display: flex;
-    gap: 7px;
+    gap: 5px;
     min-width: 0;
-}
-
-.production-work-heading > i {
-    background: var(--production-phase, #7c8792);
-    border-radius: 999px;
-    flex: 0 0 7px;
-    height: 7px;
-    width: 7px;
 }
 
 .production-work-heading > b {
@@ -335,15 +403,16 @@ body.cal-modal-open .calendar-modal-overlay {
     align-items: center;
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
-    margin: 4px 0 0 14px;
+    gap: 3px;
+    margin: 2px 0 0;
 }
 
 .production-work-meta small {
     border-radius: 999px;
     line-height: 1.15;
     margin: 0 !important;
-    padding: 3px 6px;
+    font-size: 8.5px;
+    padding: 1px 4px;
 }
 
 .production-origin-label {
@@ -406,11 +475,11 @@ body.cal-modal-open .calendar-modal-overlay {
     color: #64707a;
     cursor: pointer;
     display: inline-flex;
-    font-size: 15px;
-    height: 23px;
+    font-size: 14px;
+    height: 20px;
     justify-content: center;
     padding: 0;
-    width: 23px;
+    width: 20px;
 }
 
 .production-row-actions button:hover,
@@ -438,47 +507,58 @@ body.cal-modal-open .calendar-modal-overlay {
     border: 1px solid #cbd2d9;
     border-radius: 9px;
     display: grid;
-    grid-template-columns: 26px 40px 26px;
-    height: 28px;
-    margin: 2px auto;
+    grid-template-columns: 24px 34px 24px;
+    height: 24px;
+    margin: 0 auto;
     overflow: hidden;
-    width: 92px;
+    width: 82px;
 }
 
-.production-duration-cell .production-duration-stepper input {
+.production-duration-cell .production-duration-stepper input[data-production-duration] {
     appearance: textfield;
-    background: #fff;
-    border: 0;
-    border-left: 1px solid #dde2e7;
-    border-radius: 0;
-    border-right: 1px solid #dde2e7;
+    background: #fff !important;
+    border: 0 !important;
+    border-inline: 1px solid #dde2e7 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box;
     font: inherit;
     font-weight: 800;
+    height: 100% !important;
+    line-height: 14px !important;
+    min-height: 0 !important;
     min-width: 0;
-    padding: 0 2px;
+    padding: 0 2px 8px !important;
     text-align: center;
-    width: 40px;
+    width: 34px;
 }
 
-.production-duration-cell .production-duration-stepper input::-webkit-inner-spin-button,
-.production-duration-cell .production-duration-stepper input::-webkit-outer-spin-button {
+.production-duration-cell .production-duration-stepper input[data-production-duration]::-webkit-inner-spin-button,
+.production-duration-cell .production-duration-stepper input[data-production-duration]::-webkit-outer-spin-button {
     appearance: none;
     margin: 0;
 }
 
 .production-duration-step-button {
-    align-items: center;
     background: #f4f6f8;
     border: 0;
     color: #3d4852;
     cursor: pointer;
-    display: inline-flex;
-    font-size: 17px;
+    display: grid;
+    font-size: 15px;
     font-weight: 800;
-    justify-content: center;
     line-height: 1;
     padding: 0;
+    place-items: center;
     transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.production-duration-step-button > span {
+    display: grid;
+    height: 100%;
+    place-items: center;
+    transform: translateY(-4px);
+    width: 100%;
 }
 
 .production-duration-step-button:hover:not(:disabled) {
@@ -487,15 +567,15 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-duration-step-button:focus-visible,
-.production-duration-cell .production-duration-stepper input:focus-visible {
-    box-shadow: inset 0 0 0 2px #2f6fda;
+.production-duration-cell .production-duration-stepper input[data-production-duration]:focus-visible {
+    box-shadow: inset 0 0 0 2px #2f6fda !important;
     outline: 0;
     position: relative;
     z-index: 1;
 }
 
 .production-duration-step-button:disabled,
-.production-duration-cell .production-duration-stepper input:disabled {
+.production-duration-cell .production-duration-stepper input[data-production-duration]:disabled {
     color: #9aa2aa;
     cursor: default;
     opacity: 0.62;
@@ -530,13 +610,14 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-day-head {
-    min-width: 32px;
-    width: 32px;
+    min-width: 30px;
+    width: 30px;
 }
 
 .production-day-half-cell {
-    min-width: 16px;
-    width: 16px;
+    min-width: 15px;
+    position: relative;
+    width: 15px;
 }
 
 .production-day-half-cell.is-first-half {
@@ -547,12 +628,14 @@ body.cal-modal-open .calendar-modal-overlay {
 .production-cell-toggle {
     background: #fff;
     border: 0;
-    cursor: pointer;
+    cursor: ew-resize;
     display: block;
-    height: 33px;
+    height: auto;
+    inset: 0;
     margin: 0;
     padding: 0;
-    width: 15px;
+    position: absolute;
+    width: auto;
 }
 
 .production-cell-toggle.is-filled {
@@ -858,35 +941,20 @@ body.production-operation-editor-open .production-operation-drawer {
         justify-content: flex-start;
     }
 
-    .production-schedule-table .production-work-title {
-        left: 40px;
-        min-width: 240px;
-        width: 240px;
+    .production-schedule-table {
+        --production-number-width: 36px;
+        --production-work-width: 220px;
+    }
+}
+
+@media (max-width: 560px) {
+    .production-scroll-hint {
+        justify-content: flex-start;
+        padding-inline: 10px;
     }
 
-    .production-schedule-table .production-number-cell {
-        min-width: 40px;
-        width: 40px;
-    }
-
-    .production-schedule-table .production-volume-cell {
-        left: 280px;
-    }
-
-    .production-schedule-table .production-people-cell {
-        left: 385px;
-    }
-
-    .production-schedule-table .production-shifts-cell {
-        left: 455px;
-    }
-
-    .production-schedule-table .production-brigades-cell {
-        left: 525px;
-    }
-
-    .production-schedule-table .production-duration-cell {
-        left: 605px;
+    .production-schedule-table {
+        --production-work-width: 176px;
     }
 }
 

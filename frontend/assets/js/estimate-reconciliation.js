@@ -176,6 +176,7 @@
             : emptyState(payload);
         return '<section class="reconciliation-workspace">' +
             '<div class="reconciliation-head"><div><span class="section-label">Контроль импорта</span><h3>Оригинальная смета ↔ выгрузка ИИ</h3><p>Прораб сверяет материалы, работы, единицы и объёмы. Цены доступны только Директору и Админу.</p></div><button class="ghost compact" type="button" data-reconciliation-refresh><i data-lucide="refresh-cw"></i> Обновить</button></div>' +
+            '<article class="reconciliation-source-card is-empty" role="note"><span>Важно</span><strong>Это сравнение неизменяемых версий</strong><small>Решения здесь не редактируют рабочие строки сметы и не меняют бюджет. Исправляйте объёмы и цены в табличном виде раздела «Работы».</small></article>' +
             '<div class="reconciliation-sources">' +
                 snapshotCard(payload.originalSnapshot, 'Оригинальная смета', 'Её фиксирует Директор или Админ') +
                 '<div class="reconciliation-arrow"><i data-lucide="arrow-left-right"></i></div>' +

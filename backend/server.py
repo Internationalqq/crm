@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cgi
+import gzip
 import hashlib
 import html
 import json
@@ -46,7 +47,9 @@ from auth import (
     clerk_sign_in_script as auth_clerk_sign_in_script,
     current_user as auth_current_user,
     current_user_from_clerk as auth_current_user_from_clerk,
+    generate_temporary_password,
     hash_password,
+    guest_api_allowed,
     normalize_role,
     normalize_permissions,
     payload_has_procurement_prices,
@@ -64,12 +67,15 @@ from auth import (
     user_can_view_procurement_prices,
     user_has_any_role,
     user_is_hidden_admin,
+    user_is_guest,
     user_is_main_admin,
     user_is_main_admin_account,
     user_permissions,
+    user_default_path,
     user_payload,
 )
 from projects import (
+    PROJECT_PORTFOLIO_COMPANIES,
     api_claim_project_foreman as projects_api_claim_project_foreman,
     api_create_project as projects_api_create_project,
     api_create_project_assignment as projects_api_create_project_assignment,
@@ -82,10 +88,12 @@ from projects import (
     normalize_project_description,
     project_has_immutable_financial_history,
     project_has_protected_operational_history,
+    project_portfolio_company_code,
     project_schedule_payload,
     require_project_access as projects_require_project_access,
     serialize_project,
     set_project_foremen as projects_set_project_foremen,
+    set_project_purchasers as projects_set_project_purchasers,
 )
 from project_estimates import (
     ensure_project_estimates_schema,
@@ -232,6 +240,7 @@ from communications_docs import (
     api_project_executive_docs as comm_api_project_executive_docs,
     api_project_notifications as comm_api_project_notifications,
     api_update_document as comm_api_update_document,
+    api_upload_daily_log_photo as comm_api_upload_daily_log_photo,
     api_upload_project_document as comm_api_upload_project_document,
     can_access_chat as comm_can_access_chat,
     ensure_daily_log_actions_schema,
@@ -252,10 +261,12 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 HOST = os.environ.get("PMBI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PMBI_PORT", os.environ.get("PORT", "8080")))
 PMBI_PUBLIC_BASE_URL = (os.environ.get("PMBI_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+PMBI_TRUST_PROXY_HEADERS = (os.environ.get("PMBI_TRUST_PROXY_HEADERS", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 PMBI_AUTOBOT_BASE_URL = (os.environ.get("PMBI_AUTOBOT_BASE_URL", "http://127.0.0.1:8765") or "").strip().rstrip("/")
 PMBI_AUTOBOT_INTERNAL_URL = (
     os.environ.get("PMBI_AUTOBOT_INTERNAL_URL", "http://autobot:8765") or ""
 ).strip().rstrip("/")
+AUTOBOT_HEALTH_TIMEOUT_SECONDS = 2.0
 AGENT_MARKET_STATUS_PATH = "/api/agent-market/v1/status"
 AGENT_MARKET_CLAIM_PATH = "/api/agent-market/v1/claim"
 AGENT_MARKET_JOB_PATH_RE = re.compile(
@@ -282,6 +293,85 @@ def is_agent_market_proxy_route(method: str, path: str) -> bool:
     if method != "POST":
         return False
     return path == AGENT_MARKET_CLAIM_PATH or bool(AGENT_MARKET_JOB_PATH_RE.fullmatch(path))
+
+
+def request_is_cross_site_mutation(method: str, headers) -> bool:
+    """Reject browser cross-origin writes while preserving non-browser clients.
+
+    SameSite cookies are useful defense in depth, but Clerk and legacy browser
+    sessions do not all share one cookie policy. Modern browsers supply either
+    ``Sec-Fetch-Site`` or ``Origin`` on write requests. Requests without those
+    browser headers remain valid for the existing server-to-server integrations.
+    """
+
+    if str(method or "").upper() in {"GET", "HEAD", "OPTIONS"}:
+        return False
+    fetch_site = str(headers.get("Sec-Fetch-Site", "") or "").strip().lower()
+    if fetch_site == "cross-site":
+        return True
+    origin = str(headers.get("Origin", "") or "").strip()
+    if not origin:
+        return False
+    if origin.lower() == "null":
+        return True
+    host = str(headers.get("Host", "") or "").strip()
+    if not host or "," in host or any(character.isspace() for character in host):
+        return True
+    try:
+        parsed_origin = urllib.parse.urlsplit(origin)
+        parsed_host = urllib.parse.urlsplit("//" + host)
+        if (
+            parsed_origin.scheme.lower() not in {"http", "https"}
+            or not parsed_origin.hostname
+            or parsed_origin.username is not None
+            or parsed_origin.password is not None
+            or parsed_origin.path not in {"", "/"}
+            or parsed_origin.query
+            or parsed_origin.fragment
+            or not parsed_host.hostname
+            or parsed_host.username is not None
+            or parsed_host.password is not None
+        ):
+            return True
+        origin_host = parsed_origin.hostname.casefold().rstrip(".")
+        origin_scheme = parsed_origin.scheme.lower()
+        origin_port = parsed_origin.port
+        origin_default_port = 443 if origin_scheme == "https" else 80
+        if origin_port == origin_default_port:
+            origin_port = None
+
+        parsed_public = urllib.parse.urlsplit(PMBI_PUBLIC_BASE_URL) if PMBI_PUBLIC_BASE_URL else None
+        if (
+            parsed_public
+            and parsed_public.scheme.lower() in {"http", "https"}
+            and parsed_public.hostname
+            and parsed_public.username is None
+            and parsed_public.password is None
+        ):
+            expected_scheme = parsed_public.scheme.lower()
+            expected_host = parsed_public.hostname.casefold().rstrip(".")
+            expected_port = parsed_public.port
+        else:
+            forwarded_proto = ""
+            if PMBI_TRUST_PROXY_HEADERS:
+                forwarded_proto = str(
+                    headers.get("X-Forwarded-Proto", "") or ""
+                ).split(",", 1)[0].strip().lower()
+                if forwarded_proto and forwarded_proto not in {"http", "https"}:
+                    return True
+            expected_scheme = forwarded_proto or "http"
+            expected_host = parsed_host.hostname.casefold().rstrip(".")
+            expected_port = parsed_host.port
+        expected_default_port = 443 if expected_scheme == "https" else 80
+        if expected_port == expected_default_port:
+            expected_port = None
+    except (TypeError, ValueError):
+        return True
+    return (origin_scheme, origin_host, origin_port) != (
+        expected_scheme,
+        expected_host,
+        expected_port,
+    )
 
 
 APP_PAGES = {
@@ -751,12 +841,17 @@ def ensure_sqlite_indexes(con: sqlite3.Connection) -> None:
             ON work_stages(project_id, position, id);
         CREATE INDEX IF NOT EXISTS idx_tasks_project_status_due
             ON tasks(project_id, status, due_at, id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_project_client_request
+            ON tasks(project_id, client_request_id)
+            WHERE client_request_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_daily_tasks_user_status_date
             ON daily_tasks(user_id, status, task_date, id);
         CREATE INDEX IF NOT EXISTS idx_daily_tasks_status_updated
             ON daily_tasks(status, updated_at, id);
         CREATE INDEX IF NOT EXISTS idx_daily_logs_project_date
             ON daily_logs(project_id, report_date, id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_daily_log_source
+            ON audit_log(entity, entity_id, action);
         CREATE INDEX IF NOT EXISTS idx_documents_project_id
             ON documents(project_id, id);
         CREATE INDEX IF NOT EXISTS idx_finance_entries_project_status_date
@@ -842,6 +937,50 @@ def ensure_sqlite_indexes(con: sqlite3.Connection) -> None:
             ON projects(status, id);
         """
     )
+
+
+def optimize_sqlite(con: sqlite3.Connection) -> bool:
+    """Refresh planner statistics after migrations without hiding I/O failures."""
+
+    try:
+        con.execute("PRAGMA optimize")
+    except sqlite3.OperationalError as error:
+        normalized = str(error).lower()
+        if "optimize" in normalized and (
+            "unknown pragma" in normalized or "syntax error" in normalized
+        ):
+            return False
+        raise
+    return True
+
+
+def report_sqlite_foreign_key_violations(
+    con: sqlite3.Connection,
+) -> list[dict[str, object]]:
+    """Log legacy FK damage without deleting or rewriting user records."""
+
+    violations = [
+        {
+            "table": str(row[0]),
+            "rowid": row[1],
+            "parent": str(row[2]),
+            "fkid": row[3],
+        }
+        for row in con.execute("PRAGMA foreign_key_check").fetchall()
+    ]
+    if violations:
+        summary = ", ".join(
+            f"{item['table']}:{item['rowid']}->{item['parent']}#{item['fkid']}"
+            for item in violations[:20]
+        )
+        if len(violations) > 20:
+            summary += f", +{len(violations) - 20} more"
+        print(
+            "SQLite foreign-key violations detected; no automatic repair was applied: "
+            + summary,
+            file=sys.stderr,
+        )
+    return violations
 
 
 def create_audit(
@@ -1040,9 +1179,9 @@ def estimate_position_kind_change_activity(
             (project_id, item_id),
         )
         add_count(
-            "daily_log_actions",
+            "daily_log_work_actions",
             "Учёт из дневных отчётов",
-            "daily_log_actions",
+            "daily_log_work_actions",
             "project_id = ? AND estimate_item_id = ?",
             (project_id, item_id),
         )
@@ -1068,6 +1207,13 @@ def estimate_position_kind_change_activity(
         if payload_get(item, "warehouse_item_id") or str(payload_get(item, "warehouse_source") or "").strip():
             activity.append({"code": "warehouse_link", "label": "Привязка к складской позиции", "count": 1})
     else:
+        add_count(
+            "daily_log_work_actions",
+            "Фактический объём из дневных отчётов",
+            "daily_log_work_actions",
+            "project_id = ? AND estimate_item_id = ?",
+            (project_id, item_id),
+        )
         add_count(
             "work_facts",
             "Фактическое выполнение работы",
@@ -1130,6 +1276,7 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
             "chat_messages",
             "daily_logs",
             "daily_log_actions",
+            "daily_log_work_actions",
             "audit_log",
             "object_assignments",
             "user_roles",
@@ -1172,6 +1319,7 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
                 client_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 status TEXT NOT NULL,
                 progress INTEGER NOT NULL DEFAULT 0,
+                guest_visible INTEGER NOT NULL DEFAULT 0,
                 budget REAL NOT NULL DEFAULT 0,
                 paid REAL NOT NULL DEFAULT 0,
                 spent REAL NOT NULL DEFAULT 0,
@@ -1219,6 +1367,7 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
                 priority TEXT NOT NULL DEFAULT 'normal',
                 assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 due_at TEXT,
+                client_request_id TEXT,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL
             )
@@ -1247,6 +1396,8 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
                 raw_input TEXT,
                 is_client_visible INTEGER NOT NULL DEFAULT 1,
                 client_request_id TEXT,
+                workers_json TEXT NOT NULL DEFAULT '[]',
+                equipment_json TEXT NOT NULL DEFAULT '[]',
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER
@@ -1266,6 +1417,29 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
                 qty REAL NOT NULL CHECK(qty > 0),
                 client_action_id TEXT NOT NULL,
                 stock_move_id INTEGER NOT NULL UNIQUE REFERENCES stock_moves(id) ON DELETE RESTRICT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(project_id, client_action_id)
+            )
+        """,
+        "daily_log_work_actions": """
+            CREATE TABLE daily_log_work_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                daily_log_id INTEGER NOT NULL REFERENCES daily_logs(id) ON DELETE RESTRICT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action_type TEXT NOT NULL CHECK(action_type = 'work_progress'),
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE RESTRICT,
+                work_title_snapshot TEXT NOT NULL,
+                work_unit_snapshot TEXT NOT NULL,
+                quantity_mode TEXT NOT NULL CHECK(quantity_mode IN (
+                    'delta_qty', 'target_qty', 'target_percent'
+                )),
+                input_value REAL NOT NULL CHECK(input_value > 0),
+                qty REAL NOT NULL CHECK(qty > 0),
+                actual_before REAL NOT NULL CHECK(actual_before >= 0),
+                actual_after REAL NOT NULL CHECK(actual_after > actual_before),
+                planned_qty_snapshot REAL NOT NULL CHECK(planned_qty_snapshot > 0),
+                client_action_id TEXT NOT NULL,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL,
                 UNIQUE(project_id, client_action_id)
@@ -1315,6 +1489,11 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
 def init_db() -> None:
     DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
     with db() as con:
+        seed_guest_project_visibility = bool(
+            table_exists(con, "projects")
+            and "guest_visible"
+            not in {str(row["name"]) for row in con.execute("PRAGMA table_info(projects)").fetchall()}
+        )
         con.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -1382,6 +1561,14 @@ def init_db() -> None:
                 ip TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS guest_sessions (
+                token_hash TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                user_agent TEXT,
+                ip TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -1400,6 +1587,7 @@ def init_db() -> None:
                 client_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 status TEXT NOT NULL,
                 progress INTEGER NOT NULL DEFAULT 0,
+                guest_visible INTEGER NOT NULL DEFAULT 0,
                 budget REAL NOT NULL DEFAULT 0,
                 paid REAL NOT NULL DEFAULT 0,
                 spent REAL NOT NULL DEFAULT 0,
@@ -1696,6 +1884,7 @@ def init_db() -> None:
                 priority TEXT NOT NULL DEFAULT 'normal',
                 assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 due_at TEXT,
+                client_request_id TEXT,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL
             );
@@ -3852,6 +4041,8 @@ def init_db() -> None:
                 raw_input TEXT,
                 is_client_visible INTEGER NOT NULL DEFAULT 1,
                 client_request_id TEXT,
+                workers_json TEXT NOT NULL DEFAULT '[]',
+                equipment_json TEXT NOT NULL DEFAULT '[]',
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER
@@ -3870,6 +4061,28 @@ def init_db() -> None:
                 qty REAL NOT NULL CHECK(qty > 0),
                 client_action_id TEXT NOT NULL,
                 stock_move_id INTEGER NOT NULL UNIQUE REFERENCES stock_moves(id) ON DELETE RESTRICT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(project_id, client_action_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_log_work_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                daily_log_id INTEGER NOT NULL REFERENCES daily_logs(id) ON DELETE RESTRICT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                action_type TEXT NOT NULL CHECK(action_type = 'work_progress'),
+                estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE RESTRICT,
+                work_title_snapshot TEXT NOT NULL,
+                work_unit_snapshot TEXT NOT NULL,
+                quantity_mode TEXT NOT NULL CHECK(quantity_mode IN (
+                    'delta_qty', 'target_qty', 'target_percent'
+                )),
+                input_value REAL NOT NULL CHECK(input_value > 0),
+                qty REAL NOT NULL CHECK(qty > 0),
+                actual_before REAL NOT NULL CHECK(actual_before >= 0),
+                actual_after REAL NOT NULL CHECK(actual_after > actual_before),
+                planned_qty_snapshot REAL NOT NULL CHECK(planned_qty_snapshot > 0),
+                client_action_id TEXT NOT NULL,
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 created_at INTEGER NOT NULL,
                 UNIQUE(project_id, client_action_id)
@@ -3962,6 +4175,7 @@ def init_db() -> None:
                 "foreman_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
                 "buyer_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
                 "client_user_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
+                "guest_visible": "INTEGER NOT NULL DEFAULT 0",
                 "budget": "REAL NOT NULL DEFAULT 0",
                 "paid": "REAL NOT NULL DEFAULT 0",
                 "spent": "REAL NOT NULL DEFAULT 0",
@@ -3975,6 +4189,43 @@ def init_db() -> None:
                 "description": "TEXT",
                 "updated_at": "INTEGER",
             },
+        )
+        existing_portfolio_company_codes = {
+            project_portfolio_company_code(row["name"])
+            for row in con.execute(
+                "SELECT name FROM companies WHERE type = 'own_legal_entity'"
+            ).fetchall()
+        }
+        for company_code, company_name in PROJECT_PORTFOLIO_COMPANIES:
+            if company_code in existing_portfolio_company_codes:
+                continue
+            con.execute(
+                """
+                INSERT INTO companies (type, name, created_at)
+                VALUES ('own_legal_entity', ?, ?)
+                """,
+                (company_name, now_ts()),
+            )
+            existing_portfolio_company_codes.add(company_code)
+        if seed_guest_project_visibility:
+            guest_project_candidates = con.execute(
+                """
+                SELECT id
+                FROM projects
+                WHERE TRIM(title) IN ('ЧБ', 'чб', 'Чебаркуль', 'чебаркуль', 'Чебуркуль', 'чебуркуль')
+                ORDER BY id
+                """
+            ).fetchall()
+            if len(guest_project_candidates) == 1:
+                con.execute(
+                    "UPDATE projects SET guest_visible = 1 WHERE id = ?",
+                    (int(guest_project_candidates[0]["id"]),),
+                )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_projects_guest_visible ON projects(guest_visible, id)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_guest_sessions_expires_at ON guest_sessions(expires_at)"
         )
 
         ensure_columns(
@@ -4118,6 +4369,7 @@ def init_db() -> None:
             {
                 "updated_at": "INTEGER",
                 "completed_at": "TEXT",
+                "client_request_id": "TEXT",
             },
         )
 
@@ -4145,7 +4397,13 @@ def init_db() -> None:
                 (code, ROLE_LABELS[code], ROLE_DESCRIPTIONS.get(code, ""), permissions),
             )
 
-        for row in con.execute("SELECT id, permissions FROM roles").fetchall():
+        for row in con.execute("SELECT id, code, permissions FROM roles").fetchall():
+            if normalize_role(row["code"]) == "guest":
+                con.execute(
+                    "UPDATE roles SET permissions = ? WHERE id = ?",
+                    (json.dumps(default_permissions_for_role("guest"), ensure_ascii=False), row["id"]),
+                )
+                continue
             permissions = normalize_permissions(row["permissions"], "")
             modules = list(permissions.get("modules") or [])
             if "users" not in modules:
@@ -4155,6 +4413,9 @@ def init_db() -> None:
                     "UPDATE roles SET permissions = ? WHERE id = ?",
                     (json.dumps(permissions, ensure_ascii=False), row["id"]),
                 )
+
+        # Anonymous guest sessions belonged to the retired public-preview flow.
+        con.execute("DELETE FROM guest_sessions")
 
         user_rows = con.execute("SELECT id, role FROM users").fetchall()
         for row in user_rows:
@@ -4211,6 +4472,23 @@ def init_db() -> None:
                 WHERE foreman_id IS NOT NULL
                 """
             )
+            con.execute(
+                """
+                INSERT OR IGNORE INTO object_assignments (object_id, user_id, role_code, responsibility, is_primary, assigned_by, assigned_at)
+                SELECT id, buyer_id, 'purchaser', 'Снабженец объекта', 1, director_id, COALESCE(created_at, ?)
+                FROM projects
+                WHERE buyer_id IS NOT NULL
+                """,
+                (now_ts(),),
+            )
+            con.execute(
+                """
+                INSERT OR IGNORE INTO user_project_access (user_id, project_id)
+                SELECT buyer_id, id
+                FROM projects
+                WHERE buyer_id IS NOT NULL
+                """
+            )
 
         user_count = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0:
@@ -4246,6 +4524,9 @@ def init_db() -> None:
         ensure_warehouse_control_schema(con)
         ensure_daily_log_actions_schema(con)
         ensure_sqlite_indexes(con)
+        con.commit()
+        report_sqlite_foreign_key_violations(con)
+        optimize_sqlite(con)
         con.commit()
 
 
@@ -4557,8 +4838,12 @@ def parse_market_view_html(html_text: str, market_type: str) -> list[dict]:
     for article in articles:
         title_match = re.search(r"<div class=\"item-title\">(.*?)</div>", article, flags=re.S | re.I)
         index_match = re.search(r"<div class=\"item-index\">(.*?)</div>", article, flags=re.S | re.I)
-        meta_match = re.search(r"<div class=\"meta\">(.*?)</div>\s*(?:<div class=\"offers\">|<div class=\"status-note\">)", article, flags=re.S | re.I)
-        offers_match = re.search(r"<div class=\"offers\">(.*?)</div>\s*(?:<div class=\"status-note\">|</article>)", article, flags=re.S | re.I)
+        meta_match = re.search(r"<div class=\"meta\">(.*?)</div>", article, flags=re.S | re.I)
+        offers_match = re.search(
+            r"<div class=\"offers\">(.*?)(?:<div class=\"status-note\">|$)",
+            article,
+            flags=re.S | re.I,
+        )
         status_match = re.search(r"<div class=\"status-note\">(.*?)</div>", article, flags=re.S | re.I)
         kind_match = re.search(r"<span class=\"tag\">(.*?)</span>\s*</div>\s*<div class=\"meta\">", article, flags=re.S | re.I)
         title = strip_html_fragment(title_match.group(1) if title_match else "")
@@ -4626,7 +4911,12 @@ def parse_market_view_html(html_text: str, market_type: str) -> list[dict]:
 
 
 def fetch_autobot_market_rows(estimate_id: str, market_type: str) -> list[dict]:
-    url = f"{PMBI_AUTOBOT_BASE_URL}/estimates/{urllib.parse.quote(estimate_id)}/market-view?market_type={urllib.parse.quote(market_type)}"
+    service_base_url = PMBI_AUTOBOT_INTERNAL_URL or PMBI_AUTOBOT_BASE_URL
+    if not service_base_url:
+        raise AutoBotUnavailableError("autobot_not_configured")
+    encoded_estimate_id = urllib.parse.quote(str(estimate_id or ""), safe="")
+    encoded_market_type = urllib.parse.quote(str(market_type or ""), safe="")
+    url = f"{service_base_url}/estimates/{encoded_estimate_id}/market-view?market_type={encoded_market_type}"
     request = urllib.request.Request(url, headers={"User-Agent": "PM.bi/1.0", "Accept": "text/html"})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
@@ -4929,8 +5219,22 @@ def request_market_analysis(project_id: int, kind: str) -> tuple[int, dict]:
         if key in MARKET_ANALYSIS_JOBS:
             return HTTPStatus.OK, market_empty_payload("pending")
         MARKET_ANALYSIS_JOBS.add(key)
-    save_market_analysis_cache(project_id, kind, "pending", market_empty_payload("pending"))
-    MARKET_ANALYSIS_EXECUTOR.submit(market_analysis_worker, project_id, kind, estimate_id)
+    try:
+        save_market_analysis_cache(project_id, kind, "pending", market_empty_payload("pending"))
+        MARKET_ANALYSIS_EXECUTOR.submit(market_analysis_worker, project_id, kind, estimate_id)
+    except Exception:
+        with MARKET_ANALYSIS_JOBS_LOCK:
+            MARKET_ANALYSIS_JOBS.discard(key)
+        try:
+            save_market_analysis_cache(
+                project_id,
+                kind,
+                "error",
+                market_empty_payload("error", "market_analysis_failed"),
+            )
+        except Exception:
+            pass
+        raise
     return HTTPStatus.OK, market_empty_payload("pending")
 
 
@@ -4987,7 +5291,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.clean_path()
         if path in {"/", "/index.html"}:
-            self.redirect(DEFAULT_AUTH_PATH)
+            user = self.current_user()
+            if user:
+                self.redirect(user_default_path(user))
+            else:
+                self.serve_public_entry()
             return
         if path.startswith("/api/"):
             self.handle_api("GET", path)
@@ -4999,6 +5307,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.serve_asset(path)
             return
         self.serve_static(path)
+
+    def do_HEAD(self) -> None:
+        """Return the same status and headers as GET, without a response body."""
+
+        self.do_GET()
 
     def do_POST(self) -> None:
         path = self.clean_path()
@@ -5022,18 +5335,22 @@ class PMBIHandler(BaseHTTPRequestHandler):
         return path or "/"
 
     def read_json(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        length = self.request_content_length(1024 * 1024)
         if length > 1024 * 1024:
             raise ValueError("Payload too large")
         raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw.decode("utf-8") or "{}")
+        try:
+            payload = json.loads(raw.decode("utf-8") or "{}")
+        except UnicodeDecodeError as error:
+            raise ValueError("invalid_json_encoding") from error
+        if not isinstance(payload, dict):
+            raise ValueError("json_object_required")
+        return payload
 
     def read_multipart(self) -> cgi.FieldStorage:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        length = self.request_content_length(MAX_UPLOAD_BYTES)
         if length <= 0:
             raise ValueError("empty_upload")
-        if length > MAX_UPLOAD_BYTES:
-            raise ValueError("upload_too_large")
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             raise ValueError("multipart_required")
@@ -5048,6 +5365,22 @@ class PMBIHandler(BaseHTTPRequestHandler):
             keep_blank_values=True,
         )
 
+    def request_content_length(self, maximum: int) -> int:
+        transfer_encoding = str(self.headers.get("Transfer-Encoding", "") or "").strip()
+        if transfer_encoding and transfer_encoding.lower() != "identity":
+            raise ValueError("unsupported_transfer_encoding")
+        get_all = getattr(self.headers, "get_all", None)
+        values = get_all("Content-Length") if callable(get_all) else None
+        if values is not None and len(values) > 1:
+            raise ValueError("invalid_content_length")
+        raw = str(self.headers.get("Content-Length", "0") or "0").strip()
+        if not re.fullmatch(r"[0-9]+", raw):
+            raise ValueError("invalid_content_length")
+        length = int(raw)
+        if length > maximum:
+            raise ValueError("upload_too_large" if maximum == MAX_UPLOAD_BYTES else "Payload too large")
+        return length
+
     def send_json(self, status: int, payload: dict) -> None:
         if payload_has_procurement_prices(payload):
             payload = redact_procurement_prices(payload, self.current_user())
@@ -5055,9 +5388,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        PMBIHandler.write_response_body(self, body)
+
+    def write_response_body(self, body: bytes) -> None:
+        if getattr(self, "command", "GET") != "HEAD":
+            self.wfile.write(body)
 
     def send_file(self, file_path: Path, content_type: str, download_name: str, inline: bool = False) -> None:
         body = file_path.read_bytes()
@@ -5072,8 +5410,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.end_headers()
-        self.wfile.write(body)
+        PMBIHandler.write_response_body(self, body)
 
     def redirect(self, location: str) -> None:
         self.send_response(HTTPStatus.FOUND)
@@ -5115,16 +5454,16 @@ class PMBIHandler(BaseHTTPRequestHandler):
     def require_role(self, roles: set[str]) -> dict | None:
         return auth_require_role(self, roles)
 
-    def set_session_cookie(self, token: str) -> None:
-        from auth import set_session_cookie as auth_set_session_cookie
-        auth_set_session_cookie(self, token)
-
-    def clear_session_cookie(self) -> None:
-        from auth import clear_session_cookie as auth_clear_session_cookie
-        auth_clear_session_cookie(self)
-
     def handle_api(self, method: str, path: str) -> None:
         try:
+            if hasattr(self, "headers") and request_is_cross_site_mutation(method, self.headers):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_forbidden"})
+                return
+            if hasattr(self, "headers"):
+                viewer = self.current_user()
+                if user_is_guest(viewer) and not guest_api_allowed(method, path):
+                    self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_forbidden"})
+                    return
             if is_agent_market_proxy_route(method, path):
                 self.proxy_agent_market_request(method, path)
             elif method == "POST" and path == "/api/auth/login":
@@ -5137,6 +5476,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_logout()
             elif method == "GET" and path == "/api/auth/me":
                 self.api_me()
+            elif method == "GET" and path == "/api/autobot/health":
+                self.api_autobot_health()
             elif method == "POST" and path == "/api/auth/update-profile":
                 auth_api_update_profile(self)
             elif method == "GET" and path.startswith("/api/auth/avatar/"):
@@ -5147,6 +5488,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_create_role()
             elif method == "POST" and path == "/api/users/manage":
                 self.api_users_manage()
+            elif method == "POST" and path == "/api/users/guest-access":
+                self.api_create_guest_access()
             elif method == "DELETE" and path.startswith("/api/users/manage/"):
                 self.api_delete_managed_user(path)
             elif method == "POST" and path == "/api/finance/pay-invoice":
@@ -5397,6 +5740,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_project_daily_logs(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/daily-logs"):
                 self.api_create_daily_log(path)
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/daily-logs/\d+/photos", path):
+                self.api_upload_daily_log_photo(path)
             elif method == "POST" and path.startswith("/api/projects/") and "/daily-logs/" in path and path.endswith("/delete"):
                 self.api_delete_daily_log(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/chats"):
@@ -5413,11 +5758,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_json"})
         except ValueError as error:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-        except Exception as error:
+        except Exception:
             traceback.print_exc()
             self.send_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                {"error": "server_error", "message": str(error) or error.__class__.__name__},
+                {"error": "server_error"},
             )
 
     def proxy_agent_market_request(self, method: str, path: str) -> None:
@@ -5425,7 +5770,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not PMBI_AUTOBOT_INTERNAL_URL:
             self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "autobot_not_configured"})
             return
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_content_length"})
+            return
         if length < 0 or length > 1024 * 1024:
             self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "payload_too_large"})
             return
@@ -5445,21 +5794,29 @@ class PMBIHandler(BaseHTTPRequestHandler):
             headers=headers,
             method=method,
         )
+        response_limit = 2 * 1024 * 1024
         try:
             with urllib.request.urlopen(upstream, timeout=35) as response:
                 status = int(response.status)
-                response_body = response.read(2 * 1024 * 1024)
+                response_body = response.read(response_limit + 1)
                 content_type = response.headers.get("Content-Type", "application/json; charset=utf-8")
         except urllib.error.HTTPError as error:
             status = int(error.code)
-            response_body = error.read(2 * 1024 * 1024)
+            response_body = error.read(response_limit + 1)
             content_type = error.headers.get("Content-Type", "application/json; charset=utf-8")
-        except (OSError, urllib.error.URLError, TimeoutError) as error:
+        except (OSError, urllib.error.URLError, TimeoutError):
             response_body = json.dumps(
-                {"ok": False, "message": "AutoBot временно недоступен", "error": error.__class__.__name__},
+                {"ok": False, "message": "AutoBot временно недоступен", "error": "autobot_unavailable"},
                 ensure_ascii=False,
             ).encode("utf-8")
             status = int(HTTPStatus.SERVICE_UNAVAILABLE)
+            content_type = "application/json; charset=utf-8"
+        if len(response_body) > response_limit:
+            response_body = json.dumps(
+                {"ok": False, "message": "Ответ AutoBot слишком большой", "error": "autobot_response_too_large"},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            status = int(HTTPStatus.BAD_GATEWAY)
             content_type = "application/json; charset=utf-8"
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -5467,7 +5824,42 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
-        self.wfile.write(response_body)
+        PMBIHandler.write_response_body(self, response_body)
+
+    def api_autobot_health(self) -> None:
+        """Expose a same-origin, authenticated and non-sensitive health check."""
+
+        if not self.require_user():
+            return
+        if not PMBI_AUTOBOT_INTERNAL_URL:
+            self.send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"ok": False, "error": "autobot_unavailable"},
+            )
+            return
+        request = urllib.request.Request(
+            PMBI_AUTOBOT_INTERNAL_URL + "/healthz",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "PM.bi AutoBot health proxy/1.0",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=AUTOBOT_HEALTH_TIMEOUT_SECONDS,
+            ) as response:
+                status = int(response.status)
+        except (OSError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+            status = int(HTTPStatus.SERVICE_UNAVAILABLE)
+        if HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
+            self.send_json(HTTPStatus.OK, {"ok": True})
+            return
+        self.send_json(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {"ok": False, "error": "autobot_unavailable"},
+        )
 
     def api_login(self) -> None:
         auth_api_login(self)
@@ -5555,6 +5947,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         else:
             role_codes = [normalize_role(str(payload.get("role", "")).strip())]
         role_codes = list(dict.fromkeys(role_codes))
+        if "guest" in role_codes:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "use_guest_access", "message": "Гостевой доступ создаётся отдельно для выбранного объекта"})
+            return
         role = role_codes[0] if role_codes else ""
         raw_name = str(payload.get("name", "")).strip()
         first_name, last_name = split_user_name(raw_name, payload.get("firstName", payload.get("first_name")), payload.get("lastName", payload.get("last_name")))
@@ -5614,8 +6009,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
             try:
                 clerk_user = clerk_api_request("/users", method="POST", payload=clerk_payload)
                 clerk_user_id = str(clerk_user.get("id") or "").strip() or None
-            except Exception as error:
-                self.send_json(HTTPStatus.BAD_GATEWAY, {"error": "clerk_create_user_failed", "detail": str(error)})
+            except Exception:
+                self.send_json(HTTPStatus.BAD_GATEWAY, {"error": "clerk_create_user_failed"})
                 return
         with db() as con:
             try:
@@ -5684,10 +6079,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
             ).fetchall()
             project_rows = con.execute(
                 """
-                SELECT oa.user_id, p.id, p.title
-                FROM object_assignments oa
-                JOIN projects p ON p.id = oa.object_id
-                ORDER BY oa.is_primary DESC, oa.assigned_at DESC, oa.id DESC
+                SELECT a.user_id, p.id, p.title
+                FROM user_project_access a
+                JOIN projects p ON p.id = a.project_id
+                ORDER BY p.id DESC
                 """
             ).fetchall()
             daily_rows = con.execute(
@@ -5760,6 +6155,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         "phone": row["phone"],
                         "clerkUserId": row["clerk_user_id"] if user_is_hidden_admin(viewer) else None,
                         "role": "admin" if str(row["login"] or "").strip().lower() == "admin" else normalize_role(row["role"]),
+                        "isGuest": normalize_role(row["role"]) == "guest" or any(
+                            normalize_role(role.get("code")) == "guest"
+                            for role in user_roles_for_row(row)
+                        ),
                         "roles": user_roles_for_row(row),
                         "roleLabel": user_roles_for_row(row)[0].get("name") if user_roles_for_row(row) else ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
                         "permissions": user_permissions_for_row(row),
@@ -5777,6 +6176,100 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     }
                     for row in visible_rows
                 ]
+            },
+        )
+
+
+    def api_create_guest_access(self) -> None:
+        actor = self.require_user()
+        if not actor:
+            return
+        if user_is_guest(actor):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_forbidden"})
+            return
+
+        payload = self.read_json()
+        try:
+            project_id = int(payload.get("projectId", payload.get("project_id", payload.get("objectId"))))
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id", "message": "Выберите объект"})
+            return
+        if project_id <= 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id", "message": "Выберите объект"})
+            return
+
+        with db() as con:
+            project = con.execute(
+                "SELECT id, title FROM projects WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+        if not project:
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found", "message": "Объект не найден"})
+            return
+        if not self.can_access_project(actor, project_id):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "project_forbidden", "message": "Нет доступа к этому объекту"})
+            return
+
+        password = generate_temporary_password()
+        created_at = now_ts()
+        guest_id = None
+        login = ""
+        with db() as con:
+            role_row = con.execute("SELECT id FROM roles WHERE code = 'guest'").fetchone()
+            if not role_row:
+                self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "guest_role_missing"})
+                return
+            for _attempt in range(12):
+                login = f"guest-{project_id}-{secrets.token_hex(4)}"
+                try:
+                    cursor = con.execute(
+                        """
+                        INSERT INTO users (
+                            login, email, phone, clerk_user_id, password_hash, role,
+                            first_name, last_name, name, status, is_active, created_at, updated_at
+                        )
+                        VALUES (?, NULL, NULL, NULL, ?, 'guest', '', '', ?, 'active', 1, ?, ?)
+                        """,
+                        (login, hash_password(password), f"Гость · {project['title']}", created_at, created_at),
+                    )
+                except sqlite3.IntegrityError:
+                    continue
+                guest_id = int(cursor.lastrowid)
+                break
+            if not guest_id:
+                con.rollback()
+                self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "guest_login_generation_failed"})
+                return
+            con.execute(
+                "INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)",
+                (guest_id, role_row["id"], created_at),
+            )
+            con.execute(
+                "INSERT INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                (guest_id, project_id),
+            )
+            create_audit(
+                con,
+                int(actor["id"]),
+                "create_guest_access",
+                "user",
+                guest_id,
+                {"login": login, "project_id": project_id},
+            )
+            con.commit()
+
+        self.send_json(
+            HTTPStatus.CREATED,
+            {
+                "guest": {
+                    "id": guest_id,
+                    "login": login,
+                    "role": "guest",
+                    "roleLabel": ROLE_LABELS.get("guest", "Гость"),
+                    "project": {"id": project_id, "title": project["title"]},
+                },
+                "credentials": {"login": login, "password": password},
+                "passwordShownOnce": True,
             },
         )
 
@@ -5800,32 +6293,51 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
 
         if action in {"set_project_foremen", "set_access"}:
+            purchaser_ids_provided = "purchaser_ids" in payload or "purchaserIds" in payload
             try:
                 project_id = int(payload.get("project_id", payload.get("projectId")))
                 foreman_ids = payload.get("foreman_ids", payload.get("foremanIds", []))
                 if not isinstance(foreman_ids, list):
                     raise ValueError("bad_foreman_ids")
                 foreman_ids = [int(item) for item in foreman_ids]
+                purchaser_ids = None
+                if purchaser_ids_provided:
+                    purchaser_ids = payload.get("purchaser_ids", payload.get("purchaserIds"))
+                    if not isinstance(purchaser_ids, list):
+                        raise ValueError("bad_purchaser_ids")
+                    purchaser_ids = [int(item) for item in purchaser_ids]
             except (TypeError, ValueError):
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_access_payload"})
                 return
             with db() as con:
                 try:
                     assigned = self.set_project_foremen(con, project_id, foreman_ids, int(director["id"]))
+                    assigned_purchasers = (
+                        self.set_project_purchasers(con, project_id, purchaser_ids, int(director["id"]))
+                        if purchaser_ids is not None
+                        else None
+                    )
                 except ValueError as error:
+                    con.rollback()
                     status = HTTPStatus.NOT_FOUND if str(error) == "project_not_found" else HTTPStatus.BAD_REQUEST
                     self.send_json(status, {"error": str(error)})
                     return
+                audit_payload = {"foreman_ids": assigned}
+                if assigned_purchasers is not None:
+                    audit_payload["purchaser_ids"] = assigned_purchasers
                 create_audit(
                     con,
                     director["id"],
                     "set_project_foremen",
                     "project",
                     project_id,
-                    {"foreman_ids": assigned},
+                    audit_payload,
                 )
                 con.commit()
-            self.send_json(HTTPStatus.OK, {"ok": True, "projectId": project_id, "assigned_foremen": assigned})
+            response = {"ok": True, "projectId": project_id, "assigned_foremen": assigned}
+            if assigned_purchasers is not None:
+                response["assigned_purchasers"] = assigned_purchasers
+            self.send_json(HTTPStatus.OK, response)
             return
 
         login = str(payload.get("login", "")).strip()
@@ -5841,6 +6353,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         else:
             role_codes = [normalize_role(str(payload.get("role", "foreman")).strip() or "foreman")]
         role_codes = list(dict.fromkeys(role_codes))
+        if "guest" in role_codes:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "use_guest_access", "message": "Гостевой доступ создаётся отдельно для выбранного объекта"})
+            return
         primary_role = role_codes[0] if role_codes else "foreman"
         raw_user_id = payload.get("user_id", payload.get("userId", payload.get("id")))
         user_id = None
@@ -6025,8 +6540,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     },
                 )
                 clerk_user_id = str(clerk_user.get("id") or "").strip() or None
-            except Exception as error:
-                self.send_json(HTTPStatus.BAD_GATEWAY, {"error": "clerk_create_user_failed", "detail": str(error)})
+            except Exception:
+                self.send_json(HTTPStatus.BAD_GATEWAY, {"error": "clerk_create_user_failed"})
                 return
 
         with db() as con:
@@ -6327,6 +6842,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
         assigned_by: int,
     ) -> list[int]:
         return projects_set_project_foremen(con, project_id, foreman_ids, assigned_by)
+
+    def set_project_purchasers(
+        self,
+        con: sqlite3.Connection,
+        project_id: int,
+        purchaser_ids: list[int],
+        assigned_by: int,
+    ) -> list[int]:
+        return projects_set_project_purchasers(con, project_id, purchaser_ids, assigned_by)
 
     def api_projects(self) -> None:
         projects_api_projects(self)
@@ -7743,10 +8267,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
         payload = self.read_json()
         allowed_fields = {
             "title", "unit", "planned_qty", "plannedQty", "section_title", "sectionTitle",
-            "expected_kind", "expectedKind", "target_kind", "targetKind",
+            "planned_price", "plannedPrice", "expected_kind", "expectedKind", "target_kind", "targetKind",
         }
         if any(key not in allowed_fields for key in payload):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_fields_forbidden"})
+            return
+        price_supplied = any(key in payload for key in ("planned_price", "plannedPrice"))
+        if price_supplied and not user_can_view_procurement_prices(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "price_fields_forbidden"})
             return
 
         with db() as con:
@@ -7789,6 +8317,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
             ) or "Без раздела"
             raw_qty = payload.get("planned_qty", payload.get("plannedQty", item["planned_qty"]))
             planned_qty = normalize_estimate_planned_qty(unit, raw_qty)
+            planned_price = float(item["planned_price"] or 0)
+            if price_supplied:
+                raw_price = payload.get("planned_price", payload.get("plannedPrice"))
+                try:
+                    planned_price = float(
+                        str(raw_price).replace("\xa0", "").replace(" ", "").replace(",", ".")
+                    )
+                except (TypeError, ValueError):
+                    con.rollback()
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_price_invalid"})
+                    return
+                if not math.isfinite(planned_price) or planned_price < 0:
+                    con.rollback()
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_price_invalid"})
+                    return
             if not title or not unit or planned_qty <= 0:
                 con.rollback()
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "estimate_position_fields_required"})
@@ -7823,6 +8366,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "title": str(item["title"] or ""),
                 "unit": str(item["unit"] or ""),
                 "planned_qty": float(item["planned_qty"] or 0),
+                "planned_price": float(item["planned_price"] or 0),
                 "section_title": str(item["section_title"] or ""),
                 "item_kind": item_kind,
                 "item_kind_override": str(payload_get(item, "item_kind_override") or ""),
@@ -7831,6 +8375,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "title": title,
                 "unit": unit,
                 "planned_qty": planned_qty,
+                "planned_price": planned_price,
                 "section_title": section_title,
                 "item_kind": target_kind,
                 "item_kind_override": target_kind if kind_changed else str(payload_get(item, "item_kind_override") or ""),
@@ -7840,11 +8385,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
             con.execute(
                 """
                 UPDATE estimate_items
-                SET title = ?, unit = ?, planned_qty = ?, section_title = ?,
+                SET title = ?, unit = ?, planned_qty = ?, planned_price = ?, section_title = ?,
                     item_kind = ?, item_kind_override = ?, updated_at = ?
                 WHERE id = ? AND project_id = ?
                 """,
-                (title, unit, planned_qty, section_title, stored_kind, stored_override, now_ts(), item_id, project_id),
+                (title, unit, planned_qty, planned_price, section_title, stored_kind, stored_override, now_ts(), item_id, project_id),
             )
             progress = recalc_project_progress(con, project_id, section_title)
             if table_exists(con, "market_analysis_cache"):
@@ -8042,6 +8587,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 con.execute("DELETE FROM project_estimates WHERE project_id = ?", (project_id,))
                 con.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
 
+            bootstrap_mutated = bool(
+                replace_existing or project_payload or stages_payload or materials_payload
+            )
+
             stage_map: dict[str, int] = {}
 
             def insert_stage_nodes(nodes: list[dict], parent_id: int | None = None, depth: int = 0) -> None:
@@ -8198,10 +8747,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     assignee_id = int(assignee_id) if assignee_id not in (None, "", 0, "0") else None
                 except (TypeError, ValueError):
                     assignee_id = None
-                con.execute(
+                client_request_id = str(
+                    item.get(
+                        "client_request_id",
+                        item.get(
+                            "clientRequestId",
+                            item.get("idempotency_key", item.get("idempotencyKey", "")),
+                        ),
+                    )
+                    or ""
+                ).strip()[:200] or None
+                task_cursor = con.execute(
                     """
-                    INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, due_at, created_by, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tasks (
+                        project_id, title, description, status, priority, assignee_id,
+                        due_at, client_request_id, created_by, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
                     """,
                     (
                         project_id,
@@ -8211,11 +8774,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         str(item.get("priority", "normal")).strip() or "normal",
                         assignee_id,
                         str(item.get("due_at", item.get("dueAt", ""))).strip() or None,
+                        client_request_id,
                         user["id"],
                         now_ts(),
                         now_ts(),
                     ),
                 )
+                if task_cursor.rowcount:
+                    bootstrap_mutated = True
 
             # If parser didn't send tasks, generate minimal startup tasks from imported structure.
             if not tasks_payload:
@@ -8250,7 +8816,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     "ai_snapshot_id": int(ai_snapshot["id"]) if ai_snapshot else None,
                 },
             )
-            mark_project_schedule_draft(con, project_id)
+            if bootstrap_mutated:
+                mark_project_schedule_draft(con, project_id)
             con.commit()
             project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
             stages = con.execute("SELECT COUNT(*) FROM work_stages WHERE project_id = ?", (project_id,)).fetchone()[0]
@@ -8356,8 +8923,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
         with db() as con:
             if replace:
                 protected_actions = con.execute(
-                    "SELECT COUNT(*) FROM daily_log_actions WHERE project_id = ?",
-                    (project_id,),
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM daily_log_actions WHERE project_id = ?)
+                        + (SELECT COUNT(*) FROM daily_log_work_actions WHERE project_id = ?)
+                    """,
+                    (project_id, project_id),
                 ).fetchone()[0]
                 if protected_actions:
                     self.send_json(
@@ -8683,6 +9254,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
     def api_create_daily_log(self, path: str) -> None:
         return comm_api_create_daily_log(self, path)
 
+    def api_upload_daily_log_photo(self, path: str) -> None:
+        return comm_api_upload_daily_log_photo(self, path)
+
     def api_delete_daily_log(self, path: str) -> None:
         return comm_api_delete_daily_log(self, path)
 
@@ -8766,9 +9340,34 @@ class PMBIHandler(BaseHTTPRequestHandler):
             template = template.replace("{{" + key + "}}", value)
         return template.encode("utf-8")
 
+    def serve_public_entry(self) -> None:
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        requested_next = str((query.get("next") or [""])[0] or "").strip()
+        safe_next = requested_next if requested_next.startswith("/app") and not requested_next.startswith("//") else ""
+        login_path = LOGIN_PATH
+        if safe_next:
+            login_path += "?next=" + urllib.parse.quote(safe_next, safe="/")
+        self.send_html(
+            self.render_template(
+                "welcome.html",
+                {"login_path": html.escape(login_path, quote=True)},
+            )
+        )
+
     def project_cards_fallback_html(self, user: dict) -> str:
         with db() as con:
-            if user_has_any_role(user, {"admin", "director", "foreman"}):
+            if user_is_guest(user):
+                rows = con.execute(
+                    """
+                    SELECT p.id, p.title, p.status, p.progress
+                    FROM projects p
+                    JOIN user_project_access a ON a.project_id = p.id
+                    WHERE a.user_id = ?
+                    ORDER BY p.id DESC
+                    """,
+                    (user["id"],),
+                ).fetchall()
+            elif user_has_any_role(user, {"admin", "director", "foreman"}):
                 rows = con.execute("SELECT * FROM projects ORDER BY id DESC").fetchall()
             else:
                 rows = con.execute(
@@ -8803,6 +9402,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
         for row in sorted_rows:
             progress = project_progress(row["progress"])
             completed = is_completed(row)
+            if user_is_guest(user):
+                cards.append(
+                    f'<article class="project-card guest-project-card {"project-completed" if completed else ""}" data-project-id="{esc(row["id"])}">'
+                    '<div class="project-card-shell">'
+                    '<div class="project-card-headline">'
+                    '<div class="project-card-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>'
+                    f'<div class="project-card-heading"><span class="guest-project-kicker">Объект в гостевом доступе</span><h3>{esc(row["title"])}</h3><p>Актуальные отчёты и план производства работ</p></div>'
+                    '</div>'
+                    '<div class="project-card-progress">'
+                    f'<div class="project-progress-label"><span>Готовность объекта</span><strong>{progress}%</strong></div>'
+                    f'<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:{progress}%"></span></div>'
+                    '</div>'
+                    '<div class="guest-project-actions guest-project-actions-preview" aria-hidden="true">'
+                    '<span class="guest-project-action"><span class="guest-project-action-icon"><i data-lucide="notebook-tabs"></i></span><span class="guest-project-action-copy"><strong>Отчёты</strong><small>Ход работ и события</small></span></span>'
+                    '<span class="guest-project-action is-production"><span class="guest-project-action-icon"><i data-lucide="calendar-range"></i></span><span class="guest-project-action-copy"><strong>График производства</strong><small>План работ по дням</small></span></span>'
+                    '</div></div></article>'
+                )
+                continue
             financial_meta = '<div><span>Экономика</span><strong>Раздел «Финансы»</strong></div>'
             status_badge = (
                 '<span class="badge success">Завершен</span>'
@@ -8842,8 +9459,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
         self.end_headers()
-        self.wfile.write(body)
+        PMBIHandler.write_response_body(self, body)
 
     def serve_app(self, path: str) -> None:
         if path == "/login":
@@ -8860,10 +9478,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
         user = self.current_user()
         if not user:
-            self.redirect(f"{LOGIN_PATH}?next={urllib.parse.quote(path, safe='/')}")
+            next_path = urllib.parse.quote(path, safe="/")
+            self.redirect(f"/?next={next_path}")
             return
         if not user_can_open(user, path):
-            self.redirect(DEFAULT_AUTH_PATH + "?restricted=1")
+            self.redirect(user_default_path(user) + "?restricted=1")
             return
 
         page_info = APP_PAGES.get(path)
@@ -8892,6 +9511,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             {
                 "title": title,
                 "page": page_name,
+                "body_class": "role-guest" if user_is_guest(user) else "",
                 "auth_config": self.auth_config_script(),
                 "auth_head": self.clerk_sign_in_script(),
                 "content": content,
@@ -8914,13 +9534,62 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if candidate.suffix.lower() in {".html", ".js", ".css", ".json", ".txt"}:
             content_type += "; charset=utf-8"
         body = candidate.read_bytes()
+        compressible = (
+            len(body) >= 1024
+            and (
+                content_type.startswith("text/")
+                or content_type.split(";", 1)[0]
+                in {
+                    "application/javascript",
+                    "application/json",
+                    "application/manifest+json",
+                    "application/xml",
+                    "image/svg+xml",
+                }
+            )
+        )
+        if compressible and self.accepts_gzip():
+            body = gzip.compress(body, compresslevel=6, mtime=0)
+            content_encoding = "gzip"
+        else:
+            content_encoding = ""
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlsplit(self.path).query,
+            keep_blank_values=True,
+        )
+        versioned = any(str(value).strip() for value in query.get("v", []))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header(
+            "Cache-Control",
+            "public, max-age=31536000, immutable" if versioned else "no-cache",
+        )
+        if compressible:
+            self.send_header("Vary", "Accept-Encoding")
+        if content_encoding:
+            self.send_header("Content-Encoding", content_encoding)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
-        self.wfile.write(body)
+        PMBIHandler.write_response_body(self, body)
+
+    def accepts_gzip(self) -> bool:
+        qualities: dict[str, float] = {}
+        for item in str(self.headers.get("Accept-Encoding", "") or "").split(","):
+            parts = [part.strip() for part in item.split(";")]
+            encoding = parts[0].lower()
+            if not encoding:
+                continue
+            quality = 1.0
+            for parameter in parts[1:]:
+                name, separator, value = parameter.partition("=")
+                if separator and name.strip().lower() == "q":
+                    try:
+                        quality = max(0.0, min(1.0, float(value.strip())))
+                    except ValueError:
+                        quality = 0.0
+            qualities[encoding] = quality
+        return qualities.get("gzip", qualities.get("*", 0.0)) > 0
 
     def serve_static(self, path: str) -> None:
         user = self.current_user()
@@ -8935,7 +9604,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
         if user and is_page_request and not user_can_open(user, path):
             if path.endswith(".html") or "." not in Path(path).name:
-                self.redirect(DEFAULT_AUTH_PATH + "?restricted=1")
+                self.redirect(user_default_path(user) + "?restricted=1")
             else:
                 self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
             return
@@ -8956,8 +9625,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
         self.end_headers()
-        self.wfile.write(body)
+        PMBIHandler.write_response_body(self, body)
 
     def resolve_static_path(self, path: str) -> Path | None:
         rel = path.lstrip("/") or "index.html"

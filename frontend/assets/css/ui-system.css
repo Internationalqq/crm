@@ -4,6 +4,25 @@
  * are migrated gradually in later iterations.
  */
 
+.skip-link {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 10000;
+    padding: 10px 14px;
+    border: 2px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-accent-strong);
+    font-weight: 750;
+    transform: translateY(calc(-100% - 16px));
+    transition: transform .12s ease;
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+}
+
 html {
     background: var(--color-canvas);
 }

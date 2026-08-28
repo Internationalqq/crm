@@ -15,16 +15,16 @@ const planningCss = read('frontend/assets/css/planning.css');
 const scheduleTasksPy = read('backend/schedule_tasks.py');
 const serverPy = read('backend/server.py');
 
-assert.match(projectsHtml, /data-tab="schedule"><i data-lucide="hammer"[^>]*><\/i><span>Работы<\/span>/);
-assert.match(projectsHtml, /data-tab="calendar"><i data-lucide="calendar-days"[^>]*><\/i><span>Календарь<\/span>/);
-assert.match(projectsHtml, /data-tab="reports"><i data-lucide="notebook-tabs"[^>]*><\/i><span>Журнал<\/span>/);
+assert.match(projectsHtml, /data-tab="schedule"[^>]*><i data-lucide="hammer"[^>]*><\/i><span>Работы<\/span>/);
+assert.match(projectsHtml, /data-tab="calendar"[^>]*><i data-lucide="calendar-days"[^>]*><\/i><span>Календарь<\/span>/);
+assert.match(projectsHtml, /data-tab="reports"[^>]*><i data-lucide="notebook-tabs"[^>]*><\/i><span>Журнал<\/span>/);
 assert.match(projectsHtml, /class="project-report-primary"[^>]*data-project-quick-action="report"/);
 assert.match(projectsHtml, /class="project-mobile-capture"[\s\S]*?<span>Отчёт<\/span>/);
 assert.match(projectsHtml, /data-panel="calendar"/);
 assert.doesNotMatch(projectsHtml, /data-tab="(?:materials|works)"/);
 assert.doesNotMatch(projectsHtml, /data-panel="(?:materials|works)"/);
 
-const projectTabOrder = [...projectsHtml.matchAll(/<button class="tab(?: active)?" data-tab="([^"]+)"/g)].map((match) => match[1]);
+const projectTabOrder = [...projectsHtml.matchAll(/<button\b[^>]*class="tab(?: active)?"[^>]*data-tab="([^"]+)"/g)].map((match) => match[1]);
 assert.deepEqual(projectTabOrder, [
   'overview',
   'schedule',
@@ -37,7 +37,7 @@ assert.deepEqual(projectTabOrder, [
   'production-schedule',
   'estimate-reconciliation',
 ]);
-assert.equal((projectsHtml.match(/<button class="tab(?: active)?" data-tab=/g) || []).length, projectTabOrder.length);
+assert.equal((projectsHtml.match(/<button\b[^>]*class="tab(?: active)?"[^>]*data-tab=/g) || []).length, projectTabOrder.length);
 assert.match(projectsHtml, /class="project-add-menu"/);
 assert.doesNotMatch(projectsHtml, /class="project-more-menu"|data-project-more-menu/);
 assert.match(projectsHtml, /aria-label="Разделы объекта"/);
@@ -45,7 +45,8 @@ assert.match(projectsHtml, /aria-label="Разделы объекта"/);
 assert.match(appJs, /tabName === 'materials' \|\| tabName === 'works'/);
 assert.match(appJs, /tabName === 'calendar'.*loadSelectedProjectMaterialSchedule/);
 assert.match(appJs, /data-project-quick-tab="schedule"/);
-assert.match(appJs, /tab\.setAttribute\('aria-current', 'page'\)/);
+assert.match(appJs, /node\.setAttribute\('aria-selected', active \? 'true' : 'false'\)/);
+assert.match(appJs, /node\.setAttribute\('aria-current', 'page'\)/);
 assert.match(appJs, /tab\.scrollIntoView\(\{ block: 'nearest', inline: 'nearest', behavior: 'smooth' \}\)/);
 assert.match(coreJs, /function bindHorizontalWheelScroll\(scroller\)/);
 assert.match(coreJs, /scroller\.scrollWidth <= scroller\.clientWidth \+ 1/);

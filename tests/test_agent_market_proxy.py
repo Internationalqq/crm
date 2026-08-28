@@ -19,8 +19,8 @@ import server  # noqa: E402
 class _Response:
     status = 200
 
-    def __init__(self, payload: dict) -> None:
-        self.body = json.dumps(payload).encode("utf-8")
+    def __init__(self, payload: dict | bytes) -> None:
+        self.body = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
         self.headers = Message()
         self.headers["Content-Type"] = "application/json"
 
@@ -30,8 +30,8 @@ class _Response:
     def __exit__(self, *_args):
         return False
 
-    def read(self, _limit: int = -1) -> bytes:
-        return self.body
+    def read(self, limit: int = -1) -> bytes:
+        return self.body if limit < 0 else self.body[:limit]
 
 
 class AgentMarketProxyTests(unittest.TestCase):
@@ -74,6 +74,7 @@ class AgentMarketProxyTests(unittest.TestCase):
         self.assertEqual(request.full_url, "http://autobot:8765/api/agent-market/v1/claim")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertEqual(request.data, body)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 35)
         self.assertEqual(handler.response_status, 200)
         self.assertEqual(json.loads(handler.wfile.getvalue()), {"ok": True, "job": None})
 
@@ -94,6 +95,38 @@ class AgentMarketProxyTests(unittest.TestCase):
 
         self.assertEqual(handler.response_status, 401)
         self.assertEqual(json.loads(handler.wfile.getvalue())["message"], "bad token")
+
+    @patch("server.urllib.request.urlopen")
+    def test_proxy_rejects_malformed_content_length_without_contacting_autobot(self, urlopen) -> None:
+        handler = self.make_handler()
+        handler.headers.replace_header("Content-Length", "not-a-number")
+
+        handler.proxy_agent_market_request("POST", "/api/agent-market/v1/claim")
+
+        urlopen.assert_not_called()
+        self.assertEqual(handler.response_status, 400)
+        self.assertEqual(json.loads(handler.wfile.getvalue())["error"], "invalid_content_length")
+
+    @patch("server.urllib.request.urlopen")
+    def test_proxy_rejects_oversized_upstream_response_instead_of_truncating_json(self, urlopen) -> None:
+        urlopen.return_value = _Response(b"x" * (2 * 1024 * 1024 + 1))
+        handler = self.make_handler()
+
+        handler.proxy_agent_market_request("GET", "/api/agent-market/v1/status")
+
+        self.assertEqual(handler.response_status, 502)
+        self.assertEqual(json.loads(handler.wfile.getvalue())["error"], "autobot_response_too_large")
+
+    @patch("server.urllib.request.urlopen", side_effect=TimeoutError("internal details"))
+    def test_proxy_returns_stable_error_code_when_autobot_times_out(self, _urlopen) -> None:
+        handler = self.make_handler()
+
+        handler.proxy_agent_market_request("GET", "/api/agent-market/v1/status")
+
+        self.assertEqual(handler.response_status, 503)
+        payload = json.loads(handler.wfile.getvalue())
+        self.assertEqual(payload["error"], "autobot_unavailable")
+        self.assertNotIn("TimeoutError", handler.wfile.getvalue().decode("utf-8"))
 
 
 if __name__ == "__main__":

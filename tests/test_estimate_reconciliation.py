@@ -44,7 +44,8 @@ class EstimateReconciliationTests(unittest.TestCase):
                 planned_price REAL NOT NULL DEFAULT 0,
                 item_kind TEXT NOT NULL DEFAULT 'material',
                 section_title TEXT,
-                article TEXT
+                article TEXT,
+                is_deleted INTEGER NOT NULL DEFAULT 0
             );
             INSERT INTO users VALUES (1, 'Прораб Петров', 'Пётр', 'Петров');
             INSERT INTO projects VALUES (10, 'Объект');
@@ -246,6 +247,14 @@ class EstimateReconciliationTests(unittest.TestCase):
             INSERT INTO estimate_items (
                 project_id, title, unit, planned_qty, planned_price, item_kind, section_title, article
             ) VALUES (10, 'Бетон', 'м3', 7, 5000, 'material', 'Фундамент', 'B-1')
+            """
+        )
+        self.con.execute(
+            """
+            INSERT INTO estimate_items (
+                project_id, title, unit, planned_qty, planned_price,
+                item_kind, section_title, article, is_deleted
+            ) VALUES (10, 'Deleted item', 'pcs', 99, 999, 'material', 'Archive', 'OLD-1', 1)
             """
         )
         snapshot, created = capture_live_snapshot(

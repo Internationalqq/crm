@@ -54,6 +54,11 @@ class ProjectEconomicsVisibilityTests(unittest.TestCase):
             self.admin_id = int(
                 con.execute("SELECT id FROM users WHERE login = 'admin'").fetchone()[0]
             )
+            self.portfolio_company_id = int(
+                con.execute(
+                    "SELECT id FROM companies WHERE type = 'own_legal_entity' AND name = 'УЭСС'"
+                ).fetchone()[0]
+            )
             cursor = con.execute(
                 """
                 INSERT INTO projects (
@@ -155,6 +160,36 @@ class ProjectEconomicsVisibilityTests(unittest.TestCase):
         self.assertEqual(handler.response["project"]["budget"], 765432.10)
         self.assertEqual(self._legacy_values()[0], 765432.10)
 
+    def test_project_view_permission_cannot_mutate_project(self) -> None:
+        with server.db() as con:
+            con.execute(
+                "INSERT OR IGNORE INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                (self.admin_id, self.project_id),
+            )
+            con.commit()
+        before_title = self._project_row()["title"]
+        handler = FakeHandler(
+            {
+                "id": self.admin_id,
+                "role": "purchaser",
+                "roles": [],
+                "permissions": {"projects": "view"},
+            },
+            {
+                "title": "Unauthorized mutation",
+                "address": "Test address",
+                "client_name": "Test client",
+            },
+        )
+
+        projects.api_update_project(
+            handler, f"/api/projects/{self.project_id}/update"
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(handler.response, {"error": "project_edit_forbidden"})
+        self.assertEqual(self._project_row()["title"], before_title)
+
     def test_restricted_role_new_project_ignores_submitted_legacy_budget(self) -> None:
         handler = FakeHandler(
             {"id": self.admin_id, "role": "foreman", "roles": []},
@@ -162,6 +197,7 @@ class ProjectEconomicsVisibilityTests(unittest.TestCase):
                 "title": "Restricted project",
                 "address": "Other address",
                 "client_name": "Other client",
+                "own_legal_entity_id": self.portfolio_company_id,
                 "budget": 555000,
             },
         )

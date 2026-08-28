@@ -431,6 +431,81 @@ class MarketAnalysisPriceTests(unittest.TestCase):
                     (self.project_id, self.item_id, server.now_ts(), server.now_ts()),
                 )
 
+    def test_clear_selection_rejects_estimate_item_from_another_project(self) -> None:
+        with server.db() as con:
+            timestamp = server.now_ts()
+            other_project_id = int(
+                con.execute(
+                    """
+                    INSERT INTO projects (title, address, client_name, status, created_at)
+                    VALUES ('Other project', 'Other address', 'Other client', 'active', ?)
+                    """,
+                    (timestamp,),
+                ).lastrowid
+            )
+            other_item_id = int(
+                con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price, item_kind
+                    ) VALUES (?, 'Foreign tile', 'm2', 5, 50, 'material')
+                    """,
+                    (other_project_id,),
+                ).lastrowid
+            )
+            other_offer_id = int(
+                con.execute(
+                    """
+                    INSERT INTO supplier_offers (
+                        project_id, estimate_item_id, candidate_type, candidate_name,
+                        source_type, price, qty, status, created_by, created_at, updated_at
+                    ) VALUES (?, ?, 'supplier', 'Foreign supplier', 'manual',
+                              45, 5, 'selected', ?, ?, ?)
+                    """,
+                    (
+                        other_project_id,
+                        other_item_id,
+                        self.admin_id,
+                        timestamp,
+                        timestamp,
+                    ),
+                ).lastrowid
+            )
+            con.commit()
+
+        handler = FakeSupplierHandler(
+            {
+                "id": self.admin_id,
+                "role": "director",
+                "roles": [],
+                "permissions": {"fullAccess": True},
+            },
+            {"estimate_item_id": other_item_id},
+        )
+        warehouse.api_clear_supplier_selection(
+            handler,
+            f"/api/projects/{self.project_id}/supplier-offers/clear-selection",
+        )
+
+        self.assertEqual(handler.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(handler.response, {"error": "material_not_found"})
+        with server.db() as con:
+            self.assertEqual(
+                con.execute(
+                    "SELECT status FROM supplier_offers WHERE id = ?", (other_offer_id,)
+                ).fetchone()["status"],
+                "selected",
+            )
+            self.assertIsNone(
+                con.execute(
+                    """
+                    SELECT 1 FROM audit_log
+                    WHERE action = 'clear_supplier_selection' AND entity_id = ?
+                    """,
+                    (other_item_id,),
+                ).fetchone()
+            )
+
     def test_init_migrates_legacy_duplicate_active_offers_before_unique_index(self) -> None:
         with server.db() as con:
             con.execute("DROP INDEX idx_supplier_offers_one_active_per_item")

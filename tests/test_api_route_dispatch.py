@@ -27,6 +27,20 @@ class ApiRouteDispatchTests(unittest.TestCase):
             calls, [("daily_log", "/api/projects/42/daily-logs/17/delete")]
         )
 
+    def test_daily_log_photo_upload_uses_exact_route(self) -> None:
+        handler = object.__new__(server.PMBIHandler)
+        calls: list[str] = []
+        responses: list[tuple[int, dict]] = []
+        handler.api_upload_daily_log_photo = lambda path: calls.append(path)
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+
+        valid = "/api/projects/42/daily-logs/17/photos"
+        server.PMBIHandler.handle_api(handler, "POST", valid)
+        server.PMBIHandler.handle_api(handler, "POST", valid + "/nested")
+
+        self.assertEqual(calls, [valid])
+        self.assertEqual(responses[-1][1], {"error": "not_found"})
+
     def test_exact_project_delete_still_dispatches_project_delete(self) -> None:
         handler = object.__new__(server.PMBIHandler)
         calls: list[tuple[str, str]] = []

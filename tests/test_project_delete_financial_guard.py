@@ -226,6 +226,46 @@ class ProjectDeleteFinancialGuardTests(unittest.TestCase):
                 con.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone()
             )
 
+    def test_delete_removes_default_draft_children_without_fk_orphans(self) -> None:
+        with server.db() as con:
+            project_id = self._insert_project(con, "Draft setup project")
+            timestamp = server.now_ts()
+            con.execute(
+                """
+                INSERT INTO documents (
+                    project_id, title, doc_type, status, is_client_visible, created_at
+                ) VALUES (?, 'Draft contract', 'contract', 'draft', 0, ?)
+                """,
+                (project_id, timestamp),
+            )
+            con.execute(
+                "INSERT INTO chats (project_id, chat_type, title, created_at) VALUES (?, 'team', 'Team', ?)",
+                (project_id, timestamp),
+            )
+            con.execute(
+                "INSERT INTO chats (project_id, chat_type, title, created_at) VALUES (?, 'client', 'Client', ?)",
+                (project_id, timestamp),
+            )
+            con.commit()
+
+        result = self._delete(project_id)
+
+        self.assertEqual(result.status, HTTPStatus.OK)
+        with server.db() as con:
+            self.assertEqual(
+                con.execute(
+                    "SELECT COUNT(*) FROM documents WHERE project_id = ?", (project_id,)
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                con.execute(
+                    "SELECT COUNT(*) FROM chats WHERE project_id = ?", (project_id,)
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(con.execute("PRAGMA foreign_key_check").fetchall(), [])
+
     def test_operational_money_task_or_material_history_blocks_cascade_delete(self) -> None:
         fixtures = ("finance", "task", "stock")
         for fixture in fixtures:

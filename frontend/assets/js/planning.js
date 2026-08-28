@@ -7,7 +7,6 @@
     var state = PMBI.state;
     var qs = PMBI.qs;
     var qsa = PMBI.qsa;
-    var bindHorizontalWheelScroll = PMBI.bindHorizontalWheelScroll;
     var safeReplaceChildren = PMBI.safeReplaceChildren;
     var skeletonMarkup = PMBI.skeletonMarkup;
     var refreshLucideIcons = PMBI.refreshLucideIcons;
@@ -30,6 +29,7 @@
     var canManageSchedule = PMBI.canManageSchedule;
     var canManageSuppliers = PMBI.canManageSuppliers;
     var canViewProcurementPrices = PMBI.canViewProcurementPrices;
+    var isMainAdminRole = PMBI.isMainAdminRole;
 
     function appCall(name, args) {
         var fn = PMBI.app && PMBI.app[name];
@@ -509,7 +509,8 @@
                 unit: String(plan.unit || item.unit || 'ед.'),
                 plannedQty: Number(plan.totalQty || 0),
                 estimateUnitPrice: unitPrice,
-                estimateTotal: totalPrice
+                estimateTotal: totalPrice,
+                sourceItem: item
             });
         }
         (state.materialsByProject && (state.materialsByProject[projectId] || state.materialsByProject[String(projectId)]) || []).forEach(function (item) {
@@ -602,6 +603,8 @@
         var noun = isWork ? 'Работы' : 'Материалы';
         var itemLabel = isWork ? 'Работа' : 'Материал';
         var counterpartyPriceLabel = isWork ? 'Цена подрядчика' : 'Цена закупщика';
+        var canEdit = canManageSchedule();
+        var columnCount = canEdit ? 7 : 6;
         var rows = projectPriceTableRowsWithMarket(projectId, kind, projectPriceTableEstimateRows(projectId, kind));
         var sectionGroups = projectPriceTableSectionGroups(rows);
         var body = '';
@@ -622,18 +625,30 @@
                         '<th>Цена общая</th>' +
                         '<th><span>Цена ИИ</span><small>анализ рынка</small></th>' +
                         '<th>' + counterpartyPriceLabel + '</th>' +
+                        (canEdit ? '<th>Действие</th>' : '') +
                     '</tr></thead>' +
                     '<tbody>' + sectionGroups.map(function (group) {
-                        return '<tr class="project-price-table-section-row"><td colspan="6"><span><b>' + escapeHtml(group.title) + '</b><small>' + group.rows.length + ' поз.</small></span></td></tr>' +
+                        return '<tr class="project-price-table-section-row"><td colspan="' + columnCount + '"><span><b>' + escapeHtml(group.title) + '</b><small>' + group.rows.length + ' поз.</small></span></td></tr>' +
                             group.rows.map(function (row) {
                                 var volume = quantityText(row.plannedQty || 0) + ' ' + String(row.unit || 'ед.');
-                                return '<tr>' +
+                                var source = row.sourceItem || {};
+                                var editable = canEdit && Number(row.estimateItemId || 0) > 0;
+                                var sourceKind = String(source.itemKind || source.item_kind || kind).toLowerCase() === 'work' ? 'work' : 'material';
+                                var sourceUnit = source.sourceUnit || source.unit || row.unit || '';
+                                var sourceQty = source.sourcePlannedQty != null ? source.sourcePlannedQty : (source.planned_qty != null ? source.planned_qty : source.plannedQty);
+                                var sourcePrice = source.planned_price != null ? source.planned_price : source.plannedPrice;
+                                var sourceSection = source.sectionTitle || source.section_title || row.sectionTitle || '';
+                                var editorAttrs = editable
+                                    ? ' data-position-editor data-position-kind="' + sourceKind + '" data-position-id="' + escapeHtml(row.estimateItemId) + '" data-position-project="' + escapeHtml(projectId) + '" data-position-title="' + escapeHtml(source.title || row.title || '') + '" data-position-unit="' + escapeHtml(sourceUnit) + '" data-position-qty="' + escapeHtml(sourceQty == null ? '' : sourceQty) + '" data-position-price="' + escapeHtml(sourcePrice == null ? '' : sourcePrice) + '" data-position-section="' + escapeHtml(sourceSection) + '"'
+                                    : '';
+                                return '<tr' + editorAttrs + '>' +
                                     '<td data-label="' + itemLabel + '"><b>' + escapeHtml(row.title || 'Без названия') + '</b></td>' +
                                     '<td data-label="Объём"><strong>' + escapeHtml(volume) + '</strong></td>' +
                                     '<td data-label="Цена за ед.">' + projectPriceTableMoney(row.estimateUnitPrice, 'Не указана') + '</td>' +
                                     '<td data-label="Цена общая">' + projectPriceTableMoney(row.estimateTotal, 'Не рассчитана') + '</td>' +
                                     '<td data-label="Цена ИИ">' + projectPriceTableMarketCell(row) + '</td>' +
                                     '<td data-label="' + counterpartyPriceLabel + '">' + projectPriceTablePurchaserCell(row) + '</td>' +
+                                    (canEdit ? '<td data-label="Действие">' + (editable ? '<button class="ghost compact" type="button" data-position-editor-open>Изменить</button>' : '<span class="muted">—</span>') + '</td>' : '') +
                                 '</tr>';
                             }).join('');
                     }).join('') + '</tbody>' +
@@ -3624,6 +3639,72 @@
         return current;
     }
 
+    function syncProductionScheduleScroll(scroller) {
+        if (!scroller) return;
+        var shell = scroller.closest ? scroller.closest('[data-production-table-shell]') : null;
+        if (!shell) return;
+        var current = Math.max(0, Number(scroller.scrollLeft || 0));
+        shell.classList.toggle('is-horizontally-scrolled', current > 1);
+    }
+
+    function productionPointerOverFrozenColumns(scroller, event) {
+        if (!scroller || !event) return false;
+        var target = event.target;
+        if (target && target.nodeType === 3) target = target.parentElement;
+        var overFrozenColumns = target && target.closest
+            ? target.closest('.production-number-cell, .production-work-title')
+            : null;
+        if (!overFrozenColumns && Number.isFinite(Number(event.clientX))) {
+            var frozenTitle = qs('.production-work-title', scroller);
+            var frozenRect = frozenTitle && frozenTitle.getBoundingClientRect
+                ? frozenTitle.getBoundingClientRect()
+                : null;
+            var scrollerRect = scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : null;
+            var pointerX = Number(event.clientX);
+            overFrozenColumns = frozenRect && scrollerRect
+                && pointerX >= scrollerRect.left
+                && pointerX < Math.min(frozenRect.right, scrollerRect.right);
+        }
+        return !!overFrozenColumns;
+    }
+
+    function bindProductionScheduleScroll(scroller) {
+        if (!scroller || scroller.dataset.productionScrollBound === '1') return scroller || null;
+        scroller.dataset.productionScrollBound = '1';
+        scroller.addEventListener('scroll', function () {
+            syncProductionScheduleScroll(scroller);
+        }, { passive: true });
+        scroller.addEventListener('pointermove', function (event) {
+            var overFrozenColumns = productionPointerOverFrozenColumns(scroller, event);
+            scroller.classList.toggle('is-wheel-vertical-zone', overFrozenColumns);
+            scroller.classList.toggle('is-wheel-horizontal-zone', !overFrozenColumns);
+        }, { passive: true });
+        scroller.addEventListener('pointerleave', function () {
+            scroller.classList.remove('is-wheel-vertical-zone', 'is-wheel-horizontal-zone');
+        }, { passive: true });
+        scroller.addEventListener('wheel', function (event) {
+            if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
+            if (productionPointerOverFrozenColumns(scroller, event)) return;
+
+            var deltaX = Number(event.deltaX || 0);
+            var deltaY = Number(event.deltaY || 0);
+            var delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+            if (event.deltaMode === 1) delta *= 24;
+            if (event.deltaMode === 2) delta *= Math.max(1, scroller.clientWidth);
+            if (!delta) return;
+
+            event.preventDefault();
+            var current = Number(scroller.scrollLeft || 0);
+            var maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+            var next = Math.max(0, Math.min(maximum, current + delta));
+            if (Math.abs(next - current) < 0.5) return;
+            scroller.scrollLeft = next;
+            syncProductionScheduleScroll(scroller);
+        }, { passive: false });
+        syncProductionScheduleScroll(scroller);
+        return scroller;
+    }
+
     function productionScheduleDaySet(days) {
         var set = Object.create(null);
         (Array.isArray(days) ? days : []).forEach(function (day) { set[String(day)] = true; });
@@ -3748,11 +3829,15 @@
         var items = Array.isArray(schedule.items) ? schedule.items : [];
         var visibleDays = productionScheduleVisibleDays(project.id, schedule);
         var canEditSchedule = canManageSchedule();
+        var guestView = hasRole('guest');
         var canSaveTemplate = isMainAdminRole() || hasRole('admin') || hasRole('director');
         var dayHeaders = '';
         for (var day = 1; day <= visibleDays; day += 1) {
             dayHeaders += '<th class="production-day-head" colspan="2">' + day + '</th>';
         }
+        var tableHeader = '<thead><tr>' +
+            '<th class="production-number-cell">№<br>п/п</th><th class="production-work-title">Наименование работ</th><th class="production-volume-cell">Объём работ</th><th class="production-people-cell">Кол-во<br>чел.</th><th class="production-shifts-cell">Кол-во<br>смен</th><th class="production-brigades-cell">Кол-во<br>бригад</th><th class="production-duration-cell">Продолжи-<br>тельность,<br>дн</th>' + dayHeaders +
+        '</tr></thead>';
         var rows = [];
         var previousSection = null;
         items.forEach(function (item, itemIndex) {
@@ -3763,7 +3848,9 @@
                 previousSection = sectionTitle;
             }
             var colorKey = productionOperationColorKey(item, itemIndex);
-            var operationMeta = productionOperationMeta(item);
+            var operationMeta = guestView
+                ? { originLabel: 'График производства', linkLabel: 'Только просмотр', linkKind: 'linked' }
+                : productionOperationMeta(item);
             var rawOperationStatus = String(item.status || item.linkStatus || '').trim().toLowerCase();
             var canConfirmOperation = canEditSchedule && ['review', 'needs_review', 'requires_review', 'unverified'].indexOf(rawOperationStatus) >= 0;
             var confirmOperation = canConfirmOperation
@@ -3794,8 +3881,9 @@
             var durationEditDisabled = canEditSchedule ? '' : ' disabled';
             var durationMinusDisabled = (!canEditSchedule || durationDays <= 0.5) ? ' disabled' : '';
             var durationPlusDisabled = (!canEditSchedule || durationDays >= 3650) ? ' disabled' : '';
+            var autoDurationDays = Math.max(0.5, Math.round(Number(item.autoDays || durationDays) * 2) / 2);
             var durationReset = item.isDurationOverridden && canEditSchedule
-                ? '<button type="button" class="production-duration-reset" data-production-duration-reset data-operation-id="' + escapeHtml(operationId) + '" title="Вернуть автоматический расчёт длительности">Авто</button>'
+                ? '<button type="button" class="production-duration-reset" data-production-duration-reset data-operation-id="' + escapeHtml(operationId) + '" title="Вернуть автоматический расчёт длительности">Авто: ' + escapeHtml(quantityText(autoDurationDays)) + ' дн.</button>'
                 : '';
             var placementIsManual = String(item.placementMode || item.placement_mode || '').toLowerCase() === 'manual';
             var splitAttributes = durationDays < 1
@@ -3806,25 +3894,28 @@
                 '<button type="button" data-production-split-operation data-operation-id="' + escapeHtml(operationId) + '"' + splitAttributes + ' aria-label="Разделить работу">⑂</button>' +
                 '<button type="button" class="is-danger" data-production-delete-operation data-operation-id="' + escapeHtml(operationId) + '" title="Удалить" aria-label="Удалить работу">×</button>' +
             '</span>' : '';
+            var dragHandle = canEditSchedule
+                ? '<span class="production-drag-handle" data-production-drag-handle title="Перетащить работу" aria-label="Перетащить работу" tabindex="0">⋮⋮</span>'
+                : '';
             rows.push('<tr class="production-work-row production-phase-' + colorKey + '" data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '">' +
-                '<td class="production-number-cell"><span class="production-drag-handle" data-production-drag-handle title="Перетащить работу" aria-label="Перетащить работу"' + (canEditSchedule ? ' tabindex="0"' : '') + '>⋮⋮</span><span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
-                '<th class="production-work-title"><span class="production-work-heading"><i aria-hidden="true"></i><b>' + escapeHtml(item.title || 'Работа') + '</b>' + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small>' + confirmOperation + '</span></th>' +
+                '<td class="production-number-cell">' + dragHandle + '<span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
+                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small>' + confirmOperation + '</span></th>' +
                 '<td class="production-volume-cell">' + escapeHtml(volume) + '</td>' +
                 '<td class="production-people-cell">' + escapeHtml(String(item.peopleCount || item.crewSize || 1)) + '</td>' +
                 '<td class="production-shifts-cell">' + escapeHtml(String(item.shiftCount || 1)) + '</td>' +
                 '<td class="production-brigades-cell">' + escapeHtml(String(item.brigadeCount || 1)) + '</td>' +
                 '<td class="production-duration-cell"><div class="production-duration-stepper" role="group" aria-label="' + escapeHtml('Продолжительность: ' + (item.title || 'Работа')) + '">' +
-                    '<button type="button" class="production-duration-step-button" data-production-duration-step="-0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Уменьшить длительность на 0,5 дня"' + durationMinusDisabled + '>−</button>' +
+                    '<button type="button" class="production-duration-step-button" data-production-duration-step="-0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Уменьшить длительность на 0,5 дня"' + durationMinusDisabled + '><span aria-hidden="true">−</span></button>' +
                     '<input id="' + escapeHtml(durationInputId) + '" type="number" inputmode="decimal" min="0.5" max="3650" step="0.5" value="' + escapeHtml(String(durationDays)) + '" data-production-duration data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" aria-label="Длительность в днях"' + durationEditDisabled + '>' +
-                    '<button type="button" class="production-duration-step-button" data-production-duration-step="0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Увеличить длительность на 0,5 дня"' + durationPlusDisabled + '>+</button>' +
+                    '<button type="button" class="production-duration-step-button" data-production-duration-step="0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Увеличить длительность на 0,5 дня"' + durationPlusDisabled + '><span aria-hidden="true">+</span></button>' +
                 '</div>' + durationReset + effectiveLabel + '</td>' +
                 cells + '</tr>');
         });
         if (!rows.length) {
-            rows.push('<tr class="production-empty-row"><td colspan="' + String(7 + visibleDays * 2) + '"><b>График пока пуст</b><span>Добавьте первую работу вручную или пересчитайте черновик по смете.</span></td></tr>');
+            rows.push('<tr class="production-empty-row"><td colspan="' + String(7 + visibleDays * 2) + '"><b>График пока пуст</b><span>' + (guestView ? 'Опубликованные работы пока не добавлены.' : 'Добавьте первую работу вручную или пересчитайте черновик по смете.') + '</span></td></tr>');
         }
         return '<section class="card production-schedule-card" data-production-schedule-card data-project-id="' + escapeHtml(project.id) + '">' +
-            '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>Авточерновик строится последовательно. Работы можно добавлять, связывать со сметой и переставлять; каждая половина клетки — 0,5 дня.</p></div>' +
+            '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (guestView ? 'Актуальная последовательность работ по объекту. Каждая половина клетки — 0,5 дня.' : 'Авточерновик строится последовательно. Работы можно добавлять, связывать со сметой и переставлять; каждая половина клетки — 0,5 дня.') + '</p></div>' +
                 '<div class="production-schedule-actions">' +
                     (canEditSchedule ? '<button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Добавить работу</button>' : '') +
                     '<button class="ghost compact" type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">+ 7 дней</button>' +
@@ -3832,11 +3923,12 @@
                     (canEditSchedule ? '<button class="ghost compact" type="button" data-production-reset-cells data-project-id="' + escapeHtml(project.id) + '">Вернуть авто-раскладку</button>' : '') +
                     (canManageSchedule() ? '<button class="ghost compact" type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
                 '</div></div>' +
-            '<div class="production-recalculate-note"><b>Безопасный пересчёт:</b> обновляет автоматический черновик, сохраняя ручные операции, связи и ручную раскладку.</div>' +
-            '<div class="production-table-scroll" data-production-table-scroll><table class="production-schedule-table"><thead><tr>' +
-                '<th class="production-number-cell">№<br>п/п</th><th class="production-work-title">Наименование работ</th><th class="production-volume-cell">Объём работ</th><th class="production-people-cell">Кол-во<br>чел.</th><th class="production-shifts-cell">Кол-во<br>смен</th><th class="production-brigades-cell">Кол-во<br>бригад</th><th class="production-duration-cell">Продолжи-<br>тельность,<br>дн</th>' + dayHeaders +
-            '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>' +
-        '</section>' + renderProductionOperationEditor(project, schedule);
+            (guestView ? '' : '<div class="production-recalculate-note"><b>Безопасный пересчёт:</b> обновляет автоматический черновик, сохраняя ручные операции, связи и ручную раскладку.</div>') +
+            '<div class="production-scroll-hint" aria-hidden="true">Колесо: над названием — вверх/вниз, над графиком — по дням</div>' +
+            '<div class="production-table-shell" data-production-table-shell>' +
+                '<div class="production-table-scroll" data-production-table-scroll role="region" aria-label="График производства по дням" tabindex="0"><table class="production-schedule-table">' + tableHeader + '<tbody>' + rows.join('') + '</tbody></table></div>' +
+            '</div>' +
+        '</section>' + (canEditSchedule ? renderProductionOperationEditor(project, schedule) : '');
     }
 
     function renderSelectedProjectProductionSchedule() {
@@ -3845,10 +3937,15 @@
         if (!project || !panel) return;
         var scroll = qs('[data-production-table-scroll]', panel);
         var scrollLeft = scroll ? scroll.scrollLeft : 0;
+        var scrollTop = scroll ? scroll.scrollTop : 0;
         safeReplaceChildren(panel, renderProductionSchedule(project, state.productionScheduleByProject[project.id] || null));
         bindProductionScheduleInteractions(project.id);
         var nextScroll = qs('[data-production-table-scroll]', panel);
-        if (nextScroll) nextScroll.scrollLeft = scrollLeft;
+        if (nextScroll) {
+            nextScroll.scrollLeft = scrollLeft;
+            nextScroll.scrollTop = scrollTop;
+            syncProductionScheduleScroll(nextScroll);
+        }
     }
 
     function applyProductionScheduleResponse(projectId, schedule) {
@@ -4079,7 +4176,7 @@
     function bindProductionScheduleInteractions(projectId) {
         var panel = qs('[data-panel="production-schedule"]');
         if (!panel) return;
-        if (bindHorizontalWheelScroll) bindHorizontalWheelScroll(qs('[data-production-table-scroll]', panel));
+        bindProductionScheduleScroll(qs('[data-production-table-scroll]', panel));
         qsa('[data-production-cell]', panel).forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';

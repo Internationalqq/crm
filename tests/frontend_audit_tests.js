@@ -89,6 +89,24 @@ test('Logout click is delegated so rerendered topbar buttons keep working', () =
   assert.match(appJs, /document\.documentElement\.dataset\.logoutBound/);
 });
 
+test('Logout opens the public welcome only after the session is cleared', () => {
+  const logoutStart = appJs.indexOf('function logoutCurrentUser()');
+  const logoutEnd = appJs.indexOf('function bindLogoutButtons()', logoutStart);
+  assert.ok(logoutStart > -1 && logoutEnd > logoutStart, 'logoutCurrentUser block not found');
+  const logoutBlock = appJs.slice(logoutStart, logoutEnd);
+
+  assert.match(logoutBlock, /var publicLandingPath = '\/'/);
+  assert.match(logoutBlock, /setRememberSession\(false\)/);
+  assert.match(logoutBlock, /clearAutoLoginAttempt\(\)/);
+  assert.match(logoutBlock, /api\('\/api\/auth\/logout', \{ method: 'POST' \}\)\.then/);
+  assert.match(logoutBlock, /location\.replace\(publicLandingPath\)/);
+  assert.match(logoutBlock, /clerk\.signOut\(\{[\s\S]*?redirectUrl: state\.authConfig\.clerkAfterSignOutUrl \|\| publicLandingPath/);
+  assert.match(logoutBlock, /\.catch\(showLogoutFailure\)/);
+  assert.doesNotMatch(logoutBlock, /\.finally\(/);
+  assert.doesNotMatch(logoutBlock, /\/login/);
+  assert.match(authPy, /"clerkAfterSignOutUrl": "\/"/);
+});
+
 test('Morning standup is user-scoped and protected from duplicate POST inserts', () => {
   assert.match(frontendJs, /last_standup_date_'\s*\+\s*userId/);
   const canCheckStart = frontendJs.indexOf('function dailyStandupCanCheckNow()');

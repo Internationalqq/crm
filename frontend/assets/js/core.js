@@ -297,67 +297,7 @@
         return notice;
     }
 
-    var loaderHideTimeout = null;
-    var loaderCleanupTimeout = null;
-    var loaderStartTime = 0;
     var loaderActiveCount = 0;
-    var loaderDisplayText = 'Синхронизация...';
-    var MIN_LOADER_TIME = 450;
-
-    function ensureGlobalLoader() {
-        var loaderEl = document.querySelector('.global-app-loader');
-        if (loaderEl) return loaderEl;
-        loaderEl = document.createElement('div');
-        loaderEl.className = 'global-app-loader';
-        loaderEl.setAttribute('role', 'status');
-        loaderEl.setAttribute('aria-live', 'polite');
-        loaderEl.innerHTML = '<div class="loader-spinner-ring" aria-hidden="true"></div><div class="loader-spinner-text">Синхронизация...</div>';
-        document.body.appendChild(loaderEl);
-        return loaderEl;
-    }
-
-    window.showLoader = function (text) {
-        var loaderEl = ensureGlobalLoader();
-        var nextText = String(text || loaderDisplayText || 'Синхронизация...');
-        var textEl = loaderEl.querySelector('.loader-spinner-text');
-        loaderDisplayText = nextText;
-        loaderActiveCount += 1;
-        if (loaderHideTimeout) {
-            clearTimeout(loaderHideTimeout);
-            loaderHideTimeout = null;
-        }
-        if (loaderCleanupTimeout) {
-            clearTimeout(loaderCleanupTimeout);
-            loaderCleanupTimeout = null;
-        }
-        if (textEl) textEl.textContent = nextText;
-        if (!loaderEl.classList.contains('is-active')) {
-            loaderStartTime = Date.now();
-        }
-        loaderEl.classList.remove('is-hiding');
-        requestAnimationFrame(function () {
-            loaderEl.classList.add('is-active');
-        });
-    };
-
-    window.hideLoader = function () {
-        var loaderEl = document.querySelector('.global-app-loader');
-        if (!loaderEl) return;
-        if (loaderActiveCount > 0) loaderActiveCount -= 1;
-        if (loaderActiveCount > 0) return;
-        var elapsed = Date.now() - loaderStartTime;
-        var delay = elapsed < MIN_LOADER_TIME ? (MIN_LOADER_TIME - elapsed) : 0;
-        if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
-        if (loaderCleanupTimeout) clearTimeout(loaderCleanupTimeout);
-        loaderHideTimeout = setTimeout(function () {
-            if (loaderActiveCount > 0) return;
-            loaderEl.classList.add('is-hiding');
-            loaderCleanupTimeout = setTimeout(function () {
-                if (loaderActiveCount > 0) return;
-                loaderEl.classList.remove('is-active', 'is-hiding');
-            }, 300);
-        }, delay);
-    };
 
     function ensureTopProgressBar() {
         var barEl = document.querySelector('.global-top-progress-bar');
@@ -1009,6 +949,7 @@
         if (role === 'admin') return '\u0410\u0414\u041c\u0418\u041d';
         if (role === 'director') return '\u0414\u0438\u0440\u0435\u043a\u0442\u043e\u0440';
         if (role === 'foreman') return '\u041f\u0440\u043e\u0440\u0430\u0431';
+        if (role === 'guest') return '\u0413\u043e\u0441\u0442\u044c';
         return user.roleLabel || role || '\u041f\u0440\u043e\u0440\u0430\u0431';
     }
 
@@ -1026,6 +967,10 @@
 
     function isForemanRole() {
         return hasRole('foreman') && !isDirectorRole();
+    }
+
+    function isGuestRole() {
+        return hasRole('guest');
     }
 
     function isAdminRole() {
@@ -1053,6 +998,7 @@
 
     function allowedModules() {
         var permissions = currentPermissions();
+        if (isGuestRole()) return ['projects'];
         if (permissions.fullAccess) {
             return ['dashboard', 'daily_tasks', 'projects', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'users'];
         }
@@ -1294,6 +1240,7 @@
         isMainAdminRole: isMainAdminRole,
         isDirectorRole: isDirectorRole,
         isForemanRole: isForemanRole,
+        isGuestRole: isGuestRole,
         isAdminRole: isAdminRole,
         canDeleteProject: canDeleteProject,
         currentPermissions: currentPermissions,

@@ -20,7 +20,7 @@ from auth import (
 )
 from procurement_limits import procurement_limit_check
 from operational_quantities import operational_quantity_plan
-from sqlite_config import configure_connection
+from sqlite_config import connect_database
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -36,8 +36,7 @@ def now_ts() -> int:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def create_audit(
@@ -703,6 +702,10 @@ def count_threshold_hits(value: float, thresholds: list[float]) -> int:
 
 
 def estimate_material_lead_days(material: dict) -> int:
+    # schedule_tasks imports warehouse helpers, so keep this import local to avoid
+    # a module-import cycle while sharing the canonical scope classifier.
+    from schedule_tasks import classify_scope
+
     category = classify_scope(" ".join([
         str(material.get("title", "")),
         str(material.get("notes", "")),
@@ -1675,6 +1678,13 @@ def api_clear_supplier_selection(handler, path: str) -> None:
         return
     timestamp = now_ts()
     with db() as con:
+        material = con.execute(
+            "SELECT id FROM estimate_items WHERE id = ? AND project_id = ?",
+            (estimate_item_id, project_id),
+        ).fetchone()
+        if not material:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "material_not_found"})
+            return
         deactivated_ids = deactivate_active_supplier_offers(
             con,
             project_id,

@@ -27,10 +27,16 @@ assert(script.includes("frame.addEventListener('load'"), 'AutoBot module must re
 assert(script.includes("frame.addEventListener('error'"), 'AutoBot module must react to a frame error');
 assert(script.includes('12000'), 'AutoBot module must expose an offline state after a bounded wait');
 assert(script.includes("searchParams.set('_pmbi_reload'"), 'reload must bypass a stale iframe response');
-assert(script.includes("base + '/healthz'"), 'iframe readiness must be verified through the AutoBot health endpoint');
+assert(script.includes("return '/api/autobot/health'"), 'iframe readiness must use the same-origin CRM health proxy');
+assert(script.includes("fetch(autobotHealthUrl(),"), 'AutoBot health checks must not depend on the cross-origin iframe URL');
+assert(router.includes('autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1'), 'router must invalidate the cached AutoBot module after health and message-boundary fixes');
 assert(script.includes('checkAutobotHealth(root)'), 'a frame load alone must not be treated as a healthy AutoBot');
 assert(script.includes('scheduleRetry(root, frame)'), 'AutoBot must retry automatically after a deploy-time outage');
 assert(script.includes('Math.min(10000'), 'automatic retries must use bounded backoff');
+assert(script.includes('automaticRetryLimit = 5'), 'automatic iframe reloads must stop after a bounded number of attempts');
+assert(script.includes('retryAttempt >= automaticRetryLimit'), 'an unavailable AutoBot must not cause an endless reload storm');
+assert(script.includes("event.origin !== expectedFrameOrigin"), 'iframe messages must be accepted only from the configured AutoBot origin');
+assert(script.includes("event.source !== frame.contentWindow"), 'iframe messages must also come from the active AutoBot frame window');
 
 assert(css.includes('grid-template-rows: auto minmax(0, 1fr)'), 'workspace must reserve the remaining viewport for AutoBot');
 assert(css.includes('position: static !important'), 'CRM topbar must not stay pinned over AutoBot');

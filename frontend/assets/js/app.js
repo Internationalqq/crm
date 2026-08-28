@@ -70,6 +70,7 @@
     var isMainAdminRole = PMBI.isMainAdminRole;
     var isDirectorRole = PMBI.isDirectorRole;
     var isForemanRole = PMBI.isForemanRole;
+    var isGuestRole = PMBI.isGuestRole || function () { return hasRole('guest'); };
     var isAdminRole = PMBI.isAdminRole;
     var currentPermissions = PMBI.currentPermissions;
     var personDisplayName = PMBI.personDisplayName;
@@ -85,6 +86,10 @@
     var canManageSchedule = PMBI.canManageSchedule;
     function canApplyDailyReportMaterialActions() {
         return !!(canManageSchedule && canManageSchedule()) || hasRole('purchaser');
+    }
+
+    function canApplyDailyReportWorkActions() {
+        return !!(canManageSchedule && canManageSchedule());
     }
     var nextPath = PMBI.nextPath;
     var userInitials = PMBI.userInitials;
@@ -321,9 +326,7 @@
         bindPasswordResetForm();
         if (isClerkEnabled()) {
             var root = qs('[data-login-clerk-root]');
-            var fallbackForm = qs('[data-login-form]');
             var resetPanel = qs('[data-password-reset-panel]');
-            if (fallbackForm) fallbackForm.hidden = true;
             if (resetPanel) resetPanel.hidden = true;
             loadClerk().then(function (clerk) {
                 if (!clerk) {
@@ -366,7 +369,6 @@
             }).catch(function () {
                 showLoginError('Не удалось подключить защищенный вход.');
             });
-            return;
         }
 
         var form = qs('[data-login-form]');
@@ -377,8 +379,8 @@
                 stopBrokenAutoLogin();
             } else {
                 markAutoLoginAttempted();
-                loadCurrentUser({ silentLoader: true, force: true }).then(function () {
-                    location.replace(nextPath());
+                loadCurrentUser({ silentLoader: true, force: true }).then(function (user) {
+                    location.replace(user && (user.isGuest || normalizeRole(user.role) === 'guest') ? '/app/projects' : nextPath());
                 }).catch(function () {
                     stopBrokenAutoLogin();
                 });
@@ -398,10 +400,11 @@
                     password: form.password.value,
                     rememberMe: rememberMe
                 })
-            }).then(function () {
+            }).then(function (data) {
                 setRememberSession(rememberMe);
                 clearAutoLoginAttempt();
-                location.replace(nextPath());
+                var user = data && data.user || {};
+                location.replace(user.isGuest || normalizeRole(user.role) === 'guest' ? '/app/projects' : nextPath());
             }).catch(function () {
                 setRememberSession(false);
                 clearAutoLoginAttempt();
@@ -412,20 +415,28 @@
     }
 
     function logoutCurrentUser() {
+        var publicLandingPath = '/';
         setRememberSession(false);
+        clearAutoLoginAttempt();
+
+        function showLogoutFailure(error) {
+            showAppNotice(appErrorMessage(error, 'Не удалось выйти. Попробуйте ещё раз.'), 'error');
+        }
+
         if (isClerkEnabled()) {
             loadClerk().then(function (clerk) {
-                return api('/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
-                    return clerk ? clerk.signOut({ redirectUrl: state.authConfig.clerkAfterSignOutUrl || '/login' }) : null;
+                if (!clerk) throw new Error('clerk_unavailable');
+                return api('/api/auth/logout', { method: 'POST' }).then(function () {
+                    return clerk.signOut({
+                        redirectUrl: state.authConfig.clerkAfterSignOutUrl || publicLandingPath
+                    });
                 });
-            }).catch(function () {
-                location.replace('/login');
-            });
+            }).catch(showLogoutFailure);
             return;
         }
-        api('/api/auth/logout', { method: 'POST' }).finally(function () {
-            location.replace('/login');
-        });
+        api('/api/auth/logout', { method: 'POST' }).then(function () {
+            location.replace(publicLandingPath);
+        }).catch(showLogoutFailure);
     }
 
     function bindLogoutButtons() {
@@ -445,7 +456,7 @@
             renderUser();
             applyRole();
             initPage();
-            checkDailyStandup();
+            if (!isGuestRole()) checkDailyStandup();
         }).catch(function (err) {
             // Жесткий предохранитель: если пользователь уже находится внутри рабочего приложения (/app/),
             // не нужно выкидывать его на логин при фоновых заминках сети или кэша, если сервер не вернул жесткий 401 статус!
@@ -626,6 +637,7 @@
     function applyRoleVisibility(root) {
         root = root || document;
         var director = isDirectorRole();
+        var guest = isGuestRole();
         qsa('[data-director-only], [data-director-action]', root).forEach(function (node) {
             node.classList.toggle('hidden', !director);
         });
@@ -640,12 +652,12 @@
         });
         qsa('[data-project-quick-action]', root).forEach(function (node) {
             var action = node.dataset.projectQuickAction || '';
-            var visible = true;
-            if (action === 'report') visible = !hasRole('customer');
-            if (action === 'document') visible = canManageDocuments();
-            if (action === 'material') visible = canManageSchedule();
-            if (action === 'task') visible = canCreateProjectTask();
-            if (action === 'invoice') visible = canSeeFinances();
+            var visible = !guest;
+            if (action === 'report') visible = visible && !hasRole('customer');
+            if (action === 'document') visible = visible && canManageDocuments();
+            if (action === 'material') visible = visible && canManageSchedule();
+            if (action === 'task') visible = visible && canCreateProjectTask();
+            if (action === 'invoice') visible = visible && canSeeFinances();
             node.classList.toggle('hidden', !visible);
             node.setAttribute('aria-hidden', visible ? 'false' : 'true');
         });
@@ -654,6 +666,19 @@
                 return !node.classList.contains('hidden');
             });
             container.classList.toggle('hidden', !hasVisibleAction);
+        });
+        qsa('[data-open-project-create], [data-project-create-card], .topbar-reminders-wrap, [data-header-ai-trigger], [data-profile-open]', root).forEach(function (node) {
+            node.classList.toggle('hidden', guest);
+            if (guest) node.hidden = true;
+        });
+        qsa('[data-guest-sign-in]', root).forEach(function (node) {
+            node.hidden = !guest;
+        });
+        qsa('.topbar-profile-wrap', root).forEach(function (node) {
+            node.hidden = guest;
+        });
+        qsa('.sidebar .brand', root).forEach(function (link) {
+            if (guest) link.setAttribute('href', '/app/projects');
         });
         syncProjectTabVisibility(root);
     }
@@ -685,6 +710,12 @@
         if (page === 'dashboard') initDashboardPage();
         if (page === 'daily_tasks') initDailyTasksPage();
         if (page === 'projects') {
+            if (isGuestRole()) {
+                loadProjects(function () {
+                    renderProjectsPage();
+                });
+                return;
+            }
             // The project itself is the critical path for notification deep links.
             // Directory and dashboard data are independent and can finish in the background.
             loadUserDirectory(function () {});
@@ -724,6 +755,7 @@
             requestGroup: 'projects-list'
         }).then(function (data) {
             state.projects = Array.isArray(data && data.projects) ? data.projects : [];
+            state.projectCompanies = Array.isArray(data && data.portfolioCompanies) ? data.portfolioCompanies : [];
             state.projectsLoaded = true;
             if (listRoot) {
                 try {
@@ -759,26 +791,46 @@
         });
     }
 
-    function populateProjectCompanySelects() {
+    var PROJECT_COMPANY_LABELS = { uess: 'УЭСС', pm: 'ПМ', strategy: 'Стратегия' };
 
-        var customerSelect = qs('[data-project-customer-company]');
-        var ownSelect = qs('[data-project-own-company]');
-        if (customerSelect) {
-            var customerCompanies = state.companies.filter(function (company) {
+    function projectCompanyCode(value) {
+        var normalized = String(value || '').toLocaleLowerCase('ru').replace(/[^a-zа-я0-9]+/g, '');
+        return { 'уэсс': 'uess', uess: 'uess', 'пм': 'pm', pm: 'pm', 'стратегия': 'strategy', strategy: 'strategy' }[normalized] || '';
+    }
+
+    function projectCompanyOptions() {
+        var source = Array.isArray(state.projectCompanies) && state.projectCompanies.length
+            ? state.projectCompanies
+            : (state.companies || []).filter(function (company) { return company.type === 'own_legal_entity'; });
+        var byCode = {};
+        source.forEach(function (company) {
+            var code = String(company.code || projectCompanyCode(company.name));
+            if (PROJECT_COMPANY_LABELS[code] && !byCode[code]) {
+                byCode[code] = { id: Number(company.id || 0), code: code, name: PROJECT_COMPANY_LABELS[code] };
+            }
+        });
+        return ['uess', 'pm', 'strategy'].map(function (code) { return byCode[code]; }).filter(Boolean);
+    }
+
+    function populateProjectCompanySelects() {
+        qsa('[data-project-customer-company]').forEach(function (customerSelect) {
+            var customerCompanies = (state.companies || []).filter(function (company) {
                 return company.type === 'client' || company.type === 'other';
             });
+            var customerValue = customerSelect.value;
             customerSelect.innerHTML = '<option value="">Без привязки</option>' + customerCompanies.map(function (company) {
                 return '<option value="' + company.id + '">' + escapeHtml(company.name) + '</option>';
             }).join('');
-        }
-        if (ownSelect) {
-            var ownCompanies = state.companies.filter(function (company) {
-                return company.type === 'own_legal_entity';
-            });
-            ownSelect.innerHTML = '<option value="">Не выбрано</option>' + ownCompanies.map(function (company) {
-                return '<option value="' + company.id + '">' + escapeHtml(company.name) + '</option>';
+            if (customerValue) customerSelect.value = customerValue;
+        });
+        var ownCompanies = projectCompanyOptions();
+        qsa('[data-project-own-company]').forEach(function (ownSelect) {
+            var ownValue = ownSelect.value;
+            ownSelect.innerHTML = '<option value="">Выберите компанию</option>' + ownCompanies.map(function (company) {
+                return '<option value="' + company.id + '" data-project-company-code="' + escapeHtml(company.code) + '">' + escapeHtml(company.name) + '</option>';
             }).join('');
-        }
+            if (ownValue) ownSelect.value = ownValue;
+        });
     }
 
     function initDashboardPage() {
@@ -1014,13 +1066,17 @@
         if (tabName === 'materials' || tabName === 'works') tabName = 'schedule';
         var root = qs('[data-project-detail]') || document;
         syncProjectTabVisibility(root);
-        if (isProjectTabHidden(tabName)) tabName = 'overview';
+        if (isProjectTabHidden(tabName)) tabName = isGuestRole() ? 'reports' : 'overview';
         var tab = qs('[data-tab="' + tabName + '"]', root);
         var panel = qs('[data-panel="' + tabName + '"]', root);
         if (!tab || !panel) return;
         qsa('[data-tab]', root).forEach(function (node) {
-            node.classList.remove('active');
-            node.removeAttribute('aria-current');
+            var active = node === tab;
+            node.classList.toggle('active', active);
+            node.setAttribute('aria-selected', active ? 'true' : 'false');
+            node.tabIndex = active ? 0 : -1;
+            if (active) node.setAttribute('aria-current', 'page');
+            else node.removeAttribute('aria-current');
         });
         qsa('[data-panel]', root).forEach(function (node) {
             var active = node === panel;
@@ -1060,6 +1116,7 @@
     }
 
     function isProjectTabHidden(tabName) {
+        if (isGuestRole()) return ['reports', 'production-schedule'].indexOf(tabName) === -1;
         if ((tabName === 'calendar' || tabName === 'estimate-reconciliation' || tabName === 'warehouse-control') && hasRole('customer')) return true;
         if (hasRole('admin') || hasRole('director')) return false;
         return false;
@@ -1067,7 +1124,22 @@
 
     function syncProjectTabVisibility(root) {
         root = root || qs('[data-project-detail]') || document;
-        var roleHiddenTabs = {
+        var reportsTabLabel = qs('[data-tab="reports"] span', root);
+        if (reportsTabLabel) reportsTabLabel.textContent = isGuestRole() ? 'Отчёты' : 'Журнал';
+        var roleHiddenTabs = isGuestRole() ? {
+            overview: true,
+            schedule: true,
+            'warehouse-control': true,
+            tasks: true,
+            reports: false,
+            documents: true,
+            finance: true,
+            calendar: true,
+            'production-schedule': false,
+            'estimate-reconciliation': true,
+            chat: true,
+            ai: true
+        } : {
             calendar: hasRole('customer'),
             'estimate-reconciliation': hasRole('customer'),
             'warehouse-control': hasRole('customer'),
@@ -1110,6 +1182,24 @@
             activateProjectTab(tabName);
             var menu = button.closest('details');
             if (menu) menu.open = false;
+        });
+        tabsRoot.addEventListener('keydown', function (event) {
+            var current = event.target && event.target.closest('[data-tab]');
+            if (!current || !tabsRoot.contains(current)) return;
+            var tabs = qsa('[data-tab]', tabsRoot).filter(function (node) {
+                return !node.disabled && !node.classList.contains('hidden') && node.getAttribute('aria-hidden') !== 'true';
+            });
+            var currentIndex = tabs.indexOf(current);
+            if (currentIndex < 0 || !tabs.length) return;
+            var nextIndex = currentIndex;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % tabs.length;
+            else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+            else if (event.key === 'Home') nextIndex = 0;
+            else if (event.key === 'End') nextIndex = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            tabs[nextIndex].focus();
+            activateProjectTab(tabs[nextIndex].dataset.tab || 'overview');
         });
     }
 
@@ -2556,6 +2646,16 @@
         }).join('');
     }
 
+    function taskCompletionTime(value) {
+        if (!value) return '';
+        var date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            var match = String(value).match(/T(\d{2}):(\d{2})/);
+            return match ? match[1] + ':' + match[2] : '';
+        }
+        return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+    }
+
     function renderTaskRow(task, users) {
         var userOptions = '<option value="">Без ответственного</option>' + users.map(function (user) {
             return '<option value="' + user.id + '"' + (Number(task.assignee_id) === Number(user.id) ? ' selected' : '') + '>' + escapeHtml(user.name) + '</option>';
@@ -2564,7 +2664,7 @@
         var isOverdue = task.status !== 'done' && task.due_at && task.due_at < APP_TODAY;
         var assigneeName = taskAssigneeName(task, users);
         var completedAt = task.completed_at || task.completedAt || '';
-        var completedTime = completedAt ? dailyTaskTime(completedAt) : '';
+        var completedTime = completedAt ? taskCompletionTime(completedAt) : '';
         var status = taskColumnStatus(task.status);
         var nextStatus = status === 'done' ? 'in_progress' : 'done';
         var quickLabel = status === 'done' ? 'Вернуть в работу' : 'Отметить выполненной';
@@ -3609,7 +3709,7 @@
                 return;
             }
             list.innerHTML = chats.map(function (chat, index) {
-                return '<button class="chat-item ' + (index === 0 ? 'active' : '') + '" data-open-chat="' + chat.id + '"><b>' + escapeHtml(chat.title) + '</b><span>' + escapeHtml(chat.projectTitle) + '</span></button>';
+                return '<button class="chat-item ' + (index === 0 ? 'active' : '') + '" type="button" data-open-chat="' + chat.id + '"><b>' + escapeHtml(chat.title) + '</b><span>' + escapeHtml(chat.projectTitle) + '</span></button>';
             }).join('');
             qsa('[data-open-chat]', list).forEach(function (button) {
                 button.addEventListener('click', function () {
@@ -5064,6 +5164,7 @@ function renderLogsDayView(project, logs) {
         return {
             sectionTitle: candidate.sectionTitle,
             item: candidate.item,
+            clauseText: clauseText,
             score: score,
             done: !partial,
             partial: partial
@@ -5088,6 +5189,7 @@ function renderLogsDayView(project, logs) {
         return {
             item: candidate.item,
             score: score,
+            reportUnit: reportExplicitQuantityUnit(clauseText),
             purchasedQty: purchase ? qty : 0,
             usedQty: used ? qty : 0
         };
@@ -5100,11 +5202,69 @@ function renderLogsDayView(project, logs) {
             .trim();
     }
 
+    function reportExplicitQuantityUnit(clauseText) {
+        var match = String(clauseText || '').match(/(?:^|[\s(])\d+(?:[\.,]\d+)?\s*(пог\.?\s*м|кв\.?\s*м|куб\.?\s*м|м(?:2|3|²|³)?|шт\.?|штук[аи]?|ед\.?|кг|т|л|компл(?:ект)?(?:ов|а)?|упак(?:овок|овки|овка)?)(?=$|[\s,.;!?)])/i);
+        if (!match) return '';
+        var raw = String(match[1] || '').toLowerCase().trim();
+        var compact = raw.replace(/[.\s]+/g, '');
+        if (compact === 'м2' || compact === 'м²' || compact === 'квм') return 'м2';
+        if (compact === 'м3' || compact === 'м³' || compact === 'кубм') return 'м3';
+        if (compact === 'погм') return 'пог. м';
+        if (compact === 'м') return 'м';
+        if (/^шт|^штук/.test(compact)) return 'шт';
+        if (/^ед/.test(compact)) return 'ед.';
+        if (/^компл/.test(compact)) return 'компл.';
+        if (/^упак/.test(compact)) return 'упак.';
+        return compact;
+    }
+
+    function reportSafeQuantityUnit(value) {
+        var raw = String(value || '').trim();
+        var normalized = normalizeReportText(raw);
+        if (!normalized || /^(?:n a|na|none|null|undefined|unknown|нет|без единицы|не указано)$/.test(normalized)) return '';
+        return raw;
+    }
+
+    function reportEntryQuantityUnit(entry) {
+        entry = entry || {};
+        var item = entry.item || entry;
+        var plan = quantityPlanInfo(item || {});
+        var rawCatalogUnit = plan.rawUnit || (item && item.unit) || '';
+        if (reportSafeQuantityUnit(rawCatalogUnit)) {
+            return reportSafeQuantityUnit(plan.unit) || reportSafeQuantityUnit(rawCatalogUnit) || 'ед.';
+        }
+        return reportSafeQuantityUnit(entry.reportUnit) || 'ед.';
+    }
+
     function reportSentence(value) {
         var text = reportTrimSentence(value);
         if (!text) return '';
         text = text.charAt(0).toUpperCase() + text.slice(1);
         return /[.!?]$/.test(text) ? text : text + '.';
+    }
+
+    function reportPhraseParts(value) {
+        return String(value || '')
+            .split(/\n+|[!?;]+|\.(?!\d)/)
+            .map(reportTrimSentence)
+            .filter(Boolean);
+    }
+
+    function createReportPhraseDeduper(baseText) {
+        var normalizedPhrases = reportPhraseParts(baseText).map(normalizeReportText).filter(Boolean);
+        return function (value) {
+            var unique = [];
+            reportPhraseParts(value).forEach(function (phrase) {
+                var normalizedPhrase = normalizeReportText(phrase);
+                if (!normalizedPhrase) return;
+                if (normalizedPhrases.some(function (knownPhrase) {
+                    return (' ' + knownPhrase + ' ').indexOf(' ' + normalizedPhrase + ' ') !== -1;
+                })) return;
+                unique.push(phrase);
+                normalizedPhrases.push(normalizedPhrase);
+            });
+            return unique;
+        };
     }
 
     function reportActionObject(clauseText, actionRegex) {
@@ -5139,65 +5299,360 @@ function renderLogsDayView(project, logs) {
 
     function buildReadableProjectReportText(rawText, generatedParts) {
         if (generatedParts && generatedParts.length) return generatedParts.join(' ');
-        var clauses = reportTextClauses(rawText).slice(0, 6);
+        var clauses = reportTextClauses(rawText);
         var sentences = clauses.map(reportNarrativeSentence).filter(Boolean);
         return sentences.length ? sentences.join(' ') : reportSentence(rawText);
+    }
+
+    function reportMaterialMatchIsConcrete(entry) {
+        return !!entry
+            && !entry.ambiguous
+            && (
+                Number(entry.purchasedQty || 0) > 0
+                || Number(entry.receivedQty || 0) > 0
+                || Number(entry.usedQty || 0) > 0
+            );
+    }
+
+    function reportWorkMatchIsConcrete(entry) {
+        return !!entry && !entry.ambiguous && !!(entry.done || entry.partial);
+    }
+
+    function reportMatchConsumesClause(entry, concreteMatcher) {
+        return !!entry
+            && !entry.ambiguous
+            && (
+                (typeof concreteMatcher === 'function' && concreteMatcher(entry))
+                || !!entry.selectedManually
+                || !!entry.actionEligible
+                || !!entry.semanticMatch
+            );
+    }
+
+    function reportMatchSourceText(entry) {
+        var clauses = Array.isArray(entry && entry.consumedClauseTexts) && entry.consumedClauseTexts.length
+            ? entry.consumedClauseTexts
+            : (Array.isArray(entry && entry.clauseTexts) && entry.clauseTexts.length
+                ? entry.clauseTexts
+                : [entry && entry.clauseText]);
+        return clauses.map(reportTrimSentence).filter(Boolean).join('; ');
+    }
+
+    function projectReportClauseKeysFromEntries(entries, includeAllClauses) {
+        var keys = {};
+        (entries || []).forEach(function (entry) {
+            var clauses = !includeAllClauses && Array.isArray(entry && entry.consumedClauseTexts)
+                ? entry.consumedClauseTexts
+                : (Array.isArray(entry && entry.clauseTexts)
+                    ? entry.clauseTexts
+                    : [entry && entry.clauseText]);
+            clauses.forEach(function (value) {
+                var clause = String(value || '').trim();
+                if (clause) keys[normalizeReportText(clause)] = true;
+            });
+        });
+        return keys;
+    }
+
+    function projectReportMatchedClauseKeys(workMatches, materialMatches) {
+        return projectReportClauseKeysFromEntries(
+            (workMatches || []).filter(function (entry) {
+                return reportMatchConsumesClause(entry, reportWorkMatchIsConcrete);
+            }).concat((materialMatches || []).filter(function (entry) {
+                return reportMatchConsumesClause(entry, reportMaterialMatchIsConcrete);
+            }))
+        );
+    }
+
+    function projectReportUnmatchedClauses(text, workMatches, materialMatches) {
+        var matched = projectReportMatchedClauseKeys(workMatches, materialMatches);
+        return reportTextClauses(text).filter(function (clause) {
+            return !matched[normalizeReportText(clause)];
+        });
+    }
+
+    function projectReportPreviewAdditionalClauses(text, workMatches, materialMatches) {
+        var semanticMatches = (workMatches || []).filter(function (entry) {
+            return reportMatchConsumesClause(entry, reportWorkMatchIsConcrete);
+        }).concat((materialMatches || []).filter(function (entry) {
+            return reportMatchConsumesClause(entry, reportMaterialMatchIsConcrete);
+        }));
+        var ambiguousMatches = (workMatches || []).filter(function (entry) {
+            return !!(entry && entry.ambiguous);
+        }).concat((materialMatches || []).filter(function (entry) {
+            return !!(entry && entry.ambiguous);
+        }));
+        var claimed = projectReportClauseKeysFromEntries(semanticMatches);
+        var ambiguousClaimed = projectReportClauseKeysFromEntries(ambiguousMatches, true);
+        Object.keys(ambiguousClaimed).forEach(function (key) { claimed[key] = true; });
+        return reportTextClauses(text).filter(function (clause) {
+            return !claimed[normalizeReportText(clause)];
+        });
+    }
+
+    function pruneProjectReportManualSelections(manualSelections, text) {
+        manualSelections = manualSelections || {};
+        var currentClauses = {};
+        reportTextClauses(text).forEach(function (clause) {
+            var key = normalizeReportText(clause);
+            if (key) currentClauses[key] = true;
+        });
+        Object.keys(manualSelections).forEach(function (key) {
+            var selected = manualSelections[key];
+            var clauseKey = normalizeReportText(selected && selected.clauseText || '');
+            if (!clauseKey || !currentClauses[clauseKey]) delete manualSelections[key];
+        });
+        return manualSelections;
+    }
+
+    function projectReportClauseCategory(clause) {
+        var normalized = normalizeReportText(clause);
+        if (/(^|\s)(завтра|далее|следующ|планир|будем|предстоит)(\s|$)/.test(normalized)) return 'next';
+        if (/(ждем|ждём|ожида|нет\s|меша|задерж|проблем|блок|не можем|не\s+согласован|согласовани[ея])/.test(normalized)) return 'blocker';
+        if (reportHasOrderIntent(normalized)) return 'order';
+        if (reportHasPurchaseIntent(normalized)) return 'purchase';
+        if (reportHasReceiptIntent(normalized)) return 'delivery';
+        if (/(сдел|выполн|смонт|монт|установ|улож|демонт|покрас|залил|подключ|почин|дополн)/.test(normalized)) return 'work';
+        return 'note';
+    }
+
+    function projectReportAdditionalParts(clauses, hasRecognizedWork) {
+        var groups = { work: [], order: [], purchase: [], delivery: [], blocker: [], next: [], note: [] };
+        clauses.forEach(function (clause) {
+            groups[projectReportClauseCategory(clause)].push(reportTrimSentence(clause));
+        });
+        var labels = {
+            work: hasRecognizedWork ? 'Дополнительно выполнено' : 'Выполнены работы',
+            order: 'Заказано',
+            purchase: 'Закуплено',
+            delivery: 'Доставлено на объект',
+            blocker: 'Проблемы и ограничения',
+            next: 'Следующий шаг',
+            note: 'Дополнительно зафиксировано'
+        };
+        return ['work', 'order', 'purchase', 'delivery', 'blocker', 'next', 'note'].map(function (kind) {
+            if (!groups[kind].length) return '';
+            return reportSentence(labels[kind] + ': ' + groups[kind].join('; '));
+        }).filter(Boolean);
     }
 
     function buildProjectReportTextFromMatches(text, workMatches, materialMatches) {
         workMatches = Array.isArray(workMatches) ? workMatches : [];
         materialMatches = Array.isArray(materialMatches) ? materialMatches : [];
         var generatedParts = [];
-        var completedWorks = workMatches.filter(function (entry) { return entry.done; });
-        var partialWorks = workMatches.filter(function (entry) { return entry.partial; });
-        var purchasedMaterials = materialMatches.filter(function (entry) { return entry.purchasedQty > 0; });
-        var receivedMaterials = materialMatches.filter(function (entry) { return entry.receivedQty > 0; });
-        var usedMaterials = materialMatches.filter(function (entry) { return entry.usedQty > 0; });
+        var completedWorks = workMatches.filter(function (entry) { return reportWorkMatchIsConcrete(entry) && entry.done; });
+        var partialWorks = workMatches.filter(function (entry) { return reportWorkMatchIsConcrete(entry) && entry.partial; });
+        var notedWorks = workMatches.filter(function (entry) {
+            return reportMatchConsumesClause(entry, reportWorkMatchIsConcrete) && !reportWorkMatchIsConcrete(entry);
+        });
+        var purchasedMaterials = materialMatches.filter(function (entry) { return reportMaterialMatchIsConcrete(entry) && entry.purchasedQty > 0; });
+        var receivedMaterials = materialMatches.filter(function (entry) { return reportMaterialMatchIsConcrete(entry) && entry.receivedQty > 0; });
+        var usedMaterials = materialMatches.filter(function (entry) { return reportMaterialMatchIsConcrete(entry) && entry.usedQty > 0; });
+        var notedMaterials = materialMatches.filter(function (entry) {
+            return reportMatchConsumesClause(entry, reportMaterialMatchIsConcrete) && !reportMaterialMatchIsConcrete(entry);
+        });
         if (completedWorks.length) {
             generatedParts.push('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b \u0440\u0430\u0431\u043e\u0442\u044b: ' + completedWorks.map(function (entry) {
-                return entry.item.title;
-            }).join(', ') + '.');
+                return entry.item.title + (entry.quantityLabel ? ' — ' + entry.quantityLabel : '');
+            }).join('; ') + '.');
         }
         if (partialWorks.length) {
             generatedParts.push('\u0427\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b: ' + partialWorks.map(function (entry) {
+                return entry.item.title + (entry.quantityLabel ? ' — ' + entry.quantityLabel : '');
+            }).join('; ') + '.');
+        }
+        if (notedWorks.length) {
+            generatedParts.push('\u041f\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u043c \u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u043e: ' + notedWorks.map(function (entry) {
                 return entry.item.title;
-            }).join(', ') + '.');
+            }).join('; ') + '.');
         }
         if (purchasedMaterials.length) {
             generatedParts.push('\u0417\u0430\u043a\u0430\u0437\u0430\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b: ' + purchasedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + quantityPlanInfo(entry.item).unit;
-            }).join(', ') + '.');
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + reportEntryQuantityUnit(entry);
+            }).join('; ') + '.');
         }
         if (receivedMaterials.length) {
             generatedParts.push('\u041f\u0440\u0438\u043d\u044f\u0442\u044b \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435: ' + receivedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.receivedQty) + ' ' + quantityPlanInfo(entry.item).unit;
-            }).join(', ') + '.');
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.receivedQty) + ' ' + reportEntryQuantityUnit(entry);
+            }).join('; ') + '.');
         }
         if (usedMaterials.length) {
             generatedParts.push('\u0412 \u0440\u0430\u0431\u043e\u0442\u0443/\u043c\u043e\u043d\u0442\u0430\u0436 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u044b: ' + usedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + quantityPlanInfo(entry.item).unit;
-            }).join(', ') + '.');
+                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + reportEntryQuantityUnit(entry);
+            }).join('; ') + '.');
         }
+        if (notedMaterials.length) {
+            generatedParts.push('\u041f\u043e \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u0430\u043c \u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u043e: ' + notedMaterials.map(function (entry) {
+                return reportMatchSourceText(entry) || entry.item.title;
+            }).join('; ') + '.');
+        }
+        var unmatchedClauses = projectReportUnmatchedClauses(text, workMatches, materialMatches);
+        generatedParts = generatedParts.concat(projectReportAdditionalParts(unmatchedClauses, completedWorks.length + partialWorks.length > 0));
         return buildReadableProjectReportText(text, generatedParts);
+    }
+
+    function buildProjectReportFullText(text, blockers, nextSteps) {
+        var parts = [];
+        var baseText = String(text || '').trim();
+        var uniqueSupplementalPhrases = createReportPhraseDeduper(baseText);
+        if (baseText) parts.push(baseText);
+        [
+            { label: 'Проблемы и ограничения', value: blockers },
+            { label: 'Следующий шаг', value: nextSteps }
+        ].forEach(function (entry) {
+            var phrases = uniqueSupplementalPhrases(entry.value);
+            if (!phrases.length) return;
+            parts.push(reportSentence(entry.label + ': ' + phrases.join('. ')));
+        });
+        return parts.join('\n\n');
+    }
+
+    function renderStructuredFinalReportHtml(draft, blockers, nextSteps) {
+        draft = draft || { workMatches: [], materialMatches: [], unmatchedClauses: [] };
+        var workRows = [];
+        var materialRows = [];
+        var eventRows = [];
+
+        function addUnique(rows, title, detail) {
+            title = reportTrimSentence(title);
+            detail = reportTrimSentence(detail);
+            if (!title) return;
+            var key = normalizeReportText(title + ' ' + detail);
+            if (rows.some(function (row) { return row.key === key; })) return;
+            rows.push({ key: key, title: title, detail: detail });
+        }
+
+        function quantityDetail(label, value, entry) {
+            var unit = reportEntryQuantityUnit(entry);
+            return label + ' ' + finalSectionSummaryNumber(value) + (unit ? ' ' + unit : '');
+        }
+
+        (draft.workMatches || []).forEach(function (entry) {
+            if (!reportMatchConsumesClause(entry, reportWorkMatchIsConcrete)) return;
+            var detail = entry.done ? 'Выполнено' : (entry.partial ? 'Частично выполнено' : 'Упомянуто в отчёте');
+            if (entry.quantityLabel) detail += ' · ' + entry.quantityLabel;
+            addUnique(workRows, entry.item && entry.item.title || 'Работа', detail);
+        });
+
+        (draft.materialMatches || []).forEach(function (entry) {
+            if (!reportMatchConsumesClause(entry, reportMaterialMatchIsConcrete)) return;
+            var details = [];
+            if (Number(entry.purchasedQty || 0) > 0) details.push(quantityDetail('Заказано', entry.purchasedQty, entry));
+            if (Number(entry.receivedQty || 0) > 0) details.push(quantityDetail('Принято', entry.receivedQty, entry));
+            if (Number(entry.usedQty || 0) > 0) details.push(quantityDetail('Передано в работу', entry.usedQty, entry));
+            addUnique(materialRows, entry.item && entry.item.title || 'Материал', details.join(' · ') || reportMatchSourceText(entry) || 'Упомянуто в отчёте');
+        });
+
+        (draft.unmatchedClauses || []).forEach(function (clause) {
+            var category = projectReportClauseCategory(clause);
+            var labels = {
+                order: 'Заказ',
+                purchase: 'Покупка',
+                delivery: 'Поставка',
+                work: 'Дополнительная работа',
+                blocker: 'Блокер',
+                next: 'Следующий шаг',
+                note: 'Событие'
+            };
+            if (category === 'order' || category === 'purchase' || category === 'delivery') {
+                addUnique(materialRows, clause, labels[category]);
+                return;
+            }
+            if (category === 'work') {
+                addUnique(workRows, clause, labels.work);
+                return;
+            }
+            addUnique(eventRows, clause, labels[category] || labels.note);
+        });
+
+        var uniqueSupplementalPhrases = createReportPhraseDeduper(
+            draft.text || (draft.unmatchedClauses || []).join('. ')
+        );
+        uniqueSupplementalPhrases(blockers).forEach(function (phrase) {
+            addUnique(eventRows, phrase, 'Блокер');
+        });
+        uniqueSupplementalPhrases(nextSteps).forEach(function (phrase) {
+            addUnique(eventRows, phrase, 'Следующий шаг');
+        });
+
+        function rowsHtml(rows) {
+            return '<ul class="report-final-list">' + rows.map(function (row) {
+                return '<li><span class="report-final-row-copy"><b>' + escapeHtml(row.title) + '</b><small>' + escapeHtml(row.detail) + '</small></span></li>';
+            }).join('') + '</ul>';
+        }
+
+        function groupHtml(kind, icon, title, rows) {
+            if (!rows.length) return '';
+            return '<section class="report-final-group is-' + escapeHtml(kind) + '" data-report-final-section="' + escapeHtml(kind) + '" aria-label="' + escapeHtml(title) + '">' +
+                '<div class="report-final-group-head"><span aria-hidden="true"><i data-lucide="' + escapeHtml(icon) + '"></i></span><div><b>' + escapeHtml(title) + '</b><small>' + escapeHtml(rows.length) + '</small></div></div>' +
+                rowsHtml(rows) +
+            '</section>';
+        }
+
+        return groupHtml('works', 'hammer', 'Работы', workRows) +
+            groupHtml('materials', 'package-check', 'Закупки и материалы', materialRows) +
+            groupHtml('events', 'sparkles', 'События', eventRows);
     }
 
     function buildProjectReportDraft(projectId, payload) {
         var text = String(payload && payload.raw_input || '').trim() || String(payload && payload.work_done || '').trim();
         var clauses = reportTextClauses(text);
+        var materialChoicesByClause = payload && payload.material_choices_by_clause || {};
+        var workChoicesByClause = payload && payload.work_choices_by_clause || {};
         var workMatchesMap = {};
+        var ambiguousWorkMatches = [];
         var materialMatchesMap = {};
 
         clauses.forEach(function (clause) {
-            workCandidatesForProject(projectId).forEach(function (candidate) {
+            var workCandidates = workCandidatesForProject(projectId);
+            var selectedWorkId = Number(workChoicesByClause[normalizeReportText(clause)] || 0);
+            var clauseWorkMatches = workCandidates.map(function (candidate) {
                 var result = reportWorkResultFromClause(clause, candidate);
-                if (!result) return;
-                var key = scheduleWorkKey(result.sectionTitle, result.item);
-                if (!workMatchesMap[key] || result.score > workMatchesMap[key].score || (result.done && !workMatchesMap[key].done) || Number(result.actualQty || 0) > Number(workMatchesMap[key].actualQty || 0)) {
-                    workMatchesMap[key] = result;
+                return result;
+            }).filter(Boolean);
+            var bestWorkScore = clauseWorkMatches.reduce(function (score, result) {
+                return Math.max(score, Number(result.score || 0));
+            }, 0);
+            var bestWorkMatches = clauseWorkMatches.filter(function (result) {
+                return Number(result.score || 0) === bestWorkScore;
+            });
+            if (selectedWorkId > 0) {
+                var selectedWorkResult = clauseWorkMatches.find(function (result) {
+                    return Number(result.item && result.item.id || 0) === selectedWorkId;
+                });
+                if (!selectedWorkResult) {
+                    var selectedWorkCandidate = workCandidates.find(function (candidate) {
+                        return Number(candidate.item && candidate.item.id || 0) === selectedWorkId;
+                    });
+                    if (selectedWorkCandidate) selectedWorkResult = reportManualWorkEntry(selectedWorkCandidate, clause);
                 }
+                bestWorkMatches = selectedWorkResult ? [selectedWorkResult] : [];
+            }
+            bestWorkMatches.forEach(function (result) {
+                result.selectedManually = selectedWorkId > 0;
+                result.ambiguous = !result.selectedManually && bestWorkMatches.length > 1;
+                if (result.ambiguous) {
+                    result.actionEligible = false;
+                    ambiguousWorkMatches.push(result);
+                    return;
+                }
+                var key = scheduleWorkKey(result.sectionTitle, result.item);
+                if (!workMatchesMap[key]) {
+                    workMatchesMap[key] = {
+                        sectionTitle: result.sectionTitle,
+                        item: result.item,
+                        results: []
+                    };
+                }
+                workMatchesMap[key].results.push(result);
+            });
+            var clauseHasRecognizedWork = bestWorkMatches.some(function (result) {
+                return !result.ambiguous && reportMatchConsumesClause(result, reportWorkMatchIsConcrete);
             });
 
-            var clauseMaterialMatches = materialCandidatesForProject(projectId).map(function (candidate) {
+            var materialCandidates = materialCandidatesForProject(projectId);
+            var selectedMaterialId = Number(materialChoicesByClause[normalizeReportText(clause)] || 0);
+            var clauseMaterialMatches = materialCandidates.map(function (candidate) {
                 return reportMaterialResultFromClause(clause, candidate);
             }).filter(Boolean);
             var bestMaterialScore = clauseMaterialMatches.reduce(function (score, result) {
@@ -5206,26 +5661,124 @@ function renderLogsDayView(project, logs) {
             var bestMaterialMatches = clauseMaterialMatches.filter(function (result) {
                 return Number(result.score || 0) === bestMaterialScore;
             });
+            if (selectedMaterialId > 0) {
+                var selectedResult = clauseMaterialMatches.find(function (result) {
+                    return Number(result.item && result.item.id || 0) === selectedMaterialId;
+                });
+                if (!selectedResult) {
+                    var selectedCandidate = materialCandidates.find(function (candidate) {
+                        return Number(candidate.item && candidate.item.id || 0) === selectedMaterialId;
+                    });
+                    if (selectedCandidate) selectedResult = reportManualMaterialEntry(selectedCandidate, clause);
+                }
+                bestMaterialMatches = selectedResult ? [selectedResult] : [];
+            }
+            if (!selectedMaterialId && clauseHasRecognizedWork) {
+                bestMaterialMatches = bestMaterialMatches.filter(reportMaterialMatchIsConcrete);
+            }
             bestMaterialMatches.forEach(function (result) {
                 var materialId = Number(result.item.id);
                 if (!materialMatchesMap[materialId]) {
                     materialMatchesMap[materialId] = {
                         item: result.item,
+                        reportUnit: '',
+                        clauseTexts: [],
+                        consumedClauseTexts: [],
                         purchasedQty: 0,
                         receivedQty: 0,
-                        usedQty: 0
+                        usedQty: 0,
+                        quantityOperations: { purchase: [], receipt: [], use: [] },
+                        hasUnambiguous: false,
+                        semanticMatch: false
                     };
                 }
-                result.ambiguous = bestMaterialMatches.length > 1;
-                materialMatchesMap[materialId].ambiguous = !!(materialMatchesMap[materialId].ambiguous || result.ambiguous);
-                materialMatchesMap[materialId].actionEligible = !!(materialMatchesMap[materialId].actionEligible || result.actionEligible);
-                materialMatchesMap[materialId].purchasedQty += Number(result.purchasedQty || 0);
-                materialMatchesMap[materialId].receivedQty += Number(result.receivedQty || 0);
-                materialMatchesMap[materialId].usedQty += Number(result.usedQty || 0);
+                result.selectedManually = selectedMaterialId > 0;
+                result.ambiguous = !result.selectedManually && bestMaterialMatches.length > 1;
+                if (result.selectedManually && materialMatchesMap[materialId].ambiguous) {
+                    materialMatchesMap[materialId].clauseTexts = [];
+                    materialMatchesMap[materialId].purchasedQty = 0;
+                    materialMatchesMap[materialId].receivedQty = 0;
+                    materialMatchesMap[materialId].usedQty = 0;
+                    materialMatchesMap[materialId].reportUnit = '';
+                    materialMatchesMap[materialId].actionEligible = false;
+                    materialMatchesMap[materialId].consumedClauseTexts = [];
+                    materialMatchesMap[materialId].quantityOperations = { purchase: [], receipt: [], use: [] };
+                    materialMatchesMap[materialId].hasUnambiguous = false;
+                    materialMatchesMap[materialId].semanticMatch = false;
+                }
+                materialMatchesMap[materialId].selectedManually = !!(materialMatchesMap[materialId].selectedManually || result.selectedManually);
+                materialMatchesMap[materialId].hasUnambiguous = !!(materialMatchesMap[materialId].hasUnambiguous || !result.ambiguous);
+                materialMatchesMap[materialId].ambiguous = materialMatchesMap[materialId].selectedManually
+                    ? false
+                    : !materialMatchesMap[materialId].hasUnambiguous;
+                if (result.clauseText && materialMatchesMap[materialId].clauseTexts.indexOf(result.clauseText) === -1) {
+                    materialMatchesMap[materialId].clauseTexts.push(result.clauseText);
+                }
+                if (!result.ambiguous) {
+                    if (!materialMatchesMap[materialId].reportUnit && result.reportUnit) {
+                        materialMatchesMap[materialId].reportUnit = result.reportUnit;
+                    }
+                    materialMatchesMap[materialId].actionEligible = !!(materialMatchesMap[materialId].actionEligible || result.actionEligible);
+                    materialMatchesMap[materialId].semanticMatch = !!(materialMatchesMap[materialId].semanticMatch || result.semanticMatch);
+                    if (result.clauseText && reportMatchConsumesClause(result, reportMaterialMatchIsConcrete) && materialMatchesMap[materialId].consumedClauseTexts.indexOf(result.clauseText) === -1) {
+                        materialMatchesMap[materialId].consumedClauseTexts.push(result.clauseText);
+                    }
+                    materialMatchesMap[materialId].purchasedQty += Number(result.purchasedQty || 0);
+                    materialMatchesMap[materialId].receivedQty += Number(result.receivedQty || 0);
+                    materialMatchesMap[materialId].usedQty += Number(result.usedQty || 0);
+                    [
+                        { kind: 'purchase', intent: result.purchaseIntent, qty: result.purchasedQty },
+                        { kind: 'receipt', intent: result.receiptIntent, qty: result.receivedQty },
+                        { kind: 'use', intent: result.useIntent, qty: result.usedQty }
+                    ].forEach(function (operation) {
+                        var targetMode = result.quantityMode === 'target_qty' || result.quantityMode === 'target_percent';
+                        if (!operation.intent && !(Number(operation.qty) > 0)) return;
+                        if (!(Number(operation.qty) > 0) && !(targetMode && Number(result.targetQty) >= 0)) return;
+                        materialMatchesMap[materialId].quantityOperations[operation.kind].push({
+                            mode: targetMode ? result.quantityMode : 'delta_qty',
+                            targetQty: targetMode ? Number(result.targetQty) : null,
+                            qty: Number(operation.qty || 0)
+                        });
+                    });
+                }
             });
         });
 
-        var workMatches = Object.keys(workMatchesMap).map(function (key) { return workMatchesMap[key]; });
+        var workMatches = Object.keys(workMatchesMap).map(function (key) {
+            var aggregate = workMatchesMap[key];
+            var results = aggregate.results || [];
+            if (results.length === 1) return results[0];
+            var plan = quantityPlanInfo(aggregate.item);
+            var progress = workActualProgress(projectId, aggregate.sectionTitle, aggregate.item);
+            var runningQty = Number(progress.actual || 0);
+            var clauseTexts = [];
+            results.forEach(function (result) {
+                var resultQty = clampActualQty(result.actualQty, plan.totalQty);
+                if (result.quantityMode === 'target_qty' || result.quantityMode === 'target_percent') {
+                    runningQty = Math.max(runningQty, resultQty);
+                } else {
+                    runningQty = Math.min(plan.totalQty, runningQty + resultQty);
+                }
+                if (result.clauseText && clauseTexts.indexOf(result.clauseText) === -1) clauseTexts.push(result.clauseText);
+            });
+            var deltaQty = Math.max(0, runningQty - Number(progress.actual || 0));
+            return {
+                sectionTitle: aggregate.sectionTitle,
+                item: aggregate.item,
+                clauseText: clauseTexts.join('. '),
+                clauseTexts: clauseTexts,
+                score: Math.max.apply(Math, results.map(function (result) { return Number(result.score || 0); })),
+                actualQty: deltaQty,
+                quantityLabel: reportWorkQuantityLabel('', aggregate.item, deltaQty),
+                quantityMode: 'delta_qty',
+                quantityValue: deltaQty,
+                actionEligible: deltaQty > 0 || results.some(function (result) { return !!result.actionEligible; }),
+                done: plan.totalQty > 0 && runningQty >= plan.totalQty,
+                partial: plan.totalQty > 0 && runningQty > 0 && runningQty < plan.totalQty,
+                ambiguous: false,
+                selectedManually: results.some(function (result) { return !!result.selectedManually; })
+            };
+        }).concat(ambiguousWorkMatches);
         var materialMatches = Object.keys(materialMatchesMap).map(function (key) {
             var entry = materialMatchesMap[key];
             var planned = quantityPlanInfo(entry.item).totalQty;
@@ -5236,17 +5789,34 @@ function renderLogsDayView(project, logs) {
                 entry.purchaseMaxQty = Math.max(planned - Math.max(alreadyPurchased, alreadyReceived), 0);
                 entry.receiptMaxQty = Math.max(planned - alreadyReceived, 0);
                 entry.useMaxQty = Math.max(Number(entry.item.stockBalanceQty != null ? entry.item.stockBalanceQty : (alreadyReceived - alreadyUsed)) || 0, 0);
-                entry.purchasedQty = Math.min(entry.purchaseMaxQty, entry.purchasedQty);
-                entry.receivedQty = Math.min(entry.receiptMaxQty, entry.receivedQty);
-                entry.usedQty = Math.min(entry.useMaxQty, entry.usedQty);
+                function materialOperationDelta(baseQty, maxQty, operations, fallbackQty) {
+                    if (!Array.isArray(operations) || !operations.length) return Math.min(maxQty, Number(fallbackQty || 0));
+                    var upperQty = baseQty + maxQty;
+                    var runningQty = baseQty;
+                    operations.forEach(function (operation) {
+                        if ((operation.mode === 'target_qty' || operation.mode === 'target_percent') && isFinite(Number(operation.targetQty))) {
+                            runningQty = Math.max(runningQty, Math.min(upperQty, Number(operation.targetQty)));
+                        } else {
+                            runningQty = Math.min(upperQty, runningQty + Math.max(0, Number(operation.qty || 0)));
+                        }
+                    });
+                    return Math.max(0, runningQty - baseQty);
+                }
+                var operations = entry.quantityOperations || {};
+                entry.purchasedQty = materialOperationDelta(Math.max(alreadyPurchased, alreadyReceived), entry.purchaseMaxQty, operations.purchase, entry.purchasedQty);
+                entry.receivedQty = materialOperationDelta(alreadyReceived, entry.receiptMaxQty, operations.receipt, entry.receivedQty);
+                entry.usedQty = materialOperationDelta(alreadyUsed, entry.useMaxQty, operations.use, entry.usedQty);
             }
+            delete entry.quantityOperations;
             return entry;
         });
 
         return {
             text: buildProjectReportTextFromMatches(text, workMatches, materialMatches),
             workMatches: workMatches,
-            materialMatches: materialMatches
+            materialMatches: materialMatches,
+            unmatchedClauses: projectReportUnmatchedClauses(text, workMatches, materialMatches),
+            previewAdditionalClauses: projectReportPreviewAdditionalClauses(text, workMatches, materialMatches)
         };
     }
 
@@ -5363,7 +5933,7 @@ function renderLogsDayView(project, logs) {
                 var bits = [];
                 if (entry.purchasedQty > 0) bits.push('\u043a\u0443\u043f\u043b\u0435\u043d\u043e ' + finalSectionSummaryNumber(entry.purchasedQty));
                 if (entry.usedQty > 0) bits.push('\u0432 \u0440\u0430\u0431\u043e\u0442\u0443 ' + finalSectionSummaryNumber(entry.usedQty));
-                return entry.item.title + ' (' + bits.join(', ') + ' ' + (entry.item.unit || '') + ')';
+                return entry.item.title + ' (' + bits.join(', ') + ' ' + reportEntryQuantityUnit(entry) + ')';
             }).join('; ')) + '</span>');
         } else {
             parts.push('<span><b>Материалы:</b> явных совпадений со сметой не найдено.</span>');
@@ -5415,11 +5985,74 @@ function renderLogsDayView(project, logs) {
         });
     }
 
+    function projectCompanyForProject(project) {
+        var code = String(project && project.portfolio_company || '');
+        if (!PROJECT_COMPANY_LABELS[code]) code = projectCompanyCode(project && project.portfolio_company_label);
+        return code;
+    }
+
+    function syncProjectCompanyFilter(projects) {
+        var root = qs('[data-project-company-filter]');
+        if (!root) return;
+        var active = String(state.projectCompanyFilter || 'all');
+        if (!PROJECT_COMPANY_LABELS[active] && active !== 'all') active = 'all';
+        state.projectCompanyFilter = active;
+        var counts = { all: projects.length, uess: 0, pm: 0, strategy: 0 };
+        projects.forEach(function (project) {
+            var code = projectCompanyForProject(project);
+            if (counts[code] != null) counts[code] += 1;
+        });
+        qsa('[data-project-company-filter-value]', root).forEach(function (button) {
+            var value = button.getAttribute('data-project-company-filter-value') || 'all';
+            var selected = value === active;
+            button.classList.toggle('is-active', selected);
+            button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            var count = qs('[data-project-company-count="' + value + '"]', button);
+            if (count) count.textContent = String(counts[value] || 0);
+        });
+    }
+
+    function projectOverviewFilteredProjects(projects) {
+        projects = Array.isArray(projects) ? projects : [];
+        var search = qs('[data-project-search]');
+        var query = String(search && search.value || '').trim().toLocaleLowerCase('ru');
+        var company = String(state.projectCompanyFilter || 'all');
+        return projects.filter(function (project) {
+            if (company !== 'all' && projectCompanyForProject(project) !== company) return false;
+            if (!query) return true;
+            return [project && project.title, project && project.address, project && project.client_name, project && project.status, project && project.portfolio_company_label]
+                .join(' ')
+                .toLocaleLowerCase('ru')
+                .indexOf(query) !== -1;
+        });
+    }
+
+    function applyProjectOverviewFilters() {
+        renderProjectList(state.projects || []);
+    }
+
+    function bindProjectCompanyFilter() {
+        var root = qs('[data-project-company-filter]');
+        if (!root || root.dataset.bound === '1') return;
+        root.dataset.bound = '1';
+        root.addEventListener('click', function (event) {
+            var button = event.target && event.target.closest ? event.target.closest('[data-project-company-filter-value]') : null;
+            if (!button) return;
+            state.projectCompanyFilter = button.getAttribute('data-project-company-filter-value') || 'all';
+            applyProjectOverviewFilters();
+        });
+    }
+
     function renderProjectList(projects) {
         var root = qs('[data-projects-list]');
         if (!root) return;
         try {
             projects = Array.isArray(projects) ? projects : [];
+            if (!isGuestRole() && qs('[data-project-company-filter]')) {
+                var sourceProjects = Array.isArray(state.projects) ? state.projects : projects;
+                syncProjectCompanyFilter(sourceProjects);
+                projects = projectOverviewFilteredProjects(sourceProjects);
+            }
             function projectStatusMeta(project, completed) {
                 var status = String(project && project.status || '').toLocaleLowerCase('ru');
                 if (completed || status.indexOf('заверш') !== -1) return { label: 'Завершен', tone: 'success' };
@@ -5497,11 +6130,34 @@ function renderLogsDayView(project, logs) {
                 var criticalCount = criticalByProject[project.id] || 0;
                 var completed = isCompletedProject(project);
                 var statusMeta = projectStatusMeta(project, completed);
+                if (isGuestRole()) {
+                    return '<article class="project-card guest-project-card ' + (completed ? 'project-completed ' : '') + '" data-project-id="' + escapeHtml(project.id || '') + '">' +
+                        '<div class="project-card-shell">' +
+                            '<div class="project-card-headline">' +
+                                '<div class="project-card-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>' +
+                                '<div class="project-card-heading"><span class="guest-project-kicker">Объект в гостевом доступе</span><h3>' + escapeHtml(project.title || 'Объект') + '</h3><p>Актуальные отчёты и план производства работ</p></div>' +
+                                '<span class="project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>' +
+                            '</div>' +
+                            '<div class="project-card-progress">' +
+                                '<div class="project-progress-label"><span>Готовность объекта</span><strong>' + escapeHtml(String(progress)) + '%</strong></div>' +
+                                '<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:' + progress + '%"></span></div>' +
+                            '</div>' +
+                            '<div class="guest-project-actions">' +
+                                '<button class="guest-project-action" type="button" data-project-quick-tab="reports" data-project-id="' + escapeHtml(project.id || '') + '"><span class="guest-project-action-icon"><i data-lucide="notebook-tabs"></i></span><span class="guest-project-action-copy"><strong>Отчёты</strong><small>Ход работ и события</small></span><i class="guest-project-action-arrow" data-lucide="arrow-right"></i></button>' +
+                                '<button class="guest-project-action is-production" type="button" data-project-quick-tab="production-schedule" data-project-id="' + escapeHtml(project.id || '') + '"><span class="guest-project-action-icon"><i data-lucide="calendar-range"></i></span><span class="guest-project-action-copy"><strong>График производства</strong><small>План работ по дням</small></span><i class="guest-project-action-arrow" data-lucide="arrow-right"></i></button>' +
+                            '</div>' +
+                        '</div>' +
+                    '</article>';
+                }
                 var foremenMeta = projectForemenMeta(project);
                 var statusBadge = '<span class="project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>';
+                var companyCode = projectCompanyForProject(project);
+                var companyBadge = companyCode
+                    ? '<span class="project-company-badge is-' + escapeHtml(companyCode) + '">' + escapeHtml(PROJECT_COMPANY_LABELS[companyCode]) + '</span>'
+                    : '<span class="project-company-badge is-unassigned">Компания не указана</span>';
                 var menuItems = [];
                 if (canEditProjectFromCard()) menuItems.push('<button type="button" data-project-edit="' + escapeHtml(project.id || '') + '"><i data-lucide="pencil"></i><span>Редактировать</span></button>');
-                if (canManageProjectAccess()) menuItems.push('<button type="button" data-project-card-access="' + escapeHtml(project.id || '') + '"><i data-lucide="users"></i><span>Доступ прораба</span></button>');
+                if (canManageProjectAccess()) menuItems.push('<button type="button" data-project-card-access="' + escapeHtml(project.id || '') + '"><i data-lucide="users"></i><span>Ответственные объекта</span></button>');
                 if (canCurrentForemanClaimProject(project)) {
                     menuItems.push('<button type="button" data-project-claim-foreman="' + escapeHtml(project.id || '') + '"><i data-lucide="hand"></i><span>' + (isProjectAssignedToCurrentForeman(project) ? 'Уже мой объект' : 'Взять объект') + '</span></button>');
                 }
@@ -5532,7 +6188,7 @@ function renderLogsDayView(project, logs) {
                                 '<h3>' + escapeHtml(project.title || '\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f') + '</h3>' +
                                 '<p>' + escapeHtml(project.client_name || 'Заказчик не указан') + '</p>' +
                             '</div>' +
-                            '<div class="project-card-tools"><div class="project-badges">' + statusBadge + '</div>' + editButton + '</div>' +
+                            '<div class="project-card-tools"><div class="project-badges">' + companyBadge + statusBadge + '</div>' + editButton + '</div>' +
                         '</div>' +
                         '<div class="project-card-meta">' +
                             '<div class="project-meta-row">' +
@@ -5649,8 +6305,19 @@ function renderLogsDayView(project, logs) {
 
     function renderProjectsPage() {
         try {
-            if (isAdminRole()) loadCompanies(populateProjectCompanySelects);
+            if (isGuestRole()) {
+                var guestPageHead = qs('.page-head[data-project-overview-section]');
+                var guestEyebrow = guestPageHead && qs('.eyebrow', guestPageHead);
+                var guestDescription = guestPageHead && qs('div > p:last-child', guestPageHead);
+                if (guestEyebrow) guestEyebrow.textContent = 'Гостевой доступ';
+                if (guestDescription) guestDescription.textContent = 'Выберите объект, чтобы посмотреть опубликованные отчёты и график производства.';
+            }
             ensureProjectEditCard();
+            populateProjectCompanySelects();
+            if (isAdminRole()) loadCompanies(populateProjectCompanySelects);
+            var companyFilter = qs('[data-project-company-filter]');
+            if (companyFilter) companyFilter.hidden = isGuestRole();
+            bindProjectCompanyFilter();
             bindProjectCreate();
             bindProjectEditForm();
             bindProjectBootstrapForm();
@@ -5664,13 +6331,7 @@ function renderLogsDayView(project, logs) {
                 search.dataset.bound = '1';
                 var applyProjectSearch = debounce(function () {
                     try {
-                        var query = search.value.toLocaleLowerCase('ru');
-                        renderProjectList((state.projects || []).filter(function (project) {
-                            return [project && project.title, project && project.address, project && project.client_name, project && project.status]
-                                .join(' ')
-                                .toLocaleLowerCase('ru')
-                                .indexOf(query) !== -1;
-                        }));
+                        applyProjectOverviewFilters();
                     } catch (error) {
                         console.error('Project search render failed', error);
                         renderProjectList(state.projects || []);
@@ -5909,6 +6570,20 @@ function renderLogsDayView(project, logs) {
         var chatPanel = panel('chat');
         var aiPanel = panel('ai');
         var titleNode = qs('[data-detail-title]') || qs('[data-project-title]');
+        if (isGuestRole()) {
+            if (titleNode) titleNode.textContent = project.title || 'Объект';
+            if (reportsPanel) showSkeleton(reportsPanel, 'feed', 3);
+            if (productionSchedulePanel) showSkeleton(productionSchedulePanel, 'table', 1);
+            syncProjectTabVisibility(root);
+            var guestTab = 'reports';
+            try {
+                var guestParams = new URLSearchParams(location.search);
+                if (guestParams.get('tab') === 'production-schedule') guestTab = 'production-schedule';
+            } catch (guestTabError) {}
+            activateProjectTab(guestTab);
+            refreshProjectReportsTab(project.id, loadingToken);
+            return;
+        }
         var scheduleRenderTimer = null;
         function renderScheduleNow(stages) {
             if (!isCurrentProject(project.id, loadingToken)) return;
@@ -6697,32 +7372,126 @@ function renderLogsDayView(project, logs) {
             || /РїРѕР»РѕРІРёРЅ|50%|С‡Р°СЃС‚РёС‡/.test(normalized);
     }
 
+    function reportQuantityFractionFromClause(text) {
+        var normalized = normalizeReportText(text);
+        var percentMatch = normalized.match(/(\d+(?:[\.,]\d+)?)\s*%/);
+        if (percentMatch) {
+            return Math.max(0, Math.min(1, normalizedQuantityNumber(percentMatch[1]) / 100));
+        }
+        if (/(^|\s)(?:половин[а-я]*|наполовину)(?=\s|$)/.test(normalized)) return 0.5;
+        if (/(^|\s)(?:четверт[а-я]*)(?=\s|$)/.test(normalized)) return 0.25;
+        if (/(^|\s)(?:трет[а-я]*)(?=\s|$)/.test(normalized)) return 1 / 3;
+        return null;
+    }
+
+    function reportWorkQuantityMode(clauseText, item, qty) {
+        var normalized = normalizeReportText(clauseText);
+        var fraction = reportQuantityFractionFromClause(normalized);
+        if (fraction != null) {
+            return {
+                mode: 'target_percent',
+                value: Math.round(fraction * 100000) / 1000
+            };
+        }
+        if (/(?:^|\s)\d+(?:[\.,]\d+)?\s*(?:из|\/|от)\s*\d+(?:[\.,]\d+)?(?:\s|$)/.test(normalized)
+            || /(^|\s)(?:всего|итого|готово|факт|на данный момент)(?=\s|$)/.test(normalized)) {
+            return { mode: 'target_qty', value: Number(qty || 0) };
+        }
+        if (Number(qty) > 0) return { mode: 'delta_qty', value: Number(qty) };
+        var plan = quantityPlanInfo(item);
+        return { mode: 'target_qty', value: Number(plan.totalQty || 0) };
+    }
+
+    function reportMaterialQuantityIntent(clauseText, item, qty) {
+        var normalized = normalizeReportText(clauseText);
+        var plan = quantityPlanInfo(item);
+        var fraction = reportQuantityFractionFromClause(normalized);
+        if (fraction != null && Number(plan.totalQty || 0) > 0) {
+            return {
+                mode: 'target_percent',
+                value: Math.round(fraction * 100000) / 1000,
+                targetQty: Number(plan.totalQty) * fraction
+            };
+        }
+        if (Number(qty) > 0 && (
+            /(?:^|\s)\d+(?:[\.,]\d+)?\s*(?:из|\/|от)\s*\d+(?:[\.,]\d+)?(?:\s|$)/.test(normalized)
+            || /(^|\s)(?:всего|итого|факт|на данный момент)(?=\s|$)/.test(normalized)
+        )) {
+            return { mode: 'target_qty', value: Number(qty), targetQty: Number(qty) };
+        }
+        return { mode: 'delta_qty', value: Number(qty || 0), targetQty: null };
+    }
+
+    function reportHasOrderIntent(text) {
+        var normalized = normalizeReportText(text);
+        return /(^|\s)(?:заказ(?:ал(?:а|и)?|ан(?:а|о|ы)?|ать)?|оформил(?:а|и)?\s+заказ)(?=\s|$)/.test(normalized);
+    }
+
     function reportHasPurchaseIntent(text) {
-        return clauseHasAnyStem(text, [
-            'куп', 'закуп', 'зака', 'приобр',
-            'РєСѓРї', 'Р·Р°РєСѓ', 'Р·Р°РєР°'
-        ]);
+        var normalized = normalizeReportText(text);
+        return reportHasOrderIntent(normalized)
+            || /(^|\s)(?:купил(?:а|и)?|куплен(?:а|о|ы)?|закупил(?:а|и)?|закуплен(?:а|о|ы)?|приобрел(?:а|и)?|приобретен(?:а|о|ы)?|докупил(?:а|и)?|дозакупил(?:а|и)?)(?=\s|$)/.test(normalized);
     }
 
     function reportHasReceiptIntent(text) {
-        return clauseHasAnyStem(text, [
-            'заве', 'дост', 'полу', 'прив', 'приня', 'поставк', 'отгруз',
-            'Р·Р°РІРµ', 'РґРѕСЃС‚', 'РїРѕР»Сѓ', 'РїСЂРёРІ'
-        ]);
+        var normalized = normalizeReportText(text);
+        return /(^|\s)(?:завез(?:ла|ли|ен(?:а|о|ы)?)?|привез(?:ла|ли|ен(?:а|о|ы)?)?|доставил(?:а|и)?|доставлен(?:а|о|ы)?|получил(?:а|и)?|получен(?:а|о|ы)?|принял(?:а|и)?|принят(?:а|о|ы)?|отгрузил(?:а|и)?|отгружен(?:а|о|ы)?)(?=\s|$)/.test(normalized);
     }
 
     function reportHasUseIntent(text) {
-        return clauseHasAnyStem(text, [
-            'уста', 'смон', 'пост', 'улож', 'испо', 'приме', 'перед', 'прове', 'смонт', 'монта', 'сдел',
-            'СѓСЃС‚Р°', 'СЃРјРѕРЅ', 'РїРѕСЃС‚', 'СѓР»РѕР¶', 'РёСЃРїРѕ', 'РїСЂРёРјРµ', 'РїРµСЂРµРґ', 'РїСЂРѕРІРµ'
-        ]);
+        var normalized = normalizeReportText(text);
+        return /(^|\s)(?:установил(?:а|и)?|установлен(?:а|о|ы)?|смонтировал(?:а|и)?|смонтирован(?:а|о|ы)?|монтировал(?:а|и)?|монтирован(?:а|о|ы)?|уложил(?:а|и)?|уложен(?:а|о|ы)?|использовал(?:а|и)?|использован(?:а|о|ы)?|применил(?:а|и)?|применен(?:а|о|ы)?|передал(?:а|и)?|передан(?:а|о|ы)?|провел(?:а|и)?|проведен(?:а|о|ы)?|проложил(?:а|и)?|проложен(?:а|о|ы)?|поставил(?:а|и)?|поставлен(?:а|о|ы)?|подключил(?:а|и)?|подключен(?:а|о|ы)?)(?=\s|$)/.test(normalized);
+    }
+
+    function reportHasWorkCompletionIntent(text) {
+        var normalized = normalizeReportText(text);
+        if (!normalized) return false;
+        if (/(сделал(?:и|а)?\s+заказ|оформил(?:и|а)?.*\sзаказ)/.test(normalized)) return false;
+        if (/\d+(?:[\.,]\d+)?\s*%/.test(normalized)) return true;
+        return /(^|\s)(?:сделал(?:и|а)?|выполнил(?:и|а)?|выполнен(?:а|о|ы)?|завершил(?:и|а)?|заверш[её]н(?:а|о|ы)?|закончил(?:и|а)?|закрыл(?:и|а)?|закрыт(?:а|о|ы)?|смонтировал(?:и|а)?|смонтирован(?:а|о|ы)?|установил(?:и|а)?|установлен(?:а|о|ы)?|уложил(?:и|а)?|уложен(?:а|о|ы)?|демонтировал(?:и|а)?|демонтирован(?:а|о|ы)?|покрасил(?:и|а)?|покрашен(?:а|о|ы)?|залил(?:и|а)?|залит(?:а|о|ы)?|подключил(?:и|а)?|подключ[её]н(?:а|о|ы)?|собрал(?:и|а)?|собран(?:а|о|ы)?|подготовил(?:и|а)?|подготовлен(?:а|о|ы)?|починил(?:и|а)?|отремонтировал(?:и|а)?|восстановил(?:и|а)?|убрал(?:и|а)?|пров[её]л(?:и|а)?|произв[её]л(?:и|а)?|готов(?:а|о|ы)?)(\s|$)/.test(normalized);
     }
 
     function reportTextClauses(value) {
-        return String(value || '')
-            .split(/\n|[.!?;]+|,(?=\s*(?:там\s+)?(?:демонт|постав|куп|закуп|сдел|смонт|монт|установ|улож|использ|примен|перед|привез|завез|получ|закры))/i)
+        var clauses = String(value || '')
+            .split(/\n|[.!?;]+|,\s*(?:и\s+)?(?=(?:там\s+)?(?:(?:дополнительно|также|потом|затем|еще|ещё)\s+)?(?:демонт|постав|куп|закуп|заказ|приобр|сдел|выполн|смонт|монт|установ|улож|использ|примен|перед|привез|завез|достав|получ|закры|покрас|залил|подключ|собрал|подготов|почин|отремонт|восстанов|провел|провёл|произвел|произвёл|убрал))|\s+(?:и\s+)?(?=(?:(?:дополнительно|также|потом|затем|еще|ещё)\s+)?(?:купили|купил|закупили|заказали|заказал|приобрели|сделали|сделал|выполнили|выполнил|смонтировали|установили|уложили|демонтировали|покрасили|покрасил|залили|залил|подключили|подключил|собрали|собрал|подготовили|подготовил|починили|починил|отремонтировали|отремонтировал|восстановили|восстановил|провели|провел|провёл|произвели|произвел|произвёл|убрали|убрал|привезли|завезли|доставили|получили|приняли|ждем|ждём|планируем|будем)(?=\s|$))/i)
             .map(function (part) { return part.trim(); })
             .filter(Boolean);
+        clauses = clauses.reduce(function (result, clause) {
+            if (/^(?:дополнительно|также|потом|затем|еще|ещё|частично|наполовину|полностью)$/i.test(clause)) {
+                result.push(clause);
+                return result;
+            }
+            var previous = result[result.length - 1] || '';
+            if (/^(?:дополнительно|также|потом|затем|еще|ещё|частично|наполовину|полностью)$/i.test(previous)) {
+                result[result.length - 1] = previous + ' ' + clause;
+            } else {
+                result.push(clause);
+            }
+            return result;
+        }, []);
+        var actionWordPattern = /(?:^|\s)(купили|купил|купила|закупили|закупил|закупила|заказали|заказал|заказала|заказаны|заказан|заказана|заказано|приобрели|приобрел|приобрела|привезли|привез|привезла|завезли|завез|завезла|доставили|доставил|доставила|получили|получил|получила|приняли|принял|приняла|использовали|использовал|использовала|передали|передал|передала|сделали|сделал|сделала|выполнили|выполнил|выполнила|смонтировали|смонтировал|смонтировала|смонтированы|смонтирован|смонтирована|смонтировано|установили|установил|установила|уложили|уложил|уложила|демонтировали|демонтировал|демонтировала|покрасили|покрасил|покрасила|залили|залил|залила|подключили|подключил|подключила|собрали|собрал|собрала|подготовили|подготовил|подготовила|починили|починил|починила|отремонтировали|отремонтировал|отремонтировала|восстановили|восстановил|восстановила|провели|провел|провёл|произвели|произвел|произвёл|убрали|убрал|убрала)(?=\s|$)/i;
+        var quantityWithUnitPattern = /\d+(?:[\.,]\d+)?\s*(?:шт\.?|штук[аи]?|ед\.?|м(?:2|3|²|³)?|кв\.?\s*м|куб\.?\s*м|кг|т|л|компл(?:ект)?(?:ов|а)?|упак(?:овок|овки|овка)?)(?=\s|$)/i;
+        var enumeratedBoundaryPattern = /(?:\s+(?:и|а)\s+|,\s*)(?=[^,.;!?]{0,72}\d+(?:[\.,]\d+)?\s*(?:шт\.?|штук[аи]?|ед\.?|м(?:2|3|²|³)?|кв\.?\s*м|куб\.?\s*м|кг|т|л|компл(?:ект)?(?:ов|а)?|упак(?:овок|овки|овка)?)(?=\s|$))/i;
+        return clauses.reduce(function (result, clause) {
+            var narrativeParts = String(clause || '').split(/,\s*(?=(?:(?:но|однако)\s+)?(?:он|она|оно|они|это)(?=\s|$))/i);
+            narrativeParts.forEach(function (narrativePart) {
+                var enumeratedParts = String(narrativePart || '').split(enumeratedBoundaryPattern).map(function (part) {
+                    return part.trim();
+                }).filter(Boolean);
+                if (enumeratedParts.length < 2 || !quantityWithUnitPattern.test(enumeratedParts[0])) {
+                    if (narrativePart.trim()) result.push(narrativePart.trim());
+                    return;
+                }
+                var inheritedAction = '';
+                enumeratedParts.forEach(function (part) {
+                    var actionMatch = part.match(actionWordPattern);
+                    if (actionMatch) inheritedAction = actionMatch[1];
+                    else if (inheritedAction && quantityWithUnitPattern.test(part)) part = inheritedAction + ' ' + part;
+                    result.push(part);
+                });
+            });
+            return result;
+        }, []);
     }
 
     function normalizeReportText(value) {
@@ -6740,6 +7509,8 @@ function renderLogsDayView(project, logs) {
         var normalized = normalizeReportText(raw);
         var planned = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
         var unit = String(item.unit || '').trim();
+        var outOfMatch = normalized.match(/(?:^|\s)(\d+(?:[\.,]\d+)?)\s*(?:из|\/|от)\s*(\d+(?:[\.,]\d+)?)(?:\s|$)/);
+        if (outOfMatch) return normalizedQuantityNumber(outOfMatch[1]);
         var percentMatch = normalized.match(/(\d+(?:[\.,]\d+)?)%/);
         if (percentMatch && planned > 0) {
             return planned * Math.max(0, Math.min(100, Number(String(percentMatch[1]).replace(',', '.')) || 0)) / 100;
@@ -6756,6 +7527,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function reportWorkResultFromClause(clauseText, candidate) {
+        if (!reportHasWorkCompletionIntent(clauseText)) return null;
         var clauseTokens = reportTokens(clauseText);
         var score = reportClauseMatchScore(candidate.tokens, clauseTokens);
         var needed = candidate.tokens.length >= 4 ? 2 : 1;
@@ -6764,13 +7536,28 @@ function renderLogsDayView(project, logs) {
         var qty = reportQuantityFromClause(clauseText, candidate.item);
         var partial = reportHasPartialIntent(clauseText);
         if (planned > 0 && qty > 0 && qty < planned) partial = true;
+        var quantityIntent = reportWorkQuantityMode(clauseText, candidate.item, qty);
         return {
             sectionTitle: candidate.sectionTitle,
             item: candidate.item,
+            clauseText: clauseText,
             score: score,
+            actualQty: qty,
+            quantityLabel: reportWorkQuantityLabel(clauseText, candidate.item, qty),
+            quantityMode: quantityIntent.mode,
+            quantityValue: quantityIntent.value,
+            actionEligible: planned > 0 && (qty > 0 || !partial),
             done: !partial,
             partial: partial
         };
+    }
+
+    function reportWorkQuantityLabel(clauseText, item, qty) {
+        var percentMatch = String(clauseText || '').match(/(\d+(?:[\.,]\d+)?)\s*%/);
+        if (percentMatch) return String(percentMatch[1]).replace(',', '.') + '%';
+        if (!(Number(qty) > 0)) return '';
+        var unit = String(item && item.unit || '').trim();
+        return finalSectionSummaryNumber(qty) + (unit ? ' ' + unit : '');
     }
 
     function reportMaterialResultFromClause(clauseText, candidate) {
@@ -6792,9 +7579,16 @@ function renderLogsDayView(project, logs) {
         var receipt = reportHasReceiptIntent(normalized);
         var used = reportHasUseIntent(normalized);
         if (receipt && /поставк|отгруз/.test(normalized)) used = false;
-        if (!qty && purchase) qty = toOrder;
-        if (!qty && receipt) qty = toReceive;
-        if (!qty && used && reportHasWholeIntent(normalized)) qty = onSite;
+        var targetFraction = reportQuantityFractionFromClause(normalized);
+        if (targetFraction != null && planned > 0) {
+            var targetQty = planned * targetFraction;
+            if (purchase) qty = Math.max(targetQty - Math.max(purchasedAlready, receivedAlready), 0);
+            else if (receipt) qty = Math.max(targetQty - receivedAlready, 0);
+            else if (used) qty = Math.max(targetQty - usedAlready, 0);
+        }
+        if (!qty && targetFraction == null && purchase) qty = toOrder;
+        if (!qty && targetFraction == null && receipt) qty = toReceive;
+        if (!qty && targetFraction == null && used && reportHasWholeIntent(normalized)) qty = onSite;
         var purchasedQty = purchase ? Math.min(qty, planned > 0 ? toOrder : qty) : 0;
         var receivedQty = receipt ? Math.min(qty, (planned > 0 || purchasedAlready > 0) ? toReceive : qty) : 0;
         var usedQty = used ? Math.min(qty, onSite || qty) : 0;
@@ -6802,7 +7596,9 @@ function renderLogsDayView(project, logs) {
             item: item,
             score: score,
             clauseText: clauseText,
-            actionEligible: purchase || receipt || used,
+            reportUnit: reportExplicitQuantityUnit(clauseText),
+            actionEligible: purchasedQty > 0 || receivedQty > 0 || usedQty > 0,
+            semanticMatch: purchase || receipt || used,
             purchasedQty: purchasedQty,
             receivedQty: receivedQty,
             usedQty: usedQty
@@ -6856,7 +7652,7 @@ function renderLogsDayView(project, logs) {
                 if (entry.purchasedQty > 0) bits.push('куплено ' + finalSectionSummaryNumber(entry.purchasedQty));
                 if (entry.usedQty > 0) bits.push('в работу ' + finalSectionSummaryNumber(entry.usedQty));
                 var sectionTitle = String(entry.item.sectionTitle || entry.item.stageTitle || 'Материалы').trim() || 'Материалы';
-                return '<div class="report-preview-section"><b>' + escapeHtml(sectionTitle) + '</b><span>' + escapeHtml(entry.item.title + ' - ' + bits.join(', ') + ' ' + quantityPlanInfo(entry.item).unit) + '</span></div>';
+                return '<div class="report-preview-section"><b>' + escapeHtml(sectionTitle) + '</b><span>' + escapeHtml(entry.item.title + ' - ' + bits.join(', ') + ' ' + reportEntryQuantityUnit(entry)) + '</span></div>';
             }).join('') + '</div>');
         } else {
             html.push('<div class="report-preview-muted">Пока не найдены явные совпадения.</div>');
@@ -6962,9 +7758,41 @@ function renderLogsDayView(project, logs) {
         }).slice(0, 8);
     }
 
+    function reportManualWorkEntry(candidate, rawText) {
+        var item = candidate && candidate.item || {};
+        var clauses = reportTextClauses(rawText);
+        var clauseText = clauses.length ? clauses[clauses.length - 1] : rawText;
+        var plan = quantityPlanInfo(item);
+        var qty = clampActualQty(reportQuantityFromClause(clauseText, item), plan.totalQty);
+        var hasCompletionIntent = reportHasWorkCompletionIntent(clauseText);
+        var partial = reportHasPartialIntent(clauseText) || (plan.totalQty > 0 && qty > 0 && qty < plan.totalQty);
+        var done = plan.totalQty > 0 && (qty >= plan.totalQty || (hasCompletionIntent && !qty && !partial));
+        var appliedQty = done ? plan.totalQty : qty;
+        var quantityIntent = appliedQty > 0
+            ? reportWorkQuantityMode(clauseText, item, appliedQty)
+            : { mode: 'delta_qty', value: 0 };
+        return {
+            sectionTitle: candidate && candidate.sectionTitle || item.sectionTitle || item.section_title || '',
+            item: item,
+            clauseText: clauseText,
+            score: 100,
+            actualQty: appliedQty,
+            quantityLabel: reportWorkQuantityLabel(clauseText, item, qty),
+            quantityMode: quantityIntent.mode,
+            quantityValue: quantityIntent.value,
+            actionEligible: plan.totalQty > 0 && appliedQty > 0,
+            done: done,
+            partial: partial,
+            ambiguous: false,
+            selectedManually: true
+        };
+    }
+
     function reportManualMaterialEntry(candidate, rawText) {
         var item = candidate && candidate.item || {};
-        var normalized = normalizeReportText(rawText);
+        var clauses = reportTextClauses(rawText);
+        var clauseText = clauses.length ? clauses[clauses.length - 1] : rawText;
+        var normalized = normalizeReportText(clauseText);
         var planned = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
         var purchasedAlready = Number(item.purchasedQty || item.purchased_qty || 0);
         var receivedAlready = Number(item.receivedQty || item.received_qty || 0);
@@ -6972,18 +7800,35 @@ function renderLogsDayView(project, logs) {
         var purchaseMaxQty = Math.max(planned - Math.max(purchasedAlready, receivedAlready), 0);
         var receiptMaxQty = Math.max(Math.max(planned, purchasedAlready) - receivedAlready, 0);
         var useMaxQty = Math.max(Number(item.stockBalanceQty != null ? item.stockBalanceQty : (receivedAlready - usedAlready)) || 0, 0);
-        var qty = reportQuantityFromClause(rawText, item);
+        var qty = reportQuantityFromClause(clauseText, item);
         var purchase = reportHasPurchaseIntent(normalized);
         var receipt = reportHasReceiptIntent(normalized);
         var used = reportHasUseIntent(normalized);
         if (receipt && /поставк|отгруз/.test(normalized)) used = false;
-        if (!qty && purchase) qty = purchaseMaxQty;
-        if (!qty && receipt) qty = receiptMaxQty;
-        if (!qty && used && reportHasWholeIntent(normalized)) qty = useMaxQty;
+        var quantityIntent = reportMaterialQuantityIntent(clauseText, item, qty);
+        var targetQty = quantityIntent.targetQty;
+        var qualitativePartial = reportHasPartialIntent(normalized) && targetQty == null && !(qty > 0);
+        if (targetQty != null && planned > 0) {
+            if (purchase) qty = Math.max(targetQty - Math.max(purchasedAlready, receivedAlready), 0);
+            else if (receipt) qty = Math.max(targetQty - receivedAlready, 0);
+            else if (used) qty = Math.max(targetQty - usedAlready, 0);
+        }
+        if (!qty && targetQty == null && purchase && !qualitativePartial) qty = purchaseMaxQty;
+        if (!qty && targetQty == null && receipt && !qualitativePartial) qty = receiptMaxQty;
+        if (!qty && targetQty == null && used && !qualitativePartial && reportHasWholeIntent(normalized)) qty = useMaxQty;
         return {
             item: item,
+            clauseText: clauseText,
+            reportUnit: reportExplicitQuantityUnit(clauseText),
             ambiguous: false,
-            actionEligible: purchase || receipt || used,
+            actionEligible: Number(qty || 0) > 0 && (purchase || receipt || used) && !qualitativePartial,
+            semanticMatch: purchase || receipt || used,
+            purchaseIntent: purchase,
+            receiptIntent: receipt,
+            useIntent: used,
+            quantityMode: quantityIntent.mode,
+            quantityValue: quantityIntent.value,
+            targetQty: targetQty,
             purchaseMaxQty: purchaseMaxQty,
             receiptMaxQty: receiptMaxQty,
             useMaxQty: useMaxQty,
@@ -7003,10 +7848,110 @@ function renderLogsDayView(project, logs) {
             var rawInput = form.raw_input;
             var titleInput = form.title;
             var liveAssist = qs('[data-report-live-assist]', form);
+            var reviewCard = qs('[data-report-review]', form);
+            var reportOnlyButton = qs('[data-report-only-submit]', form);
+            var finalGroups = qs('[data-report-final-groups]', form);
+            var finalText = qs('[data-report-final-text]', form);
             var activeDraft = null;
             var activeRawText = '';
             var activeSuggestionsByKey = {};
             var manualSelections = {};
+            var effectOverrides = {};
+
+            function reportEffectOverrideKey(input) {
+                if (!input) return '';
+                return String(input.getAttribute('data-effect-kind') || '') + ':' + String(input.getAttribute('data-item-id') || '');
+            }
+
+            function captureEffectOverrides() {
+                if (!previewRoot) return;
+                qsa('[data-report-effect]', previewRoot).forEach(function (input) {
+                    var key = reportEffectOverrideKey(input);
+                    if (!key || /:$/.test(key)) return;
+                    var card = input.closest ? input.closest('.report-effect-card') : null;
+                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+                    effectOverrides[key] = {
+                        key: key,
+                        actionType: String(input.getAttribute('data-effect-kind') || ''),
+                        itemId: Number(input.getAttribute('data-item-id') || 0),
+                        checked: !!input.checked,
+                        qty: Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0)
+                    };
+                });
+            }
+
+            function applyEffectOverrides() {
+                if (!previewRoot) return;
+                qsa('[data-report-effect]', previewRoot).forEach(function (input) {
+                    var override = effectOverrides[reportEffectOverrideKey(input)];
+                    if (!override) return;
+                    input.checked = !!override.checked;
+                    var card = input.closest ? input.closest('.report-effect-card') : null;
+                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
+                    if (!qtyInput || !isFinite(Number(override.qty)) || Number(override.qty) <= 0) return;
+                    var maxQty = Number(qtyInput.getAttribute('max') || input.getAttribute('data-effect-max') || 0);
+                    qtyInput.value = String(maxQty > 0 ? Math.min(Number(override.qty), maxQty) : Number(override.qty));
+                });
+            }
+
+            function notifyReportDraftChanged() {
+                if (form._reportDraftRestoring || form._reportDraftSuppress) return;
+                form.dispatchEvent(new CustomEvent('pmbi:report-draft-changed', { bubbles: true }));
+            }
+
+            function reportPreviewDraftSnapshot() {
+                captureEffectOverrides();
+                var selections = Object.keys(manualSelections).map(function (key) {
+                    var selected = manualSelections[key] || {};
+                    var candidate = selected.candidate || {};
+                    var item = candidate.item || {};
+                    var itemSnapshot = {};
+                    Object.keys(item).forEach(function (itemKey) {
+                        var value = item[itemKey];
+                        if (value == null || ['string', 'number', 'boolean'].indexOf(typeof value) !== -1) itemSnapshot[itemKey] = value;
+                    });
+                    return {
+                        key: key,
+                        kind: selected.kind === 'work' ? 'work' : 'material',
+                        clauseText: String(selected.clauseText || ''),
+                        sectionTitle: String(candidate.sectionTitle || candidate.stageTitle || ''),
+                        item: itemSnapshot
+                    };
+                });
+                return {
+                    manualSelections: selections,
+                    effectOverrides: Object.keys(effectOverrides).map(function (key) { return effectOverrides[key]; })
+                };
+            }
+
+            function restoreReportPreviewDraft(snapshot) {
+                snapshot = snapshot || {};
+                manualSelections = {};
+                (Array.isArray(snapshot.manualSelections) ? snapshot.manualSelections : []).slice(0, 12).forEach(function (entry) {
+                    if (!entry || !entry.key || !entry.item || (!entry.item.id && !entry.item.title)) return;
+                    manualSelections[String(entry.key)] = {
+                        kind: entry.kind === 'work' ? 'work' : 'material',
+                        clauseText: String(entry.clauseText || ''),
+                        candidate: {
+                            sectionTitle: String(entry.sectionTitle || ''),
+                            item: entry.item
+                        }
+                    };
+                });
+                effectOverrides = {};
+                (Array.isArray(snapshot.effectOverrides) ? snapshot.effectOverrides : []).slice(0, 24).forEach(function (entry) {
+                    if (!entry || !entry.actionType || !(Number(entry.itemId) > 0)) return;
+                    var key = String(entry.actionType) + ':' + String(Number(entry.itemId));
+                    effectOverrides[key] = {
+                        key: key,
+                        actionType: String(entry.actionType),
+                        itemId: Number(entry.itemId),
+                        checked: entry.checked !== false,
+                        qty: Number(entry.qty || 0)
+                    };
+                });
+                refreshPreview({ skipCapture: true });
+            }
 
             function sameSuggestionEntry(entry, selected) {
                 var entryItem = entry && entry.item || {};
@@ -7015,26 +7960,67 @@ function renderLogsDayView(project, logs) {
                 return normalizeReportText(entryItem.title || '') === normalizeReportText(selectedItem.title || '');
             }
 
+            function manualMaterialChoicesByClause() {
+                var choices = {};
+                Object.keys(manualSelections).forEach(function (key) {
+                    var selected = manualSelections[key];
+                    var item = selected && selected.candidate && selected.candidate.item || {};
+                    var clauseKey = normalizeReportText(selected && selected.clauseText || '');
+                    if (selected && selected.kind === 'material' && clauseKey && Number(item.id || 0) > 0) {
+                        choices[clauseKey] = Number(item.id);
+                    }
+                });
+                return choices;
+            }
+
+            function manualWorkChoicesByClause() {
+                var choices = {};
+                Object.keys(manualSelections).forEach(function (key) {
+                    var selected = manualSelections[key];
+                    var item = selected && selected.candidate && selected.candidate.item || {};
+                    var clauseKey = normalizeReportText(selected && selected.clauseText || '');
+                    if (selected && selected.kind === 'work' && clauseKey && Number(item.id || 0) > 0) {
+                        choices[clauseKey] = Number(item.id);
+                    }
+                });
+                return choices;
+            }
+
             function mergeManualSelections(draft, rawText) {
+                pruneProjectReportManualSelections(manualSelections, rawText);
+                var clauses = reportTextClauses(rawText);
+                var latestClause = clauses.length ? clauses[clauses.length - 1] : rawText;
                 Object.keys(manualSelections).forEach(function (key) {
                     var selected = manualSelections[key];
                     if (!selected || !selected.candidate) return;
+                    var selectedClause = String(selected.clauseText || latestClause || rawText).trim();
                     if (selected.kind === 'work') {
-                        if (draft.workMatches.some(function (entry) { return sameSuggestionEntry(entry, selected); })) return;
-                        draft.workMatches.push({
-                            sectionTitle: reportSuggestionSection(selected.candidate, 'Работы'),
-                            item: selected.candidate.item,
-                            score: 100,
-                            done: !reportHasPartialIntent(rawText),
-                            partial: reportHasPartialIntent(rawText),
-                            selectedManually: true
-                        });
+                        var existingWork = draft.workMatches.find(function (entry) { return sameSuggestionEntry(entry, selected); });
+                        if (existingWork) {
+                            existingWork.selectedManually = true;
+                            existingWork.ambiguous = false;
+                            if (!existingWork.clauseText) existingWork.clauseText = selectedClause;
+                            if (Array.isArray(existingWork.clauseTexts) && selectedClause && existingWork.clauseTexts.indexOf(selectedClause) === -1) existingWork.clauseTexts.push(selectedClause);
+                            return;
+                        }
+                        draft.workMatches.push(reportManualWorkEntry(selected.candidate, selectedClause));
                         return;
                     }
-                    if (draft.materialMatches.some(function (entry) { return sameSuggestionEntry(entry, selected); })) return;
-                    draft.materialMatches.push(reportManualMaterialEntry(selected.candidate, rawText));
+                    var existingMaterial = draft.materialMatches.find(function (entry) { return sameSuggestionEntry(entry, selected); });
+                    if (existingMaterial) {
+                        existingMaterial.selectedManually = true;
+                        existingMaterial.ambiguous = false;
+                        if (!Array.isArray(existingMaterial.clauseTexts)) existingMaterial.clauseTexts = [];
+                        if (!Array.isArray(existingMaterial.consumedClauseTexts)) existingMaterial.consumedClauseTexts = [];
+                        if (selectedClause && existingMaterial.clauseTexts.indexOf(selectedClause) === -1) existingMaterial.clauseTexts.push(selectedClause);
+                        if (selectedClause && existingMaterial.consumedClauseTexts.indexOf(selectedClause) === -1) existingMaterial.consumedClauseTexts.push(selectedClause);
+                        return;
+                    }
+                    draft.materialMatches.push(reportManualMaterialEntry(selected.candidate, selectedClause));
                 });
                 draft.text = buildProjectReportTextFromMatches(rawText, draft.workMatches, draft.materialMatches);
+                draft.unmatchedClauses = projectReportUnmatchedClauses(rawText, draft.workMatches, draft.materialMatches);
+                draft.previewAdditionalClauses = projectReportPreviewAdditionalClauses(rawText, draft.workMatches, draft.materialMatches);
                 return draft;
             }
 
@@ -7052,18 +8038,19 @@ function renderLogsDayView(project, logs) {
                     var selected = manualSelections[key];
                     var item = selected.candidate.item || {};
                     var label = selected.kind === 'work' ? 'Работа' : 'Материал';
-                    return '<span class="report-live-picked-item is-' + selected.kind + '"><small>' + label + '</small><b>' + escapeHtml(item.title || 'Позиция') + '</b><button type="button" data-report-suggestion-remove="' + escapeHtml(key) + '" aria-label="Убрать позицию ' + escapeHtml(item.title || '') + '">×</button></span>';
+                    return '<span class="report-live-picked-item is-' + selected.kind + '"><small>' + label + '</small><b>' + escapeHtml(item.title || 'Позиция') + '</b><button type="button" data-report-suggestion-remove="' + escapeHtml(key) + '" aria-label="Убрать позицию ' + escapeHtml(item.title || '') + '"><i data-lucide="x" aria-hidden="true"></i></button></span>';
                 }).join('');
                 var suggestionsHtml = suggestions.map(function (suggestion) {
                     var item = suggestion.candidate.item || {};
                     var key = reportSuggestionKey(suggestion.kind, suggestion.candidate);
                     var label = suggestion.kind === 'work' ? 'Работа' : 'Материал';
                     var section = reportSuggestionSection(suggestion.candidate, suggestion.kind === 'work' ? 'График работ' : 'Смета материалов');
-                    var unit = suggestion.kind === 'material' && item.unit ? (' · ' + item.unit) : '';
+                    var safeUnit = suggestion.kind === 'material' ? reportSafeQuantityUnit(item.unit) : '';
+                    var unit = safeUnit ? (' · ' + safeUnit) : '';
                     return '<button class="report-live-suggestion is-' + suggestion.kind + '" type="button" data-report-suggestion="' + escapeHtml(key) + '">' +
                         '<span class="report-live-kind">' + label + '</span>' +
                         '<span class="report-live-copy"><b>' + escapeHtml(item.title || 'Позиция') + '</b><small>' + escapeHtml(section + unit) + '</small></span>' +
-                        '<span class="report-live-add" aria-hidden="true">+</span>' +
+                        '<span class="report-live-add" aria-hidden="true"><i data-lucide="plus"></i></span>' +
                     '</button>';
                 }).join('');
                 var hasQuery = normalizeReportText(rawText).length >= 3;
@@ -7076,27 +8063,78 @@ function renderLogsDayView(project, logs) {
                     '<div class="report-live-assist-head"><div><b>Подсказки по объекту</b><span>Выберите, что вы имели в виду</span></div><small>' + (suggestions.length ? ('Найдено: ' + suggestions.length) : 'Можно продолжить ввод') + '</small></div>' +
                     (selectedItems ? '<div class="report-live-picked">' + selectedItems + '</div>' : '') +
                     (suggestionsHtml ? '<div class="report-live-suggestions">' + suggestionsHtml + '</div>' : '<div class="report-live-empty">Совпадений пока нет. Продолжайте писать название работы или материала.</div>');
+                refreshLucideIcons(liveAssist);
+            }
+            function refreshStructuredFinalReport() {
+                if (!finalGroups || !activeDraft) return;
+                finalGroups.innerHTML = renderStructuredFinalReportHtml(
+                    activeDraft,
+                    form.blockers && form.blockers.value || '',
+                    form.next_steps && form.next_steps.value || ''
+                );
+                if (finalText) finalText.value = activeRawText ? buildProjectReportFullText(
+                    activeDraft.text,
+                    form.blockers && form.blockers.value || '',
+                    form.next_steps && form.next_steps.value || ''
+                ) : '';
+                refreshLucideIcons(finalGroups);
             }
             function syncReportTextFromEffectQuantities() {
                 if (!previewRoot || !activeDraft) return;
                 qsa('[data-report-effect]', previewRoot).forEach(function (input) {
-                    var materialId = Number(input.getAttribute('data-item-id') || 0);
+                    var itemId = Number(input.getAttribute('data-item-id') || 0);
                     var kind = input.getAttribute('data-effect-kind') || '';
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
                     var qty = Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0);
+                    if (!isFinite(qty) || qty < 0) return;
+                    if (kind === 'work_progress') {
+                        var workEntry = (activeDraft.workMatches || []).find(function (candidate) {
+                            return Number(candidate && candidate.item && candidate.item.id || 0) === itemId && !candidate.ambiguous;
+                        });
+                        var originalQty = Number(input.getAttribute('data-original-effect-qty') || 0);
+                        if (workEntry) {
+                            if (!workEntry._effectOriginal) {
+                                workEntry._effectOriginal = {
+                                    actualQty: workEntry.actualQty,
+                                    quantityMode: workEntry.quantityMode,
+                                    quantityValue: workEntry.quantityValue,
+                                    quantityLabel: workEntry.quantityLabel,
+                                    done: workEntry.done,
+                                    partial: workEntry.partial
+                                };
+                            }
+                            if (Math.abs(qty - originalQty) > 1e-9) {
+                                workEntry.actualQty = qty;
+                                workEntry.quantityMode = 'delta_qty';
+                                workEntry.quantityValue = qty;
+                                workEntry.quantityLabel = reportWorkQuantityLabel('', workEntry.item || {}, qty);
+                                workEntry.done = false;
+                                workEntry.partial = true;
+                            } else {
+                                workEntry.actualQty = workEntry._effectOriginal.actualQty;
+                                workEntry.quantityMode = workEntry._effectOriginal.quantityMode;
+                                workEntry.quantityValue = workEntry._effectOriginal.quantityValue;
+                                workEntry.quantityLabel = workEntry._effectOriginal.quantityLabel;
+                                workEntry.done = workEntry._effectOriginal.done;
+                                workEntry.partial = workEntry._effectOriginal.partial;
+                            }
+                        }
+                        return;
+                    }
                     var entry = (activeDraft.materialMatches || []).find(function (candidate) {
-                        return Number(candidate && candidate.item && candidate.item.id || 0) === materialId;
+                        return Number(candidate && candidate.item && candidate.item.id || 0) === itemId;
                     });
-                    if (!entry || !isFinite(qty) || qty < 0) return;
+                    if (!entry) return;
                     if (kind === 'material_purchase') entry.purchasedQty = qty;
                     if (kind === 'material_receipt') entry.receivedQty = qty;
                     if (kind === 'material_use') entry.usedQty = qty;
                 });
                 activeDraft.text = buildProjectReportTextFromMatches(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
+                activeDraft.unmatchedClauses = projectReportUnmatchedClauses(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
+                activeDraft.previewAdditionalClauses = projectReportPreviewAdditionalClauses(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
                 if (workDone) workDone.value = activeRawText ? activeDraft.text : '';
-                var textNode = qs('[data-report-preview-text]', previewRoot);
-                if (textNode) textNode.textContent = activeDraft.text || 'Текст появится после ввода.';
+                refreshStructuredFinalReport();
             }
             function refreshEffectsSummary() {
                 if (!previewRoot) return;
@@ -7105,6 +8143,13 @@ function renderLogsDayView(project, logs) {
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
                     if (qtyInput) qtyInput.disabled = !input.checked;
+                    var resultNode = card ? qs('[data-report-effect-result]', card) : null;
+                    if (resultNode) {
+                        var baseQty = Number(input.getAttribute('data-effect-base') || 0);
+                        var qty = Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0);
+                        var unitNode = card ? qs('.report-effect-quantity > em', card) : null;
+                        resultNode.textContent = finalSectionSummaryNumber(Math.max(0, baseQty + (isFinite(qty) ? qty : 0))) + ' ' + (unitNode ? unitNode.textContent : '');
+                    }
                 });
                 var count = qsa('[data-report-effect]:checked', previewRoot).filter(function (input) {
                     var card = input.closest ? input.closest('.report-effect-card') : null;
@@ -7115,23 +8160,28 @@ function renderLogsDayView(project, logs) {
                 var titleNode = qs('[data-report-effects-title]', previewRoot);
                 var noteNode = qs('[data-report-effects-note]', previewRoot);
                 if (titleNode) titleNode.innerHTML = count
-                    ? 'Сохранится: отчёт · действий по материалам: <span data-report-effects-count>' + count + '</span>'
+                    ? 'Сохранится: отчёт · действий в учёте: <span data-report-effects-count>' + count + '</span>'
                     : 'Сохранится только отчёт';
                 if (noteNode) noteNode.textContent = count
-                    ? 'Проверьте количество. Отмеченные действия попадут в учёт вместе с отчётом.'
+                    ? 'Проверьте объёмы. Отмеченные работы и материалы попадут в учёт вместе с отчётом.'
                     : 'Учёт материалов и работ не изменится.';
                 if (summary) summary.classList.toggle('is-report-only', count === 0);
+                if (reportOnlyButton) reportOnlyButton.hidden = count === 0;
             }
-            function refreshPreview() {
+            function refreshPreview(options) {
+                if (!options || options.skipCapture !== true) captureEffectOverrides();
                 var rawText = rawInput ? rawInput.value.trim() : '';
                 var projectId = Number(form.project_id && form.project_id.value || 0);
                 var draft = buildProjectReportDraft(projectId, {
                     raw_input: rawText,
-                    work_done: ''
+                    work_done: '',
+                    work_choices_by_clause: manualWorkChoicesByClause(),
+                    material_choices_by_clause: manualMaterialChoicesByClause()
                 });
                 draft = mergeManualSelections(draft, rawText);
                 activeDraft = draft;
                 activeRawText = rawText;
+                if (reviewCard) reviewCard.hidden = !rawText;
                 if (workDone) {
                     workDone.value = rawText ? draft.text : '';
                     workDone.dataset.autogenerated = '1';
@@ -7140,38 +8190,69 @@ function renderLogsDayView(project, logs) {
                     titleInput.value = 'Отчет за ' + (form.report_date && form.report_date.value ? form.report_date.value : APP_TODAY);
                     titleInput.dataset.autogenerated = '1';
                 }
-                if (previewRoot) previewRoot.innerHTML = renderReportPreviewHtml(projectId, rawText ? draft : { text: '', workMatches: [], materialMatches: [] });
+                if (previewRoot) {
+                    previewRoot.innerHTML = renderReportPreviewHtml(projectId, rawText ? draft : { text: '', workMatches: [], materialMatches: [] });
+                    refreshLucideIcons(previewRoot);
+                }
+                applyEffectOverrides();
                 renderLiveAssist(rawText);
                 refreshEffectsSummary();
             }
             if (rawInput) rawInput.addEventListener('input', refreshPreview);
             if (form.report_date) form.report_date.addEventListener('change', refreshPreview);
+            [form.blockers, form.next_steps].forEach(function (control) {
+                if (control) control.addEventListener('input', refreshStructuredFinalReport);
+            });
             if (previewRoot) previewRoot.addEventListener('change', function (event) {
-                if (event.target && event.target.matches('[data-report-effect], [data-report-effect-qty]')) refreshEffectsSummary();
+                if (event.target && event.target.matches('[data-report-effect], [data-report-effect-qty]')) {
+                    captureEffectOverrides();
+                    refreshEffectsSummary();
+                    notifyReportDraftChanged();
+                }
             });
             if (previewRoot) previewRoot.addEventListener('input', function (event) {
-                if (event.target && event.target.matches('[data-report-effect-qty]')) refreshEffectsSummary();
+                if (event.target && event.target.matches('[data-report-effect-qty]')) {
+                    captureEffectOverrides();
+                    refreshEffectsSummary();
+                    notifyReportDraftChanged();
+                }
             });
             if (liveAssist) liveAssist.addEventListener('click', function (event) {
                 var addButton = event.target && event.target.closest ? event.target.closest('[data-report-suggestion]') : null;
                 var removeButton = event.target && event.target.closest ? event.target.closest('[data-report-suggestion-remove]') : null;
                 if (addButton) {
                     var suggestionKey = addButton.getAttribute('data-report-suggestion') || '';
-                    if (activeSuggestionsByKey[suggestionKey]) manualSelections[suggestionKey] = activeSuggestionsByKey[suggestionKey];
+                    if (activeSuggestionsByKey[suggestionKey]) {
+                        var selectedSuggestion = Object.assign({}, activeSuggestionsByKey[suggestionKey]);
+                        var currentText = rawInput ? rawInput.value.trim() : '';
+                        var currentClauses = reportTextClauses(currentText);
+                        selectedSuggestion.clauseText = currentClauses.length
+                            ? currentClauses[currentClauses.length - 1]
+                            : currentText;
+                        manualSelections[suggestionKey] = selectedSuggestion;
+                    }
                     refreshPreview();
+                    notifyReportDraftChanged();
                     if (rawInput) rawInput.focus();
                     return;
                 }
                 if (removeButton) {
                     delete manualSelections[removeButton.getAttribute('data-report-suggestion-remove') || ''];
                     refreshPreview();
+                    notifyReportDraftChanged();
                     if (rawInput) rawInput.focus();
                 }
             });
             form.addEventListener('reset', function () {
                 manualSelections = {};
                 activeSuggestionsByKey = {};
+                effectOverrides = {};
             });
+            form._reportPreviewDraftController = {
+                serialize: reportPreviewDraftSnapshot,
+                restore: restoreReportPreviewDraft,
+                refresh: refreshPreview
+            };
             refreshPreview();
         });
     };
@@ -7224,10 +8305,20 @@ function renderLogsDayView(project, logs) {
 
     renderReportPreviewHtml = function (projectId, draft) {
         draft = draft || { text: '', workMatches: [], materialMatches: [] };
-        var workMatches = Array.isArray(draft.workMatches) ? draft.workMatches : [];
-        var materialMatches = Array.isArray(draft.materialMatches) ? draft.materialMatches : [];
+        var workMatches = (Array.isArray(draft.workMatches) ? draft.workMatches : []).filter(function (entry) {
+            return !!(entry && entry.ambiguous) || reportMatchConsumesClause(entry, reportWorkMatchIsConcrete);
+        });
+        var materialMatches = (Array.isArray(draft.materialMatches) ? draft.materialMatches : []).filter(function (entry) {
+            return !!(entry && entry.ambiguous) || reportMatchConsumesClause(entry, reportMaterialMatchIsConcrete);
+        });
+        var unmatchedClauses = Array.isArray(draft.previewAdditionalClauses)
+            ? draft.previewAdditionalClauses
+            : (Array.isArray(draft.unmatchedClauses) ? draft.unmatchedClauses : []);
         if (!draft.text && !workMatches.length && !materialMatches.length) {
-            return '<div class="report-preview-empty"><b>Можно просто сказать, что произошло</b><span>Например: «Заказал дверные ручки. Привезли кабель 40 м. Ждём электрика».</span></div>';
+            return '<div class="report-preview-empty"><span class="report-preview-empty-icon" aria-hidden="true"><i data-lucide="message-square-dashed"></i></span><span class="report-preview-empty-copy"><b>Можно просто сказать, что произошло</b><span>Например: «Заказал дверные ручки. Привезли кабель 40 м. Ждём электрика».</span></span></div>';
+        }
+        function previewTitle(icon, title, note) {
+            return '<div class="report-preview-title"><span class="report-preview-title-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(icon) + '"></i></span><span class="report-preview-title-copy"><strong>' + escapeHtml(title) + '</strong><small>' + escapeHtml(note) + '</small></span></div>';
         }
         function groupedBySection(entries, fallback) {
             var groups = {};
@@ -7246,42 +8337,87 @@ function renderLogsDayView(project, logs) {
             });
         }
         var effectCount = 0;
-        function materialEffect(entry, kind, qty, maxQty, label, note) {
-            if (!canApplyDailyReportMaterialActions() || !(Number(qty) > 0) || !(Number(maxQty) > 0) || entry.ambiguous) return '';
+        function reportEffectValue(value) {
+            return finalSectionSummaryNumber(Math.max(0, Number(value) || 0));
+        }
+        function quantityEffect(entry, kind, qty, maxQty, label, note, baseQty, plannedQty, canApply, quantityMode, quantityValue, baseLabel) {
+            if (!canApply || !(Number(qty) > 0) || !(Number(maxQty) > 0) || entry.ambiguous) return '';
             effectCount += 1;
             var item = entry.item || {};
-            var unit = quantityPlanInfo(item).unit || item.unit || '';
+            var unit = reportEntryQuantityUnit(entry);
             var actionId = kind + ':' + String(item.id || '') + ':' + String(effectCount);
             var controlId = 'report-effect-' + String(item.id || 'item') + '-' + String(effectCount);
+            var safeQty = Math.min(Number(qty) || 0, Number(maxQty) || 0);
+            var resultQty = Math.min(Number(plannedQty) || (Number(baseQty) + safeQty), Number(baseQty) + safeQty);
             return '<div class="report-effect-card is-' + escapeHtml(kind) + '">' +
                 '<label class="report-effect-toggle" for="' + escapeHtml(controlId) + '">' +
-                    '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(Number(qty)) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
-                    '<span class="report-effect-check" aria-hidden="true">✓</span>' +
+                    '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(safeQty) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-effect-base="' + escapeHtml(Number(baseQty) || 0) + '" data-original-effect-qty="' + escapeHtml(safeQty) + '" data-quantity-mode="' + escapeHtml(quantityMode || 'delta_qty') + '" data-input-value="' + escapeHtml(quantityValue != null ? quantityValue : safeQty) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
+                    '<span class="report-effect-check" aria-hidden="true"><i data-lucide="check"></i></span>' +
                     '<span class="report-effect-copy"><b>' + escapeHtml(label) + '</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>' + escapeHtml(note) + '</small></span>' +
                 '</label>' +
-                '<label class="report-effect-quantity"><span>Количество</span><input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(Number(qty)) + '" data-report-effect-qty aria-label="Количество: ' + escapeHtml(item.title || 'материал') + '"><em>' + escapeHtml(unit || 'ед.') + '</em></label>' +
+                '<div class="report-effect-metrics">' +
+                    '<span class="report-effect-metric"><small>План</small><b>' + escapeHtml(reportEffectValue(plannedQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
+                    '<span class="report-effect-metric"><small>' + escapeHtml(baseLabel || 'Уже выполнено') + '</small><b>' + escapeHtml(reportEffectValue(baseQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
+                    '<label class="report-effect-quantity report-effect-metric"><span>Из отчёта</span><input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(safeQty) + '" data-report-effect-qty aria-label="Количество из отчёта: ' + escapeHtml(item.title || 'позиция') + '"><em>' + escapeHtml(unit || 'ед.') + '</em></label>' +
+                    '<span class="report-effect-metric report-effect-result"><small>Итого</small><b data-report-effect-result>' + escapeHtml(reportEffectValue(resultQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
+                '</div>' +
             '</div>';
         }
-        var html = ['<div class="report-preview-board">'];
-        html.push('<section class="report-preview-card report-preview-card-main"><div class="report-preview-title"><strong>Текст отчёта</strong><span>Сохранится в журнале</span></div><p data-report-preview-text>' + escapeHtml(draft.text || 'Текст появится после ввода.') + '</p></section>');
-        html.push('<section class="report-preview-card"><div class="report-preview-title"><strong>Работы</strong><span>Пока только в журнал</span></div>');
-        if (workMatches.length) {
-            html.push('<div class="report-preview-sections">' + groupedBySection(workMatches, 'Работы').map(function (group) {
-                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-preview-items">' + group.entries.map(function (entry) {
-                    var item = entry.item || {};
-                    return '<span class="' + (entry.partial ? 'is-partial' : 'is-done') + '"><b>' + escapeHtml(entry.partial ? 'Частично' : 'Распознано') + '</b>' + escapeHtml(item.title || 'Работа') + '<small>Фактический объём не изменится без отдельного подтверждения в работах</small></span>';
-                }).join('') + '</div></div>';
-            }).join('') + '</div>');
-        } else {
-            html.push('<div class="report-preview-muted">Пока не нашел работы из графика. Можно написать точнее название работы или раздел.</div>');
+        function materialEffect(entry, kind, qty, maxQty, label, note) {
+            var item = entry.item || {};
+            var plan = quantityPlanInfo(item);
+            var purchased = Number(item.purchasedQty || item.purchased_qty || 0);
+            var received = Number(item.receivedQty || item.received_qty || 0);
+            var used = Number(item.usedQty || item.used_qty || 0) + Number(item.writeoffQty || item.writeoff_qty || 0);
+            var baseQty = kind === 'material_purchase' ? Math.max(purchased, received) : (kind === 'material_receipt' ? received : used);
+            var baseLabel = kind === 'material_purchase' ? 'Уже закуплено' : (kind === 'material_receipt' ? 'Уже принято' : 'Уже использовано');
+            return quantityEffect(entry, kind, qty, maxQty, label, note, baseQty, plan.totalQty, canApplyDailyReportMaterialActions(), 'delta_qty', qty, baseLabel);
         }
-        html.push('</section><section class="report-preview-card report-effects-card"><div class="report-preview-title"><strong>Материалы</strong><span>Выберите, что применить</span></div>');
-        if (materialMatches.length) {
-            html.push('<div class="report-preview-sections">' + groupedBySection(materialMatches, 'Материалы').map(function (group) {
+        function workEffect(entry) {
+            var item = entry.item || {};
+            var progress = workActualProgress(projectId, entry.sectionTitle, item);
+            var remaining = Math.max(Number(progress.total || 0) - Number(progress.actual || 0), 0);
+            var quantityMode = entry.quantityMode || 'delta_qty';
+            var reportQty = Number(entry.actualQty || 0);
+            var appliedQty = quantityMode === 'target_qty' || quantityMode === 'target_percent'
+                ? Math.max(reportQty - Number(progress.actual || 0), 0)
+                : reportQty;
+            appliedQty = Math.min(appliedQty, remaining);
+            return quantityEffect(
+                entry,
+                'work_progress',
+                appliedQty,
+                remaining,
+                entry.partial ? 'Частично выполнено' : 'Выполнено',
+                quantityMode === 'target_percent' ? ('распознано ' + reportEffectValue(entry.quantityValue) + '% готовности') : 'увеличит фактический объём работы',
+                progress.actual,
+                progress.total,
+                canApplyDailyReportWorkActions(),
+                quantityMode,
+                entry.quantityValue,
+                'Уже выполнено'
+            );
+        }
+        var html = ['<div class="report-preview-board">'];
+        if (workMatches.length) {
+            html.push('<section class="report-preview-card report-effects-card">' + previewTitle('hammer', 'Работы', 'Проверьте объём перед применением') + '<div class="report-preview-sections">' + groupedBySection(workMatches, 'Работы').map(function (group) {
                 return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-effect-list">' + group.entries.map(function (entry) {
                     var item = entry.item || {};
                     if (entry.ambiguous) {
-                        return '<div class="report-effect-card is-review"><span class="report-effect-check" aria-hidden="true">?</span><span class="report-effect-copy"><b>Нужно уточнить позицию</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Нашлось несколько похожих материалов — изменение не применится</small></span></div>';
+                        return '<div class="report-effect-card is-review"><span class="report-effect-check" aria-hidden="true"><i data-lucide="circle-help"></i></span><span class="report-effect-copy"><b>Нужно уточнить работу</b><strong>' + escapeHtml(item.title || 'Работа') + '</strong><small>Нашлось несколько похожих работ — фактический объём не изменится</small></span></div>';
+                    }
+                    var effect = workEffect(entry);
+                    if (effect) return effect;
+                    return '<div class="report-effect-card is-report-only"><span class="report-effect-check" aria-hidden="true"><i data-lucide="info"></i></span><span class="report-effect-copy"><b>Только в отчёт</b><strong>' + escapeHtml(item.title || 'Работа') + '</strong><small>План исчерпан или объём не определён — фактическое выполнение не изменится</small></span></div>';
+                }).join('') + '</div></div>';
+            }).join('') + '</div></section>');
+        }
+        if (materialMatches.length) {
+            html.push('<section class="report-preview-card report-effects-card">' + previewTitle('boxes', 'Материалы', 'Выберите, что применить') + '<div class="report-preview-sections">' + groupedBySection(materialMatches, 'Материалы').map(function (group) {
+                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-effect-list">' + group.entries.map(function (entry) {
+                    var item = entry.item || {};
+                    if (entry.ambiguous) {
+                        return '<div class="report-effect-card is-review"><span class="report-effect-check" aria-hidden="true"><i data-lucide="circle-help"></i></span><span class="report-effect-copy"><b>Нужно уточнить позицию</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Нашлось несколько похожих материалов — изменение не применится</small></span></div>';
                     }
                     var actions = [
                         materialEffect(entry, 'material_purchase', entry.purchasedQty, entry.purchaseMaxQty, 'Заказано', 'склад не увеличится'),
@@ -7289,13 +8425,18 @@ function renderLogsDayView(project, logs) {
                         materialEffect(entry, 'material_use', entry.usedQty, entry.useMaxQty, 'Передано в работу', 'уменьшит остаток на объекте')
                     ].filter(Boolean);
                     if (actions.length) return actions.join('');
-                    return '<div class="report-effect-card is-report-only"><span class="report-effect-check" aria-hidden="true">i</span><span class="report-effect-copy"><b>Только в отчёт</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Действие или количество не определено — учёт не изменится</small></span></div>';
+                    return '<div class="report-effect-card is-report-only"><span class="report-effect-check" aria-hidden="true"><i data-lucide="info"></i></span><span class="report-effect-copy"><b>Только в отчёт</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Действие или количество не определено — учёт не изменится</small></span></div>';
                 }).join('') + '</div></div>';
-            }).join('') + '</div>');
-        } else {
-            html.push('<div class="report-preview-muted">Материалы пока не найдены. Скажите точнее: «заказал дверные ручки» или «привезли кабель 40 м».</div>');
+            }).join('') + '</div></section>');
         }
-        html.push('</section><div class="report-effects-summary" data-report-effects-summary><b data-report-effects-title>' + (effectCount ? 'Сохранится: отчёт · действий по материалам: <span data-report-effects-count>' + effectCount + '</span>' : 'Сохранится только отчёт') + '</b><small data-report-effects-note>' + (effectCount ? 'Проверьте количество. Отмеченные действия попадут в учёт вместе с отчётом.' : 'Учёт материалов и работ не изменится.') + '</small></div></div>');
+        if (unmatchedClauses.length) {
+            html.push('<section class="report-preview-card report-additional-card">' + previewTitle('sparkles', 'Дополнительные события', 'Ничего не потеряется') + '<div class="report-additional-list">' + unmatchedClauses.map(function (clause) {
+                var category = projectReportClauseCategory(clause);
+                var labels = { work: 'Доп. работа', order: 'Заказ', purchase: 'Покупка', delivery: 'Поставка', blocker: 'Проблема', next: 'Следующий шаг', note: 'Событие' };
+                return '<div><span>' + escapeHtml(labels[category] || labels.note) + '</span><p>' + escapeHtml(reportTrimSentence(clause)) + '</p></div>';
+            }).join('') + '</div></section>');
+        }
+        html.push('<div class="report-effects-summary" data-report-effects-summary><span class="report-effects-summary-icon" aria-hidden="true"><i data-lucide="shield-check"></i></span><span class="report-effects-summary-copy"><b data-report-effects-title>' + (effectCount ? 'Сохранится: отчёт · действий в учёте: <span data-report-effects-count>' + effectCount + '</span>' : 'Сохранится только отчёт') + '</b><small data-report-effects-note>' + (effectCount ? 'Проверьте объёмы. Отмеченные работы и материалы попадут в учёт вместе с отчётом.' : 'Учёт материалов и работ не изменится.') + '</small></span></div></div>');
         return html.join('');
     };
 
@@ -7352,14 +8493,35 @@ function renderLogsDayView(project, logs) {
         return window.SpeechRecognition || window.webkitSpeechRecognition || null;
     }
 
+    function reportVoiceUnavailableMessage() {
+        if (window.isSecureContext === false) {
+            return 'Голосовой ввод доступен только через защищённое соединение HTTPS.';
+        }
+        if (!reportSpeechRecognitionConstructor()) {
+            return 'Голосовой ввод недоступен в этом браузере — напишите отчёт текстом.';
+        }
+        return '';
+    }
+
     function reportVoiceMessage(value) {
         var messages = {
             micTitle: '\u0413\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0439 \u0432\u0432\u043e\u0434',
             micActive: '\u0418\u0434\u0435\u0442 \u0437\u0430\u043f\u0438\u0441\u044c',
             micBlocked: '\u041f\u043e\u0436\u0430\u043b\u0443\u0439\u0441\u0442\u0430, \u0440\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u0435 \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d\u0443 \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430',
-            micError: '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0439 \u0432\u0432\u043e\u0434'
+            micError: '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0439 \u0432\u0432\u043e\u0434',
+            micMissing: 'Микрофон не найден или занят другим приложением.',
+            micNetwork: 'Не удалось подключиться к распознаванию речи. Проверьте интернет и попробуйте ещё раз.',
+            micNoSpeech: 'Речь не распознана. Нажмите «Диктовать» и говорите после включения микрофона.'
         };
         return messages[value] || '';
+    }
+
+    function reportVoiceErrorMessage(errorCode) {
+        if (errorCode === 'not-allowed' || errorCode === 'service-not-allowed') return reportVoiceMessage('micBlocked');
+        if (errorCode === 'audio-capture') return reportVoiceMessage('micMissing');
+        if (errorCode === 'network') return reportVoiceMessage('micNetwork');
+        if (errorCode === 'no-speech') return reportVoiceMessage('micNoSpeech');
+        return reportVoiceMessage('micError');
     }
 
     function reportVoiceIconHtml() {
@@ -7431,11 +8593,13 @@ function renderLogsDayView(project, logs) {
 
     function startReportVoiceRecognition(input, button) {
         var Recognition = reportSpeechRecognitionConstructor();
-        if (!Recognition) {
+        var unavailableMessage = reportVoiceUnavailableMessage();
+        if (unavailableMessage) {
             if (!reportVoiceUnsupportedWarned) {
-                console.warn('Web Speech API is not supported in this browser.');
+                console.warn(unavailableMessage);
                 reportVoiceUnsupportedWarned = true;
             }
+            showReportVoiceToast(unavailableMessage);
             return;
         }
         if (reportVoiceState.active) stopReportVoiceRecognition();
@@ -7457,9 +8621,11 @@ function renderLogsDayView(project, logs) {
             input.dispatchEvent(new Event('input', { bubbles: true }));
         };
         recognition.onerror = function (event) {
-            var isBlocked = event && (event.error === 'not-allowed' || event.error === 'service-not-allowed');
-            if (isBlocked) showReportVoiceToast(reportVoiceMessage('micBlocked'));
-            else console.warn('Speech recognition error:', event && event.error ? event.error : event);
+            var errorCode = event && event.error ? String(event.error) : '';
+            if (errorCode !== 'aborted') {
+                showReportVoiceToast(reportVoiceErrorMessage(errorCode));
+                console.warn('Speech recognition error:', errorCode || event);
+            }
             setReportVoiceButtonState(button, 'error');
             stopReportVoiceRecognition(true);
         };
@@ -7496,10 +8662,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function bindReportVoiceInputs() {
-        var Recognition = reportSpeechRecognitionConstructor();
-        if (!Recognition) {
+        var unavailableMessage = reportVoiceUnavailableMessage();
+        if (unavailableMessage) {
             if (!reportVoiceUnsupportedWarned) {
-                console.warn('Web Speech API is not supported in this browser.');
+                console.warn(unavailableMessage);
                 reportVoiceUnsupportedWarned = true;
             }
             qsa('[data-log-form]').forEach(function (form) {
@@ -7508,7 +8674,7 @@ function renderLogsDayView(project, logs) {
                 var note = document.createElement('small');
                 note.className = 'report-voice-unavailable';
                 note.setAttribute('data-report-voice-unavailable', '');
-                note.textContent = 'Голосовой ввод недоступен в этом браузере — напишите отчёт текстом.';
+                note.textContent = unavailableMessage;
                 input.parentNode.insertBefore(note, input.nextSibling);
             });
             return;
@@ -7577,7 +8743,10 @@ function renderLogsDayView(project, logs) {
     function reportCreatedDateTime(log) {
         var raw = log && (log.created_at || log.createdAt);
         if (!raw) return finalGraphDate(log && log.report_date);
-        var parsed = new Date(String(raw).replace(' ', 'T'));
+        var numeric = Number(raw);
+        var parsed = Number.isFinite(numeric)
+            ? new Date(Math.abs(numeric) < 1000000000000 ? numeric * 1000 : numeric)
+            : new Date(String(raw).replace(' ', 'T'));
         if (Number.isNaN(parsed.getTime())) return String(raw);
         return parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' +
             parsed.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -7897,8 +9066,9 @@ function renderLogsDayView(project, logs) {
     function startPrimaryReportVoice(form) {
         var input = form ? qs('[name="raw_input"]', form) : null;
         if (!input) return false;
-        if (!reportSpeechRecognitionConstructor()) {
-            showReportVoiceToast('Голосовой ввод недоступен — напишите отчёт текстом.');
+        var unavailableMessage = reportVoiceUnavailableMessage();
+        if (unavailableMessage) {
+            showReportVoiceToast(unavailableMessage);
             input.focus();
             return false;
         }
@@ -8795,6 +9965,9 @@ function renderLogsDayView(project, logs) {
             plannedQty: source.sourcePlannedQty != null
                 ? source.sourcePlannedQty
                 : (source.planned_qty != null ? source.planned_qty : (source.plannedQty != null ? source.plannedQty : row.getAttribute('data-position-qty') || '')),
+            plannedPrice: source.planned_price != null
+                ? source.planned_price
+                : (source.plannedPrice != null ? source.plannedPrice : (row.getAttribute('data-position-price') || 0)),
             sectionTitle: String(source.sectionTitle || source.section_title || row.getAttribute('data-position-section') || '').trim(),
             scheduleAutoDays: scheduleAutoDays,
             scheduleDurationDays: scheduleDurationDays,
@@ -8817,7 +9990,9 @@ function renderLogsDayView(project, logs) {
                     '<label><input type="radio" name="position_kind" value="material"><span><i data-lucide="package" aria-hidden="true"></i>Материал</span></label>' +
                     '<label><input type="radio" name="position_kind" value="work"><span><i data-lucide="hammer" aria-hidden="true"></i>Работа</span></label>' +
                 '</div><p class="position-editor-kind-warning" data-position-kind-warning role="status" aria-live="polite" hidden></p></fieldset>' +
-                '<div class="position-editor-grid"><label class="position-editor-field is-section"><span>Раздел</span><input name="section_title" maxlength="200" autocomplete="off" required></label><label class="position-editor-field"><span>Единица</span><input name="unit" maxlength="40" autocomplete="off" required></label><label class="position-editor-field"><span>Плановый объём</span><input name="planned_qty" type="number" min="0.000001" step="any" inputmode="decimal" required></label></div>' +
+                '<div class="position-editor-grid"><label class="position-editor-field is-section"><span>Раздел</span><input name="section_title" maxlength="200" autocomplete="off" required></label><label class="position-editor-field"><span>Единица</span><input name="unit" maxlength="40" autocomplete="off" required></label><label class="position-editor-field"><span>Плановый объём</span><input name="planned_qty" type="number" min="0.000001" step="any" inputmode="decimal" required></label>' +
+                    (canViewProcurementPrices() ? '<label class="position-editor-field"><span>Цена за единицу, ₽</span><input name="planned_price" type="number" min="0" step="0.01" inputmode="decimal" required></label>' : '') +
+                '</div>' +
                 '<section class="position-editor-duration" data-position-duration-panel hidden><header><div><span>Обычный график</span><strong>Длительность работы</strong></div><small data-position-duration-auto-hint></small></header><div class="position-editor-duration-controls">' +
                     '<div class="position-editor-duration-stepper" role="group" aria-label="Длительность работы в обычном графике"><button type="button" data-position-duration-step="-0.5" aria-label="Уменьшить на 0,5 дня">−</button><input name="schedule_duration_days" type="number" min="0.5" max="3650" step="0.5" inputmode="decimal" aria-label="Длительность работы, дней"><button type="button" data-position-duration-step="0.5" aria-label="Увеличить на 0,5 дня">+</button></div>' +
                     '<button class="position-editor-duration-auto" type="button" data-position-duration-auto>Авто</button><span class="position-editor-duration-status" data-position-duration-status role="status" aria-live="polite"></span>' +
@@ -8836,6 +10011,8 @@ function renderLogsDayView(project, logs) {
         var code = String(error && error.payload && error.payload.error || '');
         if (code === 'estimate_position_fields_required') return 'Заполните название, раздел, единицу и объём больше нуля.';
         if (code === 'estimate_position_fields_too_long') return 'Одно из полей получилось слишком длинным.';
+        if (code === 'estimate_position_price_invalid') return 'Укажите корректную цену: число не меньше нуля.';
+        if (code === 'price_fields_forbidden') return 'У вас нет права изменять сметную цену.';
         if (code === 'estimate_position_kind_mismatch') return 'Тип позиции изменился. Обновите страницу и попробуйте ещё раз.';
         if (code === 'bad_estimate_position_kind') return 'Выберите тип позиции: материал или работа.';
         if (code === 'estimate_position_title_kind_conflict') return 'Название похоже на другой тип. Выберите правильный тип выше или уточните название.';
@@ -8916,6 +10093,9 @@ function renderLogsDayView(project, logs) {
         form.elements.section_title.value = item.sectionTitle || 'Без раздела';
         form.elements.unit.value = item.unit;
         form.elements.planned_qty.value = String(item.plannedQty == null ? '' : item.plannedQty).replace(',', '.');
+        if (form.elements.planned_price) {
+            form.elements.planned_price.value = String(item.plannedPrice == null ? 0 : item.plannedPrice).replace(',', '.');
+        }
         form.elements.position_kind.value = item.kind;
         updatePositionEditorKindState(modal, item.kind);
         var durationStatus = qs('[data-position-duration-status]', modal);
@@ -9074,6 +10254,15 @@ function renderLogsDayView(project, logs) {
             openPositionEditor(row, event.target);
         });
         document.addEventListener('click', function (event) {
+            var opener = event.target && event.target.closest ? event.target.closest('[data-position-editor-open]') : null;
+            if (opener) {
+                var row = opener.closest('[data-position-editor]');
+                if (!row || !canManageSchedule()) return;
+                event.preventDefault();
+                event.stopPropagation();
+                openPositionEditor(row, opener);
+                return;
+            }
             var close = event.target && event.target.closest ? event.target.closest('[data-position-editor-close]') : null;
             if (!close) return;
             event.preventDefault();
@@ -9132,6 +10321,8 @@ function renderLogsDayView(project, logs) {
             event.preventDefault();
             if (!activePositionEditor || positionEditorSubmitting) return;
             var qty = Number(String(form.elements.planned_qty.value || '').replace(',', '.'));
+            var priceInput = form.elements.planned_price;
+            var price = priceInput ? Number(String(priceInput.value || '').replace(',', '.')) : null;
             var title = form.elements.title.value.trim();
             var unit = form.elements.unit.value.trim();
             var sectionTitle = form.elements.section_title.value.trim();
@@ -9142,8 +10333,15 @@ function renderLogsDayView(project, logs) {
                 error.hidden = false;
                 return;
             }
+            if (priceInput && (!Number.isFinite(price) || price < 0)) {
+                error.textContent = 'Укажите корректную цену: число не меньше нуля.';
+                error.hidden = false;
+                return;
+            }
             var item = Object.assign({}, activePositionEditor);
             item.targetKind = selectedKind;
+            var updatePayload = { title: title, unit: unit, plannedQty: qty, sectionTitle: sectionTitle, expectedKind: item.kind, targetKind: selectedKind };
+            if (priceInput) updatePayload.plannedPrice = price;
             var save = qs('[data-position-editor-save]', modal);
             positionEditorSubmitting = true;
             save.disabled = true;
@@ -9151,11 +10349,12 @@ function renderLogsDayView(project, logs) {
             error.hidden = true;
             api('/api/projects/' + item.projectId + '/estimate-items/' + item.itemId + '/update', {
                 method: 'POST',
-                body: JSON.stringify({ title: title, unit: unit, plannedQty: qty, sectionTitle: sectionTitle, expectedKind: item.kind, targetKind: selectedKind })
+                body: JSON.stringify(updatePayload)
             }).then(function (response) {
                 positionEditorSubmitting = false;
                 closePositionEditor(false);
                 refreshEditedPosition(item, response || {});
+                refreshProjectOverview(item.projectId);
                 var savedKind = String(response && response.itemKind || selectedKind) === 'work' ? 'work' : 'material';
                 var moved = savedKind !== item.kind;
                 showAppNotice(moved ? (savedKind === 'work' ? 'Перенесено в работы' : 'Перенесено в материалы') : (savedKind === 'work' ? 'Работа обновлена' : 'Материал обновлён'), 'success');
@@ -9684,7 +10883,7 @@ function renderLogsDayView(project, logs) {
     var baseLoadProjectsForReminders = loadProjects;
     loadProjects = function (callback) {
         return baseLoadProjectsForReminders(function () {
-            refreshReminderBell();
+            if (!isGuestRole()) refreshReminderBell();
             if (callback) callback();
         });
     };
@@ -10524,6 +11723,8 @@ function renderLogsDayView(project, logs) {
         var raw = String(clauseText || '');
         var normalized = normalizeReportText(raw);
         var plan = quantityPlanInfo(item);
+        var outOfMatch = normalized.match(/(?:^|\s)(\d+(?:[\.,]\d+)?)\s*(?:из|\/|от)\s*(\d+(?:[\.,]\d+)?)(?:\s|$)/);
+        if (outOfMatch) return normalizedQuantityNumber(outOfMatch[1]);
         var percentMatch = normalized.match(/(\d+(?:[\.,]\d+)?)%/);
         if (percentMatch && plan.totalQty > 0) {
             return plan.totalQty * Math.max(0, Math.min(100, normalizedQuantityNumber(percentMatch[1]))) / 100;
@@ -10533,7 +11734,7 @@ function renderLogsDayView(project, logs) {
             var unitMatch = raw.match(new RegExp('(\\d+(?:[\\.,]\\d+)?)\\s*' + unitPatterns[i], 'i'));
             if (unitMatch) return normalizedQuantityNumber(unitMatch[1]);
         }
-        if (reportHasPartialIntent(normalized) && plan.totalQty > 0) return plan.totalQty * 0.5;
+        if (/(^|\s)(?:половин[а-я]*|наполовину)(?=\s|$)/.test(normalized) && plan.totalQty > 0) return plan.totalQty * 0.5;
         if (reportHasWholeIntent(normalized) && plan.totalQty > 0) return plan.totalQty;
         var numberMatch = normalized.match(/(^|\s)(\d+(?:[\.,]\d+)?)(\s|$)/);
         if (numberMatch) return normalizedQuantityNumber(numberMatch[2]);
@@ -10541,6 +11742,7 @@ function renderLogsDayView(project, logs) {
     };
 
     reportWorkResultFromClause = function (clauseText, candidate) {
+        if (!reportHasWorkCompletionIntent(clauseText)) return null;
         var clauseTokens = reportTokens(clauseText);
         var score = reportClauseMatchScore(candidate.tokens, clauseTokens);
         var needed = candidate.tokens.length >= 4 ? 2 : 1;
@@ -10548,14 +11750,23 @@ function renderLogsDayView(project, logs) {
         var plan = quantityPlanInfo(candidate.item);
         var qty = clampActualQty(reportQuantityFromClause(clauseText, candidate.item), plan.totalQty);
         var partial = reportHasPartialIntent(clauseText) || (plan.totalQty > 0 && qty > 0 && qty < plan.totalQty);
-        var done = plan.totalQty > 0 ? qty >= plan.totalQty : !partial;
+        var done = plan.totalQty > 0 ? (qty > 0 ? qty >= plan.totalQty : !partial) : !partial;
+        var appliedQty = done ? plan.totalQty : qty;
+        var quantityIntent = appliedQty > 0
+            ? reportWorkQuantityMode(clauseText, candidate.item, appliedQty)
+            : { mode: 'delta_qty', value: 0 };
         return {
             sectionTitle: candidate.sectionTitle,
             item: candidate.item,
+            clauseText: clauseText,
             score: score,
             done: done,
             partial: partial,
-            actualQty: done ? plan.totalQty : qty
+            actualQty: appliedQty,
+            quantityLabel: reportWorkQuantityLabel(clauseText, candidate.item, qty),
+            quantityMode: quantityIntent.mode,
+            quantityValue: quantityIntent.value,
+            actionEligible: plan.totalQty > 0 && appliedQty > 0
         };
     };
 
@@ -10579,14 +11790,30 @@ function renderLogsDayView(project, logs) {
         var receipt = reportHasReceiptIntent(normalized);
         var used = reportHasUseIntent(normalized);
         if (receipt && /поставк|отгруз/.test(normalized)) used = false;
-        if (!qty && purchase) qty = toOrder;
-        if (!qty && receipt) qty = orderedPending || (reportHasWholeIntent(normalized) ? physicalRemaining : 0);
-        if (!qty && used && reportHasWholeIntent(normalized)) qty = onSite;
+        var quantityIntent = reportMaterialQuantityIntent(clauseText, item, qty);
+        var targetQty = quantityIntent.targetQty;
+        var qualitativePartial = reportHasPartialIntent(normalized) && targetQty == null && !(qty > 0);
+        if (targetQty != null && plan.totalQty > 0) {
+            if (purchase) qty = Math.max(targetQty - Math.max(purchasedAlready, receivedAlready), 0);
+            else if (receipt) qty = Math.max(targetQty - receivedAlready, 0);
+            else if (used) qty = Math.max(targetQty - usedAlready, 0);
+        }
+        if (!qty && targetQty == null && purchase && !qualitativePartial) qty = toOrder;
+        if (!qty && targetQty == null && receipt && !qualitativePartial) qty = orderedPending || (reportHasWholeIntent(normalized) ? physicalRemaining : 0);
+        if (!qty && targetQty == null && used && !qualitativePartial && reportHasWholeIntent(normalized)) qty = onSite;
         return {
             item: item,
             score: score,
             clauseText: clauseText,
-            actionEligible: purchase || receipt || used,
+            reportUnit: reportExplicitQuantityUnit(clauseText),
+            actionEligible: Number(qty || 0) > 0 && (purchase || receipt || used) && !qualitativePartial,
+            semanticMatch: purchase || receipt || used,
+            purchaseIntent: purchase,
+            receiptIntent: receipt,
+            useIntent: used,
+            quantityMode: quantityIntent.mode,
+            quantityValue: quantityIntent.value,
+            targetQty: targetQty,
             purchasedQty: purchase ? Math.min(qty, toOrder) : 0,
             receivedQty: receipt ? Math.min(qty, physicalRemaining) : 0,
             usedQty: used ? Math.min(qty, onSite) : 0,
@@ -10968,15 +12195,16 @@ function renderLogsDayView(project, logs) {
         modal.setAttribute('data-project-access-modal', '');
         modal.innerHTML =
             '<button class="project-access-backdrop" type="button" data-project-access-close aria-label="Закрыть"></button>' +
-            '<section class="project-access-dialog" role="dialog" aria-modal="true" aria-label="Доступ к объекту">' +
+            '<section class="project-access-dialog" role="dialog" aria-modal="true" aria-label="Ответственные объекта">' +
                 '<div class="card-head">' +
-                    '<div><h3>Доступ к объекту</h3><span class="muted" data-project-access-title></span></div>' +
+                    '<div><h3>Ответственные объекта</h3><span class="muted" data-project-access-title></span></div>' +
                     '<button class="ghost compact" type="button" data-project-access-close>Закрыть</button>' +
                 '</div>' +
                 '<form data-project-access-form>' +
-                    '<div class="project-access-list" data-project-access-list></div>' +
+                    '<section class="project-access-role-section"><h4>Прорабы</h4><div class="project-access-list" data-project-access-foremen></div></section>' +
+                    '<section class="project-access-role-section"><h4>Снабжение</h4><div class="project-access-list" data-project-access-purchasers></div></section>' +
                     '<div class="form-error" data-project-access-error></div>' +
-                    '<button class="primary" type="submit">Сохранить доступ</button>' +
+                    '<button class="primary" type="submit">Сохранить ответственных</button>' +
                 '</form>' +
             '</section>';
         modal.addEventListener('click', function (event) {
@@ -11000,18 +12228,20 @@ function renderLogsDayView(project, logs) {
         modal.classList.add('hidden');
     }
 
-    function renderProjectAccessModal(project, foremen) {
+    function renderProjectAccessModal(project, foremen, purchasers) {
         var modal = ensureProjectAccessModal();
         var title = qs('[data-project-access-title]', modal);
-        var list = qs('[data-project-access-list]', modal);
-        var assigned = Array.isArray(project.assigned_foremen) ? project.assigned_foremen.map(Number) : [];
+        var foremenList = qs('[data-project-access-foremen]', modal);
+        var purchasersList = qs('[data-project-access-purchasers]', modal);
+        var assignedForemen = Array.isArray(project.assigned_foremen) ? project.assigned_foremen.map(Number) : [];
+        var assignedPurchaser = Number(project.buyer_id || 0);
         if (title) title.textContent = project.title || '';
-        if (list) {
+        if (foremenList) {
             if (!foremen.length) {
-                safeReplaceChildren(list, '<p class="muted">Прорабы пока не созданы.</p>');
+                safeReplaceChildren(foremenList, '<p class="muted">Прорабы пока не созданы.</p>');
             } else {
-                safeReplaceChildren(list, foremen.map(function (user) {
-                    var checked = assigned.indexOf(Number(user.id)) !== -1 ? ' checked' : '';
+                safeReplaceChildren(foremenList, foremen.map(function (user) {
+                    var checked = assignedForemen.indexOf(Number(user.id)) !== -1 ? ' checked' : '';
                     var meta = [user.login].filter(Boolean).join(' - ');
                     return '<label class="project-access-row">' +
                         '<input type="checkbox" name="foreman_ids" value="' + escapeHtml(user.id) + '"' + checked + '> ' +
@@ -11019,6 +12249,23 @@ function renderLogsDayView(project, logs) {
                     '</label>';
                 }).join(''));
             }
+        }
+        if (purchasersList) {
+            var unassignedChecked = assignedPurchaser ? '' : ' checked';
+            var purchaserRows = '<label class="project-access-row">' +
+                '<input type="radio" name="purchaser_id" value=""' + unassignedChecked + '> ' +
+                '<span><b>Не назначен</b><small>Снабжение без ответственного</small></span>' +
+            '</label>';
+            purchaserRows += purchasers.map(function (user) {
+                var checked = assignedPurchaser === Number(user.id) ? ' checked' : '';
+                var meta = [user.login].filter(Boolean).join(' - ');
+                return '<label class="project-access-row">' +
+                    '<input type="radio" name="purchaser_id" value="' + escapeHtml(user.id) + '"' + checked + '> ' +
+                    '<span><b>' + escapeHtml(personDisplayName(user) || user.login) + '</b><small>' + escapeHtml(meta || 'purchaser') + '</small></span>' +
+                '</label>';
+            }).join('');
+            if (!purchasers.length) purchaserRows += '<p class="muted">Снабженцы пока не созданы.</p>';
+            safeReplaceChildren(purchasersList, purchaserRows);
         }
         var form = qs('[data-project-access-form]', modal);
         if (form) form.dataset.projectId = project.id;
@@ -11036,13 +12283,16 @@ function renderLogsDayView(project, logs) {
             var foremen = users.filter(function (user) {
                 return userHasRoleCode(user, 'foreman');
             });
-            renderProjectAccessModal(project, foremen);
+            var purchasers = users.filter(function (user) {
+                return userHasRoleCode(user, 'purchaser');
+            });
+            renderProjectAccessModal(project, foremen, purchasers);
         });
     }
 
     function saveProjectAccess(form) {
         if (!canManageProjectAccess()) {
-            showAppNotice('Доступ разрешен только Главному Админу', 'error');
+            showAppNotice('Недостаточно прав для назначения ответственных.', 'error');
             return;
         }
         var projectId = Number(form.dataset.projectId || 0);
@@ -11051,26 +12301,37 @@ function renderLogsDayView(project, logs) {
         var foremanIds = qsa('input[name="foreman_ids"]:checked', form).map(function (input) {
             return Number(input.value);
         });
+        var purchaserInput = qs('input[name="purchaser_id"]:checked', form);
+        var purchaserId = Number(purchaserInput && purchaserInput.value || 0);
+        var purchaserIds = purchaserId ? [purchaserId] : [];
         withSubmitLock(form, function () {
             return api('/api/users/manage', {
                 method: 'POST',
                 body: JSON.stringify({
                     action: 'set_project_foremen',
                     project_id: projectId,
-                    foreman_ids: foremanIds
+                    foreman_ids: foremanIds,
+                    purchaser_ids: purchaserIds
                 })
             }).then(function (data) {
+                var assignedForemen = Array.isArray(data.assigned_foremen) ? data.assigned_foremen : foremanIds;
+                var assignedPurchasers = Array.isArray(data.assigned_purchasers) ? data.assigned_purchasers : purchaserIds;
+                var assignedPurchaserId = assignedPurchasers.length ? Number(assignedPurchasers[0]) : null;
                 var project = state.projects.find(function (item) { return Number(item.id) === projectId; });
-                if (project) project.assigned_foremen = Array.isArray(data.assigned_foremen) ? data.assigned_foremen : foremanIds;
+                if (project) {
+                    project.assigned_foremen = assignedForemen;
+                    project.buyer_id = assignedPurchaserId;
+                }
                 if (state.selectedProject && Number(state.selectedProject.id) === projectId) {
-                    state.selectedProject.assigned_foremen = project ? project.assigned_foremen : foremanIds;
+                    state.selectedProject.assigned_foremen = project ? project.assigned_foremen : assignedForemen;
+                    state.selectedProject.buyer_id = project ? project.buyer_id : assignedPurchaserId;
                     loadProjectAssignments(projectId);
                 }
                 renderProjectList(state.projects);
                 closeProjectAccessModal();
-                showAppNotice('Доступ к объекту сохранён.', 'success');
+                showAppNotice('Ответственные объекта сохранены.', 'success');
             }).catch(function (err) {
-                var message = appErrorMessage(err, 'Не удалось сохранить доступ.');
+                var message = appErrorMessage(err, 'Не удалось сохранить ответственных объекта.');
                 if (error) {
                     error.textContent = message;
                     error.classList.add('active');
@@ -11127,6 +12388,18 @@ function renderLogsDayView(project, logs) {
     }
 
     function renderTopbarTemplate() {
+        if (isGuestRole() || document.body.classList.contains('role-guest')) {
+            return '' +
+                '<div class="topbar-left">' +
+                    '<a class="guest-topbar-brand" href="/app/projects" aria-label="PM.bi — объекты"><img src="/assets/logo.png?v=20260728-textfix2" alt=""><span>PM.bi</span></a>' +
+                '</div>' +
+                '<div class="topbar-actions">' +
+                    '<button class="topbar-logout-action" type="button" data-logout>' +
+                        '<i data-lucide="log-out" aria-hidden="true"></i>' +
+                        '<span>Выйти</span>' +
+                    '</button>' +
+                '</div>';
+        }
         return '' +
             '<div class="topbar-left">' +
                 '<button class="menu-btn topbar-icon-button" type="button" data-menu-toggle aria-label="Навигация" title="Навигация">' +
@@ -11480,7 +12753,10 @@ function renderLogsDayView(project, logs) {
             return ' data-project-quick-action="' + escapeHtml(item.quickAction) + '"' +
                 (item.documentType ? (' data-document-type="' + escapeHtml(item.documentType) + '"') : '');
         }
-        if (item.tab) return ' data-project-tab-target="' + escapeHtml(item.tab) + '"';
+        if (item.tab) {
+            return ' data-project-tab-target="' + escapeHtml(item.tab) + '"' +
+                (item.scheduleMode ? (' data-project-schedule-mode-target="' + escapeHtml(item.scheduleMode) + '"') : '');
+        }
         return '';
     }
 
@@ -11750,7 +13026,7 @@ function renderLogsDayView(project, logs) {
             if (!estimateTotal) {
                 attention.push({ tone: 'danger', icon: 'file-warning', title: 'Нет рабочей сметы', text: 'Без исходной сметы нельзя контролировать стоимость материалов, работ и остаток бюджета.', label: 'Загрузить', tab: 'estimate-reconciliation' });
             } else if (estimateAnomaly) {
-                attention.push({ tone: 'danger', icon: 'scale', title: 'Смета не сходится с бюджетом', text: 'Сумма строк ' + money(estimateTotal) + ', бюджет ' + money(projectBudget) + ' — разница примерно в ' + estimateRatio.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' раза. До сверки не используйте маржу и лимиты.', label: 'Сверить', tab: 'estimate-reconciliation' });
+                attention.push({ tone: 'danger', icon: 'scale', title: 'Смета не сходится с бюджетом', text: 'Сумма строк ' + money(estimateTotal) + ', бюджет ' + money(projectBudget) + ' — разница примерно в ' + estimateRatio.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' раза. Проверьте импортированные объёмы и цены по строкам.', label: 'Разобрать сумму', tab: 'schedule', scheduleMode: 'table' });
             }
         }
         if (!contractReady) {
@@ -11785,9 +13061,10 @@ function renderLogsDayView(project, logs) {
         var setupItems = [
             { title: 'Паспорт объекта', text: passportReady ? 'Реквизиты и сроки заполнены' : 'Заполните заказчика, адрес и дедлайн', complete: passportReady, action: { quickAction: 'edit' } },
             { title: 'Договор', text: contractReady ? 'Подписанный файл на месте' : 'Нужен подписанный файл, не пустая карточка', complete: contractReady, action: { quickAction: 'document', documentType: 'contract' } },
-            { title: 'Ответственные', text: hasForeman && hasBuyer ? 'Прораб и снабженец назначены' : 'Назначьте прораба и снабженца', complete: hasForeman && hasBuyer, action: canManageProjectAccess() ? { access: true } : { tab: 'tasks' } },
+            { title: 'Прораб', text: hasForeman ? 'Ответственный прораб назначен' : 'Назначьте ответственного прораба', complete: hasForeman, action: canManageProjectAccess() ? { access: true } : { tab: 'tasks' } },
+            { title: 'Снабжение', text: hasBuyer ? 'Ответственный за снабжение назначен' : 'Назначьте ответственного за снабжение', complete: hasBuyer, action: canManageProjectAccess() ? { access: true } : { tab: 'tasks' } },
             { title: 'План работ', text: scheduleReady ? (stages.length + ' этапов в графике') : 'Разбейте объект на этапы и сроки', complete: scheduleReady, action: { tab: 'schedule' } },
-            { title: 'Финансовая основа', text: !canViewProjectEconomics() ? 'Финансовый контур ведёт ответственная роль' : (estimateAnomaly ? 'Смета требует ручной сверки' : (financialBaseReady ? 'База готова к контролю' : 'Подтвердите бюджет, НДС и прогноз')), complete: financialBaseReady, warning: canViewProjectEconomics() && estimateAnomaly, action: canViewProjectEconomics() ? { tab: estimateAnomaly ? 'estimate-reconciliation' : 'finance' } : null }
+            { title: 'Финансовая основа', text: !canViewProjectEconomics() ? 'Финансовый контур ведёт ответственная роль' : (estimateAnomaly ? 'Проверьте объёмы и цены строк сметы' : (financialBaseReady ? 'База готова к контролю' : 'Подтвердите бюджет, НДС и прогноз')), complete: financialBaseReady, warning: canViewProjectEconomics() && estimateAnomaly, action: canViewProjectEconomics() ? (estimateAnomaly ? { tab: 'schedule', scheduleMode: 'table' } : { tab: 'finance' }) : null }
         ];
 
         var supplyTone = criticalMaterials.length ? 'danger' : (soonMaterials.length ? 'warning' : '');
@@ -11874,6 +13151,7 @@ function renderLogsDayView(project, logs) {
     if (typeof renderLogsDayView === 'function') PMBI.app.renderLogsDayView = renderLogsDayView;
     if (typeof renderLogsList === 'function') PMBI.app.renderLogsList = renderLogsList;
     if (typeof bindLogForm === 'function') PMBI.app.bindLogForm = bindLogForm;
+    if (typeof loadProjects === 'function') PMBI.app.loadProjects = loadProjects;
     if (typeof loadDashboard === 'function') PMBI.app.loadDashboard = loadDashboard;
     if (typeof loadProjectLogs === 'function') PMBI.app.loadProjectLogs = loadProjectLogs;
     if (typeof applyRoleVisibility === 'function') PMBI.app.applyRoleVisibility = applyRoleVisibility;
@@ -12027,6 +13305,8 @@ function renderLogsDayView(project, logs) {
     var appStarted = false;
 
     function cleanupBeforeRouteChange() {
+        if (PMBI.operations && typeof PMBI.operations.flushReportDrafts === 'function') PMBI.operations.flushReportDrafts();
+        if (PMBI.operations && typeof PMBI.operations.disposeReportDrafts === 'function') PMBI.operations.disposeReportDrafts();
         if (PMBI.autobot && typeof PMBI.autobot.cleanup === 'function') PMBI.autobot.cleanup();
         if (typeof documentWorkspaceCleanup === 'function') documentWorkspaceCleanup();
         if (abortApiRequests) {
@@ -12049,7 +13329,8 @@ function renderLogsDayView(project, logs) {
             clearTimeout(state.marketAnalysisPollTimers[pollKey]);
         });
         state.marketAnalysisPollTimers = {};
-        document.body.classList.remove('menu-open', 'ai-open', 'cal-modal-open', 'project-edit-open');
+        document.body.classList.remove('menu-open', 'ai-open', 'cal-modal-open', 'project-edit-open', 'guest-access-modal-open');
+        qsa('[data-guest-access-modal]').forEach(function (modal) { modal.remove(); });
     }
 
     function setPage(nextPage) {
@@ -12058,7 +13339,7 @@ function renderLogsDayView(project, logs) {
         cleanupBeforeRouteChange();
         applyRole();
         initPage();
-        checkDailyStandup();
+        if (!isGuestRole()) checkDailyStandup();
     }
 
     function bootApp() {

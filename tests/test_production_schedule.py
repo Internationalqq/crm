@@ -344,6 +344,54 @@ class ProductionScheduleTests(unittest.TestCase):
         self.assertTrue(all(item["color"] in {"slate", "blue", "teal", "green", "violet", "rose"} for item in first["items"]))
         con.close()
 
+    def test_chebarkul_reinforcement_duration_reset_resizes_manual_snapshot(self):
+        con = production_connection()
+        seed_chebarkul_estimate(con)
+        schedule = build_production_schedule_payload(con, 25)
+        reinforcement = schedule["items"][4]
+
+        self.assertEqual(reinforcement["autoDays"], 3)
+        self.assertEqual(reinforcement["autoFilledSlots"], [19, 20, 21, 22, 23, 24])
+
+        con.execute(
+            """
+            UPDATE production_schedule_operations
+            SET manual_duration_days = 1, placement_mode = 'manual', manual_fields = '["duration_days"]'
+            WHERE id = ?
+            """,
+            (reinforcement["id"],),
+        )
+        con.executemany(
+            """
+            INSERT INTO production_schedule_operation_slot_overrides (
+                operation_id, slot_number, is_filled, created_at, updated_at
+            ) VALUES (?, ?, 1, 1, 1)
+            """,
+            [(reinforcement["id"], 19), (reinforcement["id"], 20)],
+        )
+        overridden = build_production_schedule_payload(con, 25)["items"][4]
+        self.assertEqual(overridden["durationDays"], 1)
+        self.assertEqual(overridden["effectiveDays"], 1)
+        self.assertEqual(overridden["filledSlots"], [19, 20])
+
+        con.execute(
+            "UPDATE production_schedule_operations SET manual_duration_days = NULL, manual_fields = '[]' WHERE id = ?",
+            (reinforcement["id"],),
+        )
+        schedule_module.production_resize_manual_slot_snapshot(
+            con,
+            25,
+            reinforcement["id"],
+            3,
+            None,
+            2,
+        )
+        reset = build_production_schedule_payload(con, 25)["items"][4]
+        self.assertEqual(reset["durationDays"], 3)
+        self.assertEqual(reset["effectiveDays"], 3)
+        self.assertEqual(reset["filledSlots"], [19, 20, 21, 22, 23, 24])
+        con.close()
+
     def test_chebarkul_productivity_scales_and_rounds_to_half_day(self):
         con = production_connection()
         seed_chebarkul_estimate(con, factor=1.25)
@@ -674,6 +722,48 @@ class ProductionScheduleTests(unittest.TestCase):
             changed = next(item for item in cell.response["items"] if item["id"] == manual["id"])
             self.assertEqual(changed["placementMode"], "manual")
             self.assertIn(1, changed["filledSlots"])
+
+            resized = Handler(
+                {
+                    "action": "set_duration",
+                    "operation_id": manual["id"],
+                    "duration_days": 2.5,
+                }
+            )
+            api_update_production_schedule(resized, "/api/projects/1/production-schedule")
+            self.assertEqual(resized.status, 200)
+            changed = next(item for item in resized.response["items"] if item["id"] == manual["id"])
+            self.assertEqual(changed["durationDays"], 2.5)
+            self.assertEqual(changed["effectiveDays"], 2.5)
+            self.assertEqual(len(changed["filledSlots"]), 5)
+
+            reset_duration = Handler(
+                {
+                    "action": "set_duration",
+                    "operation_id": manual["id"],
+                    "reset": True,
+                }
+            )
+            api_update_production_schedule(reset_duration, "/api/projects/1/production-schedule")
+            self.assertEqual(reset_duration.status, 200)
+            changed = next(item for item in reset_duration.response["items"] if item["id"] == manual["id"])
+            self.assertEqual(changed["durationDays"], changed["autoDays"])
+            self.assertEqual(changed["effectiveDays"], changed["durationDays"])
+            self.assertEqual(len(changed["filledSlots"]), int(changed["durationDays"] * 2))
+
+            drawer_resize = Handler(
+                {
+                    "action": "update_operation",
+                    "operation_id": manual["id"],
+                    "duration_days": 2,
+                }
+            )
+            api_update_production_schedule(drawer_resize, "/api/projects/1/production-schedule")
+            self.assertEqual(drawer_resize.status, 200)
+            changed = next(item for item in drawer_resize.response["items"] if item["id"] == manual["id"])
+            self.assertEqual(changed["durationDays"], 2)
+            self.assertEqual(changed["effectiveDays"], 2)
+            self.assertEqual(len(changed["filledSlots"]), 4)
 
             reordered = Handler({"action": "reorder_operations", "operation_ids": [manual["id"]]})
             api_update_production_schedule(reordered, "/api/projects/1/production-schedule")

@@ -133,6 +133,27 @@ class FinanceDeleteTests(unittest.TestCase):
         snapshot = json.loads(audit["payload"])
         self.assertEqual(snapshot["deleted_entry"]["amount"], 1500)
 
+    def test_project_finances_estimate_total_excludes_soft_deleted_items(self) -> None:
+        with server.db() as con:
+            con.executemany(
+                """
+                INSERT INTO estimate_items (
+                    project_id, title, unit, planned_qty, planned_price, is_deleted
+                ) VALUES (?, ?, 'pcs', ?, ?, ?)
+                """,
+                (
+                    (self.project_id, "Active item", 2, 50, 0),
+                    (self.project_id, "Deleted item", 3, 100, 1),
+                ),
+            )
+            con.commit()
+
+        handler = FakeHandler(self.admin)
+        finance.api_project_finances(handler, f"/api/projects/{self.project_id}/finances")
+
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertEqual(handler.response["summary"]["estimateTotal"], 100)
+
     def test_document_linked_entry_cannot_be_deleted(self) -> None:
         with server.db() as con:
             timestamp = server.now_ts()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
 import math
@@ -12,7 +13,10 @@ from datetime import date, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
-from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest
+from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from schedule_tasks import (
     build_procurement_alerts,
@@ -21,9 +25,10 @@ from schedule_tasks import (
     material_summary_rows,
     normalize_schedule_text,
     parse_iso_date,
+    recalc_project_progress,
 )
-from warehouse import normalize_estimate_item_kind
-from sqlite_config import configure_connection
+from warehouse import normalize_estimate_item_kind, resolved_estimate_item_kind
+from sqlite_config import connect_database
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -76,10 +81,196 @@ DAILY_LOG_MATERIAL_ACTION_TYPES = {
     "material_receipt": "receipt",
     "material_use": "use",
 }
+DAILY_LOG_WORK_ACTION_TYPE = "work_progress"
+DAILY_LOG_WORK_QUANTITY_MODES = frozenset({"delta_qty", "target_qty", "target_percent"})
+
+DAILY_LOG_RESOURCE_LIMIT = 40
+DAILY_LOG_PHOTO_LIMIT = 8
+DAILY_LOG_PHOTO_MAX_BYTES = 20 * 1024 * 1024
+DAILY_LOG_PHOTO_MAX_PIXELS = 40_000_000
+DAILY_LOG_PHOTO_MAX_EDGE = 1920
+DAILY_LOG_IMAGE_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+DAILY_LOG_SECTION_PROGRESS_TITLES = {
+    "Групповое завершение работ",
+    "Работы раздела возвращены в работу",
+    "Групповое закрытие раздела",
+    "Раздел снят с выполнения",
+}
+
+
+def daily_log_entry_kind(row: sqlite3.Row | dict) -> str:
+    """Separate authored field reports from automatic section progress events."""
+
+    payload = dict(row)
+    if bool(int(payload.get("_is_authored_report") or 0)):
+        return "field_report"
+
+    raw_input = payload.get("raw_input")
+    try:
+        source = json.loads(raw_input) if isinstance(raw_input, str) else raw_input
+    except (TypeError, ValueError, json.JSONDecodeError):
+        source = None
+    if not isinstance(source, dict):
+        return "field_report"
+
+    explicit_kind = str(source.get("entry_kind") or "").strip().lower()
+    completed = source.get("completed")
+    item_count = source.get("items")
+    has_progress_shape = (
+        "section_id" in source
+        and isinstance(completed, bool)
+        and isinstance(item_count, (int, float))
+        and not isinstance(item_count, bool)
+    )
+    has_progress_identity = (
+        explicit_kind == "section_progress"
+        or str(source.get("item_kind") or "").strip().lower() in {"work", "material"}
+        or str(payload.get("title") or "").strip() in DAILY_LOG_SECTION_PROGRESS_TITLES
+    )
+    return "section_progress" if has_progress_shape and has_progress_identity else "field_report"
+
+
+def daily_log_payload(
+    row: sqlite3.Row | dict,
+    *,
+    guest_view: bool = False,
+    authored_report: bool | None = None,
+) -> dict:
+    payload = dict(row)
+    if authored_report is not None:
+        payload["_is_authored_report"] = 1 if authored_report else 0
+    payload["entry_kind"] = daily_log_entry_kind(payload)
+    payload.pop("_is_authored_report", None)
+    workforce = stored_daily_log_resources(payload.pop("workers_json", None), "workforce")
+    equipment_entries = stored_daily_log_resources(payload.pop("equipment_json", None), "equipment")
+    payload["workforce"] = workforce
+    payload["equipment_entries"] = equipment_entries
+    payload["worker_hours"] = round(
+        sum(float(entry["count"]) * float(entry["hours"]) for entry in workforce),
+        2,
+    )
+    payload["equipment_hours"] = round(
+        sum(float(entry["count"]) * float(entry["hours"]) for entry in equipment_entries),
+        2,
+    )
+    payload.setdefault("photos", [])
+    if guest_view:
+        payload.pop("raw_input", None)
+        payload.pop("created_by", None)
+        payload.pop("client_request_id", None)
+    return payload
+
+
+def normalize_daily_log_resources(
+    raw_entries: object,
+    kind: str,
+) -> tuple[list[dict], dict | None]:
+    """Validate repeatable workforce/equipment rows from a report request."""
+
+    if raw_entries in (None, ""):
+        return [], None
+    if not isinstance(raw_entries, list):
+        return [], {"error": f"bad_{kind}_entries"}
+    if len(raw_entries) > DAILY_LOG_RESOURCE_LIMIT:
+        return [], {"error": f"too_many_{kind}_entries"}
+
+    label_key = "role" if kind == "workforce" else "name"
+    normalized: list[dict] = []
+    for index, raw_entry in enumerate(raw_entries):
+        if not isinstance(raw_entry, dict):
+            return [], {"error": f"bad_{kind}_entry", "entryIndex": index}
+        label = str(
+            raw_entry.get(label_key)
+            or raw_entry.get("type")
+            or raw_entry.get("title")
+            or ""
+        ).strip()
+        count_raw = raw_entry.get("count", raw_entry.get("quantity", 1))
+        hours_raw = raw_entry.get("hours", raw_entry.get("shift_hours", raw_entry.get("shiftHours")))
+        if not label and count_raw in (None, "", 0, "0") and hours_raw in (None, "", 0, "0"):
+            continue
+        if not label or len(label) > 120:
+            return [], {"error": f"bad_{kind}_label", "entryIndex": index}
+        try:
+            if isinstance(count_raw, bool) or isinstance(hours_raw, bool):
+                raise ValueError
+            count_number = float(count_raw)
+            count = int(count_number)
+            hours = float(hours_raw)
+        except (TypeError, ValueError, OverflowError):
+            return [], {"error": f"bad_{kind}_values", "entryIndex": index}
+        if not math.isfinite(count_number) or count_number != count or count < 1 or count > 999:
+            return [], {"error": f"bad_{kind}_count", "entryIndex": index}
+        if not math.isfinite(hours) or hours <= 0 or hours > 24:
+            return [], {"error": f"bad_{kind}_hours", "entryIndex": index}
+        normalized.append({label_key: label, "count": count, "hours": round(hours, 2)})
+    return normalized, None
+
+
+def stored_daily_log_resources(value: object, kind: str) -> list[dict]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    entries, error = normalize_daily_log_resources(value if isinstance(value, list) else [], kind)
+    return [] if error else entries
+
+
+def daily_log_photo_payload(row: sqlite3.Row | dict) -> dict:
+    item = dict(row)
+    document_id = int(item["id"])
+    return {
+        "id": document_id,
+        "title": str(item.get("title") or item.get("original_name") or "Фото отчёта"),
+        "original_name": str(item.get("original_name") or ""),
+        "mime_type": str(item.get("mime_type") or "image/jpeg"),
+        "size_bytes": int(item.get("size_bytes") or 0),
+        "view_url": f"/api/documents/{document_id}/view",
+    }
+
+
+def attach_daily_log_photos(
+    con: sqlite3.Connection,
+    logs: list[dict],
+    *,
+    visible_only: bool = False,
+) -> None:
+    log_ids = [int(log.get("id") or 0) for log in logs if int(log.get("id") or 0) > 0]
+    if not log_ids:
+        return
+    placeholders = ",".join("?" for _ in log_ids)
+    visibility_sql = "AND d.is_client_visible = 1" if visible_only else ""
+    rows = con.execute(
+        f"""
+        SELECT link.daily_log_id, d.id, d.title, d.original_name, d.mime_type, d.size_bytes
+        FROM daily_log_photos link
+        JOIN documents d ON d.id = link.document_id
+        WHERE link.daily_log_id IN ({placeholders})
+          {visibility_sql}
+        ORDER BY link.id
+        """,
+        log_ids,
+    ).fetchall()
+    photos_by_log: dict[int, list[dict]] = {log_id: [] for log_id in log_ids}
+    for row in rows:
+        photos_by_log.setdefault(int(row["daily_log_id"]), []).append(daily_log_photo_payload(row))
+    for log in logs:
+        log["photos"] = photos_by_log.get(int(log.get("id") or 0), [])
 
 
 def user_can_apply_daily_log_material_actions(user: dict) -> bool:
     return user_can_manage_schedule(user) or user_has_any_role(user, {"purchaser"})
+
+
+def user_can_apply_daily_log_work_actions(user: dict) -> bool:
+    return user_can_manage_schedule(user)
 
 
 def now_ts() -> int:
@@ -88,8 +279,7 @@ def now_ts() -> int:
 
 def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    return configure_connection(connection)
+    return connect_database(DB_PATH)
 
 
 def ensure_daily_log_actions_schema(con: sqlite3.Connection) -> None:
@@ -101,6 +291,10 @@ def ensure_daily_log_actions_schema(con: sqlite3.Connection) -> None:
     }
     if "client_request_id" not in daily_log_columns:
         con.execute("ALTER TABLE daily_logs ADD COLUMN client_request_id TEXT")
+    if "workers_json" not in daily_log_columns:
+        con.execute("ALTER TABLE daily_logs ADD COLUMN workers_json TEXT NOT NULL DEFAULT '[]'")
+    if "equipment_json" not in daily_log_columns:
+        con.execute("ALTER TABLE daily_logs ADD COLUMN equipment_json TEXT NOT NULL DEFAULT '[]'")
 
     con.executescript(
         """
@@ -129,6 +323,79 @@ def ensure_daily_log_actions_schema(con: sqlite3.Connection) -> None:
             ON daily_log_actions(daily_log_id, id);
         CREATE INDEX IF NOT EXISTS idx_daily_log_actions_project_material
             ON daily_log_actions(project_id, estimate_item_id, id);
+
+        CREATE TABLE IF NOT EXISTS daily_log_work_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            daily_log_id INTEGER NOT NULL REFERENCES daily_logs(id) ON DELETE RESTRICT,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            action_type TEXT NOT NULL CHECK(action_type = 'work_progress'),
+            estimate_item_id INTEGER NOT NULL REFERENCES estimate_items(id) ON DELETE RESTRICT,
+            work_title_snapshot TEXT NOT NULL,
+            work_unit_snapshot TEXT NOT NULL,
+            quantity_mode TEXT NOT NULL CHECK(quantity_mode IN (
+                'delta_qty', 'target_qty', 'target_percent'
+            )),
+            input_value REAL NOT NULL CHECK(input_value > 0),
+            qty REAL NOT NULL CHECK(qty > 0),
+            actual_before REAL NOT NULL CHECK(actual_before >= 0),
+            actual_after REAL NOT NULL CHECK(actual_after > actual_before),
+            planned_qty_snapshot REAL NOT NULL CHECK(planned_qty_snapshot > 0),
+            client_action_id TEXT NOT NULL,
+            created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at INTEGER NOT NULL,
+            UNIQUE(project_id, client_action_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_daily_log_work_actions_log
+            ON daily_log_work_actions(daily_log_id, id);
+        CREATE INDEX IF NOT EXISTS idx_daily_log_work_actions_project_work
+            ON daily_log_work_actions(project_id, estimate_item_id, id);
+
+        CREATE TABLE IF NOT EXISTS daily_log_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            daily_log_id INTEGER NOT NULL REFERENCES daily_logs(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+            client_photo_id TEXT,
+            created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at INTEGER NOT NULL,
+            UNIQUE(daily_log_id, document_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_daily_log_photos_log
+            ON daily_log_photos(daily_log_id, id);
+        CREATE INDEX IF NOT EXISTS idx_daily_log_photos_document
+            ON daily_log_photos(document_id);
+        CREATE TRIGGER IF NOT EXISTS trg_daily_log_photos_document_unique
+        BEFORE INSERT ON daily_log_photos
+        WHEN EXISTS (
+            SELECT 1 FROM daily_log_photos existing
+            WHERE existing.document_id = NEW.document_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'daily_log_photo_document_in_use');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_daily_log_photos_document_update_unique
+        BEFORE UPDATE OF document_id ON daily_log_photos
+        WHEN NEW.document_id <> OLD.document_id AND EXISTS (
+            SELECT 1 FROM daily_log_photos existing
+            WHERE existing.document_id = NEW.document_id
+              AND existing.id <> OLD.id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'daily_log_photo_document_in_use');
+        END;
+        """
+    )
+    daily_log_photo_columns = {
+        str(row["name"])
+        for row in con.execute("PRAGMA table_info(daily_log_photos)").fetchall()
+    }
+    if "client_photo_id" not in daily_log_photo_columns:
+        con.execute("ALTER TABLE daily_log_photos ADD COLUMN client_photo_id TEXT")
+    con.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_log_photos_client_id
+        ON daily_log_photos(daily_log_id, client_photo_id)
+        WHERE client_photo_id IS NOT NULL
         """
     )
 
@@ -1219,6 +1486,21 @@ def api_document_file(handler, path: str, inline: bool) -> None:
         return
     with db() as con:
         row = con.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        guest_report_photo = None
+        if row and user_is_guest(user):
+            guest_report_photo = con.execute(
+                """
+                SELECT 1
+                FROM daily_log_photos photo
+                JOIN daily_logs log ON log.id = photo.daily_log_id
+                WHERE photo.document_id = ?
+                  AND photo.project_id = ?
+                  AND log.project_id = photo.project_id
+                  AND log.is_client_visible = 1
+                LIMIT 1
+                """,
+                (document_id, int(row["project_id"])),
+            ).fetchone()
     if not row:
         handler.send_json(HTTPStatus.NOT_FOUND, {"error": "document_not_found"})
         return
@@ -1226,7 +1508,10 @@ def api_document_file(handler, path: str, inline: bool) -> None:
     if not handler.can_access_project(user, project_id):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
         return
-    if user["role"] == "customer" and int(row["is_client_visible"] or 0) != 1:
+    if user_is_guest(user) and not guest_report_photo:
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
+        return
+    if (user["role"] == "customer" or user_is_guest(user)) and int(row["is_client_visible"] or 0) != 1:
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
         return
     storage_path = row["storage_path"]
@@ -1260,12 +1545,46 @@ def api_project_daily_logs(handler, path: str) -> None:
     if not user:
         return
     with db() as con:
-        if user["role"] == "customer":
+        if user_is_guest(user):
+            rows = con.execute(
+                """
+                SELECT l.id, l.project_id, l.report_date, l.title, l.work_done,
+                       l.workers_count, l.equipment, l.blockers, l.next_steps,
+                       l.progress_percent, l.raw_input, l.is_client_visible,
+                       l.workers_json, l.equipment_json,
+                       l.created_at, l.updated_at,
+                       'Команда объекта' AS author_name,
+                       (
+                           EXISTS(SELECT 1 FROM daily_log_actions action WHERE action.daily_log_id = l.id)
+                           OR EXISTS(SELECT 1 FROM daily_log_work_actions action WHERE action.daily_log_id = l.id)
+                       ) AS has_applied_actions,
+                       EXISTS(
+                           SELECT 1 FROM audit_log authored
+                           WHERE authored.action = 'create_daily_log'
+                             AND authored.entity = 'daily_log'
+                             AND authored.entity_id = l.id
+                       ) AS _is_authored_report
+                FROM daily_logs l
+                WHERE l.project_id = ? AND l.is_client_visible = 1
+                ORDER BY l.report_date DESC, l.id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        elif user["role"] == "customer":
             rows = con.execute(
                 """
                 SELECT l.*,
                        COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS author_name,
-                       EXISTS(SELECT 1 FROM daily_log_actions action WHERE action.daily_log_id = l.id) AS has_applied_actions
+                       (
+                           EXISTS(SELECT 1 FROM daily_log_actions action WHERE action.daily_log_id = l.id)
+                           OR EXISTS(SELECT 1 FROM daily_log_work_actions action WHERE action.daily_log_id = l.id)
+                       ) AS has_applied_actions,
+                       EXISTS(
+                           SELECT 1 FROM audit_log authored
+                           WHERE authored.action = 'create_daily_log'
+                             AND authored.entity = 'daily_log'
+                             AND authored.entity_id = l.id
+                       ) AS _is_authored_report
                 FROM daily_logs l
                 LEFT JOIN users u ON u.id = l.created_by
                 WHERE l.project_id = ? AND l.is_client_visible = 1
@@ -1278,7 +1597,16 @@ def api_project_daily_logs(handler, path: str) -> None:
                 """
                 SELECT l.*,
                        COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS author_name,
-                       EXISTS(SELECT 1 FROM daily_log_actions action WHERE action.daily_log_id = l.id) AS has_applied_actions
+                       (
+                           EXISTS(SELECT 1 FROM daily_log_actions action WHERE action.daily_log_id = l.id)
+                           OR EXISTS(SELECT 1 FROM daily_log_work_actions action WHERE action.daily_log_id = l.id)
+                       ) AS has_applied_actions,
+                       EXISTS(
+                           SELECT 1 FROM audit_log authored
+                           WHERE authored.action = 'create_daily_log'
+                             AND authored.entity = 'daily_log'
+                             AND authored.entity_id = l.id
+                       ) AS _is_authored_report
                 FROM daily_logs l
                 LEFT JOIN users u ON u.id = l.created_by
                 WHERE l.project_id = ?
@@ -1286,7 +1614,18 @@ def api_project_daily_logs(handler, path: str) -> None:
                 """,
                 (project_id,),
             ).fetchall()
-    handler.send_json(HTTPStatus.OK, {"logs": [dict(row) for row in rows]})
+        guest_view = user_is_guest(user)
+        restricted_view = guest_view or user["role"] == "customer"
+        log_payloads = [daily_log_payload(row, guest_view=restricted_view) for row in rows]
+        attach_daily_log_photos(
+            con,
+            log_payloads,
+            visible_only=restricted_view,
+        )
+    handler.send_json(
+        HTTPStatus.OK,
+        {"logs": log_payloads},
+    )
 
 
 def normalize_daily_log_client_id(value: object) -> str | None:
@@ -1298,57 +1637,105 @@ def normalize_daily_log_client_id(value: object) -> str | None:
     return text
 
 
-def normalize_confirmed_material_actions(payload: dict) -> tuple[list[dict], dict | None]:
+def normalize_confirmed_actions(
+    payload: dict,
+) -> tuple[list[dict], list[dict], dict | None]:
     raw_actions = payload.get("confirmed_actions", payload.get("confirmedActions", []))
     if raw_actions is None:
         raw_actions = []
     if not isinstance(raw_actions, list):
-        return [], {"error": "bad_confirmed_actions"}
+        return [], [], {"error": "bad_confirmed_actions"}
     if len(raw_actions) > 100:
-        return [], {"error": "too_many_confirmed_actions"}
+        return [], [], {"error": "too_many_confirmed_actions"}
 
-    actions: list[dict] = []
+    material_actions: list[dict] = []
+    work_actions: list[dict] = []
     seen_client_ids: set[str] = set()
     for index, raw_action in enumerate(raw_actions):
         if not isinstance(raw_action, dict):
-            return [], {"error": "bad_confirmed_action", "actionIndex": index}
+            return [], [], {"error": "bad_confirmed_action", "actionIndex": index}
         action_type = str(
             raw_action.get("action_type", raw_action.get("actionType", raw_action.get("type", "")))
             or ""
         ).strip()
-        if action_type not in DAILY_LOG_MATERIAL_ACTION_TYPES:
-            return [], {"error": "bad_confirmed_action_type", "actionIndex": index}
+        if action_type not in DAILY_LOG_MATERIAL_ACTION_TYPES and action_type != DAILY_LOG_WORK_ACTION_TYPE:
+            return [], [], {"error": "bad_confirmed_action_type", "actionIndex": index}
         client_action_raw = raw_action.get("client_action_id", raw_action.get("clientActionId"))
         client_action_id = normalize_daily_log_client_id(client_action_raw)
         if not client_action_id:
-            return [], {"error": "bad_client_action_id", "actionIndex": index}
+            return [], [], {"error": "bad_client_action_id", "actionIndex": index}
         if client_action_id in seen_client_ids:
-            return [], {"error": "duplicate_client_action_id", "actionIndex": index}
+            return [], [], {"error": "duplicate_client_action_id", "actionIndex": index}
         seen_client_ids.add(client_action_id)
         estimate_item_raw = raw_action.get("estimate_item_id", raw_action.get("estimateItemId"))
-        qty_raw = raw_action.get("qty", raw_action.get("quantity"))
         try:
-            if isinstance(estimate_item_raw, bool) or isinstance(qty_raw, bool):
+            if isinstance(estimate_item_raw, bool):
                 raise ValueError
             estimate_item_id = int(estimate_item_raw)
-            qty = float(qty_raw)
         except (TypeError, ValueError, OverflowError):
-            return [], {"error": "bad_confirmed_action_values", "actionIndex": index}
+            return [], [], {"error": "bad_confirmed_action_values", "actionIndex": index}
         if estimate_item_id <= 0:
-            return [], {"error": "bad_estimate_item_id", "actionIndex": index}
-        if not math.isfinite(qty) or qty <= 0:
-            return [], {"error": "bad_qty", "actionIndex": index}
-        actions.append(
+            return [], [], {"error": "bad_estimate_item_id", "actionIndex": index}
+
+        if action_type in DAILY_LOG_MATERIAL_ACTION_TYPES:
+            qty_raw = raw_action.get("qty", raw_action.get("quantity"))
+            try:
+                if isinstance(qty_raw, bool):
+                    raise ValueError
+                qty = float(qty_raw)
+            except (TypeError, ValueError, OverflowError):
+                return [], [], {"error": "bad_confirmed_action_values", "actionIndex": index}
+            if not math.isfinite(qty) or qty <= 0:
+                return [], [], {"error": "bad_qty", "actionIndex": index}
+            material_actions.append(
+                {
+                    "action_type": action_type,
+                    "move_type": DAILY_LOG_MATERIAL_ACTION_TYPES[action_type],
+                    "estimate_item_id": estimate_item_id,
+                    "qty": qty,
+                    "client_action_id": client_action_id,
+                    "action_index": index,
+                }
+            )
+            continue
+
+        quantity_mode = str(
+            raw_action.get("quantity_mode", raw_action.get("quantityMode", "")) or ""
+        ).strip()
+        if quantity_mode not in DAILY_LOG_WORK_QUANTITY_MODES:
+            return [], [], {
+                "error": "bad_work_quantity_mode",
+                "actionIndex": index,
+            }
+        input_raw = next(
+            (
+                raw_action[key]
+                for key in ("input_value", "inputValue", "qty", "value", "quantity")
+                if key in raw_action
+            ),
+            None,
+        )
+        try:
+            if isinstance(input_raw, bool):
+                raise ValueError
+            input_value = float(input_raw)
+        except (TypeError, ValueError, OverflowError):
+            return [], [], {"error": "bad_work_input_value", "actionIndex": index}
+        if not math.isfinite(input_value) or input_value <= 0:
+            return [], [], {"error": "bad_work_input_value", "actionIndex": index}
+        if quantity_mode == "target_percent" and input_value > 100:
+            return [], [], {"error": "bad_work_percent", "actionIndex": index}
+        work_actions.append(
             {
-                "action_type": action_type,
-                "move_type": DAILY_LOG_MATERIAL_ACTION_TYPES[action_type],
+                "action_type": DAILY_LOG_WORK_ACTION_TYPE,
                 "estimate_item_id": estimate_item_id,
-                "qty": qty,
+                "quantity_mode": quantity_mode,
+                "input_value": input_value,
                 "client_action_id": client_action_id,
                 "action_index": index,
             }
         )
-    return actions, None
+    return material_actions, work_actions, None
 
 
 def daily_log_applied_actions(con: sqlite3.Connection, daily_log_id: int) -> list[dict]:
@@ -1365,9 +1752,10 @@ def daily_log_applied_actions(con: sqlite3.Connection, daily_log_id: int) -> lis
         """,
         (daily_log_id,),
     ).fetchall()
-    return [
+    actions = [
         {
             "id": int(row["id"]),
+            "kind": "material",
             "type": str(row["action_type"]),
             "estimateItemId": int(row["estimate_item_id"]),
             "materialTitle": str(row["material_title_snapshot"]),
@@ -1379,6 +1767,37 @@ def daily_log_applied_actions(con: sqlite3.Connection, daily_log_id: int) -> lis
         }
         for row in rows
     ]
+    work_rows = con.execute(
+        """
+        SELECT id, action_type, estimate_item_id, work_title_snapshot,
+               work_unit_snapshot, quantity_mode, input_value, qty,
+               actual_before, actual_after, planned_qty_snapshot,
+               client_action_id
+        FROM daily_log_work_actions
+        WHERE daily_log_id = ?
+        ORDER BY id
+        """,
+        (daily_log_id,),
+    ).fetchall()
+    actions.extend(
+        {
+            "id": int(row["id"]),
+            "kind": "work",
+            "type": str(row["action_type"]),
+            "estimateItemId": int(row["estimate_item_id"]),
+            "workTitle": str(row["work_title_snapshot"]),
+            "unit": str(row["work_unit_snapshot"]),
+            "quantityMode": str(row["quantity_mode"]),
+            "inputValue": float(row["input_value"]),
+            "qty": float(row["qty"]),
+            "actualBefore": float(row["actual_before"]),
+            "actualAfter": float(row["actual_after"]),
+            "plannedQty": float(row["planned_qty_snapshot"]),
+            "clientActionId": str(row["client_action_id"]),
+        }
+        for row in work_rows
+    )
+    return actions
 
 
 def send_daily_log_replay(handler, project_id: int, user: dict, client_request_id: str) -> bool:
@@ -1396,7 +1815,12 @@ def send_daily_log_replay(handler, project_id: int, user: dict, client_request_i
             return False
         project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         applied_actions = daily_log_applied_actions(con, int(log_row["id"]))
-    log_payload = dict(log_row)
+        log_payload = daily_log_payload(log_row, authored_report=True)
+        attach_daily_log_photos(
+            con,
+            [log_payload],
+            visible_only=user_is_guest(user) or user["role"] == "customer",
+        )
     log_payload["has_applied_actions"] = 1 if applied_actions else 0
     handler.send_json(
         HTTPStatus.OK,
@@ -1419,7 +1843,7 @@ def api_create_daily_log(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if user["role"] in {"customer"}:
+    if user["role"] in {"customer"} or user_is_guest(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
@@ -1433,12 +1857,15 @@ def api_create_daily_log(handler, path: str) -> None:
     if client_request_raw not in (None, "") and not client_request_id:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_client_request_id"})
         return
-    confirmed_actions, actions_error = normalize_confirmed_material_actions(payload)
+    confirmed_actions, confirmed_work_actions, actions_error = normalize_confirmed_actions(payload)
     if actions_error:
         handler.send_json(HTTPStatus.BAD_REQUEST, actions_error)
         return
     if confirmed_actions and not user_can_apply_daily_log_material_actions(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "daily_log_actions_forbidden"})
+        return
+    if confirmed_work_actions and not user_can_apply_daily_log_work_actions(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "daily_log_work_actions_forbidden"})
         return
     report_date = str(payload.get("report_date", "")).strip() or date.today().isoformat()
     parsed_report_date = parse_iso_date(report_date)
@@ -1449,6 +1876,28 @@ def api_create_daily_log(handler, path: str) -> None:
         workers_count = max(0, int(payload.get("workers_count", 0) or 0))
     except (TypeError, ValueError):
         workers_count = 0
+    workforce, workforce_error = normalize_daily_log_resources(
+        payload.get("workforce", payload.get("worker_entries", payload.get("workerEntries"))),
+        "workforce",
+    )
+    if workforce_error:
+        handler.send_json(HTTPStatus.BAD_REQUEST, workforce_error)
+        return
+    equipment_entries, equipment_error = normalize_daily_log_resources(
+        payload.get("equipment_entries", payload.get("equipmentEntries")),
+        "equipment",
+    )
+    if equipment_error:
+        handler.send_json(HTTPStatus.BAD_REQUEST, equipment_error)
+        return
+    if workforce:
+        workers_count = sum(int(entry["count"]) for entry in workforce)
+    equipment_text = str(payload.get("equipment", "")).strip()
+    if equipment_entries:
+        equipment_text = "; ".join(
+            f"{entry['name']} — {entry['count']} ед., {entry['hours']:g} ч"
+            for entry in equipment_entries
+        )
     progress_percent_raw = payload.get("progress_percent", payload.get("progressPercent"))
     try:
         progress_percent = max(0.0, min(100.0, float(progress_percent_raw))) if progress_percent_raw not in (None, "", False) else None
@@ -1462,7 +1911,9 @@ def api_create_daily_log(handler, path: str) -> None:
         with db() as con:
             con.execute("BEGIN IMMEDIATE")
             material_ids = sorted({int(action["estimate_item_id"]) for action in confirmed_actions})
+            work_ids = sorted({int(action["estimate_item_id"]) for action in confirmed_work_actions})
             material_by_id: dict[int, sqlite3.Row] = {}
+            work_by_id: dict[int, sqlite3.Row] = {}
             material_summary_by_id = {
                 int(item["id"]): item
                 for item in material_summary_rows(con, project_id)
@@ -1471,13 +1922,62 @@ def api_create_daily_log(handler, path: str) -> None:
                 placeholders = ",".join("?" for _ in material_ids)
                 rows = con.execute(
                     f"""
-                    SELECT id, title, unit, item_kind, COALESCE(is_deleted, 0) AS is_deleted
+                    SELECT id, title, unit, item_kind, item_kind_override,
+                           COALESCE(is_deleted, 0) AS is_deleted
                     FROM estimate_items
                     WHERE project_id = ? AND id IN ({placeholders})
                     """,
                     (project_id, *material_ids),
                 ).fetchall()
                 material_by_id = {int(row["id"]): row for row in rows}
+            if work_ids:
+                placeholders = ",".join("?" for _ in work_ids)
+                rows = con.execute(
+                    f"""
+                    SELECT id, title, unit, item_kind, item_kind_override,
+                           planned_qty, actual_qty,
+                           is_completed, COALESCE(is_deleted, 0) AS is_deleted
+                    FROM estimate_items
+                    WHERE project_id = ? AND id IN ({placeholders})
+                    """,
+                    (project_id, *work_ids),
+                ).fetchall()
+                work_by_id = {int(row["id"]): row for row in rows}
+
+            client_action_ids = [
+                str(action["client_action_id"])
+                for action in (*confirmed_actions, *confirmed_work_actions)
+            ]
+            if client_action_ids:
+                placeholders = ",".join("?" for _ in client_action_ids)
+                duplicate = con.execute(
+                    f"""
+                    SELECT client_action_id
+                    FROM daily_log_actions
+                    WHERE project_id = ? AND client_action_id IN ({placeholders})
+                    LIMIT 1
+                    """,
+                    (project_id, *client_action_ids),
+                ).fetchone()
+                if not duplicate:
+                    duplicate = con.execute(
+                        f"""
+                        SELECT client_action_id
+                        FROM daily_log_work_actions
+                        WHERE project_id = ? AND client_action_id IN ({placeholders})
+                        LIMIT 1
+                        """,
+                        (project_id, *client_action_ids),
+                    ).fetchone()
+                if duplicate:
+                    handler.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "client_action_already_applied",
+                            "clientActionId": str(duplicate["client_action_id"]),
+                        },
+                    )
+                    return
 
             for action in confirmed_actions:
                 material = material_by_id.get(int(action["estimate_item_id"]))
@@ -1490,7 +1990,7 @@ def api_create_daily_log(handler, path: str) -> None:
                         },
                     )
                     return
-                if normalize_estimate_item_kind(material["item_kind"]) == "work":
+                if normalize_estimate_item_kind(resolved_estimate_item_kind(material)) == "work":
                     handler.send_json(
                         HTTPStatus.BAD_REQUEST,
                         {
@@ -1548,36 +2048,115 @@ def api_create_daily_log(handler, path: str) -> None:
                 else:
                     values["used"] += requested_qty
 
-            client_action_ids = [str(action["client_action_id"]) for action in confirmed_actions]
-            if client_action_ids:
-                placeholders = ",".join("?" for _ in client_action_ids)
-                duplicate = con.execute(
-                    f"""
-                    SELECT client_action_id
-                    FROM daily_log_actions
-                    WHERE project_id = ? AND client_action_id IN ({placeholders})
-                    LIMIT 1
-                    """,
-                    (project_id, *client_action_ids),
-                ).fetchone()
-                if duplicate:
+            work_quantity_state: dict[int, dict] = {}
+            for work_id in work_ids:
+                work = work_by_id.get(work_id)
+                if not work or int(work["is_deleted"] or 0) == 1:
+                    action = next(
+                        item for item in confirmed_work_actions
+                        if int(item["estimate_item_id"]) == work_id
+                    )
                     handler.send_json(
-                        HTTPStatus.CONFLICT,
+                        HTTPStatus.BAD_REQUEST,
                         {
-                            "error": "client_action_already_applied",
-                            "clientActionId": str(duplicate["client_action_id"]),
+                            "error": "estimate_item_project_mismatch",
+                            "actionIndex": int(action["action_index"]),
                         },
                     )
                     return
+                if normalize_estimate_item_kind(resolved_estimate_item_kind(work)) != "work":
+                    action = next(
+                        item for item in confirmed_work_actions
+                        if int(item["estimate_item_id"]) == work_id
+                    )
+                    handler.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {
+                            "error": "estimate_item_not_work",
+                            "actionIndex": int(action["action_index"]),
+                        },
+                    )
+                    return
+                plan = operational_quantity_plan(work["planned_qty"], work["unit"])
+                planned_qty = float(plan["total_qty"] or 0)
+                if planned_qty <= 0:
+                    action = next(
+                        item for item in confirmed_work_actions
+                        if int(item["estimate_item_id"]) == work_id
+                    )
+                    handler.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "daily_log_work_action_no_quantity_limit",
+                            "actionIndex": int(action["action_index"]),
+                        },
+                    )
+                    return
+                current_qty = (
+                    planned_qty
+                    if int(work["is_completed"] or 0) == 1
+                    else max(float(work["actual_qty"] or 0), 0)
+                )
+                work_quantity_state[work_id] = {
+                    "planned": planned_qty,
+                    "current": min(current_qty, planned_qty),
+                    "unit": str(plan["unit"] or work["unit"] or ""),
+                }
+
+            for action in confirmed_work_actions:
+                work_id = int(action["estimate_item_id"])
+                values = work_quantity_state[work_id]
+                planned_qty = float(values["planned"])
+                current_qty = float(values["current"])
+                input_value = float(action["input_value"])
+                quantity_mode = str(action["quantity_mode"])
+                if quantity_mode == "delta_qty":
+                    requested_qty = input_value
+                elif quantity_mode == "target_qty":
+                    requested_qty = input_value - current_qty
+                else:
+                    requested_qty = planned_qty * input_value / 100.0 - current_qty
+                allowed_qty = max(planned_qty - current_qty, 0)
+                if requested_qty <= 1e-9:
+                    handler.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "daily_log_work_action_no_positive_delta",
+                            "actionIndex": int(action["action_index"]),
+                            "currentQty": current_qty,
+                            "plannedQty": planned_qty,
+                        },
+                    )
+                    return
+                if requested_qty > allowed_qty + 1e-9:
+                    handler.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "daily_log_work_action_qty_exceeds_limit",
+                            "actionIndex": int(action["action_index"]),
+                            "allowedQty": allowed_qty,
+                            "currentQty": current_qty,
+                            "plannedQty": planned_qty,
+                        },
+                    )
+                    return
+                actual_after = min(current_qty + requested_qty, planned_qty)
+                applied_qty = actual_after - current_qty
+                action["qty"] = applied_qty
+                action["actual_before"] = current_qty
+                action["actual_after"] = actual_after
+                action["planned_qty"] = planned_qty
+                action["unit"] = values["unit"]
+                values["current"] = actual_after
 
             cur = con.execute(
                 """
                 INSERT INTO daily_logs (
                     project_id, report_date, title, work_done, workers_count, equipment, blockers, next_steps,
                     progress_percent, raw_input, is_client_visible, client_request_id,
-                    created_by, created_at, updated_at
+                    workers_json, equipment_json, created_by, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
@@ -1585,13 +2164,15 @@ def api_create_daily_log(handler, path: str) -> None:
                     title,
                     work_done,
                     workers_count,
-                    str(payload.get("equipment", "")).strip(),
+                    equipment_text,
                     str(payload.get("blockers", "")).strip(),
                     str(payload.get("next_steps", "")).strip(),
                     progress_percent,
                     str(payload.get("raw_input", payload.get("rawInput", ""))).strip() or None,
                     1 if payload.get("is_client_visible", True) else 0,
                     client_request_id,
+                    json.dumps(workforce, ensure_ascii=False),
+                    json.dumps(equipment_entries, ensure_ascii=False),
                     user["id"],
                     timestamp,
                     timestamp,
@@ -1672,6 +2253,80 @@ def api_create_daily_log(handler, path: str) -> None:
                     ),
                 )
 
+            for action in confirmed_work_actions:
+                work = work_by_id[int(action["estimate_item_id"])]
+                actual_after = float(action["actual_after"])
+                planned_qty = float(action["planned_qty"])
+                con.execute(
+                    """
+                    UPDATE estimate_items
+                    SET actual_qty = ?, is_completed = ?, updated_at = ?
+                    WHERE id = ? AND project_id = ?
+                    """,
+                    (
+                        actual_after,
+                        1 if actual_after >= planned_qty - 1e-9 else 0,
+                        timestamp,
+                        int(action["estimate_item_id"]),
+                        project_id,
+                    ),
+                )
+                action_cur = con.execute(
+                    """
+                    INSERT INTO daily_log_work_actions (
+                        daily_log_id, project_id, action_type, estimate_item_id,
+                        work_title_snapshot, work_unit_snapshot,
+                        quantity_mode, input_value, qty, actual_before,
+                        actual_after, planned_qty_snapshot, client_action_id,
+                        created_by, created_at
+                    )
+                    VALUES (?, ?, 'work_progress', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        daily_log_id,
+                        project_id,
+                        int(action["estimate_item_id"]),
+                        str(work["title"] or ""),
+                        str(action["unit"] or work["unit"] or ""),
+                        str(action["quantity_mode"]),
+                        float(action["input_value"]),
+                        float(action["qty"]),
+                        float(action["actual_before"]),
+                        actual_after,
+                        planned_qty,
+                        str(action["client_action_id"]),
+                        user["id"],
+                        timestamp,
+                    ),
+                )
+                con.execute(
+                    """
+                    INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
+                    VALUES (?, 'apply_daily_log_work_action', 'daily_log_work_action', ?, ?, ?)
+                    """,
+                    (
+                        user["id"],
+                        int(action_cur.lastrowid),
+                        json.dumps(
+                            {
+                                "project_id": project_id,
+                                "daily_log_id": daily_log_id,
+                                "action_type": DAILY_LOG_WORK_ACTION_TYPE,
+                                "estimate_item_id": action["estimate_item_id"],
+                                "quantity_mode": action["quantity_mode"],
+                                "input_value": action["input_value"],
+                                "qty": action["qty"],
+                                "actual_before": action["actual_before"],
+                                "actual_after": action["actual_after"],
+                                "planned_qty": action["planned_qty"],
+                                "client_action_id": action["client_action_id"],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        timestamp,
+                    ),
+                )
+
             if progress_percent is not None:
                 status = "completed" if progress_percent >= 100 else ("active" if progress_percent > 0 else None)
                 if status:
@@ -1684,6 +2339,8 @@ def api_create_daily_log(handler, path: str) -> None:
                         "UPDATE projects SET progress = ?, updated_at = ? WHERE id = ?",
                         (int(round(progress_percent)), timestamp, project_id),
                     )
+            if confirmed_work_actions:
+                recalc_project_progress(con, project_id)
             con.execute(
                 """
                 INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
@@ -1698,7 +2355,7 @@ def api_create_daily_log(handler, path: str) -> None:
                             "title": title,
                             "progress_percent": progress_percent,
                             "client_request_id": client_request_id,
-                            "applied_action_count": len(confirmed_actions),
+                            "applied_action_count": len(confirmed_actions) + len(confirmed_work_actions),
                         },
                         ensure_ascii=False,
                     ),
@@ -1723,7 +2380,7 @@ def api_create_daily_log(handler, path: str) -> None:
                 return
         handler.send_json(HTTPStatus.CONFLICT, {"error": "daily_log_action_conflict"})
         return
-    log_payload = dict(log_row)
+    log_payload = daily_log_payload(log_row, authored_report=True)
     log_payload["has_applied_actions"] = 1 if applied_actions else 0
     handler.send_json(
         HTTPStatus.CREATED,
@@ -1732,6 +2389,205 @@ def api_create_daily_log(handler, path: str) -> None:
             "log": log_payload,
             "project": serialize_project(project_row, user),
             "appliedActions": applied_actions,
+            "idempotentReplay": False,
+        },
+    )
+
+
+def daily_log_image_type(raw: bytes) -> tuple[str, str] | None:
+    if raw.startswith(b"\xff\xd8\xff"):
+        return ".jpg", "image/jpeg"
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png", "image/png"
+    if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
+
+
+def compress_daily_log_image(raw: bytes) -> bytes | None:
+    """Decode, orient, resize and strip metadata from a field-report photo."""
+
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            if source.width <= 0 or source.height <= 0:
+                return None
+            if source.width * source.height > DAILY_LOG_PHOTO_MAX_PIXELS:
+                return None
+            source.load()
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail(
+                (DAILY_LOG_PHOTO_MAX_EDGE, DAILY_LOG_PHOTO_MAX_EDGE),
+                Image.Resampling.LANCZOS,
+            )
+            has_alpha = image.mode in {"RGBA", "LA"} or (
+                image.mode == "P" and "transparency" in image.info
+            )
+            image = image.convert("RGBA" if has_alpha else "RGB")
+            output = io.BytesIO()
+            image.save(output, format="WEBP", quality=80, method=6)
+            return output.getvalue()
+    except (Image.DecompressionBombError, OSError, UnidentifiedImageError, ValueError):
+        return None
+
+
+def api_upload_daily_log_photo(handler, path: str) -> None:
+    project_id = parse_path_int(path, 2)
+    daily_log_id = parse_path_int(path, 4)
+    if not project_id or not daily_log_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_daily_log_photo_path"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] in {"customer"} or user_is_guest(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+
+    form = handler.read_multipart()
+    client_photo_raw = str(form.getfirst("client_photo_id", "")).strip()
+    client_photo_id = normalize_daily_log_client_id(client_photo_raw)
+    if not client_photo_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_client_photo_id"})
+        return
+    upload = form["file"] if "file" in form else None
+    if upload is None or not getattr(upload, "file", None) or not getattr(upload, "filename", ""):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "file_required"})
+        return
+    raw = upload.file.read()
+    if not raw:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_file"})
+        return
+    if len(raw) > DAILY_LOG_PHOTO_MAX_BYTES:
+        handler.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "daily_log_photo_too_large"})
+        return
+    if not daily_log_image_type(raw):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_daily_log_photo_format"})
+        return
+    compressed = compress_daily_log_image(raw)
+    if not compressed:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_daily_log_photo_format"})
+        return
+
+    raw = compressed
+    file_ext, mime_type = ".webp", "image/webp"
+    uploaded_name = sanitize_filename(str(getattr(upload, "filename", "") or "report-photo"))
+    original_name = (Path(uploaded_name).stem or "report-photo") + file_ext
+    timestamp = now_ts()
+    storage_name = f"{timestamp}_{secrets.token_hex(8)}{file_ext}"
+    file_path = project_documents_dir(project_id) / storage_name
+    try:
+        storage_path = str(file_path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        storage_path = str(file_path)
+
+    try:
+        with db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            log_row = con.execute(
+                "SELECT id, report_date, is_client_visible FROM daily_logs WHERE id = ? AND project_id = ?",
+                (daily_log_id, project_id),
+            ).fetchone()
+            if not log_row:
+                con.rollback()
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "daily_log_not_found"})
+                return
+            existing_photo = con.execute(
+                """
+                SELECT d.id, d.title, d.original_name, d.mime_type, d.size_bytes
+                FROM daily_log_photos link
+                JOIN documents d ON d.id = link.document_id
+                WHERE link.daily_log_id = ? AND link.client_photo_id = ?
+                """,
+                (daily_log_id, client_photo_id),
+            ).fetchone()
+            if existing_photo:
+                con.rollback()
+                handler.send_json(
+                    HTTPStatus.OK,
+                    {
+                        "photo": daily_log_photo_payload(existing_photo),
+                        "daily_log_id": daily_log_id,
+                        "idempotentReplay": True,
+                    },
+                )
+                return
+            photo_count = int(
+                con.execute(
+                    "SELECT COUNT(*) FROM daily_log_photos WHERE daily_log_id = ?",
+                    (daily_log_id,),
+                ).fetchone()[0]
+            )
+            if photo_count >= DAILY_LOG_PHOTO_LIMIT:
+                con.rollback()
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "daily_log_photo_limit"})
+                return
+
+            file_path.write_bytes(raw)
+            title = f"Фото к отчёту за {log_row['report_date']}"
+            document_cur = con.execute(
+                """
+                INSERT INTO documents (
+                    project_id, title, doc_type, status, original_name, storage_name, storage_path,
+                    mime_type, file_ext, size_bytes, notes, uploaded_by, is_client_visible,
+                    created_at, updated_at, generated_by_system
+                )
+                VALUES (?, ?, 'photo_report', 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    project_id,
+                    title,
+                    original_name,
+                    storage_name,
+                    storage_path,
+                    mime_type,
+                    file_ext,
+                    len(raw),
+                    f"Прикреплено к дневному отчёту #{daily_log_id}",
+                    user["id"],
+                    int(log_row["is_client_visible"] or 0),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            document_id = int(document_cur.lastrowid)
+            con.execute(
+                """
+                INSERT INTO daily_log_photos (
+                    daily_log_id, project_id, document_id, client_photo_id, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (daily_log_id, project_id, document_id, client_photo_id, user["id"], timestamp),
+            )
+            create_audit(
+                con,
+                user["id"],
+                "attach_daily_log_photo",
+                "daily_log",
+                daily_log_id,
+                {
+                    "project_id": project_id,
+                    "document_id": document_id,
+                    "size_bytes": len(raw),
+                },
+            )
+            photo_row = con.execute(
+                "SELECT id, title, original_name, mime_type, size_bytes FROM documents WHERE id = ?",
+                (document_id,),
+            ).fetchone()
+            con.commit()
+    except Exception:
+        try:
+            if file_path.is_file():
+                file_path.unlink()
+        except OSError:
+            LOGGER.exception("Could not clean up a failed report photo for project %s", project_id)
+        raise
+
+    handler.send_json(
+        HTTPStatus.CREATED,
+        {
+            "photo": daily_log_photo_payload(photo_row),
+            "daily_log_id": daily_log_id,
             "idempotentReplay": False,
         },
     )
@@ -1746,59 +2602,86 @@ def api_delete_daily_log(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if user["role"] in {"customer"}:
+    if user["role"] in {"customer"} or user_is_guest(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     with db() as con:
+        # Serialize deletion with photo uploads so no document/file can be
+        # attached after the cleanup snapshot and become orphaned.
+        con.execute("BEGIN IMMEDIATE")
         log_row = con.execute(
             "SELECT * FROM daily_logs WHERE id = ? AND project_id = ?",
             (log_id, project_id),
         ).fetchone()
         if not log_row:
+            con.rollback()
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "log_not_found"})
             return
         applied_action = con.execute(
-            "SELECT 1 FROM daily_log_actions WHERE daily_log_id = ? LIMIT 1",
-            (log_id,),
+            """
+            SELECT 1 FROM daily_log_actions WHERE daily_log_id = ?
+            UNION ALL
+            SELECT 1 FROM daily_log_work_actions WHERE daily_log_id = ?
+            LIMIT 1
+            """,
+            (log_id, log_id),
         ).fetchone()
         if applied_action:
+            con.rollback()
             handler.send_json(
                 HTTPStatus.CONFLICT,
                 {"error": "daily_log_has_applied_actions"},
             )
             return
-        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-        con.execute("DELETE FROM daily_logs WHERE id = ?", (log_id,))
-        latest_progress_row = con.execute(
+        report_photo_rows = con.execute(
             """
-            SELECT progress_percent
-            FROM daily_logs
-            WHERE project_id = ? AND progress_percent IS NOT NULL
-            ORDER BY report_date DESC, id DESC
-            LIMIT 1
+            SELECT d.id, d.storage_path
+            FROM daily_log_photos link
+            JOIN documents d ON d.id = link.document_id
+            WHERE link.daily_log_id = ?
             """,
-            (project_id,),
-        ).fetchone()
-        if latest_progress_row and latest_progress_row["progress_percent"] is not None:
-            progress_value = int(round(float(latest_progress_row["progress_percent"] or 0)))
-            status_value = "completed" if progress_value >= 100 else ("active" if progress_value > 0 else None)
-            if status_value:
-                con.execute(
-                    "UPDATE projects SET progress = ?, status = ?, updated_at = ? WHERE id = ?",
-                    (progress_value, status_value, now_ts(), project_id),
+            (log_id,),
+        ).fetchall()
+        for photo_row in report_photo_rows:
+            external_references = [
+                reference
+                for reference in document_reference_summary(con, int(photo_row["id"]))
+                if not (
+                    reference["table"] == "daily_log_photos"
+                    and reference["column"] == "document_id"
                 )
-            else:
-                con.execute(
-                    "UPDATE projects SET progress = ?, updated_at = ? WHERE id = ?",
-                    (progress_value, now_ts(), project_id),
+            ]
+            other_report_link = con.execute(
+                """
+                SELECT 1
+                FROM daily_log_photos
+                WHERE document_id = ? AND daily_log_id <> ?
+                LIMIT 1
+                """,
+                (int(photo_row["id"]), log_id),
+            ).fetchone()
+            if other_report_link:
+                external_references.append(
+                    {"table": "daily_log_photos", "column": "document_id", "count": 1}
                 )
-        else:
-            current_status = str(project_row["status"] or "") if project_row else ""
-            fallback_status = "Подготовка" if current_status in {"active", "completed"} else current_status
+            if external_references:
+                con.rollback()
+                handler.send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "daily_log_photo_in_use",
+                        "documentId": int(photo_row["id"]),
+                        "referenceCount": sum(int(item["count"]) for item in external_references),
+                    },
+                )
+                return
+        if report_photo_rows:
+            placeholders = ",".join("?" for _ in report_photo_rows)
             con.execute(
-                "UPDATE projects SET progress = 0, status = ?, updated_at = ? WHERE id = ?",
-                (fallback_status or "Подготовка", now_ts(), project_id),
+                f"DELETE FROM documents WHERE id IN ({placeholders})",
+                [int(row["id"]) for row in report_photo_rows],
             )
+        con.execute("DELETE FROM daily_logs WHERE id = ?", (log_id,))
         con.execute(
             """
             INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
@@ -1812,6 +2695,7 @@ def api_delete_daily_log(handler, path: str) -> None:
                         "project_id": project_id,
                         "title": log_row["title"],
                         "report_date": log_row["report_date"],
+                        "deleted_photo_count": len(report_photo_rows),
                         "deleted_log": dict(log_row),
                     },
                     ensure_ascii=False,
@@ -1821,11 +2705,31 @@ def api_delete_daily_log(handler, path: str) -> None:
         )
         refreshed_project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         con.commit()
+    photo_cleanup_failed = False
+    for photo_row in report_photo_rows:
+        storage_path = str(photo_row["storage_path"] or "").strip()
+        if not storage_path:
+            continue
+        try:
+            photo_path = resolve_document_storage_path(project_id, storage_path)
+            if photo_path.is_file():
+                photo_path.unlink()
+        except (OSError, RuntimeError, ValueError) as error:
+            photo_cleanup_failed = True
+            record_document_file_cleanup_failure(
+                user_id=user["id"],
+                document_id=int(photo_row["id"]),
+                project_id=project_id,
+                storage_path=storage_path,
+                error=error,
+            )
     handler.send_json(
         HTTPStatus.OK,
         {
             "ok": True,
             "deletedId": log_id,
+            "deletedPhotoCount": len(report_photo_rows),
+            "photoCleanupFailed": photo_cleanup_failed,
             "project": serialize_project(refreshed_project, user) if refreshed_project else None,
         },
     )
