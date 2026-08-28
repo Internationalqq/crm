@@ -200,6 +200,7 @@
                         renderProjectList(state.projects);
                     }
                     refreshProjectOverview(projectId);
+                    refreshReminderBell();
                     showAppNotice('Отчет удалён.', 'success');
                     var project = state.projects.find(function (item) { return Number(item.id) === projectId; }) || state.selectedProject || { id: projectId, title: 'Объект' };
                     loadProjectLogs(projectId, function (logs) {

@@ -1182,3 +1182,197 @@
         transition: none !important;
     }
 }
+
+/* Daily focus: schedule, procurement, tasks, and the evening report. */
+.reminder-focus {
+    min-width: 0;
+    display: grid;
+    gap: 7px;
+    margin-bottom: 13px;
+}
+
+.reminder-focus-head {
+    min-height: 28px;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 0 3px;
+}
+
+.reminder-focus-head-icon {
+    width: 22px;
+    height: 22px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 7px;
+    background: #fff6da;
+    color: #a56608;
+}
+
+.reminder-focus-head-icon svg {
+    width: 13px;
+    height: 13px;
+    stroke-width: 2.2;
+}
+
+.reminder-focus-head strong {
+    color: #26364b;
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.reminder-focus-head > span:last-child {
+    min-width: 22px;
+    height: 20px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #eef2f7;
+    color: #607087;
+    font-size: 10px;
+    font-weight: 850;
+}
+
+.reminder-focus-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.reminder-focus-card {
+    min-width: 0;
+    min-height: 68px;
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 8px 9px;
+    border: 1px solid #dce5ef;
+    border-radius: 11px;
+    background: #fff;
+}
+
+.reminder-focus-card-icon {
+    width: 30px;
+    height: 30px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 9px;
+    background: #edf5ff;
+    color: #356fb5;
+}
+
+.reminder-focus-card-icon svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 2.1;
+}
+
+.reminder-focus-card-copy {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.reminder-focus-card-copy small,
+.reminder-focus-card-copy strong,
+.reminder-focus-card-copy em {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reminder-focus-card-copy small {
+    color: #4d627c;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+}
+
+.reminder-focus-card-copy strong {
+    color: #21344c;
+    font-size: 13px;
+    font-weight: 860;
+    line-height: 1.15;
+}
+
+.reminder-focus-card-copy em {
+    color: #566b84;
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 680;
+}
+
+.reminder-focus-card.is-report {
+    border-color: #f1d8aa;
+    background: #fffaf0;
+}
+
+.reminder-focus-card.is-report .reminder-focus-card-icon {
+    background: #fff0cd;
+    color: #a65d06;
+}
+
+.reminder-focus-card.is-order {
+    border-color: #efd7bd;
+    background: #fff9f2;
+}
+
+.reminder-focus-card.is-order .reminder-focus-card-icon {
+    background: #fff0df;
+    color: #a44d0b;
+}
+
+.reminder-focus-card.is-works .reminder-focus-card-icon {
+    background: #eaf3ff;
+    color: #2c67ae;
+}
+
+.reminder-focus-card.is-tasks .reminder-focus-card-icon {
+    background: #eaf8f1;
+    color: #287354;
+}
+
+.reminder-focus-card.is-danger {
+    border-color: #f0c8c4;
+    background: #fff7f6;
+}
+
+.reminder-focus-card.is-danger .reminder-focus-card-icon {
+    background: #ffebe8;
+    color: #be3e34;
+}
+
+.reminder-group[data-reminder-group="reports"] .reminder-group-list {
+    border-color: #eedbb7;
+    background: #fffdf8;
+}
+
+.reminder-group[data-reminder-group="reports"] .reminder-group-icon {
+    background: #fff1d5 !important;
+    color: #a6600b !important;
+}
+
+@media (max-width: 600px) {
+    .reminder-focus-card {
+        min-height: 64px;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 7px;
+        padding-inline: 8px;
+    }
+
+    .reminder-focus-card-icon {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+@media (max-width: 350px) {
+    .reminder-focus-grid {
+        grid-template-columns: 1fr;
+    }
+}

@@ -10965,8 +10965,11 @@ function renderLogsDayView(project, logs) {
     var reminderLastItems = [];
     var reminderLastStatus = { failedCount: 0, totalProjects: 0, fullFailure: false };
     var reminderLastNoticeSignature = '';
+    var reminderLastNoticeKeys = {};
     var reminderNoticeTimer = 0;
     var reminderMotionTimer = 0;
+    var reminderBoundaryTimer = 0;
+    var reminderRefreshQueued = false;
 
     function reminderProjectTitle(projectId) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
@@ -11005,12 +11008,34 @@ function renderLogsDayView(project, logs) {
     }
 
     function reminderStageText(stage) {
+        var plannedStart = stage.planned_start || stage.plannedStart || '';
+        var plannedEnd = stage.planned_end || stage.plannedEnd || '';
+        var statusCode = stage.status_code || stage.statusCode || '';
         var bits = [
             stage.progress != null ? ('готовность ' + percent(stage.progress) + '%') : '',
-            stage.planned_end ? ('план до ' + formatDisplayDate(stage.planned_end)) : '',
-            stage.status_code ? ('статус: ' + statusLabel(stage.status_code)) : ''
+            plannedStart && stage.timing === 'soon' ? ('старт ' + formatDisplayDate(plannedStart)) : '',
+            plannedEnd ? ('план до ' + formatDisplayDate(plannedEnd)) : '',
+            statusCode ? ('статус: ' + statusLabel(statusCode)) : ''
         ];
         return bits.filter(Boolean).join(' • ');
+    }
+
+    function reminderSchedulePresentation(stage) {
+        var timing = String(stage && stage.timing || '').toLowerCase();
+        var plannedStart = stage && (stage.planned_start || stage.plannedStart) || '';
+        var daysUntilStart = Number(stage && stage.daysUntilStart);
+        var statusCode = String(stage && (stage.status_code || stage.statusCode) || '').toLowerCase();
+        var alreadyStarted = Number(stage && stage.progress || 0) > 0 || statusCode === 'started' || statusCode === 'in_progress';
+        if (timing === 'blocked') return { kind: 'danger', label: 'Заблокировано', focusWhen: 'today' };
+        if (timing === 'overdue') return { kind: 'danger', label: 'Просрочено', focusWhen: 'today' };
+        if (timing === 'due_today') return { kind: 'warn', label: 'Завершить сегодня', focusWhen: 'today' };
+        if (timing === 'starts_today') return { kind: 'warn', label: 'Начать сегодня', focusWhen: 'today' };
+        if (timing === 'today') return { kind: 'warn', label: alreadyStarted ? 'Сегодня в работе' : 'По плану сегодня', focusWhen: 'today' };
+        if (timing === 'soon') {
+            var soonLabel = daysUntilStart === 1 ? 'Начать завтра' : (plannedStart ? ('Начать ' + formatDisplayDate(plannedStart)) : 'Скоро начать');
+            return { kind: 'info', label: soonLabel, focusWhen: 'soon' };
+        }
+        return { kind: 'warn', label: 'Проблемный этап', focusWhen: 'today' };
     }
 
     function reminderProcurementText(alert) {
@@ -11084,20 +11109,27 @@ function renderLogsDayView(project, logs) {
         var title = project.title || 'Объект';
         var items = [];
         if (!notifications) return items;
-        if (notifications.missingDailyReport && new Date().getHours() >= 17) {
-            items.push({ group: 'journal', projectId: projectId, kind: 'warn', sortAt: notifications.today || APP_TODAY, label: 'Закройте день', subject: 'Отчёт за сегодня', title: title, scope: 'Журнал объекта', text: 'Факт дня можно надиктовать за минуту.', href: '/app/projects?openProject=' + projectId + '&tab=reports' });
+        if (notifications.missingDailyReport && notifications.reportReminderActive) {
+            items.push({ group: 'reports', projectId: projectId, sourceId: 'report:' + String(notifications.today || APP_TODAY), kind: 'warn', focusWhen: 'evening', sortAt: notifications.today || APP_TODAY, label: 'До конца дня', subject: 'Нет отчёта за сегодня', title: title, scope: 'Журнал объекта', text: 'Запишите выполненные работы, людей и технику. Можно надиктовать за минуту.', href: '/app/projects?openProject=' + projectId + '&tab=reports' });
         }
         (notifications.overdueTasks || []).forEach(function (task) {
-            items.push({ group: 'tasks', projectId: projectId, kind: 'danger', sortAt: task.due_at || '', label: 'Просрочено', subject: task.title || 'Задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId + '&tab=tasks' });
+            items.push({ group: 'tasks', projectId: projectId, sourceId: task.id || '', kind: 'danger', focusWhen: 'today', sortAt: task.due_at || '', label: 'Просрочено', subject: task.title || 'Задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'срок был'), href: '/app/projects?openProject=' + projectId + '&tab=tasks' });
         });
         (notifications.dueSoonTasks || []).forEach(function (task) {
-            items.push({ group: 'tasks', projectId: projectId, kind: 'warn', sortAt: task.due_at || '', label: 'Скоро срок', subject: task.title || 'Задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, 'до'), href: '/app/projects?openProject=' + projectId + '&tab=tasks' });
+            var dueDate = String(task.due_at || '').slice(0, 10);
+            var isDueToday = !!dueDate && dueDate === String(notifications.today || APP_TODAY);
+            var dueLabel = isDueToday ? 'Сделать сегодня' : 'Срок скоро';
+            items.push({ group: 'tasks', projectId: projectId, sourceId: task.id || '', kind: isDueToday ? 'warn' : 'info', focusWhen: isDueToday ? 'today' : 'soon', sortAt: task.due_at || '', label: dueLabel, subject: task.title || 'Задача', title: title, scope: reminderTaskScope(task), text: reminderTaskText(task, isDueToday ? 'срок' : 'до'), href: '/app/projects?openProject=' + projectId + '&tab=tasks' });
         });
         (notifications.blockerLogs || []).forEach(function (log) {
-            items.push({ group: 'journal', projectId: projectId, kind: 'danger', sortAt: log.report_date || '', label: 'Блокер', subject: 'Проблема из отчёта', title: title, scope: reminderBlockerScope(log), text: (log.blockers || log.title || 'Есть блокер') + (log.report_date ? ' • отчёт от ' + formatDisplayDate(log.report_date) : ''), href: '/app/projects?openProject=' + projectId + '&tab=reports' });
+            items.push({ group: 'journal', projectId: projectId, sourceId: log.id || '', kind: 'danger', focusWhen: 'today', sortAt: log.report_date || '', label: 'Блокер', subject: 'Проблема из отчёта', title: title, scope: reminderBlockerScope(log), text: (log.blockers || log.title || 'Есть блокер') + (log.report_date ? ' • отчёт от ' + formatDisplayDate(log.report_date) : ''), href: '/app/projects?openProject=' + projectId + '&tab=reports' });
         });
-        (notifications.problemStages || []).forEach(function (stage) {
-            items.push({ group: 'works', projectId: projectId, kind: 'warn', sortAt: stage.planned_end || '', label: 'Проблемный этап', subject: stage.title || 'Этап работ', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId + '&tab=schedule&stageId=' + encodeURIComponent(stage.id || '') + '&sectionTitle=' + encodeURIComponent(stage.sectionTitle || stage.title || '') });
+        var scheduleAlerts = Array.isArray(notifications.scheduleAlerts) ? notifications.scheduleAlerts : (notifications.problemStages || []);
+        scheduleAlerts.forEach(function (stage) {
+            var presentation = reminderSchedulePresentation(stage);
+            var plannedStart = stage.planned_start || stage.plannedStart || '';
+            var plannedEnd = stage.planned_end || stage.plannedEnd || '';
+            items.push({ group: 'works', projectId: projectId, sourceId: stage.id || '', kind: presentation.kind, focusWhen: presentation.focusWhen, sortAt: plannedStart || plannedEnd, label: presentation.label, subject: stage.title || 'Этап работ', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId + '&tab=schedule&stageId=' + encodeURIComponent(stage.id || '') + '&sectionTitle=' + encodeURIComponent(stage.sectionTitle || stage.title || '') });
         });
         if (Array.isArray(notifications.shortageAlerts)) {
             var procurementByMaterialId = {};
@@ -11163,10 +11195,11 @@ function renderLogsDayView(project, logs) {
     function reminderGroupDefinitions() {
         return [
             { key: 'materials', title: 'Материалы', icon: 'package-search', order: 0 },
-            { key: 'tasks', title: 'Задачи', icon: 'list-checks', order: 1 },
-            { key: 'works', title: 'Работы и этапы', icon: 'hard-hat', order: 2 },
-            { key: 'other', title: 'Прочее', icon: 'bell', order: 3 },
-            { key: 'journal', title: 'Журнал и блокеры', icon: 'notebook-pen', order: 4 }
+            { key: 'works', title: 'По графику', icon: 'hard-hat', order: 1 },
+            { key: 'tasks', title: 'Задачи', icon: 'list-checks', order: 2 },
+            { key: 'reports', title: 'Закрыть день', icon: 'notebook-pen', order: 3 },
+            { key: 'other', title: 'Прочее', icon: 'bell', order: 4 },
+            { key: 'journal', title: 'Блокеры', icon: 'triangle-alert', order: 5 }
         ];
     }
 
@@ -11224,25 +11257,108 @@ function renderLogsDayView(project, logs) {
             summary.orderCount += group.orderCount;
             summary.deliveryCount += group.deliveryCount;
             if (group.orderCount > 0) summary.orderProjects += 1;
-            if (group.items.length) summary.totalProjects += 1;
+            var urgentOrderCount = 0;
+            var urgentDeliveryCount = 0;
+            group.items.forEach(function (item) {
+                if (reminderSeverityRank(item.kind) !== 0) return;
+                if (item.actionKind === 'delivery') urgentDeliveryCount += 1;
+                else if (Number(item.actionQty || 0) > 0) urgentOrderCount += 1;
+            });
+            summary.todayOrderCount += urgentOrderCount;
+            summary.todayDeliveryCount += urgentDeliveryCount;
+            if (urgentOrderCount) summary.todayOrderProjects += 1;
+            if (urgentDeliveryCount) summary.todayDeliveryProjects += 1;
+            if (group.items.length) {
+                summary.totalProjects += 1;
+                if (group.rank === 0) summary.todayProjects += 1;
+                else summary.soonProjects += 1;
+            }
             return summary;
-        }, { orderCount: 0, deliveryCount: 0, orderProjects: 0, totalProjects: 0 });
+        }, {
+            orderCount: 0,
+            deliveryCount: 0,
+            orderProjects: 0,
+            totalProjects: 0,
+            todayProjects: 0,
+            soonProjects: 0,
+            todayOrderCount: 0,
+            todayOrderProjects: 0,
+            todayDeliveryCount: 0,
+            todayDeliveryProjects: 0
+        });
     }
 
-    function reminderOrderOverviewMarkup(items) {
-        var snapshot = reminderMaterialSnapshot(items);
-        if (!snapshot.orderCount && !snapshot.deliveryCount) return '';
-        var hasOrders = snapshot.orderCount > 0;
-        var count = hasOrders ? snapshot.orderCount : snapshot.deliveryCount;
-        var projects = hasOrders ? snapshot.orderProjects : snapshot.totalProjects;
-        var title = hasOrders ? 'Нужно заказать' : 'Поставки в пути';
-        var positionLabel = reminderPlural(count, 'материал', 'материала', 'материалов');
-        var projectLabel = reminderPlural(projects, 'объект', 'объекта', 'объектов');
-        return '<div class="reminder-order-overview' + (hasOrders ? '' : ' is-delivery') + '" role="group" aria-label="' + escapeHtml(title + ': ' + count + ' ' + positionLabel + ', ' + projects + ' ' + projectLabel) + '">' +
-            '<span class="reminder-order-overview-icon" aria-hidden="true"><i data-lucide="' + (hasOrders ? 'shopping-cart' : 'truck') + '"></i></span>' +
-            '<span class="reminder-order-overview-copy"><small>' + escapeHtml(title) + '</small><strong>' + count + ' ' + escapeHtml(positionLabel) + '</strong></span>' +
-            '<span class="reminder-order-overview-projects"><b>' + projects + '</b><small>' + escapeHtml(projectLabel) + '</small></span>' +
+    function reminderFocusSnapshot(items) {
+        var materials = reminderMaterialSnapshot(items);
+        var works = (items || []).filter(function (item) { return item.group === 'works'; });
+        var tasks = (items || []).filter(function (item) { return item.group === 'tasks'; });
+        var reports = (items || []).filter(function (item) { return item.group === 'reports'; });
+        var blockers = (items || []).filter(function (item) { return item.group === 'journal'; });
+        var otherAttention = (items || []).filter(function (item) { return item.group === 'other' && (item.kind === 'danger' || item.kind === 'warn'); });
+        var worksToday = works.filter(function (item) { return item.focusWhen === 'today'; }).length;
+        var worksSoon = works.filter(function (item) { return item.focusWhen === 'soon'; }).length;
+        var tasksToday = tasks.filter(function (item) { return item.focusWhen === 'today'; }).length;
+        var tasksSoon = tasks.filter(function (item) { return item.focusWhen === 'soon'; }).length;
+        var materialActions = materials.totalProjects;
+        var actionCount = materialActions + works.length + tasks.length + reports.length + blockers.length + otherAttention.length;
+        return {
+            materials: materials,
+            works: works.length,
+            worksToday: worksToday,
+            worksSoon: worksSoon,
+            tasks: tasks.length,
+            tasksToday: tasksToday,
+            tasksSoon: tasksSoon,
+            reports: reports.length,
+            blockers: blockers.length,
+            actionCount: actionCount,
+            todayCount: worksToday + tasksToday + reports.length + blockers.length + otherAttention.length + materials.todayProjects,
+            soonCount: worksSoon + tasksSoon + materials.soonProjects
+        };
+    }
+
+    function reminderFocusCardMarkup(tone, icon, eyebrow, count, countLabel, detail) {
+        return '<div class="reminder-focus-card is-' + escapeHtml(tone) + '" role="listitem">' +
+            '<span class="reminder-focus-card-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(icon) + '"></i></span>' +
+            '<span class="reminder-focus-card-copy"><small>' + escapeHtml(eyebrow) + '</small><strong>' + count + ' ' + escapeHtml(countLabel) + '</strong><em>' + escapeHtml(detail) + '</em></span>' +
         '</div>';
+    }
+
+    function reminderFocusOverviewMarkup(items) {
+        var snapshot = reminderFocusSnapshot(items);
+        var cards = [];
+        if (snapshot.reports) {
+            cards.push(reminderFocusCardMarkup('report', 'notebook-pen', 'До конца дня', snapshot.reports, reminderPlural(snapshot.reports, 'отчёт', 'отчёта', 'отчётов'), 'нет за сегодня'));
+        }
+        if (snapshot.works) {
+            var workDetail = [];
+            if (snapshot.worksToday) workDetail.push('сегодня ' + snapshot.worksToday);
+            if (snapshot.worksSoon) workDetail.push('скоро ' + snapshot.worksSoon);
+            cards.push(reminderFocusCardMarkup('works', 'hard-hat', 'По графику', snapshot.works, reminderPlural(snapshot.works, 'этап', 'этапа', 'этапов'), workDetail.join(' · ') || 'на контроле'));
+        }
+        if (snapshot.materials.orderCount || snapshot.materials.deliveryCount) {
+            var hasOrders = snapshot.materials.orderCount > 0;
+            var materialCount = hasOrders ? snapshot.materials.orderCount : snapshot.materials.deliveryCount;
+            var materialProjects = hasOrders ? snapshot.materials.orderProjects : snapshot.materials.totalProjects;
+            var materialDetail = materialProjects + ' ' + reminderPlural(materialProjects, 'объект', 'объекта', 'объектов');
+            if (snapshot.materials.todayProjects) materialDetail += ' · срочно ' + snapshot.materials.todayProjects;
+            if (hasOrders && snapshot.materials.deliveryCount) materialDetail += ' · в пути ' + snapshot.materials.deliveryCount;
+            cards.push(reminderFocusCardMarkup(hasOrders ? 'order' : 'delivery', hasOrders ? 'shopping-cart' : 'truck', hasOrders ? 'Заказать' : 'В пути', materialCount, reminderPlural(materialCount, 'материал', 'материала', 'материалов'), materialDetail));
+        }
+        if (snapshot.tasks) {
+            var taskDetail = [];
+            if (snapshot.tasksToday) taskDetail.push('сегодня ' + snapshot.tasksToday);
+            if (snapshot.tasksSoon) taskDetail.push('скоро ' + snapshot.tasksSoon);
+            cards.push(reminderFocusCardMarkup('tasks', 'list-checks', 'Задачи', snapshot.tasks, reminderPlural(snapshot.tasks, 'задача', 'задачи', 'задач'), taskDetail.join(' · ') || 'на контроле'));
+        }
+        if (snapshot.blockers) {
+            cards.push(reminderFocusCardMarkup('danger', 'triangle-alert', 'Блокеры', snapshot.blockers, reminderPlural(snapshot.blockers, 'сигнал', 'сигнала', 'сигналов'), 'мешают работе'));
+        }
+        if (!cards.length) return '';
+        return '<section class="reminder-focus" aria-labelledby="reminder-focus-title">' +
+            '<header class="reminder-focus-head"><span class="reminder-focus-head-icon" aria-hidden="true"><i data-lucide="sun"></i></span><strong id="reminder-focus-title">Фокус дня</strong><span>' + snapshot.actionCount + '</span></header>' +
+            '<div class="reminder-focus-grid" role="list">' + cards.join('') + '</div>' +
+        '</section>';
     }
 
     function reminderItemMarkup(item) {
@@ -11370,10 +11486,24 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
+    function reminderNoticeKey(item) {
+        return [item.group, item.projectId, item.sourceId, item.materialId, item.kind, item.focusWhen, item.actionKind, item.actionQty, item.sortAt, item.subject].join(':');
+    }
+
     function reminderNoticeSignature(items) {
-        return (items || []).map(function (item) {
-            return [item.group, item.projectId, item.materialId, item.kind, item.actionKind, item.actionQty, item.sortAt, item.subject].join(':');
-        }).sort().join('|');
+        return (items || []).map(reminderNoticeKey).sort().join('|');
+    }
+
+    function reminderHasNewAttention(items) {
+        var nextKeys = {};
+        var hasNew = false;
+        (items || []).forEach(function (item) {
+            var key = reminderNoticeKey(item);
+            nextKeys[key] = true;
+            if (!reminderLastNoticeKeys[key]) hasNew = true;
+        });
+        reminderLastNoticeKeys = nextKeys;
+        return hasNew;
     }
 
     function hideReminderNotice() {
@@ -11400,14 +11530,31 @@ function renderLogsDayView(project, logs) {
             toast.hidden = true;
             wrap.appendChild(toast);
         }
-        var snapshot = reminderMaterialSnapshot(items);
+        var snapshot = reminderFocusSnapshot(items);
         var projectIds = {};
         items.forEach(function (item) { if (item.projectId) projectIds[String(item.projectId)] = true; });
         var message;
-        if (snapshot.orderCount) {
-            message = 'Нужно заказать ' + snapshot.orderCount + ' ' + reminderPlural(snapshot.orderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.orderProjects + ' ' + reminderPlural(snapshot.orderProjects, 'объект', 'объекта', 'объектов');
+        if (snapshot.reports) {
+            message = 'За сегодня нет отчёта: ' + snapshot.reports + ' ' + reminderPlural(snapshot.reports, 'объект', 'объекта', 'объектов');
+            if (snapshot.materials.orderCount) message += ' · заказать ' + snapshot.materials.orderCount + ' ' + reminderPlural(snapshot.materials.orderCount, 'материал', 'материала', 'материалов');
+        } else if (snapshot.blockers) {
+            message = 'Блокеры требуют решения: ' + snapshot.blockers;
+        } else if (snapshot.materials.todayOrderCount) {
+            message = 'Срочно заказать ' + snapshot.materials.todayOrderCount + ' ' + reminderPlural(snapshot.materials.todayOrderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.materials.todayOrderProjects + ' ' + reminderPlural(snapshot.materials.todayOrderProjects, 'объект', 'объекта', 'объектов');
+        } else if (snapshot.materials.todayDeliveryCount) {
+            message = 'Срочно проверить поставку: ' + snapshot.materials.todayDeliveryCount + ' ' + reminderPlural(snapshot.materials.todayDeliveryCount, 'позиция', 'позиции', 'позиций') + ' · ' + snapshot.materials.todayDeliveryProjects + ' ' + reminderPlural(snapshot.materials.todayDeliveryProjects, 'объект', 'объекта', 'объектов');
+        } else if (snapshot.worksToday) {
+            message = 'Сегодня по графику: ' + snapshot.worksToday + ' ' + reminderPlural(snapshot.worksToday, 'этап', 'этапа', 'этапов');
+        } else if (snapshot.tasksToday) {
+            message = 'Задачи на сегодня: ' + snapshot.tasksToday;
+        } else if (snapshot.materials.orderCount) {
+            message = 'Нужно заказать ' + snapshot.materials.orderCount + ' ' + reminderPlural(snapshot.materials.orderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.materials.orderProjects + ' ' + reminderPlural(snapshot.materials.orderProjects, 'объект', 'объекта', 'объектов');
+        } else if (snapshot.materials.deliveryCount) {
+            message = 'Материалы в пути: ' + snapshot.materials.deliveryCount + ' ' + reminderPlural(snapshot.materials.deliveryCount, 'позиция', 'позиции', 'позиций') + ' · ' + snapshot.materials.totalProjects + ' ' + reminderPlural(snapshot.materials.totalProjects, 'объект', 'объекта', 'объектов');
+        } else if (snapshot.worksSoon) {
+            message = 'Скоро по графику: ' + snapshot.worksSoon + ' ' + reminderPlural(snapshot.worksSoon, 'этап', 'этапа', 'этапов');
         } else {
-            message = 'Требуют внимания: ' + items.length + ' · ' + Object.keys(projectIds).length + ' ' + reminderPlural(Object.keys(projectIds).length, 'объект', 'объекта', 'объектов');
+            message = 'Требуют внимания: ' + snapshot.actionCount + ' · ' + Object.keys(projectIds).length + ' ' + reminderPlural(Object.keys(projectIds).length, 'объект', 'объекта', 'объектов');
         }
         button.classList.remove('is-notifying');
         void button.offsetWidth;
@@ -11443,19 +11590,15 @@ function renderLogsDayView(project, logs) {
             reminderLastItems = items.slice();
             reminderLastStatus = Object.assign({}, status);
         }
-        var materialSnapshot = reminderMaterialSnapshot(items);
-        var badgeItems = items.filter(function (item) {
-            var orderQty = Number(item.actionQty || 0);
-            var isOrder = item.group === 'materials' && item.actionKind === 'order' && Number.isFinite(orderQty) && orderQty > 0;
-            return isOrder || item.kind === 'danger' || item.kind === 'warn';
-        });
+        var focusSnapshot = reminderFocusSnapshot(items);
+        var attentionCount = focusSnapshot.actionCount;
         var hasRefreshError = Number(status.failedCount || 0) > 0;
-        button.classList.toggle('has-alerts', badgeItems.length > 0);
+        button.classList.toggle('has-alerts', attentionCount > 0);
         button.classList.toggle('has-error', hasRefreshError);
-        count.hidden = !badgeItems.length && !hasRefreshError;
-        count.textContent = badgeItems.length ? (badgeItems.length > 99 ? '99+' : String(badgeItems.length)) : (hasRefreshError ? '!' : '0');
+        count.hidden = !attentionCount && !hasRefreshError;
+        count.textContent = attentionCount ? (attentionCount > 99 ? '99+' : String(attentionCount)) : (hasRefreshError ? '!' : '0');
         var buttonLabel = items.length
-            ? ('Уведомления: активных ' + items.length + ', требуют внимания ' + badgeItems.length)
+            ? ('Уведомления: ' + attentionCount + ' действий, ' + items.length + ' записей')
             : (status.failedCount ? 'Уведомления: проверка не завершена' : 'Уведомления: срочных нет');
         if (status.failedCount && items.length) buttonLabel += '. Проверка неполная';
         button.setAttribute('aria-label', buttonLabel);
@@ -11465,8 +11608,7 @@ function renderLogsDayView(project, logs) {
         if (subtitle) {
             if (loading) subtitle.textContent = 'Проверяем объекты...';
             else if (status.fullFailure) subtitle.textContent = 'Нужно повторить проверку';
-            else if (materialSnapshot.orderCount) subtitle.textContent = 'К заказу: ' + materialSnapshot.orderCount + ' • объектов: ' + materialSnapshot.orderProjects;
-            else if (items.length) subtitle.textContent = 'Активных: ' + items.length + ' • объектов: ' + Object.keys(projectIds).length;
+            else if (items.length) subtitle.textContent = 'Сегодня: ' + focusSnapshot.todayCount + ' • скоро: ' + focusSnapshot.soonCount;
             else if (status.failedCount) subtitle.textContent = 'Проверка выполнена не полностью';
             else subtitle.textContent = 'На сейчас всё спокойно';
         }
@@ -11483,7 +11625,8 @@ function renderLogsDayView(project, logs) {
             return;
         }
         var noticeSignature = reminderNoticeSignature(items);
-        if (noticeSignature && noticeSignature !== reminderLastNoticeSignature) triggerReminderNotice(button, items);
+        var hasNewAttention = reminderHasNewAttention(items);
+        if (noticeSignature && noticeSignature !== reminderLastNoticeSignature && hasNewAttention) triggerReminderNotice(button, items);
         reminderLastNoticeSignature = noticeSignature;
         if (!items.length) {
             list.innerHTML = reminderPartialStatusMarkup(status) + (status.failedCount
@@ -11493,14 +11636,36 @@ function renderLogsDayView(project, logs) {
             refreshLucideIcons(list);
             return;
         }
-        list.innerHTML = reminderPartialStatusMarkup(status) + reminderOrderOverviewMarkup(items) + reminderGroupsMarkup(items);
+        list.innerHTML = reminderPartialStatusMarkup(status) + reminderFocusOverviewMarkup(items) + reminderGroupsMarkup(items);
         syncReminderRefreshState(false);
         refreshLucideIcons(list);
     }
 
+    function scheduleReminderBoundaryRefresh(refreshAt) {
+        if (reminderBoundaryTimer) window.clearTimeout(reminderBoundaryTimer);
+        reminderBoundaryTimer = 0;
+        var timestamp = Date.parse(String(refreshAt || ''));
+        if (!Number.isFinite(timestamp)) return;
+        var delay = Math.max(1000, timestamp - Date.now() + 1000);
+        reminderBoundaryTimer = window.setTimeout(function () {
+            reminderBoundaryTimer = 0;
+            if (!isGuestRole()) refreshReminderBell();
+        }, Math.min(delay, 2147483000));
+    }
+
+    function flushReminderRefreshQueue() {
+        if (!reminderRefreshQueued) return;
+        reminderRefreshQueued = false;
+        refreshReminderBell();
+    }
+
     function refreshReminderBell() {
         if (!qsa('[data-reminder-toggle]').length) return;
-        if (state.reminderProjectsLoading || reminderRefreshInFlight) return;
+        if (state.reminderProjectsLoading || reminderRefreshInFlight) {
+            reminderRefreshQueued = true;
+            return;
+        }
+        reminderRefreshQueued = false;
         if (!state.projectsLoaded) {
             var projectsRequestToken = ++reminderRequestToken;
             state.reminderProjectsLoading = true;
@@ -11515,6 +11680,7 @@ function renderLogsDayView(project, logs) {
                 if (projectsRequestToken !== reminderRequestToken) return;
                 state.reminderProjectsLoading = false;
                 renderReminderBell([], false, { failedCount: 1, totalProjects: 0, fullFailure: true });
+                flushReminderRefreshQueue();
             });
             return;
         }
@@ -11528,26 +11694,31 @@ function renderLogsDayView(project, logs) {
         Promise.all(state.projects.map(function (project) {
             return api('/api/projects/' + project.id + '/notifications').then(function (notifications) {
                 state.notificationsByProject[project.id] = notifications || {};
-                return { ok: true, items: buildReminderItemsForProject(project, notifications || {}) };
-            }).catch(function () { return { ok: false, items: [] }; });
+                return { ok: true, items: buildReminderItemsForProject(project, notifications || {}), nextRefreshAt: notifications && notifications.nextAttentionRefreshAt || '' };
+            }).catch(function () { return { ok: false, items: [], nextRefreshAt: '' }; });
         })).then(function (results) {
             if (notificationsRequestToken !== reminderRequestToken) return;
             reminderRefreshInFlight = false;
             var items = [];
             var failedCount = 0;
+            var nextRefreshAt = '';
             results.forEach(function (result) {
                 if (!result.ok) failedCount += 1;
                 items = items.concat(result.items || []);
+                if (result.nextRefreshAt && (!nextRefreshAt || String(result.nextRefreshAt) < nextRefreshAt)) nextRefreshAt = String(result.nextRefreshAt);
             });
+            scheduleReminderBoundaryRefresh(nextRefreshAt);
             renderReminderBell(items, false, {
                 failedCount: failedCount,
                 totalProjects: state.projects.length,
                 fullFailure: failedCount >= state.projects.length
             });
+            flushReminderRefreshQueue();
         }).catch(function () {
             if (notificationsRequestToken !== reminderRequestToken) return;
             reminderRefreshInFlight = false;
             renderReminderBell([], false, { failedCount: state.projects.length, totalProjects: state.projects.length, fullFailure: true });
+            flushReminderRefreshQueue();
         });
     }
 
@@ -11611,6 +11782,9 @@ function renderLogsDayView(project, logs) {
             if (!popover || popover.hidden) return;
             event.preventDefault();
             closeReminderPopover(true);
+        });
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden && !isGuestRole()) refreshReminderBell();
         });
     }
 

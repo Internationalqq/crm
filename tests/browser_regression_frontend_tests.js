@@ -31,7 +31,7 @@ const reminderBlock = appJs.slice(reminderStart, reminderEnd);
 assert.match(reminderBlock, /if \(!state\.projectsLoaded\)/);
 assert.match(reminderBlock, /if \(!state\.projects\.length\) \{\s*renderReminderBell\(\[\], false, \{ failedCount: 0, totalProjects: 0, fullFailure: false \}\);\s*return;/);
 assert.match(reminderBlock, /fullFailure: true/);
-assert.match(reminderBlock, /return \{ ok: false, items: \[\] \}/);
+assert.match(reminderBlock, /return \{ ok: false, items: \[\], nextRefreshAt: '' \}/);
 
 assert.match(appJs, /loadProjectAssignments = function \(projectId, loadingToken\) \{\s*loadProjectHub\(projectId, state\.selectedProject, loadingToken\);/);
 assert.match(warehousePy, /^import urllib\.parse$/m);

@@ -5,11 +5,12 @@ import json
 import logging
 import math
 import mimetypes
+import os
 import re
 import secrets
 import sqlite3
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from pathlib import Path
 
@@ -89,6 +90,8 @@ DAILY_LOG_PHOTO_LIMIT = 8
 DAILY_LOG_PHOTO_MAX_BYTES = 20 * 1024 * 1024
 DAILY_LOG_PHOTO_MAX_PIXELS = 40_000_000
 DAILY_LOG_PHOTO_MAX_EDGE = 1920
+ATTENTION_REPORT_HOUR = 17
+ATTENTION_SOON_DAYS = 3
 DAILY_LOG_IMAGE_TYPES = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -134,6 +137,269 @@ def daily_log_entry_kind(row: sqlite3.Row | dict) -> str:
         or str(payload.get("title") or "").strip() in DAILY_LOG_SECTION_PROGRESS_TITLES
     )
     return "section_progress" if has_progress_shape and has_progress_identity else "field_report"
+
+
+def has_daily_field_report(rows: list[sqlite3.Row | dict]) -> bool:
+    """Return whether the rows contain an authored daily field report."""
+
+    return any(daily_log_entry_kind(row) == "field_report" for row in rows)
+
+
+def attention_timezone(offset_hours: object = None) -> timezone:
+    """Use the configured business timezone for attention-center boundaries."""
+
+    raw_offset = os.environ.get("PMBI_TZ_OFFSET_HOURS", "5") if offset_hours is None else offset_hours
+    try:
+        normalized_offset = int(raw_offset)
+    except (TypeError, ValueError):
+        normalized_offset = 5
+    normalized_offset = max(-23, min(23, normalized_offset))
+    return timezone(timedelta(hours=normalized_offset))
+
+
+def build_attention_clock(
+    current: datetime | None = None,
+    offset_hours: object = None,
+) -> dict:
+    """Build stable server-side evening and midnight refresh boundaries."""
+
+    business_timezone = attention_timezone(offset_hours)
+    if current is None:
+        local_now = datetime.now(business_timezone)
+    elif current.tzinfo is None:
+        local_now = current.replace(tzinfo=business_timezone)
+    else:
+        local_now = current.astimezone(business_timezone)
+
+    evening_boundary = local_now.replace(
+        hour=ATTENTION_REPORT_HOUR,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    report_reminder_active = local_now >= evening_boundary
+    if report_reminder_active:
+        next_refresh = (local_now + timedelta(days=1)).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+    else:
+        next_refresh = evening_boundary
+    return {
+        "serverNow": local_now.isoformat(timespec="seconds"),
+        "today": local_now.date().isoformat(),
+        "reportReminderActive": report_reminder_active,
+        "nextAttentionRefreshAt": next_refresh.isoformat(timespec="seconds"),
+    }
+
+
+def project_requires_daily_report(
+    project: sqlite3.Row | dict | None,
+    user: sqlite3.Row | dict,
+    today_date: date,
+) -> bool:
+    """Only operational, already-started projects require an evening report."""
+
+    if not project:
+        return False
+    user_payload = dict(user) if user else {}
+    role = str(user_payload.get("role") or "").strip().casefold()
+    if role in {"customer", "client", "guest"}:
+        return False
+    payload = dict(project)
+    status = str(payload.get("status") or "").strip().casefold().replace("ё", "е")
+    if status not in {"в работе", "active", "активен", "in_progress", "in progress", "started"}:
+        return False
+    try:
+        if float(payload.get("progress") or 0) >= 100:
+            return False
+    except (TypeError, ValueError):
+        pass
+    started_at = parse_iso_date(str(payload.get("started_at") or ""))
+    return not started_at or started_at <= today_date
+
+
+def project_allows_schedule_attention(project: sqlite3.Row | dict | None) -> bool:
+    """Keep schedule prompts off stopped, closed, and fully completed projects."""
+
+    if not project:
+        return False
+    payload = dict(project)
+    status = str(payload.get("status") or "").strip().casefold().replace("ё", "е")
+    inactive_statuses = {
+        "завершен",
+        "завершено",
+        "закрыт",
+        "закрыто",
+        "на паузе",
+        "приостановлен",
+        "приостановлено",
+        "отменен",
+        "отменено",
+        "completed",
+        "complete",
+        "done",
+        "closed",
+        "paused",
+        "pause",
+        "on_hold",
+        "on hold",
+        "cancelled",
+        "canceled",
+        "archived",
+    }
+    if status in inactive_statuses:
+        return False
+    try:
+        return float(payload.get("progress") or 0) < 100
+    except (TypeError, ValueError):
+        return True
+
+
+def build_schedule_alerts(
+    stages: list[sqlite3.Row | dict],
+    today_date: date,
+    soon_days: int = ATTENTION_SOON_DAYS,
+) -> list[dict]:
+    """Classify the most specific actionable stages without parent duplicates."""
+
+    stage_items = [dict(row) for row in stages]
+    stage_by_id: dict[int, dict] = {}
+    for item in stage_items:
+        try:
+            stage_id = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if stage_id:
+            stage_by_id[stage_id] = item
+
+    def root_title(item: dict) -> str:
+        current = item
+        root = item
+        seen: set[int] = set()
+        while current.get("parent_id"):
+            try:
+                parent_id = int(current.get("parent_id") or 0)
+            except (TypeError, ValueError):
+                break
+            if not parent_id or parent_id in seen:
+                break
+            seen.add(parent_id)
+            parent = stage_by_id.get(parent_id)
+            if not parent:
+                break
+            root = parent
+            current = parent
+        return str(root.get("title") or item.get("title") or "График работ").strip() or "График работ"
+
+    soon_limit = today_date + timedelta(days=max(0, int(soon_days)))
+    timing_rank = {
+        "blocked": 0,
+        "overdue": 1,
+        "due_today": 2,
+        "starts_today": 3,
+        "today": 4,
+        "soon": 5,
+    }
+    alerts: list[dict] = []
+    for item in stage_items:
+        try:
+            stage_id = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not stage_id:
+            continue
+        status_code = str(item.get("status_code") or "").strip().casefold()
+        try:
+            progress = max(0, min(100, int(item.get("progress") or 0)))
+        except (TypeError, ValueError):
+            progress = 0
+        if progress >= 100 or status_code in {"completed", "approved", "done"}:
+            continue
+
+        planned_start_text = str(item.get("planned_start") or "").strip()
+        planned_end_text = str(item.get("planned_end") or "").strip()
+        planned_start = parse_iso_date(planned_start_text)
+        planned_end = parse_iso_date(planned_end_text)
+        timing = ""
+        if status_code == "blocked":
+            timing = "blocked"
+        elif status_code == "overdue" or (planned_end and planned_end < today_date):
+            timing = "overdue"
+        elif planned_end == today_date:
+            timing = "due_today"
+        elif planned_start == today_date and progress <= 0 and status_code not in {"started", "in_progress"}:
+            timing = "starts_today"
+        else:
+            is_today = bool(
+                (planned_start and planned_end and planned_start <= today_date <= planned_end)
+                or (
+                    planned_start
+                    and planned_start <= today_date
+                    and not planned_end
+                    and (status_code in {"started", "in_progress"} or progress > 0)
+                )
+            )
+            if is_today:
+                timing = "today"
+            elif planned_start and today_date < planned_start <= soon_limit:
+                timing = "soon"
+        if not timing:
+            continue
+
+        alerts.append(
+            {
+                "id": stage_id,
+                "title": str(item.get("title") or "Этап работ").strip() or "Этап работ",
+                "parentId": item.get("parent_id"),
+                "stageKind": str(item.get("stage_kind") or "section").strip() or "section",
+                "sectionTitle": root_title(item),
+                "statusCode": status_code or "not_started",
+                "plannedStart": planned_start_text,
+                "plannedEnd": planned_end_text,
+                "progress": progress,
+                "responsible": str(item.get("responsible") or "").strip(),
+                "timing": timing,
+                "daysUntilStart": (planned_start - today_date).days if planned_start else None,
+                "daysUntilEnd": (planned_end - today_date).days if planned_end else None,
+            }
+        )
+
+    actionable_ids = {int(item.get("id") or 0) for item in alerts}
+    alert_by_id = {int(item.get("id") or 0): item for item in alerts}
+    actionable_ancestor_ids: set[int] = set()
+    for alert in alerts:
+        current = stage_by_id.get(int(alert.get("id") or 0))
+        seen: set[int] = set()
+        while current and current.get("parent_id"):
+            try:
+                parent_id = int(current.get("parent_id") or 0)
+            except (TypeError, ValueError):
+                break
+            if not parent_id or parent_id in seen:
+                break
+            seen.add(parent_id)
+            if parent_id in actionable_ids:
+                parent_alert = alert_by_id[parent_id]
+                parent_timing = str(parent_alert.get("timing") or "")
+                descendant_timing = str(alert.get("timing") or "")
+                descendant_is_at_least_as_urgent = timing_rank.get(descendant_timing, 9) <= timing_rank.get(parent_timing, 9)
+                if descendant_is_at_least_as_urgent:
+                    actionable_ancestor_ids.add(parent_id)
+            current = stage_by_id.get(parent_id)
+    alerts = [item for item in alerts if int(item.get("id") or 0) not in actionable_ancestor_ids]
+
+    alerts.sort(
+        key=lambda item: (
+            timing_rank.get(str(item.get("timing") or ""), 9),
+            str(item.get("plannedStart") or item.get("plannedEnd") or "9999-12-31"),
+            str(item.get("title") or "").casefold(),
+            int(item.get("id") or 0),
+        )
+    )
+    return alerts
 
 
 def daily_log_payload(
@@ -600,8 +866,9 @@ def api_project_notifications(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    today = date.today().isoformat()
-    today_date = parse_iso_date(today) or date(2026, 7, 26)
+    attention_clock = build_attention_clock()
+    today = str(attention_clock["today"])
+    today_date = parse_iso_date(today) or date.today()
     soon_limit = (today_date + timedelta(days=2)).isoformat()
     with db() as con:
         project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -625,6 +892,21 @@ def api_project_notifications(handler, path: str) -> None:
             """,
             (project_id,),
         ).fetchone()
+        today_logs = con.execute(
+            """
+            SELECT l.*,
+                   EXISTS(
+                       SELECT 1 FROM audit_log authored
+                       WHERE authored.action = 'create_daily_log'
+                         AND authored.entity = 'daily_log'
+                         AND authored.entity_id = l.id
+                   ) AS _is_authored_report
+            FROM daily_logs l
+            WHERE l.project_id = ? AND l.report_date = ?
+            ORDER BY l.id DESC
+            """,
+            (project_id, today),
+        ).fetchall()
         blocker_logs = con.execute(
             """
             SELECT id, report_date, title, blockers
@@ -727,6 +1009,7 @@ def api_project_notifications(handler, path: str) -> None:
         planned_end = str(item.get("planned_end") or "")
         if status_code == "blocked" or (planned_end and planned_end < today and progress < 100):
             problem_stages.append(item)
+    schedule_alerts = build_schedule_alerts(stage_items, today_date) if project_allows_schedule_attention(project) else []
     procurement = build_procurement_alerts(materials, stage_rows, today_date, section_start_dates) if user["role"] != "customer" else {"items": [], "summary": {"critical": 0, "soon": 0, "watch": 0}}
     shortage_alerts = []
     for material in materials:
@@ -762,14 +1045,20 @@ def api_project_notifications(handler, path: str) -> None:
             item["title"],
         )
     )
+    daily_report_required = project_requires_daily_report(project, user, today_date)
+    missing_daily_report = daily_report_required and not has_daily_field_report(today_logs)
     data = {
         "today": today,
-        "missingDailyReport": False if user["role"] == "customer" else not bool(latest_log and latest_log["report_date"] == today),
+        "serverNow": attention_clock["serverNow"],
+        "reportReminderActive": bool(missing_daily_report and attention_clock["reportReminderActive"]),
+        "nextAttentionRefreshAt": attention_clock["nextAttentionRefreshAt"],
+        "missingDailyReport": missing_daily_report,
         "latestDailyLog": dict(latest_log) if latest_log else None,
         "overdueTasks": overdue_tasks[:8],
         "dueSoonTasks": due_soon_tasks[:8],
         "blockerLogs": [dict(row) for row in blocker_logs],
         "problemStages": problem_stages[:8],
+        "scheduleAlerts": schedule_alerts,
         "shortageAlerts": shortage_alerts,
         "procurementAlerts": procurement["items"],
         "procurementSummary": procurement["summary"],
@@ -1867,7 +2156,7 @@ def api_create_daily_log(handler, path: str) -> None:
     if confirmed_work_actions and not user_can_apply_daily_log_work_actions(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "daily_log_work_actions_forbidden"})
         return
-    report_date = str(payload.get("report_date", "")).strip() or date.today().isoformat()
+    report_date = str(payload.get("report_date", "")).strip() or str(build_attention_clock()["today"])
     parsed_report_date = parse_iso_date(report_date)
     if not parsed_report_date or parsed_report_date.isoformat() != report_date:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_report_date"})
