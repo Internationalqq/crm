@@ -3429,6 +3429,17 @@
             });
         });
 
+        // Capture the whole surface outside the sheet so dismissal stays
+        // reliable even if another drawer binding has already marked the
+        // backdrop as handled. Clicks that start inside the dialog pass through.
+        wrapper.addEventListener('click', function (event) {
+            var target = event.target;
+            if (target && target.closest && target.closest('.side-drawer-panel')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            closeSideDrawer(wrapper);
+        }, true);
+
         if (!document.body.dataset.sideDrawerEscapeBound) {
             document.body.dataset.sideDrawerEscapeBound = '1';
             document.addEventListener('keydown', function (event) {
@@ -3864,8 +3875,7 @@
         return value;
     }
 
-    function reportConfirmedActions(form, reportOnly, requestId) {
-        if (reportOnly) return [];
+    function reportConfirmedActions(form, requestId) {
         return qsa('[data-report-effect]:checked', form).map(function (input) {
             var card = input.closest ? input.closest('.report-effect-card') : null;
             var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
@@ -3907,8 +3917,8 @@
             bad_work_input_value: 'Проверьте объём или процент выполненной работы.',
             bad_work_percent: 'Процент выполненной работы должен быть больше нуля и не превышать 100%.',
             bad_report_date: 'Проверьте дату отчёта.',
-            daily_log_actions_forbidden: 'У вас нет права менять учёт материалов. Сохраните запись кнопкой «Только отчёт».',
-            daily_log_work_actions_forbidden: 'У вас нет права менять фактический объём работ. Сохраните запись кнопкой «Только отчёт».',
+            daily_log_actions_forbidden: 'У вас нет права менять учёт материалов. Обновите страницу или обратитесь к администратору.',
+            daily_log_work_actions_forbidden: 'У вас нет права менять фактический объём работ. Обновите страницу или обратитесь к администратору.',
             daily_log_action_no_quantity_limit: 'Для материала не задан плановый объём, поэтому действие нельзя применить из отчёта.',
             daily_log_work_action_no_quantity_limit: 'Для работы не задан плановый объём, поэтому факт нельзя применить из отчёта.',
             daily_log_action_qty_exceeds_limit: 'Количество больше допустимого остатка. Проверьте заказ, поставку или наличие на объекте.',
@@ -3978,6 +3988,7 @@
             var workersControl = reportFormControl(form, 'workers_count');
             if (workersControl) workersControl.value = String(count);
         }
+        form.dispatchEvent(new CustomEvent('pmbi:report-preview-meta-changed', { bubbles: true }));
     }
 
     function addReportResourceRow(form, kind) {
@@ -4472,7 +4483,7 @@
         if (!form) return;
         if (form.classList) form.classList.toggle('is-submission-recovery', !!active);
         qsa('input, textarea, select, button', form).forEach(function (control) {
-            var keepEnabled = control.matches('[data-report-draft-clear], [data-report-only-submit], .report-submit-button');
+            var keepEnabled = control.matches('[data-report-draft-clear], .report-submit-button');
             if (active) {
                 if (!keepEnabled && !control.disabled) {
                     control.disabled = true;
@@ -4483,18 +4494,6 @@
                 delete control.dataset.reportRecoveryDisabled;
             }
         });
-        var reportOnlyButton = qs('[data-report-only-submit]', form);
-        if (reportOnlyButton) {
-            if (active) {
-                if (reportOnlyButton.dataset.reportRecoveryWasHidden == null) {
-                    reportOnlyButton.dataset.reportRecoveryWasHidden = reportOnlyButton.hidden ? '1' : '0';
-                }
-                reportOnlyButton.hidden = true;
-            } else {
-                reportOnlyButton.hidden = reportOnlyButton.dataset.reportRecoveryWasHidden === '1';
-                delete reportOnlyButton.dataset.reportRecoveryWasHidden;
-            }
-        }
         var submitLabel = qs('.report-submit-button > span:first-child', form);
         if (submitLabel) {
             if (!submitLabel.dataset.defaultLabel) submitLabel.dataset.defaultLabel = submitLabel.textContent;
@@ -4518,12 +4517,43 @@
         reportDraftStatus(form, '', 'Черновик будет сохраняться автоматически', false);
     }
 
+    function closeReportDraftClearDialog(form, restoreFocus) {
+        if (!form) return;
+        var drawer = form.closest ? form.closest('.reports-drawer') : null;
+        var dialog = drawer ? qs('[data-report-clear-dialog]', drawer) : null;
+        if (!dialog || dialog.hidden) return;
+        dialog.hidden = true;
+        dialog.setAttribute('aria-hidden', 'true');
+        if (restoreFocus !== false) {
+            var opener = form._reportClearDialogOpener;
+            if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+        }
+        form._reportClearDialogOpener = null;
+    }
+
+    function openReportDraftClearDialog(form, opener) {
+        if (form && form.dataset.submitLocked === '1') {
+            showAppNotice('Дождитесь ответа сервера перед очисткой отчёта.', 'warn');
+            return;
+        }
+        if (!form) return;
+        var drawer = form.closest ? form.closest('.reports-drawer') : null;
+        var dialog = drawer ? qs('[data-report-clear-dialog]', drawer) : null;
+        if (!dialog) return;
+        form._reportClearDialogOpener = opener || document.activeElement;
+        dialog.hidden = false;
+        dialog.setAttribute('aria-hidden', 'false');
+        var cancel = qs('[data-report-draft-clear-cancel]', dialog);
+        if (cancel && typeof cancel.focus === 'function') cancel.focus();
+    }
+
     function discardReportDraft(form) {
         if (form && form.dataset.submitLocked === '1') {
             showAppNotice('Дождитесь ответа сервера перед очисткой отчёта.', 'warn');
             return;
         }
-        if (!form || !window.confirm('Очистить незавершённый отчёт и начать заново?')) return;
+        if (!form) return;
+        closeReportDraftClearDialog(form, false);
         form._reportDraftSuppress = true;
         setReportSubmissionRecoveryMode(form, false);
         setReportDraftRestoringMode(form, false);
@@ -4651,7 +4681,23 @@
         });
         form.addEventListener('pmbi:report-draft-changed', function () { scheduleReportDraftSave(form, true); });
         var clearButton = qs('[data-report-draft-clear]', form);
-        if (clearButton) clearButton.addEventListener('click', function () { discardReportDraft(form); });
+        if (clearButton) clearButton.addEventListener('click', function () { openReportDraftClearDialog(form, clearButton); });
+        var drawer = form.closest ? form.closest('.reports-drawer') : null;
+        var clearDialog = drawer ? qs('[data-report-clear-dialog]', drawer) : null;
+        if (clearDialog) {
+            var cancelClear = qs('[data-report-draft-clear-cancel]', clearDialog);
+            var confirmClear = qs('[data-report-draft-clear-confirm]', clearDialog);
+            if (cancelClear) cancelClear.addEventListener('click', function () { closeReportDraftClearDialog(form, true); });
+            if (confirmClear) confirmClear.addEventListener('click', function () { discardReportDraft(form); });
+            clearDialog.addEventListener('click', function (event) {
+                if (event.target === clearDialog) closeReportDraftClearDialog(form, true);
+            });
+            clearDialog.addEventListener('keydown', function (event) {
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                closeReportDraftClearDialog(form, true);
+            });
+        }
         form._reportDraftSaveNow = function () { return saveReportDraftNow(form); };
         restoreReportDraft(form);
         if (document.body.dataset.reportDraftLifecycleBound !== '1') {
@@ -4774,6 +4820,7 @@
         if (!drafts.length) {
             root.innerHTML = '<div class="report-photo-empty"><span aria-hidden="true"><i data-lucide="image-plus"></i></span><b>Фото пока не выбраны</b><small>Можно прикрепить до 8 снимков</small></div>';
             refreshLucideIcons(root);
+            form.dispatchEvent(new CustomEvent('pmbi:report-preview-meta-changed', { bubbles: true }));
             return;
         }
         root.innerHTML = drafts.map(function (draft) {
@@ -4789,6 +4836,7 @@
             '</article>';
         }).join('');
         refreshLucideIcons(root);
+        form.dispatchEvent(new CustomEvent('pmbi:report-preview-meta-changed', { bubbles: true }));
     }
 
     function clearReportPhotoDrafts(form) {
@@ -4807,7 +4855,7 @@
         else delete form.dataset.savedDailyLogId;
         form.classList.toggle('is-photo-retry', active);
         qsa('input, textarea, select, button', form).forEach(function (control) {
-            var keepEnabled = control.matches('[data-report-draft-clear], [data-report-only-submit], [data-report-photo-input], [data-report-photo-remove], .report-submit-button');
+            var keepEnabled = control.matches('[data-report-draft-clear], [data-report-photo-input], [data-report-photo-remove], .report-submit-button');
             if (active) {
                 if (!keepEnabled && !control.disabled) {
                     control.disabled = true;
@@ -4818,18 +4866,6 @@
                 delete control.dataset.reportRetryDisabled;
             }
         });
-        var reportOnlyButton = qs('[data-report-only-submit]', form);
-        if (reportOnlyButton) {
-            if (active) {
-                if (reportOnlyButton.dataset.reportRetryWasHidden == null) {
-                    reportOnlyButton.dataset.reportRetryWasHidden = reportOnlyButton.hidden ? '1' : '0';
-                }
-                reportOnlyButton.hidden = true;
-            } else {
-                reportOnlyButton.hidden = reportOnlyButton.dataset.reportRetryWasHidden === '1';
-                delete reportOnlyButton.dataset.reportRetryWasHidden;
-            }
-        }
         var submitLabel = qs('.report-submit-button > span:first-child', form);
         if (submitLabel) {
             if (!submitLabel.dataset.defaultLabel) submitLabel.dataset.defaultLabel = submitLabel.textContent;
@@ -4970,7 +5006,6 @@
                 var titleControl = reportFormControl(form, 'title');
                 var workDoneControl = reportFormControl(form, 'work_done');
                 var rawInputControl = reportFormControl(form, 'raw_input');
-                var confirmControl = reportFormControl(form, 'confirm_report');
                 var workersControl = reportFormControl(form, 'workers_count');
                 var equipmentControl = reportFormControl(form, 'equipment');
                 var blockersControl = reportFormControl(form, 'blockers');
@@ -4989,8 +5024,18 @@
                 var photoDraftIssue = reportPhotoDrafts(form).find(function (draft) {
                     return draft.status === 'loading' || draft.status === 'uploading' || draft.status === 'error';
                 });
-                var reportOnly = !recoveringSubmission && !!(event.submitter && event.submitter.hasAttribute('data-report-only-submit'));
-                var invalidEffectQty = !reportOnly ? qsa('[data-report-effect]:checked', form).map(function (input) {
+                var invalidManualSelection = !recoveringSubmission ? qsa('[data-report-manual-row]', form).map(function (row) {
+                    var quantity = qs('[data-report-manual-qty]', row);
+                    var action = qs('[data-report-manual-action]', row);
+                    if (action && !String(action.value || '').trim()) {
+                        return { control: action, message: 'Выберите действие для материала.' };
+                    }
+                    if (quantity && !quantity.disabled && !(Number(quantity.value) > 0)) {
+                        return { control: quantity, message: 'Укажите количество больше нуля.' };
+                    }
+                    return null;
+                }).find(Boolean) : null;
+                var invalidEffectQty = qsa('[data-report-effect]:checked', form).map(function (input) {
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
                     return { toggle: input, qty: qtyInput };
@@ -4998,10 +5043,10 @@
                     if (!entry.qty || !(Number(entry.qty.value) > 0)) return true;
                     var maxQty = Number(entry.toggle.getAttribute('data-effect-max') || entry.qty.getAttribute('max') || 0);
                     return !(maxQty > 0) || Number(entry.qty.value) > maxQty + 1e-9;
-                }) : null;
+                }) || null;
                 var clientRequestId = String(recoveredSubmissionPayload && recoveredSubmissionPayload.client_request_id || reportClientRequestId(form));
                 if (clientRequestId) form.dataset.clientRequestId = clientRequestId;
-                var confirmedActions = reportConfirmedActions(form, reportOnly, clientRequestId);
+                var confirmedActions = reportConfirmedActions(form, clientRequestId);
                 var projectId = Number(projectControl && projectControl.value || 0);
                 var todayIso = currentLocalDateIso();
                 if (dateControl && form.dataset.reportDateTouched !== '1' && (!dateControl.value || dateControl.value === APP_TODAY)) {
@@ -5040,12 +5085,12 @@
                     showLogFormError(form, error, photoDraftIssue.status === 'loading' || photoDraftIssue.status === 'uploading' ? 'Подождите, пока фотографии подготовятся.' : 'Удалите фотографию, которую не удалось обработать, и выберите её снова.', qs('[data-report-photo-input]', form));
                     return;
                 }
-                if (!recoveringSubmission && invalidEffectQty) {
-                    showLogFormError(form, error, 'Количество должно быть больше нуля и не превышать доступный остаток.', invalidEffectQty.qty);
+                if (!recoveringSubmission && invalidManualSelection) {
+                    showLogFormError(form, error, invalidManualSelection.message, invalidManualSelection.control);
                     return;
                 }
-                if (!recoveringSubmission && confirmControl && !confirmControl.checked) {
-                    showLogFormError(form, error, '\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435, \u0447\u0442\u043e \u0434\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u0447\u0435\u0442\u0430 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u044b.', confirmControl);
+                if (!recoveringSubmission && invalidEffectQty) {
+                    showLogFormError(form, error, 'Количество должно быть больше нуля и не превышать доступный остаток.', invalidEffectQty.qty);
                     return;
                 }
 
@@ -5502,7 +5547,7 @@
     }
 
     function projectReportStoredDocumentData(log) {
-        var rows = { works: [], materials: [], events: [] };
+        var rows = { works: [], materials: [], additional: [], blockers: [], next: [] };
         var seen = {};
         var workDone = String(log && log.work_done || '').trim();
 
@@ -5518,7 +5563,7 @@
 
         var labels = [
             { prefix: 'Частично выполнены', kind: 'works', detail: 'Частично выполнено' },
-            { prefix: 'Дополнительно выполнено', kind: 'works', detail: 'Дополнительная работа' },
+            { prefix: 'Дополнительно выполнено', kind: 'additional', detail: 'Дополнительная работа' },
             { prefix: 'Выполнены работы', kind: 'works', detail: 'Выполнено' },
             { prefix: 'По работам зафиксировано', kind: 'works', detail: 'Зафиксировано' },
             { prefix: 'Заказаны материалы', kind: 'materials', detail: 'Заказано' },
@@ -5528,9 +5573,9 @@
             { prefix: 'Заказано', kind: 'materials', detail: 'Заказ' },
             { prefix: 'Закуплено', kind: 'materials', detail: 'Покупка' },
             { prefix: 'Доставлено на объект', kind: 'materials', detail: 'Поставка' },
-            { prefix: 'Проблемы и ограничения', kind: 'events', detail: 'Блокер' },
-            { prefix: 'Следующий шаг', kind: 'events', detail: 'Следующий шаг' },
-            { prefix: 'Дополнительно зафиксировано', kind: 'events', detail: 'Событие' }
+            { prefix: 'Проблемы и ограничения', kind: 'blockers', detail: 'Блокер' },
+            { prefix: 'Следующий шаг', kind: 'next', detail: 'Следующий шаг' },
+            { prefix: 'Дополнительно зафиксировано', kind: 'additional', detail: 'Дополнительно' }
         ];
 
         String(workDone || '').split(/\n+|[.!?]+\s+(?=[A-ZА-ЯЁ])/).map(function (part) {
@@ -5540,7 +5585,7 @@
                 return sentence.indexOf(entry.prefix + ':') === 0;
             });
             if (!match) {
-                add('events', sentence, 'Событие');
+                add('additional', sentence, 'Дополнительно');
                 return;
             }
             String(sentence.slice(match.prefix.length + 1) || '').split(/\s*;\s*|,\s+(?=[A-Z\u0410-\u042f\u0401])/).forEach(function (part) {
@@ -5550,15 +5595,15 @@
 
         var uniqueSupplementalPhrases = createProjectReportStoredPhraseDeduper(workDone);
         var supplementalEntries = [
-            { label: 'Проблемы и ограничения', value: log && log.blockers, detail: 'Блокер' },
-            { label: 'Следующий шаг', value: log && log.next_steps, detail: 'Следующий шаг' }
+            { label: 'Проблемы и ограничения', value: log && log.blockers, kind: 'blockers', detail: 'Блокер' },
+            { label: 'Следующий шаг', value: log && log.next_steps, kind: 'next', detail: 'Следующий шаг' }
         ].map(function (entry) {
             entry.phrases = uniqueSupplementalPhrases(entry.value);
             return entry;
         });
         supplementalEntries.forEach(function (entry) {
             entry.phrases.forEach(function (phrase) {
-                add('events', phrase, entry.detail);
+                add(entry.kind, phrase, entry.detail);
             });
         });
 
@@ -5583,12 +5628,14 @@
             '</section>';
         }
         return '<section class="report-entry-document" data-report-saved-document aria-label="Содержание отчёта">' +
+            '<section class="report-final-full" aria-label="Описание дня"><span><i data-lucide="align-left" aria-hidden="true"></i>Описание дня</span><p class="report-entry-full-copy">' + escapeHtml(documentData.fullText) + '</p></section>' +
             '<div class="report-final-groups">' +
                 group('works', 'hammer', 'Работы') +
-                group('materials', 'package-check', 'Закупки и материалы') +
-                group('events', 'sparkles', 'События') +
+                group('materials', 'package-check', 'Материалы') +
+                group('additional', 'sparkles', 'Доп. работы') +
+                group('blockers', 'octagon-alert', 'Блокеры') +
+                group('next', 'arrow-right', 'Следующий шаг') +
             '</div>' +
-            '<section class="report-final-full" aria-label="Полный текст отчёта"><span>Полный текст</span><p class="report-entry-full-copy">' + escapeHtml(documentData.fullText) + '</p></section>' +
         '</section>';
     }
 
@@ -5767,7 +5814,7 @@
                     '<div class="report-modal-title-copy">' +
                         '<div class="report-drawer-caption"><span>Журнал объекта</span></div>' +
                         '<h3 id="project-report-modal-title">Отчёт за день</h3>' +
-                        '<span class="muted">Надиктуйте события дня — система соберёт отчёт и предложит подтверждаемые действия.</span>' +
+                        '<span class="muted">Надиктуйте события дня — система разложит данные по разделам отчёта.</span>' +
                         '<span class="report-modal-project">' + escapeHtml(project.title || 'Объект') + '</span>' +
                     '</div>' +
                 '</div>' +
@@ -5775,24 +5822,23 @@
             '<div class="report-modal-scroll" data-report-modal-scroll>' +
             '<form class="project-form report-intake-form report-chat-form report-chat-simple-form report-daily-form" data-log-form data-report-draft-form novalidate>' +
                 '<div class="report-draft-status" data-report-draft-status aria-live="polite">' +
+                    '<button type="button" data-report-draft-clear hidden><i data-lucide="trash-2" aria-hidden="true"></i><span>Очистить</span></button>' +
                     '<span class="report-draft-status-dot" aria-hidden="true"></span>' +
                     '<span data-report-draft-status-text>Черновик будет сохраняться автоматически</span>' +
-                    '<button type="button" data-report-draft-clear hidden>Очистить</button>' +
                 '</div>' +
                 '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
                 '<input type="hidden" name="title" value="">' +
                 '<section class="report-form-section report-form-meta-section">' +
                     '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="calendar-days"></i></span><div><b>Дата и доступ</b><small>Укажите день и выберите, кто увидит отчет</small></div></div>' +
                     '<div class="report-chat-header report-chat-header-compact">' +
-                        '<label><span>Дата отчета</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
-                        '<label><span>Кому доступен</span><select name="is_client_visible"><option value="1">Заказчику и команде</option><option value="0">Только команде</option></select></label>' +
+                        '<label><span class="report-compact-field-label"><i data-lucide="calendar-days" aria-hidden="true"></i>Дата отчета</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
+                        '<label><span class="report-compact-field-label"><i data-lucide="eye" aria-hidden="true"></i>Кому доступен</span><select name="is_client_visible"><option value="1">Заказчику и команде</option><option value="0">Только команде</option></select></label>' +
                     '</div>' +
                 '</section>' +
                 '<section class="report-form-section report-form-main-section">' +
                     '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></span><div><b>Расскажите, что произошло</b><small>Работы, заказы, поставки и проблемы — одной фразой</small></div><span class="report-section-required">Обязательно</span></div>' +
                     '<label class="report-chat-inputbox report-daily-textarea-field">' +
-                        '<span>Опишите, что произошло</span>' +
-                        '<textarea name="raw_input" rows="6" required placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
+                        '<textarea name="raw_input" rows="6" required aria-label="Опишите, что произошло" placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
                         '<small class="report-field-hint">Нажмите «Диктовать» или пишите свободно. Пример: «Заказал дверные ручки, привезли кабель 40 м»</small>' +
                     '</label>' +
                     '<div class="report-live-assist" data-report-live-assist aria-live="polite" hidden></div>' +
@@ -5824,29 +5870,38 @@
                 '<details class="report-extra-fields">' +
                     '<summary><span class="report-extra-summary-icon" aria-hidden="true"><i data-lucide="route"></i></span><span><b>Блокеры и следующий шаг</b><small>Необязательно · что мешает и что делать дальше</small></span><span class="report-extra-chevron" aria-hidden="true"><i data-lucide="chevron-down"></i></span></summary>' +
                     '<div class="report-extra-grid">' +
-                        '<label class="wide"><span>Блокеры</span><textarea name="blockers" rows="2" placeholder="Что мешает продолжать работы"></textarea></label>' +
-                        '<label class="wide"><span>Следующий шаг</span><input name="next_steps" placeholder="Что команда делает дальше"></label>' +
+                        '<label class="wide"><span class="report-compact-field-label"><i data-lucide="octagon-alert" aria-hidden="true"></i>Блокеры</span><textarea name="blockers" rows="1" placeholder="Что мешает продолжать работы"></textarea></label>' +
+                        '<label class="wide"><span class="report-compact-field-label"><i data-lucide="arrow-right" aria-hidden="true"></i>Следующий шаг</span><input name="next_steps" placeholder="Что команда делает дальше"></label>' +
                     '</div>' +
                 '</details>' +
-                '<section class="assistant-confirm-card report-confirm-card" data-report-review hidden>' +
-                    '<div class="report-confirm-heading"><span aria-hidden="true"><i data-lucide="list-checks"></i></span><div><b>Проверка перед сохранением</b><small>Показываем только то, что распознали. Количество можно поправить, действие — отключить.</small></div></div>' +
-                    '<div data-report-preview></div>' +
+                '<section class="report-ready-card" data-report-review hidden>' +
+                    '<div class="report-action-staging" data-report-preview hidden aria-hidden="true"></div>' +
                     '<section class="report-final-message" data-report-final-document aria-labelledby="report-final-message-title">' +
-                        '<div class="report-final-message-head"><span class="report-final-message-label" id="report-final-message-title"><i data-lucide="file-check-2" aria-hidden="true"></i>Готовый отчёт</span><small>Так он будет выглядеть в журнале</small></div>' +
-                        '<div class="report-final-groups" data-report-final-groups></div>' +
-                        '<section class="report-final-full" data-report-final-section="full-text" aria-label="Полный текст отчёта">' +
-                            '<span>Полный текст</span>' +
+                        '<div class="report-final-message-head"><span class="report-final-message-label" id="report-final-message-title"><i data-lucide="file-check-2" aria-hidden="true"></i>Готовый отчёт</span><small>Обновляется по мере заполнения</small></div>' +
+                        '<div class="report-final-summary" data-report-final-summary></div>' +
+                        '<section class="report-final-full" data-report-final-section="full-text" aria-label="Описание дня">' +
+                            '<span><i data-lucide="align-left" aria-hidden="true"></i>Описание дня</span>' +
                             '<input type="hidden" name="work_done" value="">' +
                             '<output data-report-final-text aria-label="Готовый текст отчёта"></output>' +
                         '</section>' +
+                        '<div class="report-final-groups" data-report-final-groups></div>' +
+                        '<div class="report-final-shift" data-report-final-shift></div>' +
+                        '<div class="report-final-photos" data-report-final-photos></div>' +
                     '</section>' +
                 '</section>' +
                 '<div class="form-error" data-log-error role="alert" aria-atomic="true"></div>' +
                 '<div class="report-intake-actions">' +
-                    '<small>Отчёт и выбранные действия сохранятся одной операцией</small>' +
-                    '<span class="report-submit-group"><button class="primary report-submit-button" type="submit"><span>Сохранить отчёт</span></button><button class="ghost report-only-button" type="submit" data-report-only-submit hidden><i data-lucide="file-text" aria-hidden="true"></i><span>Только отчёт</span></button></span>' +
+                    '<small>Работы и материалы будут учтены при сохранении отчёта.</small>' +
+                    '<span class="report-submit-group"><button class="primary report-submit-button" type="submit"><span>Сохранить отчёт</span></button></span>' +
                 '</div>' +
             '</form>' +
+            '<div class="report-clear-dialog" data-report-clear-dialog role="presentation" aria-hidden="true" hidden>' +
+                '<section class="report-clear-dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="report-clear-dialog-title" aria-describedby="report-clear-dialog-copy">' +
+                    '<span class="report-clear-dialog-icon" aria-hidden="true"><i data-lucide="trash-2"></i></span>' +
+                    '<div class="report-clear-dialog-copy"><h4 id="report-clear-dialog-title">Очистить черновик?</h4><p id="report-clear-dialog-copy">Удалятся текст, выбранные работы и материалы, состав смены и фотографии.</p></div>' +
+                    '<div class="report-clear-dialog-actions"><button class="ghost" type="button" data-report-draft-clear-cancel>Оставить черновик</button><button class="danger" type="button" data-report-draft-clear-confirm>Очистить</button></div>' +
+                '</section>' +
+            '</div>' +
             '</div>' +
         '</section>';
     };

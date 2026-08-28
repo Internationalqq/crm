@@ -1,0 +1,95 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+const appJs = read('frontend/assets/js/app.js');
+const planningJs = read('frontend/assets/js/planning.js');
+const objectControlCss = read('frontend/assets/css/object-control.css');
+const appCss = read('frontend/assets/app.css');
+const routerJs = read('frontend/assets/js/router.js');
+const baseHtml = read('frontend/templates/base.html');
+const loginHtml = read('frontend/templates/login.html');
+
+const rowStart = planningJs.indexOf('function renderSectionScheduleRow');
+const rowEnd = planningJs.indexOf('function renderSectionScheduleForecast', rowStart);
+const rowBlock = planningJs.slice(rowStart, rowEnd);
+assert.ok(rowStart >= 0 && rowEnd > rowStart, 'works register renderer must exist');
+assert.match(rowBlock, /var canEditWorkActual = !!\(canManageSchedule && canManageSchedule\(\)\)/);
+assert.match(rowBlock, /var quantityInteraction = canEditWorkActual[\s\S]*?data-work-quantity-open role="button" tabindex="0"/);
+assert.match(rowBlock, /\(canEditWorkActual \? ' work-quantity-row' : ''\)/);
+assert.match(rowBlock, /data-work-id=/);
+assert.match(rowBlock, /data-work-title=/);
+assert.match(rowBlock, /data-work-unit=/);
+assert.match(rowBlock, /data-work-qty=/);
+assert.match(rowBlock, /role="button" tabindex="0"/);
+assert.match(rowBlock, /section-work-row-icon[\s\S]*?data-lucide="hard-hat"/);
+assert.match(rowBlock, /section-work-section-icon[\s\S]*?data-lucide="layers-3"/);
+assert.doesNotMatch(rowBlock, /type="checkbox"|data-section-work-check|data-bulk-section-check|renderBulkSectionCheckbox/);
+
+const bindStart = planningJs.indexOf('function bindWorkQuantityRows');
+const bindEnd = planningJs.indexOf('function bindSectionScheduleInteractions', bindStart);
+const bindBlock = planningJs.slice(bindStart, bindEnd);
+assert.ok(bindStart >= 0 && bindEnd > bindStart, 'work quantity row binder must exist');
+assert.match(bindBlock, /qsa\('\[data-work-quantity-open\]'/);
+assert.match(bindBlock, /if \(!canManageSchedule \|\| !canManageSchedule\(\)\) return/);
+assert.match(bindBlock, /event\.button !== 0/);
+assert.match(bindBlock, /button, a, input, select, textarea, label/);
+assert.match(bindBlock, /\[data-position-editor-open\]/);
+assert.match(bindBlock, /event\.target !== row/);
+assert.match(bindBlock, /event\.key !== 'Enter' && event\.key !== ' '/);
+assert.match(planningJs, /function openWorkQuantityFromRow[\s\S]*?openWorkQuantityDialog\(projectId/);
+
+const dialogStart = appJs.indexOf('function openWorkQuantityDialog');
+const dialogEnd = appJs.indexOf('function saveManualQuantityCheckbox', dialogStart);
+const dialogBlock = appJs.slice(dialogStart, dialogEnd);
+assert.ok(dialogStart >= 0 && dialogEnd > dialogStart, 'work quantity dialog must exist');
+assert.match(dialogBlock, /role="dialog" aria-modal="true"/);
+assert.match(dialogBlock, /work_quantity_forbidden/);
+assert.match(dialogBlock, /Укажите итоговый объём, выполненный на объекте/);
+assert.match(dialogBlock, /workQuantityDialogMetric\('По смете'/);
+assert.match(dialogBlock, /workQuantityDialogMetric\('Сделано'/);
+assert.match(dialogBlock, /workQuantityDialogMetric\('Осталось'/);
+assert.match(dialogBlock, /name="actual_qty" min="0"/);
+assert.match(dialogBlock, /var maxAttribute = total > 0/);
+assert.match(dialogBlock, /stepValue/);
+assert.match(dialogBlock, /var stepValue = '0\.001'/);
+assert.match(dialogBlock, /data-work-quantity-form novalidate/);
+assert.match(dialogBlock, /Это итог по позиции, а не прибавка за смену/);
+assert.match(dialogBlock, /value > total/);
+assert.match(dialogBlock, /data-work-quantity-fill/);
+assert.match(dialogBlock, /data-work-quantity-clear/);
+assert.match(dialogBlock, /event\.target === modal/);
+assert.match(dialogBlock, /event\.key === 'Escape'/);
+assert.match(dialogBlock, /event\.key !== 'Tab'/);
+assert.match(dialogBlock, /firstFocusable[\s\S]*?lastFocusable/);
+assert.match(dialogBlock, /aria-describedby=/);
+assert.match(dialogBlock, /role="alert" aria-live="polite"/);
+assert.match(dialogBlock, /updateWorkQuantityPreview/);
+assert.match(dialogBlock, /saveActualQuantityInput\(syncInput, true\)/);
+assert.match(dialogBlock, /syncInput\.setAttribute\('data-actual-kind', 'work'\)/);
+assert.doesNotMatch(dialogBlock, /warehouse-control\/facts|work-fact/);
+
+const saveStart = appJs.indexOf('function saveActualQuantityInput');
+const saveEnd = appJs.indexOf('function closeWorkQuantityDialog', saveStart);
+const saveBlock = appJs.slice(saveStart, saveEnd);
+assert.match(saveBlock, /postProgressItem\(projectId/);
+assert.match(saveBlock, /actualQty: value/);
+assert.match(saveBlock, /completed: planTotal > 0 && Number\(value \|\| 0\) >= planTotal/);
+assert.match(saveBlock, /updateMaterialScheduleItemDom[\s\S]*?planTotal > 0 && Number\(value \|\| 0\) >= planTotal/);
+assert.match(saveBlock, /return request/);
+
+assert.match(objectControlCss, /Work quantity entry: rows open an explicit plan\/fact dialog instead of toggling completion/);
+assert.match(objectControlCss, /\.work-quantity-row:focus-visible/);
+assert.match(objectControlCss, /\.work-quantity-dialog \{[\s\S]*?position: fixed;[\s\S]*?z-index: 1450;/);
+assert.match(objectControlCss, /@media \(max-width: 720px\)[\s\S]*?\.work-quantity-dialog-card \{[\s\S]*?width: 100%;/);
+assert.match(objectControlCss, /\.work-quantity-dialog-head > button,[\s\S]*?min-height: 44px/);
+
+assert.match(routerJs, /app\.js\?v=[^'\"]*works-quantity-dialog-18/);
+assert.match(routerJs, /planning\.js\?v=[^'\"]*works-quantity-dialog-18/);
+assert.match(appCss, /object-control\.css\?v=[^"\n]*works-quantity-dialog-18/);
+assert.match(baseHtml, /works-quantity-dialog-18/);
+assert.match(loginHtml, /works-quantity-dialog-18/);
+
+console.log('work_quantity_dialog_frontend_ok');

@@ -106,6 +106,7 @@
     function rerenderProjectMaterialAndWorkViews() { return appCall('rerenderProjectMaterialAndWorkViews', arguments); }
     function refreshSelectedProjectProgressViews() { return appCall('refreshSelectedProjectProgressViews', arguments); }
     function bindProjectChainActions() { return appCall('bindProjectChainActions', arguments); }
+    function openWorkQuantityDialog() { return appCall('openWorkQuantityDialog', arguments); }
     function renderProjectCritical() { return appCall('renderProjectCritical', arguments); }
     function planningStatusClass() { return appCall('planningStatusClass', arguments); }
     function marketStatusLabel() { return appCall('marketStatusLabel', arguments); }
@@ -319,6 +320,37 @@
         '</div>';
     }
 
+    function workCompletionTone(actual, total) {
+        var normalizedTotal = Number(total);
+        if (!Number.isFinite(normalizedTotal) || normalizedTotal <= 0) return 'neutral';
+        var normalizedActual = Number(actual);
+        if (!Number.isFinite(normalizedActual)) normalizedActual = 0;
+        var ratio = (Math.min(Math.max(0, normalizedActual), normalizedTotal) / normalizedTotal) * 100;
+        if (ratio >= 60) return 'green';
+        if (ratio > 40) return 'yellow';
+        if (ratio > 20) return 'orange';
+        return 'red';
+    }
+
+    function renderWorkRegisterQuantity(className, label, icon, tone, value, unit) {
+        var numericValue = Number(value);
+        var isValid = Number.isFinite(numericValue);
+        var normalizedValue = isValid ? Math.max(0, numericValue) : 0;
+        var formattedValue = isValid ? quantityText(normalizedValue) : '';
+        var formattedUnit = String(unit || '').trim();
+        var hasValue = isValid && (normalizedValue > 0 || tone === 'actual');
+        var accessibleAmount = isValid
+            ? formattedValue + (formattedUnit ? ' ' + formattedUnit : '')
+            : 'нет данных';
+        var visibleValue = hasValue
+            ? escapeHtml(formattedValue) + (formattedUnit ? ' <small>' + escapeHtml(formattedUnit) + '</small>' : '')
+            : '<span aria-hidden="true">—</span><span class="visually-hidden">' + escapeHtml(accessibleAmount) + '</span>';
+        return '<span class="' + escapeHtml(className) + ' section-work-register-quantity is-' + escapeHtml(tone) + '" data-label="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label + ': ' + accessibleAmount) + '">' +
+            '<small class="section-work-register-quantity-label"><i data-lucide="' + escapeHtml(icon) + '" aria-hidden="true"></i>' + escapeHtml(label) + '</small>' +
+            '<strong class="section-work-register-quantity-value' + (hasValue ? '' : ' is-empty') + '">' + visibleValue + '</strong>' +
+        '</span>';
+    }
+
     function renderSectionScheduleRow(project, section) {
         section = section || {};
         var sectionTitle = canonicalEstimateSectionTitle(section.title || '');
@@ -333,6 +365,7 @@
             console.log('Физически будет отрисовано позиций:', allWorkItems.length, section.title || '');
         }
         var visibleItems = allWorkItems;
+        var canEditWorkActual = !!(canManageSchedule && canManageSchedule());
         var workProgress = workProgressForRows(project.id, sectionTitle, allWorkItems);
         var progress = workProgress;
         var allStages = state.stagesByProject[project.id] || [];
@@ -347,20 +380,33 @@
                 '<span class="section-work-stage-icon" aria-hidden="true"><i data-lucide="milestone"></i></span>' +
                 '<span class="section-work-check-copy"><b>' + escapeHtml(stage.title || 'Этап') + '</b></span>' +
                 '<span class="section-work-register-volume"><small>Ответственный</small><strong>' + escapeHtml(stage.responsible || 'Не назначен') + '</strong></span>' +
-                '<span class="section-work-register-status"><small>Статус</small><strong>' + escapeHtml(statusLabel(stage.status_code)) + ' · ' + percent(stage.progress) + '%</strong></span>' +
+                '<span class="section-work-register-actual"><small>Прогресс</small><strong>' + percent(stage.progress) + '%</strong></span>' +
+                '<span class="section-work-register-status"><small>Статус</small><strong>' + escapeHtml(statusLabel(stage.status_code)) + '</strong></span>' +
             '</div></div>';
         }).join('');
         var estimateWorkDetails = visibleItems.map(function (item) {
-            var workDone = isScheduleWorkDone(project.id, sectionTitle, item);
+            var actualProgress = workActualProgress(project.id, sectionTitle, item);
+            var workTone = workCompletionTone(actualProgress.actual, actualProgress.total);
+            var workDone = actualProgress.total > 0
+                ? actualProgress.actual >= actualProgress.total
+                : isScheduleWorkDone(project.id, sectionTitle, item);
+            var workPartial = !workDone && actualProgress.actual > 0;
+            var workPercent = actualProgress.total > 0 ? Math.round((actualProgress.actual / actualProgress.total) * 100) : 0;
+            var workStatus = workDone ? 'Выполнено' : (workPartial ? 'В работе · ' + String(workPercent) + '%' : 'В плане');
             var editUnit = item.sourceUnit || item.unit || '';
             var editQty = item.sourcePlannedQty != null ? item.sourcePlannedQty : (item.planned_qty != null ? item.planned_qty : item.plannedQty || '');
             var scheduleAutoDays = Number(item.autoDays || 0);
             var scheduleDurationDays = Number(item.durationDays || scheduleAutoDays || 0);
-            return '<div class="section-work-check schedule-work-duration-row' + (workDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '" data-work-row data-position-editor data-position-kind="work" data-position-id="' + escapeHtml(item.id || '') + '" data-position-project="' + escapeHtml(project.id) + '" data-position-title="' + escapeHtml(item.title || '') + '" data-position-unit="' + escapeHtml(editUnit) + '" data-position-qty="' + escapeHtml(String(editQty)) + '" data-position-section="' + escapeHtml(sectionTitle) + '" data-position-auto-days="' + escapeHtml(scheduleAutoDays > 0 ? String(scheduleAutoDays) : '') + '" data-position-duration-days="' + escapeHtml(scheduleDurationDays > 0 ? String(scheduleDurationDays) : '') + '" data-position-duration-overridden="' + (item.isDurationOverridden ? '1' : '0') + '" title="Правый клик — редактировать позицию">' +
-                '<label class="schedule-work-check-main"><input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(sectionTitle) + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (workDone ? ' checked' : '') + '>' +
+            var factAriaLabel = 'Внести выполненный объём: ' + String(item.title || 'Работа') + '. По смете ' + quantityText(actualProgress.total) + ' ' + String(actualProgress.unit || 'ед.') + ', сделано ' + quantityText(actualProgress.actual) + ' ' + String(actualProgress.unit || 'ед.');
+            var quantityInteraction = canEditWorkActual
+                ? ' data-work-quantity-open role="button" tabindex="0" aria-label="' + escapeHtml(factAriaLabel) + '" title="Нажмите — внести выполненный объём; правый клик — редактировать позицию"'
+                : '';
+            return '<div class="section-work-check schedule-work-duration-row' + (canEditWorkActual ? ' work-quantity-row' : '') + ' is-progress-' + escapeHtml(workTone) + (workDone ? ' is-done' : (workPartial ? ' is-partial' : '')) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-work-row data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(editUnit) + '" data-work-qty="' + escapeHtml(String(editQty)) + '" data-project-id="' + escapeHtml(project.id) + '" data-section-title="' + escapeHtml(sectionTitle) + '" data-position-editor data-position-kind="work" data-position-id="' + escapeHtml(item.id || '') + '" data-position-project="' + escapeHtml(project.id) + '" data-position-title="' + escapeHtml(item.title || '') + '" data-position-unit="' + escapeHtml(editUnit) + '" data-position-qty="' + escapeHtml(String(editQty)) + '" data-position-section="' + escapeHtml(sectionTitle) + '" data-position-auto-days="' + escapeHtml(scheduleAutoDays > 0 ? String(scheduleAutoDays) : '') + '" data-position-duration-days="' + escapeHtml(scheduleDurationDays > 0 ? String(scheduleDurationDays) : '') + '" data-position-duration-overridden="' + (item.isDurationOverridden ? '1' : '0') + '"' + quantityInteraction + '>' +
+                '<div class="schedule-work-check-main"><span class="section-work-row-icon" aria-hidden="true"><i data-lucide="hard-hat"></i></span>' +
                     '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '\u0420\u0430\u0431\u043e\u0442\u0430') + '</b></span>' +
-                    '<span class="section-work-register-volume"><small>Объём</small><strong>' + escapeHtml(formatWorkLine(item) || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</strong></span>' +
-                    '<span class="section-work-register-status"><small>Статус</small><strong>' + (workDone ? 'Выполнено' : 'В плане') + '</strong></span></label>' +
+                    renderWorkRegisterQuantity('section-work-register-volume', 'По смете', 'ruler', 'plan', actualProgress.total, actualProgress.unit) +
+                    renderWorkRegisterQuantity('section-work-register-actual', 'Сделано', 'badge-check', 'actual', actualProgress.actual, actualProgress.unit) +
+                    '<span class="section-work-register-status"><small>Статус</small><strong class="section-work-register-status-value">' + escapeHtml(workStatus) + '</strong></span></div>' +
             '</div>';
         }).join('');
         var workDetails = stageDetails + estimateWorkDetails;
@@ -368,11 +414,11 @@
         var details = '<div class="section-schedule-detail-grid is-work-only">' +
             '<section class="section-schedule-detail-column"><span class="visually-hidden">\u0420\u0430\u0431\u043e\u0442\u044b</span><div class="section-schedule-detail-list">' + workDetails + '</div></section>' +
         '</div>';
-        var sectionStateLabel = workProgress.total && workProgress.done >= workProgress.total ? 'Выполнено' : (workProgress.done > 0 ? 'В работе' : 'В плане');
-        var sectionStateClass = workProgress.total && workProgress.done >= workProgress.total ? 'success' : (workProgress.done > 0 ? 'warn' : 'neutral');
+        var sectionStateLabel = workProgress.total && workProgress.percent >= 100 ? 'Выполнено' : (workProgress.percent > 0 ? 'В работе' : 'В плане');
+        var sectionStateClass = workProgress.total && workProgress.percent >= 100 ? 'success' : (workProgress.percent > 0 ? 'warn' : 'neutral');
         return '<article class="section-schedule-card section-work-register-section' + finalSectionScheduleCardClass(section) + (progress.percent >= 100 && progress.total ? ' is-done' : '') + '" data-section-title="' + escapeHtml(sectionTitle) + '">' +
             '<div class="section-work-section-row">' +
-                '<div class="section-schedule-title"><small>Раздел</small><div class="section-work-section-title-line"><h4>' + escapeHtml(sectionTitle) + '</h4>' + renderBulkSectionCheckbox(project.id, sectionTitle, 'work', progress) + '</div></div>' +
+                '<div class="section-schedule-title"><small>Раздел</small><div class="section-work-section-title-line"><span class="section-work-section-icon" aria-hidden="true"><i data-lucide="layers-3"></i></span><h4>' + escapeHtml(sectionTitle) + '</h4></div></div>' +
                 '<div class="section-work-section-meta"><span class="section-work-section-volume"><small>Выполнено</small><strong>' + escapeHtml(String(workProgress.done) + ' из ' + String(workProgress.total)) + '</strong></span>' +
                 '<span class="section-work-section-status"><small>Статус</small><span class="badge ' + sectionStateClass + '">' + sectionStateLabel + ' · ' + escapeHtml(String(workProgress.percent || 0)) + '%</span></span></div>' +
             '</div>' +
@@ -408,7 +454,7 @@
             var group = estimateGroups[key];
             return '<section class="project-estimate-file-group" data-estimate-source="' + escapeHtml(key) + '">' +
                 renderScheduleEstimateHeading(group.meta, group.sections) +
-                '<div class="section-work-register-head section-work-register-master-head" aria-hidden="true"><span></span><span class="section-work-register-head-label"><i data-lucide="hammer"></i>Работа</span><span class="section-work-register-head-label"><i data-lucide="ruler"></i>Объём</span><span class="section-work-register-head-label"><i data-lucide="circle-check"></i>Статус</span></div>' +
+                '<div class="section-work-register-head section-work-register-master-head" aria-hidden="true"><span></span><span class="section-work-register-head-label"><i data-lucide="hammer"></i>Работа</span><span class="section-work-register-head-label is-plan"><i data-lucide="ruler"></i>По смете</span><span class="section-work-register-head-label is-actual"><i data-lucide="badge-check"></i>Сделано</span><span class="section-work-register-head-label is-status"><i data-lucide="circle-check"></i>Статус</span></div>' +
                 '<div class="section-schedule-list">' + group.sections.map(function (section) { return renderSectionScheduleRow(project, section); }).join('') + '</div>' +
             '</section>';
         }).join('');
@@ -1860,14 +1906,24 @@
 
     function workProgressForRows(projectId, sectionTitle, rows) {
         var workRows = rows || [];
-        var done = projectId ? workRows.filter(function (item) {
-            return isProjectScheduleWorkDone(projectId, sectionTitle, item);
-        }).length : 0;
+        var done = 0;
+        var progressUnits = 0;
+        if (projectId) {
+            workRows.forEach(function (item) {
+                var actualProgress = workActualProgress(projectId, sectionTitle, item);
+                var completed = actualProgress.total > 0
+                    ? actualProgress.actual >= actualProgress.total
+                    : isProjectScheduleWorkDone(projectId, sectionTitle, item);
+                if (completed) done += 1;
+                if (completed) progressUnits += 1;
+                else if (actualProgress.total > 0) progressUnits += Math.min(actualProgress.actual / actualProgress.total, 1);
+            });
+        }
         return {
             total: workRows.length,
             done: done,
             left: Math.max(0, workRows.length - done),
-            percent: workRows.length ? Math.round((done / workRows.length) * 100) : 0
+            percent: workRows.length ? Math.round((progressUnits / workRows.length) * 100) : 0
         };
     }
 
@@ -2002,15 +2058,17 @@
         var sections = Array.isArray(summary && summary.sections) ? summary.sections : [];
         var total = 0;
         var done = 0;
+        var progressUnits = 0;
         sections.forEach(function (section) {
             var progress = scheduleSectionProgress(project.id, section);
             total += progress.total;
             done += progress.done;
+            progressUnits += progress.total * Number(progress.percent || 0) / 100;
         });
         return {
             total: total,
             done: done,
-            percent: total ? Math.round((done / total) * 100) : 0
+            percent: total ? Math.round((progressUnits / total) * 100) : 0
         };
     }
 
@@ -2029,6 +2087,55 @@
         bindProjectMarketToggles(projectId);
         bindProjectChainActions();
         bindProjectScheduleViews(projectId);
+    }
+
+    function openWorkQuantityFromRow(row, fallbackProjectId) {
+        if (!row) return Promise.resolve(false);
+        if (!canManageSchedule || !canManageSchedule()) return Promise.resolve(false);
+        var projectId = Number(row.getAttribute('data-project-id') || fallbackProjectId || 0);
+        var workId = Number(row.getAttribute('data-work-id') || row.getAttribute('data-position-id') || row.getAttribute('data-item-id') || 0);
+        if (!projectId || !workId) {
+            showAppNotice('Не удалось открыть ввод выполненного объёма. Обновите страницу и попробуйте снова.', 'error');
+            return Promise.resolve(false);
+        }
+        if (row.getAttribute('aria-busy') === 'true') return Promise.resolve(false);
+        row.setAttribute('aria-busy', 'true');
+        var item = {
+            id: workId,
+            title: row.getAttribute('data-work-title') || row.getAttribute('data-position-title') || '',
+            unit: row.getAttribute('data-work-unit') || row.getAttribute('data-position-unit') || '',
+            plannedQty: row.getAttribute('data-work-qty') || row.getAttribute('data-position-qty') || ''
+        };
+        return Promise.resolve(openWorkQuantityDialog(projectId, row.getAttribute('data-section-title') || row.getAttribute('data-position-section') || '', item, row)).then(function () {
+            return true;
+        }).catch(function (error) {
+            showAppNotice(appErrorMessage(error, 'Не удалось открыть ввод выполненного объёма'), 'error');
+            return false;
+        }).finally(function () {
+            row.removeAttribute('aria-busy');
+        });
+    }
+
+    function bindWorkQuantityRows(root, fallbackProjectId) {
+        root = root || document;
+        if (!canManageSchedule || !canManageSchedule()) return;
+        qsa('[data-work-quantity-open]', root).forEach(function (row) {
+            if (row.dataset.workQuantityBound === '1') return;
+            row.dataset.workQuantityBound = '1';
+            row.addEventListener('click', function (event) {
+                if (event.defaultPrevented || event.button !== 0) return;
+                var interactive = event.target && event.target.closest
+                    ? event.target.closest('button, a, input, select, textarea, label, [contenteditable="true"], [data-row-action], [data-position-editor-open], [data-delete], [data-remove]')
+                    : null;
+                if (interactive && interactive !== row) return;
+                openWorkQuantityFromRow(row, fallbackProjectId);
+            });
+            row.addEventListener('keydown', function (event) {
+                if (event.target !== row || (event.key !== 'Enter' && event.key !== ' ')) return;
+                event.preventDefault();
+                openWorkQuantityFromRow(row, fallbackProjectId);
+            });
+        });
     }
 
     function bindSectionScheduleInteractions(projectId) {
@@ -2056,10 +2163,7 @@
         });
 
         installActualQuantityDelegates();
-        qsa('[data-section-work-check]').forEach(function (input) {
-            if (input.dataset.bound === '1') return;
-            input.dataset.bound = '1';
-        });
+        bindWorkQuantityRows(qs('[data-panel="schedule"]') || document, projectId);
     }
 
     // schedule page project rendering
@@ -2303,18 +2407,7 @@
                 toggleSection();
             });
         });
-        qsa('[data-section-work-check]', body).forEach(function (input) {
-            if (input.dataset.schedulePageWorkBound === '1') return;
-            input.dataset.schedulePageWorkBound = '1';
-            input.addEventListener('change', function () {
-                setScheduleWorkDone(projectId, input.getAttribute('data-section-title') || '', {
-                    title: input.getAttribute('data-work-title') || '',
-                    unit: input.getAttribute('data-work-unit') || '',
-                    planned_qty: input.getAttribute('data-work-qty') || ''
-                }, input.checked);
-                renderSchedulePage();
-            });
-        });
+        bindWorkQuantityRows(body, projectId);
         qsa('[data-section-schedule-refresh]', body).forEach(function (button) {
             if (button.dataset.schedulePageRefreshBound === '1') return;
             button.dataset.schedulePageRefreshBound = '1';
@@ -4458,6 +4551,7 @@
         if (typeof toggleScheduleSectionDom === 'function') PMBI.planning.toggleScheduleSectionDom = toggleScheduleSectionDom;
         if (typeof scheduleSectionProgress === 'function') PMBI.planning.scheduleSectionProgress = scheduleSectionProgress;
         if (typeof projectScheduleProgress === 'function') PMBI.planning.projectScheduleProgress = projectScheduleProgress;
+        if (typeof bindWorkQuantityRows === 'function') PMBI.planning.bindWorkQuantityRows = bindWorkQuantityRows;
         if (typeof bindSectionScheduleInteractions === 'function') PMBI.planning.bindSectionScheduleInteractions = bindSectionScheduleInteractions;
         if (typeof isScheduleProjectOpen === 'function') PMBI.planning.isScheduleProjectOpen = isScheduleProjectOpen;
         if (typeof setScheduleProjectOpen === 'function') PMBI.planning.setScheduleProjectOpen = setScheduleProjectOpen;

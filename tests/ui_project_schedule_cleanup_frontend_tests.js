@@ -81,8 +81,11 @@ assert.match(worksSummaryBlock, /<span>Разделов<\/span>[\s\S]*?<span>Р�
 const sectionTitlePosition = worksRowBlock.indexOf('class="section-schedule-title"');
 const sectionMetaPosition = worksRowBlock.indexOf('class="section-work-section-meta"');
 const sectionBulkPosition = worksRowBlock.indexOf('renderBulkSectionCheckbox(project.id');
-assert.ok(sectionTitlePosition >= 0 && sectionBulkPosition > sectionTitlePosition && sectionMetaPosition > sectionBulkPosition);
-assert.match(worksRowBlock, /section-work-section-title-line"><h4>[\s\S]*?renderBulkSectionCheckbox\(project\.id, sectionTitle, 'work', progress\)/);
+assert.ok(sectionTitlePosition >= 0 && sectionMetaPosition > sectionTitlePosition);
+assert.equal(sectionBulkPosition, -1);
+assert.doesNotMatch(worksRowBlock, /renderBulkSectionCheckbox|data-bulk-section-check|data-section-work-check/);
+assert.match(worksRowBlock, /var quantityInteraction = canEditWorkActual[\s\S]*?data-work-quantity-open role="button"/);
+assert.match(worksRowBlock, /section-work-section-icon/);
 
 for (const removedListControl of [
   '<small>Бригада</small>',

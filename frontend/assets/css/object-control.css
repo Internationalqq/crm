@@ -2720,7 +2720,7 @@ body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .sectio
 @media (min-width: 721px) {
     body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head,
     body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .schedule-work-check-main {
-        grid-template-columns: 22px minmax(260px, 1fr) 150px 118px;
+        grid-template-columns: 22px minmax(260px, 1fr) 132px 132px 118px;
         gap: 14px;
     }
 
@@ -3205,5 +3205,625 @@ body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-
 
     body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register.is-readonly .warehouse-material-status {
         grid-column: 1 / -1;
+    }
+}
+
+/* Work plan/fact lifecycle: mirror the material register with quieter, semantic accents. */
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity {
+    --work-quantity-color: var(--color-text-secondary);
+    --work-quantity-soft: var(--color-surface-subtle);
+    display: grid;
+    min-width: 0;
+    align-content: center;
+    justify-items: start;
+    gap: 4px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity.is-plan {
+    --work-quantity-color: var(--color-accent, #2563eb);
+    --work-quantity-soft: var(--color-accent-soft, #eaf2ff);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity.is-actual {
+    --work-quantity-color: #6d5bd0;
+    --work-quantity-soft: #f3f0ff;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-done .section-work-register-quantity.is-actual {
+    --work-quantity-color: var(--color-success, #15803d);
+    --work-quantity-soft: var(--color-success-soft, #edf9f0);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-progress-red .section-work-register-quantity.is-actual {
+    --work-quantity-color: #b8322e;
+    --work-quantity-soft: #fff0ef;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-progress-orange .section-work-register-quantity.is-actual {
+    --work-quantity-color: #a94b0b;
+    --work-quantity-soft: #fff3e8;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-progress-yellow .section-work-register-quantity.is-actual {
+    --work-quantity-color: #7a5700;
+    --work-quantity-soft: #fff8cc;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-progress-green .section-work-register-quantity.is-actual {
+    --work-quantity-color: var(--color-success, #15803d);
+    --work-quantity-soft: var(--color-success-soft, #edf9f0);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label.is-plan,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label.is-plan svg {
+    color: var(--color-accent, #2563eb);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label.is-actual,
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-head-label.is-actual svg {
+    color: #6d5bd0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity-label {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    color: var(--work-quantity-color) !important;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity-label svg {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 13px;
+    color: inherit;
+    stroke-width: 2;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity-value {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 25px;
+    max-width: 100%;
+    align-items: center;
+    padding: 3px 7px;
+    border-radius: 7px;
+    color: var(--work-quantity-color) !important;
+    background: var(--work-quantity-soft);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity-value small {
+    display: inline !important;
+    margin: 0 0 0 4px !important;
+    color: inherit !important;
+    font-size: 10px;
+    opacity: 1;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-quantity-value.is-empty {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    color: #94a3b8 !important;
+    background: transparent;
+    font-size: 15px !important;
+    font-weight: 650;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-status-value {
+    display: inline-flex;
+    width: fit-content;
+    max-width: 100%;
+    padding: 4px 7px;
+    border-radius: 999px;
+    color: var(--color-text-secondary) !important;
+    background: var(--color-surface-subtle);
+    white-space: normal;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-register-actual, .section-work-register-status) {
+    min-width: 0;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-status {
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    gap: 4px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-partial .section-work-register-status-value {
+    color: #a16207 !important;
+    background: #fff7d6;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-done .section-work-register-status-value {
+    color: var(--color-success, #15803d) !important;
+    background: var(--color-success-soft, #edf9f0);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-actual > strong:not(.section-work-register-quantity-value) {
+    color: #6d5bd0;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 721px) and (max-width: 1080px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-master-head {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main {
+        grid-template-columns: 22px minmax(180px, 1fr) minmax(105px, .45fr) minmax(118px, .5fr);
+        grid-template-rows: auto auto;
+        gap: 8px 12px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main > :is(input, .section-work-stage-icon) {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        align-self: start;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-check-copy {
+        grid-column: 2 / -1;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-register-volume {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-register-actual {
+        grid-column: 3;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-register-status {
+        grid-column: 4;
+        grid-row: 2;
+        text-align: left;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-register-quantity-label, .section-work-register-actual > small, .section-work-register-status > small) {
+        display: inline-flex;
+        margin: 0 0 4px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-row .section-schedule-title {
+        grid-column: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-volume {
+        grid-column: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-section-status {
+        grid-column: 3;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main {
+        grid-template-columns: 22px repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto auto auto;
+        align-items: start;
+        gap: 9px 10px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main > :is(input, .section-work-stage-icon) {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-check-copy {
+        grid-column: 2 / -1;
+        grid-row: 1;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-register-volume {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-register-actual {
+        grid-column: 3;
+        grid-row: 2;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .section-work-register-status {
+        grid-column: 2 / -1;
+        grid-row: 3;
+        text-align: left;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-register-quantity-label, .section-work-register-actual > small, .section-work-register-status > small) {
+        display: inline-flex;
+        margin: 0 0 4px;
+    }
+
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-section .section-work-check.schedule-work-duration-row {
+        min-height: 104px !important;
+        padding: 12px 8px !important;
+    }
+}
+
+/* Work quantity entry: rows open an explicit plan/fact dialog instead of toggling completion. */
+body.work-quantity-dialog-open {
+    overflow: hidden;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .work-quantity-row {
+    cursor: pointer;
+    user-select: none;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .work-quantity-row:focus-visible {
+    outline: 2px solid var(--color-accent, #2563eb);
+    outline-offset: -2px;
+    box-shadow: inset 3px 0 0 var(--color-accent, #2563eb) !important;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .work-quantity-row[aria-busy="true"] {
+    cursor: progress;
+    opacity: .72;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] :is(.section-work-row-icon, .section-work-section-icon) {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-accent-strong, #1d4ed8);
+    background: var(--color-surface-selected, #eff6ff);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-row-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-row-icon svg {
+    width: 13px;
+    height: 13px;
+    stroke-width: 2.15;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-check.is-done .section-work-row-icon {
+    color: var(--color-success, #15803d);
+    background: var(--color-success-soft, #edf9f0);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-section-title-line {
+    align-items: center;
+    gap: 8px;
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .quantity-work-check[data-work-quantity-open] {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .quantity-work-check[data-work-quantity-open] .quantity-check-main {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.work-quantity-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 1450;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, .42);
+    backdrop-filter: blur(5px);
+}
+
+.work-quantity-dialog-card {
+    width: min(560px, 100%);
+    max-height: min(760px, calc(100dvh - 48px));
+    overflow: hidden;
+    border: 1px solid var(--color-border, #dbe3ec);
+    border-radius: 20px;
+    background: var(--color-surface, #fff);
+    box-shadow: 0 28px 80px rgba(15, 23, 42, .24);
+}
+
+.work-quantity-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 19px 20px 16px;
+    border-bottom: 1px solid var(--color-border, #dbe3ec);
+}
+
+.work-quantity-dialog-head h3 {
+    margin: 2px 0 0;
+    color: var(--color-text, #172033);
+    font-size: 20px;
+    line-height: 1.25;
+}
+
+.work-quantity-dialog-head p {
+    margin: 5px 0 0;
+    color: var(--color-text-secondary, #64748b);
+    font-size: 12px;
+}
+
+.work-quantity-dialog-head > button {
+    width: 36px;
+    min-height: 36px;
+    padding: 0;
+    justify-content: center;
+}
+
+.work-quantity-dialog-head > button svg {
+    width: 18px;
+    height: 18px;
+}
+
+.work-quantity-dialog-body {
+    display: grid;
+    gap: 16px;
+    max-height: calc(100dvh - 150px);
+    overflow-y: auto;
+    padding: 18px 20px 20px;
+}
+
+.work-quantity-dialog-work {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    align-items: center;
+    gap: 11px;
+    padding: 12px;
+    border: 1px solid var(--color-border, #dbe3ec);
+    border-radius: 13px;
+    background: var(--color-surface-subtle, #f8fafc);
+}
+
+.work-quantity-dialog-work-icon {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    color: var(--color-accent-strong, #1d4ed8);
+    background: var(--color-surface-selected, #eff6ff);
+}
+
+.work-quantity-dialog-work-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.work-quantity-dialog-work :is(small, strong) {
+    display: block;
+}
+
+.work-quantity-dialog-work small {
+    margin-bottom: 3px;
+    color: var(--color-text-secondary, #64748b);
+    font-size: 10px;
+}
+
+.work-quantity-dialog-work strong {
+    overflow: hidden;
+    color: var(--color-text, #172033);
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+}
+
+.work-quantity-dialog-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--color-border, #dbe3ec);
+    border-radius: 13px;
+}
+
+.work-quantity-dialog-metric {
+    min-width: 0;
+    padding: 11px 12px;
+    border-right: 1px solid var(--color-border, #dbe3ec);
+}
+
+.work-quantity-dialog-metric:last-child {
+    border-right: 0;
+}
+
+.work-quantity-dialog-metric span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--color-text-secondary, #64748b);
+    font-size: 10px;
+}
+
+.work-quantity-dialog-metric strong {
+    display: block;
+    overflow: hidden;
+    color: var(--color-text, #172033);
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.work-quantity-dialog-metric strong small {
+    color: inherit;
+    font-size: 10px;
+}
+
+.work-quantity-dialog-metric.is-plan strong {
+    color: var(--color-accent-strong, #1d4ed8);
+}
+
+.work-quantity-dialog-metric.is-actual strong {
+    color: #6d5bd0;
+}
+
+.work-quantity-dialog-field {
+    display: grid;
+    gap: 7px;
+}
+
+.work-quantity-dialog-field > span {
+    color: var(--color-text, #172033);
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.work-quantity-dialog-field > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 48px;
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong, #cbd5e1);
+    border-radius: 12px;
+    background: var(--color-surface, #fff);
+    transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.work-quantity-dialog-field > div:focus-within {
+    border-color: var(--color-accent, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+}
+
+.work-quantity-dialog-field input {
+    width: 100%;
+    min-height: 46px;
+    padding: 0 13px;
+    border: 0 !important;
+    border-radius: 0 !important;
+    outline: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--color-text, #172033);
+    font-size: 17px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.work-quantity-dialog-field em {
+    padding: 0 13px 0 8px;
+    color: var(--color-text-secondary, #64748b);
+    font-size: 12px;
+    font-style: normal;
+}
+
+.work-quantity-dialog-field > small {
+    color: var(--color-text-secondary, #64748b);
+    font-size: 11px;
+}
+
+.work-quantity-dialog-quick,
+.work-quantity-dialog-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.work-quantity-dialog-quick {
+    flex-wrap: wrap;
+}
+
+.work-quantity-dialog-quick button small {
+    margin-left: 3px;
+    color: var(--color-text-secondary, #64748b);
+}
+
+.work-quantity-dialog-actions {
+    justify-content: flex-end;
+    padding-top: 2px;
+}
+
+.work-quantity-dialog-actions button {
+    min-height: 42px;
+}
+
+.work-quantity-dialog .form-error.active {
+    display: block;
+}
+
+@media (min-width: 721px) and (max-width: 1080px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main > .section-work-row-icon {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        align-self: start;
+    }
+}
+
+@media (max-width: 720px) {
+    body[data-page="projects"] [data-project-detail] [data-panel="schedule"] .section-work-register-body .schedule-work-check-main > .section-work-row-icon {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+    }
+
+    .work-quantity-dialog {
+        align-items: end;
+        padding: 0;
+    }
+
+    .work-quantity-dialog-card {
+        width: 100%;
+        max-height: min(88dvh, 760px);
+        border-width: 1px 0 0;
+        border-radius: 20px 20px 0 0;
+    }
+
+    .work-quantity-dialog-head,
+    .work-quantity-dialog-body {
+        padding-inline: 16px;
+    }
+
+    .work-quantity-dialog-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .work-quantity-dialog-metric:nth-child(2) {
+        border-right: 0;
+    }
+
+    .work-quantity-dialog-metric:last-child {
+        grid-column: 1 / -1;
+        border-top: 1px solid var(--color-border, #dbe3ec);
+    }
+
+    .work-quantity-dialog-actions button {
+        flex: 1 1 0;
+        min-height: 44px;
+    }
+
+    .work-quantity-dialog-head > button,
+    .work-quantity-dialog-quick button {
+        min-width: 44px;
+        min-height: 44px;
     }
 }

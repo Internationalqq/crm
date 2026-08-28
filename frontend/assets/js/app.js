@@ -5225,6 +5225,12 @@ function renderLogsDayView(project, logs) {
         return raw;
     }
 
+    function reportNormalizeManualQuantityUnit(value) {
+        var raw = String(value || '').trim();
+        if (!raw) return '';
+        return reportExplicitQuantityUnit('1 ' + raw) || '';
+    }
+
     function reportEntryQuantityUnit(entry) {
         entry = entry || {};
         var item = entry.item || entry;
@@ -5234,6 +5240,79 @@ function renderLogsDayView(project, logs) {
             return reportSafeQuantityUnit(plan.unit) || reportSafeQuantityUnit(rawCatalogUnit) || 'ед.';
         }
         return reportSafeQuantityUnit(entry.reportUnit) || 'ед.';
+    }
+
+    function reportEntryPlanTotal(entry) {
+        var item = entry && entry.item || entry || {};
+        var plan = quantityPlanInfo(item);
+        var total = Number(plan && plan.totalQty);
+        if (!isFinite(total) || total <= 0) {
+            total = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
+        }
+        return isFinite(total) && total > 0 ? total : 0;
+    }
+
+    function reportWorkNarrativeQuantity(entry) {
+        entry = entry || {};
+        var unit = reportEntryQuantityUnit(entry);
+        var planTotal = reportEntryPlanTotal(entry);
+        var qty = Math.max(0, Number(entry.actualQty || 0));
+        var quantityLabel = String(entry.quantityLabel || '').trim();
+        if (entry.quantityMode === 'target_percent' && Number(entry.quantityValue) >= 0) {
+            var percent = finalSectionSummaryNumber(entry.quantityValue) + '%';
+            if (qty > 0 && planTotal > 0) {
+                return percent + ' (' + finalSectionSummaryNumber(qty) + ' ' + unit + ' из ' + finalSectionSummaryNumber(planTotal) + ' ' + unit + ')';
+            }
+            return percent;
+        }
+        if (entry.quantityMode === 'delta_qty' && qty > 0 && isFinite(Number(entry.baseActualQty))) {
+            var resultQty = Math.max(0, Number(entry.resultActualQty));
+            if (!isFinite(resultQty)) resultQty = Math.max(0, Number(entry.baseActualQty || 0)) + qty;
+            var shiftAmount = quantityLabel || (finalSectionSummaryNumber(qty) + ' ' + unit);
+            if (planTotal > 0) {
+                var remainingQty = Math.max(planTotal - resultQty, 0);
+                return shiftAmount + ' за смену (всего ' + finalSectionSummaryNumber(resultQty) + ' из ' + finalSectionSummaryNumber(planTotal) + ' ' + unit + (remainingQty > 0 ? ', осталось ' + finalSectionSummaryNumber(remainingQty) + ' ' + unit : ', план выполнен') + ')';
+            }
+            return shiftAmount + ' за смену';
+        }
+        if (qty > 0) {
+            var amount = quantityLabel || (finalSectionSummaryNumber(qty) + ' ' + unit);
+            if (planTotal > 0 && qty < planTotal) return amount + ' из ' + finalSectionSummaryNumber(planTotal) + ' ' + unit;
+            return amount;
+        }
+        if (entry.done) {
+            return planTotal > 0 ? 'полностью (' + finalSectionSummaryNumber(planTotal) + ' ' + unit + ')' : 'полностью';
+        }
+        return quantityLabel;
+    }
+
+    function reportMaterialNarrativeQuantity(entry, actionKind, deltaQty) {
+        entry = entry || {};
+        var item = entry.item || {};
+        var unit = reportEntryQuantityUnit(entry);
+        var planTotal = reportEntryPlanTotal(entry);
+        var delta = Math.max(0, Number(deltaQty || 0));
+        var baseQty = 0;
+        if (actionKind === 'purchase') {
+            baseQty = Math.max(Number(item.purchasedQty || item.purchased_qty || 0), Number(item.receivedQty || item.received_qty || 0));
+        } else if (actionKind === 'receipt') {
+            baseQty = Number(item.receivedQty || item.received_qty || 0);
+        } else if (actionKind === 'use') {
+            baseQty = Number(item.usedQty || item.used_qty || 0) + Number(item.writeoffQty || item.writeoff_qty || 0);
+        }
+        baseQty = Math.max(0, isFinite(baseQty) ? baseQty : 0);
+        var resultQty = planTotal > 0 ? Math.min(planTotal, baseQty + delta) : baseQty + delta;
+        var text = finalSectionSummaryNumber(delta) + ' ' + unit;
+        if (planTotal <= 0) return text;
+        if (baseQty > 0) {
+            text += ' за смену (всего ' + finalSectionSummaryNumber(resultQty) + ' из ' + finalSectionSummaryNumber(planTotal) + ' ' + unit;
+        } else {
+            text += ' из ' + finalSectionSummaryNumber(planTotal) + ' ' + unit;
+            if (resultQty < planTotal) text += ' (осталось ' + finalSectionSummaryNumber(planTotal - resultQty) + ' ' + unit + ')';
+            return text;
+        }
+        if (resultQty < planTotal) text += ', осталось ' + finalSectionSummaryNumber(planTotal - resultQty) + ' ' + unit;
+        return text + ')';
     }
 
     function reportSentence(value) {
@@ -5298,10 +5377,10 @@ function renderLogsDayView(project, logs) {
     }
 
     function buildReadableProjectReportText(rawText, generatedParts) {
-        if (generatedParts && generatedParts.length) return generatedParts.join(' ');
+        if (generatedParts && generatedParts.length) return generatedParts.join('\n');
         var clauses = reportTextClauses(rawText);
         var sentences = clauses.map(reportNarrativeSentence).filter(Boolean);
-        return sentences.length ? sentences.join(' ') : reportSentence(rawText);
+        return sentences.length ? sentences.join('\n') : reportSentence(rawText);
     }
 
     function reportMaterialMatchIsConcrete(entry) {
@@ -5453,12 +5532,14 @@ function renderLogsDayView(project, logs) {
         });
         if (completedWorks.length) {
             generatedParts.push('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b \u0440\u0430\u0431\u043e\u0442\u044b: ' + completedWorks.map(function (entry) {
-                return entry.item.title + (entry.quantityLabel ? ' — ' + entry.quantityLabel : '');
+                var quantity = reportWorkNarrativeQuantity(entry);
+                return entry.item.title + (quantity ? ' — ' + quantity : '');
             }).join('; ') + '.');
         }
         if (partialWorks.length) {
             generatedParts.push('\u0427\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u044b: ' + partialWorks.map(function (entry) {
-                return entry.item.title + (entry.quantityLabel ? ' — ' + entry.quantityLabel : '');
+                var quantity = reportWorkNarrativeQuantity(entry);
+                return entry.item.title + (quantity ? ' — ' + quantity : '');
             }).join('; ') + '.');
         }
         if (notedWorks.length) {
@@ -5468,17 +5549,17 @@ function renderLogsDayView(project, logs) {
         }
         if (purchasedMaterials.length) {
             generatedParts.push('\u0417\u0430\u043a\u0430\u0437\u0430\u043d\u044b \u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b: ' + purchasedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.purchasedQty) + ' ' + reportEntryQuantityUnit(entry);
+                return entry.item.title + ' ' + reportMaterialNarrativeQuantity(entry, 'purchase', entry.purchasedQty);
             }).join('; ') + '.');
         }
         if (receivedMaterials.length) {
             generatedParts.push('\u041f\u0440\u0438\u043d\u044f\u0442\u044b \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435: ' + receivedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.receivedQty) + ' ' + reportEntryQuantityUnit(entry);
+                return entry.item.title + ' ' + reportMaterialNarrativeQuantity(entry, 'receipt', entry.receivedQty);
             }).join('; ') + '.');
         }
         if (usedMaterials.length) {
             generatedParts.push('\u0412 \u0440\u0430\u0431\u043e\u0442\u0443/\u043c\u043e\u043d\u0442\u0430\u0436 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u044b: ' + usedMaterials.map(function (entry) {
-                return entry.item.title + ' ' + finalSectionSummaryNumber(entry.usedQty) + ' ' + reportEntryQuantityUnit(entry);
+                return entry.item.title + ' ' + reportMaterialNarrativeQuantity(entry, 'use', entry.usedQty);
             }).join('; ') + '.');
         }
         if (notedMaterials.length) {
@@ -5511,7 +5592,9 @@ function renderLogsDayView(project, logs) {
         draft = draft || { workMatches: [], materialMatches: [], unmatchedClauses: [] };
         var workRows = [];
         var materialRows = [];
-        var eventRows = [];
+        var additionalRows = [];
+        var blockerRows = [];
+        var nextRows = [];
 
         function addUnique(rows, title, detail) {
             title = reportTrimSentence(title);
@@ -5530,7 +5613,8 @@ function renderLogsDayView(project, logs) {
         (draft.workMatches || []).forEach(function (entry) {
             if (!reportMatchConsumesClause(entry, reportWorkMatchIsConcrete)) return;
             var detail = entry.done ? 'Выполнено' : (entry.partial ? 'Частично выполнено' : 'Упомянуто в отчёте');
-            if (entry.quantityLabel) detail += ' · ' + entry.quantityLabel;
+            var narrativeQuantity = reportWorkNarrativeQuantity(entry);
+            if (narrativeQuantity) detail += ' · ' + narrativeQuantity;
             addUnique(workRows, entry.item && entry.item.title || 'Работа', detail);
         });
 
@@ -5550,29 +5634,35 @@ function renderLogsDayView(project, logs) {
                 purchase: 'Покупка',
                 delivery: 'Поставка',
                 work: 'Дополнительная работа',
-                blocker: 'Блокер',
-                next: 'Следующий шаг',
-                note: 'Событие'
+                note: 'Дополнительно'
             };
             if (category === 'order' || category === 'purchase' || category === 'delivery') {
                 addUnique(materialRows, clause, labels[category]);
                 return;
             }
             if (category === 'work') {
-                addUnique(workRows, clause, labels.work);
+                addUnique(additionalRows, clause, labels.work);
                 return;
             }
-            addUnique(eventRows, clause, labels[category] || labels.note);
+            if (category === 'blocker') {
+                addUnique(blockerRows, clause, 'Блокер');
+                return;
+            }
+            if (category === 'next') {
+                addUnique(nextRows, clause, 'Следующий шаг');
+                return;
+            }
+            addUnique(additionalRows, clause, labels.note);
         });
 
         var uniqueSupplementalPhrases = createReportPhraseDeduper(
             draft.text || (draft.unmatchedClauses || []).join('. ')
         );
         uniqueSupplementalPhrases(blockers).forEach(function (phrase) {
-            addUnique(eventRows, phrase, 'Блокер');
+            addUnique(blockerRows, phrase, 'Блокер');
         });
         uniqueSupplementalPhrases(nextSteps).forEach(function (phrase) {
-            addUnique(eventRows, phrase, 'Следующий шаг');
+            addUnique(nextRows, phrase, 'Следующий шаг');
         });
 
         function rowsHtml(rows) {
@@ -5590,8 +5680,10 @@ function renderLogsDayView(project, logs) {
         }
 
         return groupHtml('works', 'hammer', 'Работы', workRows) +
-            groupHtml('materials', 'package-check', 'Закупки и материалы', materialRows) +
-            groupHtml('events', 'sparkles', 'События', eventRows);
+            groupHtml('materials', 'package-check', 'Материалы', materialRows) +
+            groupHtml('additional', 'sparkles', 'Доп. работы', additionalRows) +
+            groupHtml('blockers', 'octagon-alert', 'Блокеры', blockerRows) +
+            groupHtml('next', 'arrow-right', 'Следующий шаг', nextRows);
     }
 
     function buildProjectReportDraft(projectId, payload) {
@@ -5747,9 +5839,49 @@ function renderLogsDayView(project, logs) {
         var workMatches = Object.keys(workMatchesMap).map(function (key) {
             var aggregate = workMatchesMap[key];
             var results = aggregate.results || [];
-            if (results.length === 1) return results[0];
             var plan = quantityPlanInfo(aggregate.item);
             var progress = workActualProgress(projectId, aggregate.sectionTitle, aggregate.item);
+            if (results.length === 1) {
+                var singleResult = Object.assign({}, results[0]);
+                var singleQty = clampActualQty(singleResult.actualQty, plan.totalQty);
+                var singleTargetMode = singleResult.quantityMode === 'target_qty' || singleResult.quantityMode === 'target_percent';
+                var singleAppliedQty = singleTargetMode
+                    ? singleQty
+                    : (plan.totalQty > 0
+                        ? Math.min(singleQty, Math.max(Number(progress.total || 0) - Number(progress.actual || 0), 0))
+                        : singleQty);
+                singleResult.requestedQty = singleQty;
+                singleResult.baseActualQty = Number(progress.actual || 0);
+                singleResult.actualQty = singleAppliedQty;
+                singleResult.resultActualQty = singleTargetMode
+                    ? Math.max(Number(progress.actual || 0), singleAppliedQty)
+                    : (plan.totalQty > 0
+                        ? Math.min(Number(progress.total || 0), Number(progress.actual || 0) + singleAppliedQty)
+                        : Number(progress.actual || 0) + singleAppliedQty);
+                if (singleTargetMode && singleQty > 0 && singleResult.resultActualQty > singleQty) {
+                    singleResult.actualQty = singleResult.resultActualQty;
+                    if (singleResult.quantityMode === 'target_percent') {
+                        singleResult.quantityValue = plan.totalQty > 0 ? singleResult.resultActualQty / plan.totalQty * 100 : 0;
+                        singleResult.quantityLabel = finalSectionSummaryNumber(singleResult.quantityValue) + '%';
+                    } else {
+                        singleResult.quantityValue = singleResult.resultActualQty;
+                        singleResult.quantityLabel = reportWorkQuantityLabel('', aggregate.item, singleResult.resultActualQty);
+                    }
+                } else if (!singleTargetMode) {
+                    singleResult.quantityMode = 'delta_qty';
+                    singleResult.quantityValue = singleAppliedQty;
+                    singleResult.quantityLabel = reportWorkQuantityLabel('', aggregate.item, singleAppliedQty);
+                }
+                singleResult.actionEligible = plan.totalQty > 0 && (singleTargetMode
+                    ? singleAppliedQty > Number(progress.actual || 0)
+                    : singleAppliedQty > 0);
+                if (plan.totalQty > 0) {
+                    singleResult.done = singleResult.resultActualQty >= plan.totalQty;
+                    singleResult.partial = (singleResult.resultActualQty > 0 && !singleResult.done) ||
+                        (!!singleResult.partial && !(singleAppliedQty > 0));
+                }
+                return singleResult;
+            }
             var runningQty = Number(progress.actual || 0);
             var clauseTexts = [];
             results.forEach(function (result) {
@@ -5772,6 +5904,9 @@ function renderLogsDayView(project, logs) {
                 quantityLabel: reportWorkQuantityLabel('', aggregate.item, deltaQty),
                 quantityMode: 'delta_qty',
                 quantityValue: deltaQty,
+                requestedQty: results.reduce(function (total, result) { return total + Math.max(0, Number(result.actualQty || 0)); }, 0),
+                baseActualQty: Number(progress.actual || 0),
+                resultActualQty: runningQty,
                 actionEligible: deltaQty > 0 || results.some(function (result) { return !!result.actionEligible; }),
                 done: plan.totalQty > 0 && runningQty >= plan.totalQty,
                 partial: plan.totalQty > 0 && runningQty > 0 && runningQty < plan.totalQty,
@@ -6517,7 +6652,7 @@ function renderLogsDayView(project, logs) {
                 'works',
                 title,
                 index,
-                renderBulkSectionCheckbox(projectId, title, 'works', workProgress) + '<h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
+                '<span class="section-work-section-icon" aria-hidden="true"><i data-lucide="layers-3"></i></span><h3>' + escapeHtml(estimateDisplaySectionTitleWithNumber(title, index, sectionNumbers)) + '</h3>' + sectionProgressBadge('works', workProgress, ''),
                 scheduleMeta.html + renderInlineMarketButton(projectId, 'works', 'inline-market-section') + sectionPresenceBadge('work', '\u0420\u0430\u0431\u043e\u0442\u044b', workProgress) + sectionPresenceBadge('material', '\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b', materialProgressValue) + '<span class="badge estimate-section-count">' + escapeHtml(String(group.stageRows.length + group.estimateRows.length + group.materialRows.length) + ' \u043f\u043e\u0437.') + '</span>',
                 '',
                 sectionProgressStrip(workProgress, materialProgressValue, title)
@@ -7214,10 +7349,12 @@ function renderLogsDayView(project, logs) {
 
     function renderWorkManualCheck(item, sectionTitle, projectId) {
         var isDone = projectId ? isProjectWorkDone(projectId, sectionTitle, item) : false;
-        return '<label class="section-work-check work-list-check' + (isDone ? ' is-done' : '') + '">' +
-            '<input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
+        var canEditActual = !!(canManageSchedule && canManageSchedule());
+        var quantityInteraction = canEditActual ? ' data-work-quantity-open data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" role="button" tabindex="0" aria-label="' + escapeHtml('Внести выполненный объём: ' + String(item.title || 'Работа')) + '"' : '';
+        return '<div class="section-work-check work-list-check' + (canEditActual ? ' work-quantity-row' : '') + (isDone ? ' is-done' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '"' + quantityInteraction + '>' +
+            '<span class="section-work-row-icon" aria-hidden="true"><i data-lucide="hard-hat"></i></span>' +
             '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || '\u041e\u0431\u044a\u0435\u043c \u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d') + '</small></span>' +
-        '</label>';
+        '</div>';
     }
 
     function renderMaterialManualCheck(item, sectionTitle, projectId) {
@@ -7759,28 +7896,95 @@ function renderLogsDayView(project, logs) {
     }
 
     function reportManualWorkEntry(candidate, rawText) {
+        var manualSelection = arguments[2] || null;
+        var progressSnapshot = arguments[3] || null;
         var item = candidate && candidate.item || {};
         var clauses = reportTextClauses(rawText);
         var clauseText = clauses.length ? clauses[clauses.length - 1] : rawText;
         var plan = quantityPlanInfo(item);
+        var baseActualQty = clampActualQty(progressSnapshot && progressSnapshot.actual || 0, plan.totalQty);
+        var resultActualQty = baseActualQty;
+        var requestedQty = 0;
         var qty = clampActualQty(reportQuantityFromClause(clauseText, item), plan.totalQty);
         var hasCompletionIntent = reportHasWorkCompletionIntent(clauseText);
         var partial = reportHasPartialIntent(clauseText) || (plan.totalQty > 0 && qty > 0 && qty < plan.totalQty);
         var done = plan.totalQty > 0 && (qty >= plan.totalQty || (hasCompletionIntent && !qty && !partial));
-        var appliedQty = done ? plan.totalQty : qty;
+        var appliedQty = done && plan.totalQty > 0 ? plan.totalQty : qty;
         var quantityIntent = appliedQty > 0
             ? reportWorkQuantityMode(clauseText, item, appliedQty)
             : { mode: 'delta_qty', value: 0 };
+        var reportUnit = reportExplicitQuantityUnit(clauseText);
+        if (manualSelection) {
+            var manualMode = String(manualSelection.manualWorkMode || 'delta_qty');
+            var manualValue = Math.max(0, Number(manualSelection.manualQty || 0));
+            requestedQty = manualValue;
+            reportUnit = reportNormalizeManualQuantityUnit(manualSelection.manualUnit) || reportUnit;
+            if (manualMode === 'complete') {
+                appliedQty = Number(plan.totalQty || 0);
+                quantityIntent = { mode: 'target_qty', value: appliedQty };
+                done = appliedQty > 0;
+                partial = false;
+                resultActualQty = appliedQty;
+            } else if (manualMode === 'percent') {
+                manualValue = Math.min(100, manualValue);
+                if (manualValue > 0 && Number(plan.totalQty || 0) > 0) {
+                    manualValue = Math.max(manualValue, baseActualQty / Number(plan.totalQty) * 100);
+                }
+                appliedQty = Number(plan.totalQty || 0) * manualValue / 100;
+                quantityIntent = { mode: 'target_percent', value: manualValue };
+                done = Number(plan.totalQty || 0) > 0 && appliedQty >= Number(plan.totalQty || 0);
+                partial = appliedQty > 0 && !done;
+                resultActualQty = appliedQty;
+            } else if (manualMode === 'target_qty') {
+                appliedQty = clampActualQty(manualValue, plan.totalQty);
+                if (manualValue > 0 && Number(plan.totalQty || 0) > 0) appliedQty = Math.max(baseActualQty, appliedQty);
+                quantityIntent = { mode: manualMode, value: appliedQty };
+                resultActualQty = appliedQty;
+                done = Number(plan.totalQty || 0) > 0 && resultActualQty >= Number(plan.totalQty || 0);
+                partial = resultActualQty > 0 && !done;
+            } else if (manualMode === 'delta_qty') {
+                var hasWorkPlan = Number(plan.totalQty || 0) > 0;
+                var remainingQty = hasWorkPlan ? Math.max(Number(plan.totalQty || 0) - baseActualQty, 0) : manualValue;
+                appliedQty = hasWorkPlan
+                    ? Math.min(clampActualQty(manualValue, plan.totalQty), remainingQty)
+                    : manualValue;
+                resultActualQty = hasWorkPlan
+                    ? Math.min(Number(plan.totalQty || 0), baseActualQty + appliedQty)
+                    : baseActualQty + appliedQty;
+                quantityIntent = { mode: manualMode, value: appliedQty };
+                done = hasWorkPlan ? resultActualQty >= Number(plan.totalQty || 0) : appliedQty > 0;
+                partial = hasWorkPlan && resultActualQty > 0 && !done;
+            } else {
+                appliedQty = 0;
+                quantityIntent = { mode: 'delta_qty', value: 0 };
+                done = false;
+                partial = false;
+                resultActualQty = baseActualQty;
+            }
+            qty = appliedQty;
+        }
+        var quantityUnit = reportUnit || reportSafeQuantityUnit(item.unit);
+        var quantityLabel = quantityIntent.mode === 'target_percent' && Number(quantityIntent.value) >= 0
+            ? finalSectionSummaryNumber(quantityIntent.value) + '%'
+            : (appliedQty > 0 ? finalSectionSummaryNumber(appliedQty) + (quantityUnit ? ' ' + quantityUnit : '') : '');
+        var actionEligible = plan.totalQty > 0 && appliedQty > 0;
+        if (manualSelection && (quantityIntent.mode === 'target_qty' || quantityIntent.mode === 'target_percent')) {
+            actionEligible = appliedQty > baseActualQty;
+        }
         return {
             sectionTitle: candidate && candidate.sectionTitle || item.sectionTitle || item.section_title || '',
             item: item,
             clauseText: clauseText,
             score: 100,
             actualQty: appliedQty,
-            quantityLabel: reportWorkQuantityLabel(clauseText, item, qty),
+            reportUnit: reportUnit,
+            quantityLabel: manualSelection ? quantityLabel : reportWorkQuantityLabel(clauseText, item, qty),
             quantityMode: quantityIntent.mode,
             quantityValue: quantityIntent.value,
-            actionEligible: plan.totalQty > 0 && appliedQty > 0,
+            requestedQty: requestedQty,
+            baseActualQty: baseActualQty,
+            resultActualQty: resultActualQty,
+            actionEligible: actionEligible,
             done: done,
             partial: partial,
             ambiguous: false,
@@ -7789,16 +7993,18 @@ function renderLogsDayView(project, logs) {
     }
 
     function reportManualMaterialEntry(candidate, rawText) {
+        var manualSelection = arguments[2] || null;
         var item = candidate && candidate.item || {};
         var clauses = reportTextClauses(rawText);
         var clauseText = clauses.length ? clauses[clauses.length - 1] : rawText;
         var normalized = normalizeReportText(clauseText);
-        var planned = Number(item.plannedQty != null ? item.plannedQty : item.planned_qty || 0);
+        var plan = quantityPlanInfo(item);
+        var planned = Number(plan.totalQty || 0);
         var purchasedAlready = Number(item.purchasedQty || item.purchased_qty || 0);
         var receivedAlready = Number(item.receivedQty || item.received_qty || 0);
         var usedAlready = Number(item.usedQty || item.used_qty || 0) + Number(item.writeoffQty || item.writeoff_qty || 0);
         var purchaseMaxQty = Math.max(planned - Math.max(purchasedAlready, receivedAlready), 0);
-        var receiptMaxQty = Math.max(Math.max(planned, purchasedAlready) - receivedAlready, 0);
+        var receiptMaxQty = Math.max(planned - receivedAlready, 0);
         var useMaxQty = Math.max(Number(item.stockBalanceQty != null ? item.stockBalanceQty : (receivedAlready - usedAlready)) || 0, 0);
         var qty = reportQuantityFromClause(clauseText, item);
         var purchase = reportHasPurchaseIntent(normalized);
@@ -7808,18 +8014,41 @@ function renderLogsDayView(project, logs) {
         var quantityIntent = reportMaterialQuantityIntent(clauseText, item, qty);
         var targetQty = quantityIntent.targetQty;
         var qualitativePartial = reportHasPartialIntent(normalized) && targetQty == null && !(qty > 0);
+        var reportUnit = reportExplicitQuantityUnit(clauseText);
+        if (manualSelection) {
+            var manualAction = String(manualSelection.manualAction || '');
+            purchase = manualAction === 'purchase';
+            receipt = manualAction === 'receipt';
+            used = manualAction === 'use';
+            var manualValue = Math.max(0, Number(manualSelection.manualQty || 0));
+            var manualMode = String(manualSelection.manualQuantityMode || 'delta_qty');
+            reportUnit = reportNormalizeManualQuantityUnit(manualSelection.manualUnit) || reportUnit;
+            qualitativePartial = false;
+            if (manualMode === 'target_percent') {
+                var manualPercent = Math.min(100, manualValue);
+                targetQty = planned * manualPercent / 100;
+                quantityIntent = { mode: 'target_percent', value: manualPercent, targetQty: targetQty };
+            } else if (manualMode === 'target_qty') {
+                targetQty = manualValue;
+                quantityIntent = { mode: 'target_qty', value: manualValue, targetQty: targetQty };
+            } else {
+                targetQty = null;
+                qty = manualValue;
+                quantityIntent = { mode: 'delta_qty', value: manualValue, targetQty: null };
+            }
+        }
         if (targetQty != null && planned > 0) {
             if (purchase) qty = Math.max(targetQty - Math.max(purchasedAlready, receivedAlready), 0);
             else if (receipt) qty = Math.max(targetQty - receivedAlready, 0);
             else if (used) qty = Math.max(targetQty - usedAlready, 0);
         }
-        if (!qty && targetQty == null && purchase && !qualitativePartial) qty = purchaseMaxQty;
-        if (!qty && targetQty == null && receipt && !qualitativePartial) qty = receiptMaxQty;
-        if (!qty && targetQty == null && used && !qualitativePartial && reportHasWholeIntent(normalized)) qty = useMaxQty;
+        if (!manualSelection && !qty && targetQty == null && purchase && !qualitativePartial) qty = purchaseMaxQty;
+        if (!manualSelection && !qty && targetQty == null && receipt && !qualitativePartial) qty = receiptMaxQty;
+        if (!manualSelection && !qty && targetQty == null && used && !qualitativePartial && reportHasWholeIntent(normalized)) qty = useMaxQty;
         return {
             item: item,
             clauseText: clauseText,
-            reportUnit: reportExplicitQuantityUnit(clauseText),
+            reportUnit: reportUnit,
             ambiguous: false,
             actionEligible: Number(qty || 0) > 0 && (purchase || receipt || used) && !qualitativePartial,
             semanticMatch: purchase || receipt || used,
@@ -7839,6 +8068,21 @@ function renderLogsDayView(project, logs) {
         };
     }
 
+    function reportClearManualSelectionEffectOverrides(overrides, selected) {
+        overrides = overrides || {};
+        selected = selected || {};
+        var item = selected.candidate && selected.candidate.item || {};
+        var itemId = Number(item.id || 0);
+        if (!(itemId > 0)) return overrides;
+        var actionTypes = selected.kind === 'work'
+            ? ['work_progress']
+            : ['material_purchase', 'material_receipt', 'material_use'];
+        actionTypes.forEach(function (actionType) {
+            delete overrides[actionType + ':' + String(itemId)];
+        });
+        return overrides;
+    }
+
     bindReportPreview = function () {
         qsa('[data-log-form]').forEach(function (form) {
             if (form.dataset.reportPreviewBound === '1') return;
@@ -7849,14 +8093,55 @@ function renderLogsDayView(project, logs) {
             var titleInput = form.title;
             var liveAssist = qs('[data-report-live-assist]', form);
             var reviewCard = qs('[data-report-review]', form);
-            var reportOnlyButton = qs('[data-report-only-submit]', form);
             var finalGroups = qs('[data-report-final-groups]', form);
             var finalText = qs('[data-report-final-text]', form);
+            var finalSummary = qs('[data-report-final-summary]', form);
+            var finalShift = qs('[data-report-final-shift]', form);
+            var finalPhotos = qs('[data-report-final-photos]', form);
             var activeDraft = null;
             var activeRawText = '';
             var activeSuggestionsByKey = {};
             var manualSelections = {};
             var effectOverrides = {};
+
+            function createManualSelection(suggestion, clauseText) {
+                var selected = Object.assign({}, suggestion || {});
+                var candidate = selected.candidate || {};
+                var item = candidate.item || {};
+                var normalized = normalizeReportText(clauseText);
+                var parsedQty = Math.max(0, Number(reportQuantityFromClause(clauseText, item) || 0));
+                var explicitUnit = reportNormalizeManualQuantityUnit(reportExplicitQuantityUnit(clauseText));
+                var catalogUnit = reportSafeQuantityUnit(item.unit);
+                selected.clauseText = String(clauseText || '');
+                selected.manualQty = '';
+                selected.manualUnit = explicitUnit || catalogUnit || '';
+                if (selected.kind === 'work') {
+                    var fraction = reportQuantityFractionFromClause(normalized);
+                    if (fraction != null) {
+                        selected.manualWorkMode = 'percent';
+                        selected.manualQty = finalSectionSummaryNumber(fraction * 100);
+                    } else if (parsedQty > 0) {
+                        var workIntent = reportWorkQuantityMode(clauseText, item, parsedQty);
+                        selected.manualWorkMode = workIntent.mode === 'target_qty' ? 'target_qty' : 'delta_qty';
+                        selected.manualQty = finalSectionSummaryNumber(workIntent.value || parsedQty);
+                    } else if (reportHasWorkCompletionIntent(normalized) && !reportHasPartialIntent(normalized)) {
+                        selected.manualWorkMode = 'complete';
+                    } else selected.manualWorkMode = 'delta_qty';
+                    return selected;
+                }
+                if (reportHasReceiptIntent(normalized)) selected.manualAction = 'receipt';
+                else if (reportHasUseIntent(normalized)) selected.manualAction = 'use';
+                else if (reportHasPurchaseIntent(normalized)) selected.manualAction = 'purchase';
+                else selected.manualAction = '';
+                var materialIntent = reportMaterialQuantityIntent(clauseText, item, parsedQty);
+                selected.manualQuantityMode = materialIntent.mode || 'delta_qty';
+                if (selected.manualQuantityMode === 'target_percent') {
+                    selected.manualQty = finalSectionSummaryNumber(materialIntent.value || 0);
+                } else if (parsedQty > 0) {
+                    selected.manualQty = finalSectionSummaryNumber(parsedQty);
+                }
+                return selected;
+            }
 
             function reportEffectOverrideKey(input) {
                 if (!input) return '';
@@ -7885,7 +8170,7 @@ function renderLogsDayView(project, logs) {
                 qsa('[data-report-effect]', previewRoot).forEach(function (input) {
                     var override = effectOverrides[reportEffectOverrideKey(input)];
                     if (!override) return;
-                    input.checked = !!override.checked;
+                    input.checked = true;
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
                     if (!qtyInput || !isFinite(Number(override.qty)) || Number(override.qty) <= 0) return;
@@ -7897,6 +8182,93 @@ function renderLogsDayView(project, logs) {
             function notifyReportDraftChanged() {
                 if (form._reportDraftRestoring || form._reportDraftSuppress) return;
                 form.dispatchEvent(new CustomEvent('pmbi:report-draft-changed', { bubbles: true }));
+            }
+
+            function manualWorkControlState(selected) {
+                selected = selected || {};
+                var candidate = selected.candidate || {};
+                var item = candidate.item || {};
+                var planTotal = reportEntryPlanTotal(item);
+                var sectionTitle = candidate.sectionTitle || candidate.stageTitle || item.sectionTitle || item.section_title || '';
+                var projectId = Number(form.project_id && form.project_id.value || 0);
+                var progress = workActualProgress(projectId, sectionTitle, item);
+                var baseQty = Math.max(0, Number(progress.actual || 0));
+                var remainingBefore = planTotal > 0 ? Math.max(planTotal - baseQty, 0) : 0;
+                var mode = String(selected.manualWorkMode || 'delta_qty');
+                var rawValue = String(selected.manualQty == null ? '' : selected.manualQty).trim();
+                var requestedQty = rawValue === '' ? 0 : Math.max(0, Number(rawValue) || 0);
+                var appliedQty = requestedQty;
+                var resultQty = baseQty;
+                if (mode === 'delta_qty') {
+                    if (planTotal > 0) appliedQty = Math.min(requestedQty, remainingBefore);
+                    resultQty = baseQty + appliedQty;
+                } else if (mode === 'target_qty') {
+                    resultQty = planTotal > 0 ? Math.min(requestedQty, planTotal) : requestedQty;
+                } else if (mode === 'percent') {
+                    appliedQty = Math.min(100, requestedQty);
+                    resultQty = planTotal > 0 ? planTotal * appliedQty / 100 : 0;
+                } else if (mode === 'complete') {
+                    resultQty = planTotal;
+                }
+                var requestedResultQty = resultQty;
+                if (planTotal > 0) resultQty = Math.min(planTotal, Math.max(baseQty, resultQty));
+                var unit = reportSafeQuantityUnit(item.unit) || reportNormalizeManualQuantityUnit(selected.manualUnit) || 'ед.';
+                var remainingAfter = planTotal > 0 ? Math.max(planTotal - resultQty, 0) : 0;
+                return {
+                    planTotal: planTotal,
+                    unit: unit,
+                    mode: mode,
+                    requestedQty: requestedQty,
+                    appliedQty: appliedQty,
+                    baseQty: baseQty,
+                    resultQty: resultQty,
+                    remainingBefore: remainingBefore,
+                    remainingAfter: remainingAfter,
+                    limited: mode === 'delta_qty' && planTotal > 0 && requestedQty > remainingBefore,
+                    belowCurrent: rawValue !== '' && planTotal > 0 &&
+                        (mode === 'target_qty' || mode === 'percent') && requestedResultQty < baseQty,
+                    minimumValue: mode === 'percent' && planTotal > 0 ? baseQty / planTotal * 100 : baseQty,
+                    planCopy: planTotal > 0
+                        ? 'План: ' + finalSectionSummaryNumber(planTotal) + ' ' + unit + ' · до отчёта: ' + finalSectionSummaryNumber(baseQty) + ' ' + unit + ' · остаток: ' + finalSectionSummaryNumber(remainingBefore) + ' ' + unit
+                        : '',
+                    resultCopy: planTotal > 0 && mode !== 'report' && (requestedQty > 0 || mode === 'complete')
+                        ? 'После отчёта: ' + finalSectionSummaryNumber(resultQty) + ' ' + unit + (remainingAfter > 0 ? ' · останется ' + finalSectionSummaryNumber(remainingAfter) + ' ' + unit : ' · план выполнен')
+                        : ''
+                };
+            }
+
+            function normalizeManualWorkSelection(selected) {
+                if (!selected || selected.kind !== 'work') return null;
+                var controlState = manualWorkControlState(selected);
+                if (controlState.limited) {
+                    selected.manualQty = finalSectionSummaryNumber(controlState.appliedQty);
+                    selected.manualLimitNotice = 'Введено ' + finalSectionSummaryNumber(controlState.requestedQty) + ' ' + controlState.unit + ' — учтён доступный остаток ' + finalSectionSummaryNumber(controlState.appliedQty) + ' ' + controlState.unit + '.';
+                } else if (controlState.belowCurrent) {
+                    selected.manualQty = finalSectionSummaryNumber(controlState.minimumValue);
+                    selected.manualLimitNotice = controlState.mode === 'percent'
+                        ? 'Уже выполнено ' + finalSectionSummaryNumber(controlState.minimumValue) + '% — готовность не может быть ниже текущей.'
+                        : 'Уже выполнено ' + finalSectionSummaryNumber(controlState.baseQty) + ' ' + controlState.unit + ' — общий объём не может быть ниже текущего.';
+                } else {
+                    return controlState;
+                }
+                return manualWorkControlState(selected);
+            }
+
+            function refreshManualWorkControlCopy(row, selected) {
+                if (!row || !selected || selected.kind !== 'work') return;
+                var controlState = manualWorkControlState(selected);
+                var planNode = qs('[data-report-work-plan]', row);
+                var resultNode = qs('[data-report-work-result]', row);
+                var limitNode = qs('[data-report-manual-limit]', row);
+                if (planNode) planNode.textContent = controlState.planCopy;
+                if (resultNode) {
+                    resultNode.textContent = controlState.resultCopy;
+                    resultNode.hidden = !controlState.resultCopy;
+                }
+                if (limitNode) {
+                    limitNode.textContent = String(selected.manualLimitNotice || '');
+                    limitNode.hidden = !selected.manualLimitNotice;
+                }
             }
 
             function reportPreviewDraftSnapshot() {
@@ -7915,6 +8287,11 @@ function renderLogsDayView(project, logs) {
                         kind: selected.kind === 'work' ? 'work' : 'material',
                         clauseText: String(selected.clauseText || ''),
                         sectionTitle: String(candidate.sectionTitle || candidate.stageTitle || ''),
+                        manualAction: String(selected.manualAction || ''),
+                        manualWorkMode: String(selected.manualWorkMode || ''),
+                        manualQuantityMode: String(selected.manualQuantityMode || ''),
+                        manualQty: String(selected.manualQty == null ? '' : selected.manualQty),
+                        manualUnit: String(selected.manualUnit || ''),
                         item: itemSnapshot
                     };
                 });
@@ -7929,14 +8306,22 @@ function renderLogsDayView(project, logs) {
                 manualSelections = {};
                 (Array.isArray(snapshot.manualSelections) ? snapshot.manualSelections : []).slice(0, 12).forEach(function (entry) {
                     if (!entry || !entry.key || !entry.item || (!entry.item.id && !entry.item.title)) return;
-                    manualSelections[String(entry.key)] = {
+                    var restored = createManualSelection({
                         kind: entry.kind === 'work' ? 'work' : 'material',
-                        clauseText: String(entry.clauseText || ''),
                         candidate: {
                             sectionTitle: String(entry.sectionTitle || ''),
                             item: entry.item
                         }
-                    };
+                    }, String(entry.clauseText || ''));
+                    if (entry.manualAction) restored.manualAction = String(entry.manualAction);
+                    if (entry.manualWorkMode) restored.manualWorkMode = String(entry.manualWorkMode);
+                    if (entry.manualQuantityMode) restored.manualQuantityMode = String(entry.manualQuantityMode);
+                    if (restored.kind === 'work' && restored.manualWorkMode === 'report') restored.manualWorkMode = 'delta_qty';
+                    if (restored.kind === 'material' && restored.manualAction === 'report') restored.manualAction = '';
+                    if (entry.manualQty != null) restored.manualQty = String(entry.manualQty);
+                    if (entry.manualUnit != null) restored.manualUnit = reportNormalizeManualQuantityUnit(entry.manualUnit);
+                    normalizeManualWorkSelection(restored);
+                    manualSelections[String(entry.key)] = restored;
                 });
                 effectOverrides = {};
                 (Array.isArray(snapshot.effectOverrides) ? snapshot.effectOverrides : []).slice(0, 24).forEach(function (entry) {
@@ -7990,23 +8375,32 @@ function renderLogsDayView(project, logs) {
                 pruneProjectReportManualSelections(manualSelections, rawText);
                 var clauses = reportTextClauses(rawText);
                 var latestClause = clauses.length ? clauses[clauses.length - 1] : rawText;
+                var projectId = Number(form.project_id && form.project_id.value || 0);
                 Object.keys(manualSelections).forEach(function (key) {
                     var selected = manualSelections[key];
                     if (!selected || !selected.candidate) return;
                     var selectedClause = String(selected.clauseText || latestClause || rawText).trim();
                     if (selected.kind === 'work') {
                         var existingWork = draft.workMatches.find(function (entry) { return sameSuggestionEntry(entry, selected); });
+                        var selectedItem = selected.candidate.item || {};
+                        var selectedSection = selected.candidate.sectionTitle || selectedItem.sectionTitle || selectedItem.section_title || '';
+                        var manualWorkProgress = workActualProgress(projectId, selectedSection, selectedItem);
+                        var manualWork = reportManualWorkEntry(selected.candidate, selectedClause, selected, manualWorkProgress);
                         if (existingWork) {
                             existingWork.selectedManually = true;
                             existingWork.ambiguous = false;
                             if (!existingWork.clauseText) existingWork.clauseText = selectedClause;
                             if (Array.isArray(existingWork.clauseTexts) && selectedClause && existingWork.clauseTexts.indexOf(selectedClause) === -1) existingWork.clauseTexts.push(selectedClause);
+                            ['actualQty', 'reportUnit', 'quantityLabel', 'quantityMode', 'quantityValue', 'requestedQty', 'baseActualQty', 'resultActualQty', 'actionEligible', 'done', 'partial'].forEach(function (property) {
+                                existingWork[property] = manualWork[property];
+                            });
                             return;
                         }
-                        draft.workMatches.push(reportManualWorkEntry(selected.candidate, selectedClause));
+                        draft.workMatches.push(manualWork);
                         return;
                     }
                     var existingMaterial = draft.materialMatches.find(function (entry) { return sameSuggestionEntry(entry, selected); });
+                    var manualMaterial = reportManualMaterialEntry(selected.candidate, selectedClause, selected);
                     if (existingMaterial) {
                         existingMaterial.selectedManually = true;
                         existingMaterial.ambiguous = false;
@@ -8014,9 +8408,12 @@ function renderLogsDayView(project, logs) {
                         if (!Array.isArray(existingMaterial.consumedClauseTexts)) existingMaterial.consumedClauseTexts = [];
                         if (selectedClause && existingMaterial.clauseTexts.indexOf(selectedClause) === -1) existingMaterial.clauseTexts.push(selectedClause);
                         if (selectedClause && existingMaterial.consumedClauseTexts.indexOf(selectedClause) === -1) existingMaterial.consumedClauseTexts.push(selectedClause);
+                        ['reportUnit', 'actionEligible', 'semanticMatch', 'purchaseIntent', 'receiptIntent', 'useIntent', 'quantityMode', 'quantityValue', 'targetQty', 'purchaseMaxQty', 'receiptMaxQty', 'useMaxQty', 'purchasedQty', 'receivedQty', 'usedQty'].forEach(function (property) {
+                            existingMaterial[property] = manualMaterial[property];
+                        });
                         return;
                     }
-                    draft.materialMatches.push(reportManualMaterialEntry(selected.candidate, selectedClause));
+                    draft.materialMatches.push(manualMaterial);
                 });
                 draft.text = buildProjectReportTextFromMatches(rawText, draft.workMatches, draft.materialMatches);
                 draft.unmatchedClauses = projectReportUnmatchedClauses(rawText, draft.workMatches, draft.materialMatches);
@@ -8034,11 +8431,50 @@ function renderLogsDayView(project, logs) {
                 suggestions.forEach(function (suggestion) {
                     activeSuggestionsByKey[reportSuggestionKey(suggestion.kind, suggestion.candidate)] = suggestion;
                 });
+                function selectedOption(value, currentValue, label) {
+                    return '<option value="' + escapeHtml(value) + '"' + (String(value) === String(currentValue) ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+                }
+                function manualSelectionControls(selected, key, item) {
+                    var planTotal = reportEntryPlanTotal(item);
+                    var selectedUnit = reportSafeQuantityUnit(item.unit) || reportNormalizeManualQuantityUnit(selected.manualUnit) || 'ед.';
+                    var maxAttribute = planTotal > 0 ? ' max="' + escapeHtml(planTotal) + '"' : '';
+                    if (selected.kind === 'work') {
+                        normalizeManualWorkSelection(selected);
+                        var qtyValue = String(selected.manualQty == null ? '' : selected.manualQty);
+                        var workMode = String(selected.manualWorkMode || 'delta_qty');
+                        var isPercent = workMode === 'percent';
+                        var workControlState = manualWorkControlState(selected);
+                        var workMax = workMode === 'delta_qty' && planTotal > 0 ? workControlState.remainingBefore : planTotal;
+                        var qtyMax = isPercent ? ' max="100"' : (workMax >= 0 && planTotal > 0 ? ' max="' + escapeHtml(workMax) + '"' : '');
+                        var workMin = planTotal > 0 && (workMode === 'target_qty' || workMode === 'percent')
+                            ? workControlState.minimumValue
+                            : 0;
+                        return '<div class="report-live-picked-controls is-work">' +
+                            '<label><span>Количество</span><span class="report-live-picked-number"><input type="number" min="' + escapeHtml(finalSectionSummaryNumber(workMin)) + '"' + qtyMax + ' step="0.001" value="' + escapeHtml(qtyValue) + '" data-report-manual-qty aria-label="Количество работы: ' + escapeHtml(item.title || 'работа') + '"' + (workMode === 'complete' ? ' disabled' : '') + '><em>' + escapeHtml(isPercent ? '%' : selectedUnit) + '</em></span></label>' +
+                            (workControlState.planCopy ? '<div class="report-live-picked-progress"><small class="report-live-picked-plan" data-report-work-plan>' + escapeHtml(workControlState.planCopy) + '</small><small class="report-live-picked-result" data-report-work-result' + (workControlState.resultCopy ? '' : ' hidden') + '>' + escapeHtml(workControlState.resultCopy) + '</small><small class="report-live-picked-limit" data-report-manual-limit' + (selected.manualLimitNotice ? '' : ' hidden') + '>' + escapeHtml(selected.manualLimitNotice || '') + '</small></div>' : '') +
+                        '</div>';
+                    }
+                    var qtyValue = String(selected.manualQty == null ? '' : selected.manualQty);
+                    var action = String(selected.manualAction || '');
+                    var quantityMode = String(selected.manualQuantityMode || 'delta_qty');
+                    var materialPercent = quantityMode === 'target_percent';
+                    return '<div class="report-live-picked-controls is-material">' +
+                        '<label><span>Действие</span><select data-report-manual-action aria-label="Действие с материалом: ' + escapeHtml(item.title || 'материал') + '">' +
+                            '<option value=""' + (action ? '' : ' selected') + ' disabled>Выберите действие</option>' +
+                            selectedOption('purchase', action, 'Куплено / заказано') +
+                            selectedOption('receipt', action, 'Принято на объект') +
+                            selectedOption('use', action, 'Передано в работу') +
+                        '</select></label>' +
+                        '<label><span>Количество</span><span class="report-live-picked-number"><input type="number" min="0"' + (materialPercent ? ' max="100"' : maxAttribute) + ' step="0.001" value="' + escapeHtml(qtyValue) + '" data-report-manual-qty aria-label="Количество материала: ' + escapeHtml(item.title || 'материал') + '"><em>' + escapeHtml(materialPercent ? '%' : selectedUnit) + '</em></span></label>' +
+                        (!action ? '<small class="report-live-picked-action-note"><i data-lucide="circle-alert" aria-hidden="true"></i>Укажите, что сделали с материалом</small>' : '') +
+                        (planTotal > 0 ? '<div class="report-live-picked-progress"><small class="report-live-picked-plan">План: ' + escapeHtml(finalSectionSummaryNumber(planTotal)) + ' ' + escapeHtml(selectedUnit) + '</small></div>' : '') +
+                    '</div>';
+                }
                 var selectedItems = Object.keys(manualSelections).map(function (key) {
                     var selected = manualSelections[key];
                     var item = selected.candidate.item || {};
                     var label = selected.kind === 'work' ? 'Работа' : 'Материал';
-                    return '<span class="report-live-picked-item is-' + selected.kind + '"><small>' + label + '</small><b>' + escapeHtml(item.title || 'Позиция') + '</b><button type="button" data-report-suggestion-remove="' + escapeHtml(key) + '" aria-label="Убрать позицию ' + escapeHtml(item.title || '') + '"><i data-lucide="x" aria-hidden="true"></i></button></span>';
+                    return '<div class="report-live-picked-item is-' + selected.kind + '" data-report-manual-row data-report-manual-key="' + escapeHtml(key) + '"><small>' + label + '</small><b>' + escapeHtml(item.title || 'Позиция') + '</b><button type="button" data-report-suggestion-remove="' + escapeHtml(key) + '" aria-label="Убрать позицию ' + escapeHtml(item.title || '') + '"><i data-lucide="x" aria-hidden="true"></i></button>' + manualSelectionControls(selected, key, item) + '</div>';
                 }).join('');
                 var suggestionsHtml = suggestions.map(function (suggestion) {
                     var item = suggestion.candidate.item || {};
@@ -8077,7 +8513,71 @@ function renderLogsDayView(project, logs) {
                     form.blockers && form.blockers.value || '',
                     form.next_steps && form.next_steps.value || ''
                 ) : '';
+                var workforceRows = qsa('[data-report-resource-row="workforce"]', form).map(function (row) {
+                    var label = qs('[data-report-resource-label]', row);
+                    var count = qs('[data-report-resource-count]', row);
+                    var hours = qs('[data-report-resource-hours]', row);
+                    return {
+                        label: String(label && label.value || '').trim(),
+                        count: Math.max(0, Number(count && count.value || 0)),
+                        hours: Math.max(0, Number(hours && hours.value || 0))
+                    };
+                }).filter(function (entry) { return entry.label && entry.count > 0; });
+                var equipmentRows = qsa('[data-report-resource-row="equipment"]', form).map(function (row) {
+                    var label = qs('[data-report-resource-label]', row);
+                    var count = qs('[data-report-resource-count]', row);
+                    var hours = qs('[data-report-resource-hours]', row);
+                    return {
+                        label: String(label && label.value || '').trim(),
+                        count: Math.max(0, Number(count && count.value || 0)),
+                        hours: Math.max(0, Number(hours && hours.value || 0))
+                    };
+                }).filter(function (entry) { return entry.label && entry.count > 0; });
+                var workforceCount = workforceRows.reduce(function (sum, entry) { return sum + entry.count; }, 0);
+                var equipmentCount = equipmentRows.reduce(function (sum, entry) { return sum + entry.count; }, 0);
+                var photoDrafts = (Array.isArray(form._reportPhotoDrafts) ? form._reportPhotoDrafts : []).filter(function (draft) {
+                    return draft && !draft.removed && draft.status !== 'error' && draft.status !== 'upload-error';
+                });
+                if (finalSummary) {
+                    var reportDate = form.report_date && form.report_date.value ? formatRuDate(form.report_date.value) : 'Без даты';
+                    var visibility = form.is_client_visible && form.is_client_visible.options && form.is_client_visible.selectedIndex >= 0
+                        ? form.is_client_visible.options[form.is_client_visible.selectedIndex].textContent
+                        : 'Команде';
+                    var blockerCount = reportTextClauses(form.blockers && form.blockers.value || '').length;
+                    var chips = [
+                        ['calendar-days', reportDate],
+                        [form.is_client_visible && form.is_client_visible.value === '0' ? 'lock-keyhole' : 'eye', visibility]
+                    ];
+                    if (workforceCount > 0) chips.push(['users', workforceCount + ' чел.']);
+                    if (equipmentCount > 0) chips.push(['truck', equipmentCount + ' ед. техники']);
+                    chips.push(['image', photoDrafts.length + ' фото']);
+                    if (blockerCount) chips.push(['octagon-alert', blockerCount + ' блок.']);
+                    finalSummary.innerHTML = chips.map(function (chip) {
+                        return '<span><i data-lucide="' + escapeHtml(chip[0]) + '" aria-hidden="true"></i>' + escapeHtml(chip[1]) + '</span>';
+                    }).join('');
+                }
+                if (finalShift) {
+                    var shiftRows = workforceRows.map(function (entry) {
+                        return '<li><span class="report-final-row-copy"><b>' + escapeHtml(entry.label) + '</b><small>' + escapeHtml(finalSectionSummaryNumber(entry.count) + ' чел. · ' + finalSectionSummaryNumber(entry.hours) + ' ч/чел. · ' + finalSectionSummaryNumber(entry.count * entry.hours) + ' чел.-ч') + '</small></span></li>';
+                    }).concat(equipmentRows.map(function (entry) {
+                        return '<li><span class="report-final-row-copy"><b>' + escapeHtml(entry.label) + '</b><small>' + escapeHtml(finalSectionSummaryNumber(entry.count) + ' ед. · ' + finalSectionSummaryNumber(entry.hours) + ' ч · ' + finalSectionSummaryNumber(entry.count * entry.hours) + ' маш.-ч') + '</small></span></li>';
+                    }));
+                    finalShift.innerHTML = shiftRows.length
+                        ? '<section class="report-final-group is-shift" data-report-final-section="shift"><div class="report-final-group-head"><span aria-hidden="true"><i data-lucide="users-round"></i></span><div><b>Состав смены</b><small>' + escapeHtml(shiftRows.length) + '</small></div></div><ul class="report-final-list">' + shiftRows.join('') + '</ul></section>'
+                        : '';
+                }
+                if (finalPhotos) {
+                    var photoLinks = photoDrafts.filter(function (draft) { return !!draft.url; }).map(function (draft, index) {
+                        return '<a href="' + escapeHtml(draft.url) + '" target="_blank" rel="noopener" aria-label="Открыть фотографию ' + escapeHtml(index + 1) + '"><img src="' + escapeHtml(draft.url) + '" alt=""></a>';
+                    });
+                    finalPhotos.innerHTML = photoDrafts.length
+                        ? '<section class="report-final-photo-section" data-report-final-section="photos"><div class="report-final-group-head"><span aria-hidden="true"><i data-lucide="images"></i></span><div><b>Фотографии</b><small>' + escapeHtml(photoDrafts.length) + '</small></div></div>' + (photoLinks.length ? '<div class="report-final-photo-grid">' + photoLinks.join('') + '</div>' : '<small class="report-final-photo-processing">Фотографии подготавливаются…</small>') + '</section>'
+                        : '';
+                }
                 refreshLucideIcons(finalGroups);
+                if (finalSummary) refreshLucideIcons(finalSummary);
+                if (finalShift) refreshLucideIcons(finalShift);
+                if (finalPhotos) refreshLucideIcons(finalPhotos);
             }
             function syncReportTextFromEffectQuantities() {
                 if (!previewRoot || !activeDraft) return;
@@ -8100,6 +8600,7 @@ function renderLogsDayView(project, logs) {
                                     quantityMode: workEntry.quantityMode,
                                     quantityValue: workEntry.quantityValue,
                                     quantityLabel: workEntry.quantityLabel,
+                                    resultActualQty: workEntry.resultActualQty,
                                     done: workEntry.done,
                                     partial: workEntry.partial
                                 };
@@ -8109,13 +8610,16 @@ function renderLogsDayView(project, logs) {
                                 workEntry.quantityMode = 'delta_qty';
                                 workEntry.quantityValue = qty;
                                 workEntry.quantityLabel = reportWorkQuantityLabel('', workEntry.item || {}, qty);
-                                workEntry.done = false;
-                                workEntry.partial = true;
+                                workEntry.resultActualQty = Math.max(0, Number(workEntry.baseActualQty || 0)) + qty;
+                                var workPlanTotal = reportEntryPlanTotal(workEntry);
+                                workEntry.done = workPlanTotal > 0 && workEntry.resultActualQty >= workPlanTotal;
+                                workEntry.partial = workEntry.resultActualQty > 0 && !workEntry.done;
                             } else {
                                 workEntry.actualQty = workEntry._effectOriginal.actualQty;
                                 workEntry.quantityMode = workEntry._effectOriginal.quantityMode;
                                 workEntry.quantityValue = workEntry._effectOriginal.quantityValue;
                                 workEntry.quantityLabel = workEntry._effectOriginal.quantityLabel;
+                                workEntry.resultActualQty = workEntry._effectOriginal.resultActualQty;
                                 workEntry.done = workEntry._effectOriginal.done;
                                 workEntry.partial = workEntry._effectOriginal.partial;
                             }
@@ -8140,33 +8644,11 @@ function renderLogsDayView(project, logs) {
                 if (!previewRoot) return;
                 syncReportTextFromEffectQuantities();
                 qsa('[data-report-effect]', previewRoot).forEach(function (input) {
+                    input.checked = true;
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
-                    if (qtyInput) qtyInput.disabled = !input.checked;
-                    var resultNode = card ? qs('[data-report-effect-result]', card) : null;
-                    if (resultNode) {
-                        var baseQty = Number(input.getAttribute('data-effect-base') || 0);
-                        var qty = Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0);
-                        var unitNode = card ? qs('.report-effect-quantity > em', card) : null;
-                        resultNode.textContent = finalSectionSummaryNumber(Math.max(0, baseQty + (isFinite(qty) ? qty : 0))) + ' ' + (unitNode ? unitNode.textContent : '');
-                    }
+                    if (qtyInput) qtyInput.disabled = false;
                 });
-                var count = qsa('[data-report-effect]:checked', previewRoot).filter(function (input) {
-                    var card = input.closest ? input.closest('.report-effect-card') : null;
-                    var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
-                    return Number(qtyInput ? qtyInput.value : input.getAttribute('data-effect-qty') || 0) > 0;
-                }).length;
-                var summary = qs('[data-report-effects-summary]', previewRoot);
-                var titleNode = qs('[data-report-effects-title]', previewRoot);
-                var noteNode = qs('[data-report-effects-note]', previewRoot);
-                if (titleNode) titleNode.innerHTML = count
-                    ? 'Сохранится: отчёт · действий в учёте: <span data-report-effects-count>' + count + '</span>'
-                    : 'Сохранится только отчёт';
-                if (noteNode) noteNode.textContent = count
-                    ? 'Проверьте объёмы. Отмеченные работы и материалы попадут в учёт вместе с отчётом.'
-                    : 'Учёт материалов и работ не изменится.';
-                if (summary) summary.classList.toggle('is-report-only', count === 0);
-                if (reportOnlyButton) reportOnlyButton.hidden = count === 0;
             }
             function refreshPreview(options) {
                 if (!options || options.skipCapture !== true) captureEffectOverrides();
@@ -8195,7 +8677,7 @@ function renderLogsDayView(project, logs) {
                     refreshLucideIcons(previewRoot);
                 }
                 applyEffectOverrides();
-                renderLiveAssist(rawText);
+                if (!options || options.skipLiveAssist !== true) renderLiveAssist(rawText);
                 refreshEffectsSummary();
             }
             if (rawInput) rawInput.addEventListener('input', refreshPreview);
@@ -8203,6 +8685,11 @@ function renderLogsDayView(project, logs) {
             [form.blockers, form.next_steps].forEach(function (control) {
                 if (control) control.addEventListener('input', refreshStructuredFinalReport);
             });
+            form.addEventListener('pmbi:report-preview-meta-changed', refreshStructuredFinalReport);
+            form.addEventListener('input', function (event) {
+                if (event.target && event.target.closest && event.target.closest('[data-report-resource-row]')) refreshStructuredFinalReport();
+            });
+            if (form.is_client_visible) form.is_client_visible.addEventListener('change', refreshStructuredFinalReport);
             if (previewRoot) previewRoot.addEventListener('change', function (event) {
                 if (event.target && event.target.matches('[data-report-effect], [data-report-effect-qty]')) {
                     captureEffectOverrides();
@@ -8217,28 +8704,70 @@ function renderLogsDayView(project, logs) {
                     notifyReportDraftChanged();
                 }
             });
+            function updateManualSelectionControl(target) {
+                var row = target && target.closest ? target.closest('[data-report-manual-row]') : null;
+                var key = row ? row.getAttribute('data-report-manual-key') || '' : '';
+                var selected = manualSelections[key];
+                if (!selected) return null;
+                delete selected.manualLimitNotice;
+                if (target.matches('[data-report-manual-action]')) selected.manualAction = String(target.value || '');
+                else if (target.matches('[data-report-manual-qty]')) {
+                    selected.manualQty = String(target.value || '');
+                    if (selected.kind === 'work') selected.manualWorkMode = 'delta_qty';
+                    if (selected.kind === 'material') selected.manualQuantityMode = 'delta_qty';
+                }
+                else return null;
+                return selected;
+            }
+            if (liveAssist) liveAssist.addEventListener('input', function (event) {
+                if (!event.target || !event.target.matches('[data-report-manual-qty]')) return;
+                captureEffectOverrides();
+                var selected = updateManualSelectionControl(event.target);
+                if (!selected) return;
+                normalizeManualWorkSelection(selected);
+                if (selected.manualLimitNotice) event.target.value = String(selected.manualQty || '');
+                refreshManualWorkControlCopy(event.target.closest('[data-report-manual-row]'), selected);
+                reportClearManualSelectionEffectOverrides(effectOverrides, selected);
+                refreshPreview({ skipCapture: true, skipLiveAssist: true });
+                notifyReportDraftChanged();
+            });
+            if (liveAssist) liveAssist.addEventListener('change', function (event) {
+                if (!event.target || !event.target.matches('[data-report-manual-action], [data-report-manual-qty]')) return;
+                captureEffectOverrides();
+                var selected = updateManualSelectionControl(event.target);
+                if (!selected) return;
+                normalizeManualWorkSelection(selected);
+                reportClearManualSelectionEffectOverrides(effectOverrides, selected);
+                refreshPreview({ skipCapture: true });
+                notifyReportDraftChanged();
+            });
             if (liveAssist) liveAssist.addEventListener('click', function (event) {
                 var addButton = event.target && event.target.closest ? event.target.closest('[data-report-suggestion]') : null;
                 var removeButton = event.target && event.target.closest ? event.target.closest('[data-report-suggestion-remove]') : null;
                 if (addButton) {
                     var suggestionKey = addButton.getAttribute('data-report-suggestion') || '';
                     if (activeSuggestionsByKey[suggestionKey]) {
-                        var selectedSuggestion = Object.assign({}, activeSuggestionsByKey[suggestionKey]);
                         var currentText = rawInput ? rawInput.value.trim() : '';
                         var currentClauses = reportTextClauses(currentText);
-                        selectedSuggestion.clauseText = currentClauses.length
+                        var selectedClause = currentClauses.length
                             ? currentClauses[currentClauses.length - 1]
                             : currentText;
-                        manualSelections[suggestionKey] = selectedSuggestion;
+                        captureEffectOverrides();
+                        manualSelections[suggestionKey] = createManualSelection(activeSuggestionsByKey[suggestionKey], selectedClause);
+                        normalizeManualWorkSelection(manualSelections[suggestionKey]);
+                        reportClearManualSelectionEffectOverrides(effectOverrides, manualSelections[suggestionKey]);
                     }
-                    refreshPreview();
+                    refreshPreview({ skipCapture: true });
                     notifyReportDraftChanged();
                     if (rawInput) rawInput.focus();
                     return;
                 }
                 if (removeButton) {
-                    delete manualSelections[removeButton.getAttribute('data-report-suggestion-remove') || ''];
-                    refreshPreview();
+                    var removeKey = removeButton.getAttribute('data-report-suggestion-remove') || '';
+                    captureEffectOverrides();
+                    reportClearManualSelectionEffectOverrides(effectOverrides, manualSelections[removeKey]);
+                    delete manualSelections[removeKey];
+                    refreshPreview({ skipCapture: true });
                     notifyReportDraftChanged();
                     if (rawInput) rawInput.focus();
                 }
@@ -8349,19 +8878,10 @@ function renderLogsDayView(project, logs) {
             var controlId = 'report-effect-' + String(item.id || 'item') + '-' + String(effectCount);
             var safeQty = Math.min(Number(qty) || 0, Number(maxQty) || 0);
             var resultQty = Math.min(Number(plannedQty) || (Number(baseQty) + safeQty), Number(baseQty) + safeQty);
-            return '<div class="report-effect-card is-' + escapeHtml(kind) + '">' +
-                '<label class="report-effect-toggle" for="' + escapeHtml(controlId) + '">' +
-                    '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(safeQty) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-effect-base="' + escapeHtml(Number(baseQty) || 0) + '" data-original-effect-qty="' + escapeHtml(safeQty) + '" data-quantity-mode="' + escapeHtml(quantityMode || 'delta_qty') + '" data-input-value="' + escapeHtml(quantityValue != null ? quantityValue : safeQty) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
-                    '<span class="report-effect-check" aria-hidden="true"><i data-lucide="check"></i></span>' +
-                    '<span class="report-effect-copy"><b>' + escapeHtml(label) + '</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>' + escapeHtml(note) + '</small></span>' +
-                '</label>' +
-                '<div class="report-effect-metrics">' +
-                    '<span class="report-effect-metric"><small>План</small><b>' + escapeHtml(reportEffectValue(plannedQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
-                    '<span class="report-effect-metric"><small>' + escapeHtml(baseLabel || 'Уже выполнено') + '</small><b>' + escapeHtml(reportEffectValue(baseQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
-                    '<label class="report-effect-quantity report-effect-metric"><span>Из отчёта</span><input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(safeQty) + '" data-report-effect-qty aria-label="Количество из отчёта: ' + escapeHtml(item.title || 'позиция') + '"><em>' + escapeHtml(unit || 'ед.') + '</em></label>' +
-                    '<span class="report-effect-metric report-effect-result"><small>Итого</small><b data-report-effect-result>' + escapeHtml(reportEffectValue(resultQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
-                '</div>' +
-            '</div>';
+            return '<span class="report-effect-card report-effect-staging-row" hidden>' +
+                '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(safeQty) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-effect-base="' + escapeHtml(Number(baseQty) || 0) + '" data-original-effect-qty="' + escapeHtml(safeQty) + '" data-quantity-mode="' + escapeHtml(quantityMode || 'delta_qty') + '" data-input-value="' + escapeHtml(quantityValue != null ? quantityValue : safeQty) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
+                '<input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(safeQty) + '" data-report-effect-qty tabindex="-1" aria-hidden="true">' +
+            '</span>';
         }
         function materialEffect(entry, kind, qty, maxQty, label, note) {
             var item = entry.item || {};
@@ -8398,45 +8918,24 @@ function renderLogsDayView(project, logs) {
                 'Уже выполнено'
             );
         }
-        var html = ['<div class="report-preview-board">'];
+        var html = ['<div class="report-action-staging-inner">'];
         if (workMatches.length) {
-            html.push('<section class="report-preview-card report-effects-card">' + previewTitle('hammer', 'Работы', 'Проверьте объём перед применением') + '<div class="report-preview-sections">' + groupedBySection(workMatches, 'Работы').map(function (group) {
-                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-effect-list">' + group.entries.map(function (entry) {
-                    var item = entry.item || {};
-                    if (entry.ambiguous) {
-                        return '<div class="report-effect-card is-review"><span class="report-effect-check" aria-hidden="true"><i data-lucide="circle-help"></i></span><span class="report-effect-copy"><b>Нужно уточнить работу</b><strong>' + escapeHtml(item.title || 'Работа') + '</strong><small>Нашлось несколько похожих работ — фактический объём не изменится</small></span></div>';
-                    }
-                    var effect = workEffect(entry);
-                    if (effect) return effect;
-                    return '<div class="report-effect-card is-report-only"><span class="report-effect-check" aria-hidden="true"><i data-lucide="info"></i></span><span class="report-effect-copy"><b>Только в отчёт</b><strong>' + escapeHtml(item.title || 'Работа') + '</strong><small>План исчерпан или объём не определён — фактическое выполнение не изменится</small></span></div>';
-                }).join('') + '</div></div>';
-            }).join('') + '</div></section>');
+            html.push(workMatches.map(function (entry) {
+                return entry.ambiguous ? '' : workEffect(entry);
+            }).join(''));
         }
         if (materialMatches.length) {
-            html.push('<section class="report-preview-card report-effects-card">' + previewTitle('boxes', 'Материалы', 'Выберите, что применить') + '<div class="report-preview-sections">' + groupedBySection(materialMatches, 'Материалы').map(function (group) {
-                return '<div class="report-preview-section"><b><small>Раздел</small>' + escapeHtml(group.title) + '</b><div class="report-effect-list">' + group.entries.map(function (entry) {
-                    var item = entry.item || {};
-                    if (entry.ambiguous) {
-                        return '<div class="report-effect-card is-review"><span class="report-effect-check" aria-hidden="true"><i data-lucide="circle-help"></i></span><span class="report-effect-copy"><b>Нужно уточнить позицию</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Нашлось несколько похожих материалов — изменение не применится</small></span></div>';
-                    }
+            html.push(materialMatches.map(function (entry) {
+                    if (entry.ambiguous) return '';
                     var actions = [
                         materialEffect(entry, 'material_purchase', entry.purchasedQty, entry.purchaseMaxQty, 'Заказано', 'склад не увеличится'),
                         materialEffect(entry, 'material_receipt', entry.receivedQty, entry.receiptMaxQty, 'Принято на объект', 'увеличит физический остаток'),
                         materialEffect(entry, 'material_use', entry.usedQty, entry.useMaxQty, 'Передано в работу', 'уменьшит остаток на объекте')
                     ].filter(Boolean);
-                    if (actions.length) return actions.join('');
-                    return '<div class="report-effect-card is-report-only"><span class="report-effect-check" aria-hidden="true"><i data-lucide="info"></i></span><span class="report-effect-copy"><b>Только в отчёт</b><strong>' + escapeHtml(item.title || 'Материал') + '</strong><small>Действие или количество не определено — учёт не изменится</small></span></div>';
-                }).join('') + '</div></div>';
-            }).join('') + '</div></section>');
+                    return actions.join('');
+                }).join(''));
         }
-        if (unmatchedClauses.length) {
-            html.push('<section class="report-preview-card report-additional-card">' + previewTitle('sparkles', 'Дополнительные события', 'Ничего не потеряется') + '<div class="report-additional-list">' + unmatchedClauses.map(function (clause) {
-                var category = projectReportClauseCategory(clause);
-                var labels = { work: 'Доп. работа', order: 'Заказ', purchase: 'Покупка', delivery: 'Поставка', blocker: 'Проблема', next: 'Следующий шаг', note: 'Событие' };
-                return '<div><span>' + escapeHtml(labels[category] || labels.note) + '</span><p>' + escapeHtml(reportTrimSentence(clause)) + '</p></div>';
-            }).join('') + '</div></section>');
-        }
-        html.push('<div class="report-effects-summary" data-report-effects-summary><span class="report-effects-summary-icon" aria-hidden="true"><i data-lucide="shield-check"></i></span><span class="report-effects-summary-copy"><b data-report-effects-title>' + (effectCount ? 'Сохранится: отчёт · действий в учёте: <span data-report-effects-count>' + effectCount + '</span>' : 'Сохранится только отчёт') + '</b><small data-report-effects-note>' + (effectCount ? 'Проверьте объёмы. Отмеченные работы и материалы попадут в учёт вместе с отчётом.' : 'Учёт материалов и работ не изменится.') + '</small></span></div></div>');
+        html.push('</div>');
         return html.join('');
     };
 
@@ -10465,6 +10964,9 @@ function renderLogsDayView(project, logs) {
     var reminderRefreshInFlight = false;
     var reminderLastItems = [];
     var reminderLastStatus = { failedCount: 0, totalProjects: 0, fullFailure: false };
+    var reminderLastNoticeSignature = '';
+    var reminderNoticeTimer = 0;
+    var reminderMotionTimer = 0;
 
     function reminderProjectTitle(projectId) {
         var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); });
@@ -10542,6 +11044,41 @@ function renderLogsDayView(project, logs) {
         return bits.filter(Boolean).join(' • ');
     }
 
+    function reminderMaterialDetailText(alert) {
+        alert = alert || {};
+        var bits = [];
+        if (Number(alert.leadDays || 0) > 0) bits.push('поставка ' + Number(alert.leadDays) + ' дн.');
+        var targetDate = alert.needOnSiteDate || alert.startDate || alert.workDate || alert.needByDate || '';
+        if (targetDate) bits.push('на объект к ' + formatDisplayDate(targetDate));
+        return bits.join(' • ');
+    }
+
+    function reminderMaterialItem(projectId, projectTitle, alert, kind, label, text) {
+        alert = alert || {};
+        var actionKind = alert.phase === 'delivery' ? 'delivery' : 'order';
+        var actionQty = actionKind === 'delivery'
+            ? Number(alert.toReceiveQty || 0)
+            : Number(alert.toOrderQty || alert.missingQty || 0);
+        if (!Number.isFinite(actionQty) || actionQty < 0) actionQty = 0;
+        return {
+            group: 'materials',
+            projectId: projectId,
+            materialId: alert.materialId || '',
+            actionKind: actionKind,
+            actionQty: actionQty,
+            unit: alert.unit || '',
+            kind: kind,
+            sortAt: reminderProcurementSortAt(alert),
+            label: label,
+            subject: alert.title || 'Материал',
+            title: projectTitle,
+            scope: reminderProcurementScope(alert),
+            text: text,
+            materialDetail: reminderMaterialDetailText(alert),
+            href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(alert.materialId || '')
+        };
+    }
+
     function buildReminderItemsForProject(project, notifications) {
         var projectId = Number(project.id);
         var title = project.title || 'Объект';
@@ -10566,22 +11103,23 @@ function renderLogsDayView(project, logs) {
             var procurementByMaterialId = {};
             var renderedProcurement = {};
             (notifications.procurementAlerts || []).forEach(function (alert) {
-                procurementByMaterialId[String(alert.materialId || '')] = alert;
+                var procurementKey = String(alert.materialId || '');
+                if (procurementKey) procurementByMaterialId[procurementKey] = alert;
             });
             notifications.shortageAlerts.forEach(function (shortage) {
                 var materialKey = String(shortage.materialId || '');
                 var procurement = procurementByMaterialId[materialKey] || {};
-                if (!procurement.materialId) return;
-                if (procurement.materialId) renderedProcurement[materialKey] = true;
+                if (procurement.materialId && materialKey) renderedProcurement[materialKey] = true;
                 var daysUntilWork = shortage.daysUntilWork == null || shortage.daysUntilWork === '' ? null : Number(shortage.daysUntilWork);
                 var urgentShortage = procurement.status === 'critical' || (daysUntilWork != null && Number.isFinite(daysUntilWork) && daysUntilWork <= 1);
                 var kind = urgentShortage ? 'danger' : (procurement.status === 'watch' ? 'info' : 'warn');
                 var merged = Object.assign({}, shortage, procurement);
-                var label = procurement.phase === 'delivery'
-                    ? ('Поставка к ' + formatDisplayDate(procurement.needOnSiteDate || procurement.startDate))
-                    : (procurement.orderByDate ? ('Заказать до ' + formatDisplayDate(procurement.orderByDate)) : (procurement.status === 'critical' ? 'Закупка горит' : (procurement.status === 'soon' ? 'Скоро закупка' : 'Нехватка материала')));
+                if (!merged.phase) merged.phase = 'order';
+                var label = merged.phase === 'delivery'
+                    ? ('Поставка к ' + formatDisplayDate(merged.needOnSiteDate || merged.startDate || merged.workDate || merged.needByDate))
+                    : (merged.orderByDate ? ('Заказать до ' + formatDisplayDate(merged.orderByDate)) : (merged.status === 'critical' ? 'Закупка горит' : (merged.status === 'soon' ? 'Скоро закупка' : 'Нужно заказать')));
                 var procurementText = procurement.orderByDate ? reminderProcurementText(merged) : reminderShortageText(shortage);
-                items.push({ group: 'materials', projectId: projectId, kind: kind, sortAt: reminderProcurementSortAt(merged), label: label, subject: merged.title || shortage.title || 'Материал', title: title, scope: reminderProcurementScope(merged), text: procurementText, href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(shortage.materialId || '') });
+                items.push(reminderMaterialItem(projectId, title, merged, kind, label, procurementText));
             });
             (notifications.procurementAlerts || []).forEach(function (alert) {
                 if (renderedProcurement[String(alert.materialId || '')]) return;
@@ -10589,7 +11127,7 @@ function renderLogsDayView(project, logs) {
                 var label = alert.phase === 'delivery'
                     ? ('Поставка к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate))
                     : (alert.orderByDate ? ('Заказать до ' + formatDisplayDate(alert.orderByDate)) : (kind === 'danger' ? 'Закупка горит' : 'Скоро закупка'));
-                items.push({ group: 'materials', projectId: projectId, kind: kind, sortAt: reminderProcurementSortAt(alert), label: label, subject: alert.title || 'Материал', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(alert.materialId || '') });
+                items.push(reminderMaterialItem(projectId, title, alert, kind, label, reminderProcurementText(alert)));
             });
         } else {
             (notifications.procurementAlerts || []).forEach(function (alert) {
@@ -10597,7 +11135,7 @@ function renderLogsDayView(project, logs) {
                 var label = alert.phase === 'delivery'
                     ? ('Поставка к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate))
                     : (alert.orderByDate ? ('Заказать до ' + formatDisplayDate(alert.orderByDate)) : (kind === 'danger' ? 'Закупка горит' : 'Скоро закупка'));
-                items.push({ group: 'materials', projectId: projectId, kind: kind, sortAt: reminderProcurementSortAt(alert), label: label, subject: alert.title || 'Материал', title: title, scope: reminderProcurementScope(alert), text: reminderProcurementText(alert), href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(alert.materialId || '') });
+                items.push(reminderMaterialItem(projectId, title, alert, kind, label, reminderProcurementText(alert)));
             });
         }
         return items;
@@ -10612,26 +11150,98 @@ function renderLogsDayView(project, logs) {
         return kind === 'danger' ? 'Срочно' : (kind === 'warn' ? 'Скоро' : 'Контроль');
     }
 
+    function reminderPlural(count, one, few, many) {
+        var value = Math.abs(Number(count || 0));
+        var lastTwo = value % 100;
+        var last = value % 10;
+        if (lastTwo >= 11 && lastTwo <= 19) return many;
+        if (last === 1) return one;
+        if (last >= 2 && last <= 4) return few;
+        return many;
+    }
+
     function reminderGroupDefinitions() {
         return [
             { key: 'materials', title: 'Материалы', icon: 'package-search', order: 0 },
             { key: 'tasks', title: 'Задачи', icon: 'list-checks', order: 1 },
             { key: 'works', title: 'Работы и этапы', icon: 'hard-hat', order: 2 },
-            { key: 'journal', title: 'Журнал и блокеры', icon: 'notebook-pen', order: 3 },
-            { key: 'other', title: 'Прочее', icon: 'bell', order: 4 }
+            { key: 'other', title: 'Прочее', icon: 'bell', order: 3 },
+            { key: 'journal', title: 'Журнал и блокеры', icon: 'notebook-pen', order: 4 }
         ];
     }
 
-    function reminderSummaryMarkup(items) {
-        var counts = { danger: 0, warn: 0, info: 0 };
-        items.forEach(function (item) {
-            var key = Object.prototype.hasOwnProperty.call(counts, item.kind) ? item.kind : 'info';
-            counts[key] += 1;
+    function reminderMaterialProjectGroups(items) {
+        var groups = [];
+        var byProject = {};
+        (items || []).forEach(function (item) {
+            if (!item || item.group !== 'materials') return;
+            var projectKey = item.projectId ? ('id:' + String(item.projectId)) : ('title:' + String(item.title || 'Объект'));
+            if (!byProject[projectKey]) {
+                byProject[projectKey] = {
+                    key: projectKey,
+                    projectId: item.projectId || '',
+                    title: item.title || 'Объект',
+                    items: [],
+                    seen: {},
+                    orderCount: 0,
+                    deliveryCount: 0,
+                    rank: 9,
+                    sortAt: '9999-12-31'
+                };
+                groups.push(byProject[projectKey]);
+            }
+            var group = byProject[projectKey];
+            var materialKey = item.materialId
+                ? ('id:' + String(item.materialId))
+                : ['fallback', item.subject || '', item.unit || '', item.actionKind || '', item.href || ''].join('|');
+            if (group.seen[materialKey]) return;
+            group.seen[materialKey] = true;
+            group.items.push(item);
+            var actionQty = Number(item.actionQty || 0);
+            if (item.actionKind === 'delivery') group.deliveryCount += 1;
+            else if (Number.isFinite(actionQty) && actionQty > 0) group.orderCount += 1;
+            group.rank = Math.min(group.rank, reminderSeverityRank(item.kind));
+            var sortAt = String(item.sortAt || '9999-12-31');
+            if (sortAt < group.sortAt) group.sortAt = sortAt;
         });
-        return '<div class="reminder-summary" role="group" aria-label="Сводка уведомлений">' +
-            '<span class="is-danger"><b>' + counts.danger + '</b><small>Срочно</small></span>' +
-            '<span class="is-warn"><b>' + counts.warn + '</b><small>Скоро</small></span>' +
-            '<span class="is-info"><b>' + counts.info + '</b><small>Контроль</small></span>' +
+        groups.forEach(function (group) {
+            delete group.seen;
+            group.items.sort(function (left, right) {
+                var severityDifference = reminderSeverityRank(left.kind) - reminderSeverityRank(right.kind);
+                if (severityDifference) return severityDifference;
+                return String(left.sortAt || '9999-12-31').localeCompare(String(right.sortAt || '9999-12-31'));
+            });
+        });
+        groups.sort(function (left, right) {
+            return left.rank - right.rank || left.sortAt.localeCompare(right.sortAt) || String(left.title).localeCompare(String(right.title), 'ru');
+        });
+        return groups;
+    }
+
+    function reminderMaterialSnapshot(items) {
+        var groups = reminderMaterialProjectGroups(items);
+        return groups.reduce(function (summary, group) {
+            summary.orderCount += group.orderCount;
+            summary.deliveryCount += group.deliveryCount;
+            if (group.orderCount > 0) summary.orderProjects += 1;
+            if (group.items.length) summary.totalProjects += 1;
+            return summary;
+        }, { orderCount: 0, deliveryCount: 0, orderProjects: 0, totalProjects: 0 });
+    }
+
+    function reminderOrderOverviewMarkup(items) {
+        var snapshot = reminderMaterialSnapshot(items);
+        if (!snapshot.orderCount && !snapshot.deliveryCount) return '';
+        var hasOrders = snapshot.orderCount > 0;
+        var count = hasOrders ? snapshot.orderCount : snapshot.deliveryCount;
+        var projects = hasOrders ? snapshot.orderProjects : snapshot.totalProjects;
+        var title = hasOrders ? 'Нужно заказать' : 'Поставки в пути';
+        var positionLabel = reminderPlural(count, 'материал', 'материала', 'материалов');
+        var projectLabel = reminderPlural(projects, 'объект', 'объекта', 'объектов');
+        return '<div class="reminder-order-overview' + (hasOrders ? '' : ' is-delivery') + '" role="group" aria-label="' + escapeHtml(title + ': ' + count + ' ' + positionLabel + ', ' + projects + ' ' + projectLabel) + '">' +
+            '<span class="reminder-order-overview-icon" aria-hidden="true"><i data-lucide="' + (hasOrders ? 'shopping-cart' : 'truck') + '"></i></span>' +
+            '<span class="reminder-order-overview-copy"><small>' + escapeHtml(title) + '</small><strong>' + count + ' ' + escapeHtml(positionLabel) + '</strong></span>' +
+            '<span class="reminder-order-overview-projects"><b>' + projects + '</b><small>' + escapeHtml(projectLabel) + '</small></span>' +
         '</div>';
     }
 
@@ -10648,6 +11258,58 @@ function renderLogsDayView(project, logs) {
             '</span>' +
             '<span class="reminder-item-arrow" aria-hidden="true"><i data-lucide="chevron-right"></i></span>' +
         '</a>';
+    }
+
+    function reminderMaterialItemMarkup(item) {
+        var kind = item.kind || 'info';
+        var subject = item.subject || 'Материал';
+        var actionKind = item.actionKind === 'delivery' ? 'delivery' : 'order';
+        var actionQty = Number(item.actionQty || 0);
+        var formattedQty = Number.isFinite(actionQty) && actionQty > 0 ? quantityText(actionQty) : '—';
+        var formattedUnit = String(item.unit || '').trim();
+        var actionLabel = actionKind === 'delivery' ? 'в пути' : 'заказать';
+        var detail = [item.label, item.materialDetail].filter(Boolean).join(' · ');
+        var accessibleLabel = [reminderSeverityLabel(kind), subject, item.title, item.scope, actionLabel + ' ' + formattedQty + (formattedUnit ? (' ' + formattedUnit) : ''), detail].filter(Boolean).join('. ');
+        return '<a class="reminder-item reminder-material-item is-' + escapeHtml(kind) + '" href="' + escapeHtml(item.href || '/app/projects') + '" aria-label="' + escapeHtml(accessibleLabel) + '">' +
+            '<span class="reminder-item-indicator" aria-hidden="true"></span>' +
+            '<span class="reminder-item-copy">' +
+                '<strong class="reminder-item-title">' + escapeHtml(subject) + '</strong>' +
+                (item.scope ? '<span class="reminder-item-context"><em>' + escapeHtml(item.scope) + '</em></span>' : '') +
+                (detail ? '<small class="reminder-item-detail">' + escapeHtml(detail) + '</small>' : '') +
+            '</span>' +
+            '<span class="reminder-material-amount is-' + actionKind + '"><b>' + escapeHtml(formattedQty) + (formattedUnit ? ' <small>' + escapeHtml(formattedUnit) + '</small>' : '') + '</b><em>' + actionLabel + '</em></span>' +
+            '<span class="reminder-item-arrow" aria-hidden="true"><i data-lucide="chevron-right"></i></span>' +
+        '</a>';
+    }
+
+    function reminderMaterialsGroupMarkup(group) {
+        var projects = reminderMaterialProjectGroups(group.items);
+        var orderCount = projects.reduce(function (total, project) { return total + project.orderCount; }, 0);
+        var deliveryCount = projects.reduce(function (total, project) { return total + project.deliveryCount; }, 0);
+        var headingId = 'reminder-group-materials';
+        var groupTitle = orderCount ? 'По объектам' : 'Поставки по объектам';
+        var groupCount = projects.length;
+        return '<section class="reminder-group reminder-materials-group is-' + group.tone + '" data-reminder-group="materials" aria-labelledby="' + headingId + '">' +
+            '<header class="reminder-group-head"><span class="reminder-group-icon" aria-hidden="true"><i data-lucide="package-search"></i></span><strong id="' + headingId + '">' + groupTitle + '</strong><span class="reminder-group-count">' + groupCount + '</span></header>' +
+            '<div class="reminder-projects">' + projects.map(function (project) {
+                var primaryCount = project.orderCount || project.deliveryCount;
+                var primaryLabel = project.orderCount ? 'к заказу' : 'в пути';
+                var projectMeta = project.orderCount
+                    ? (project.orderCount + ' ' + reminderPlural(project.orderCount, 'материал', 'материала', 'материалов') + ' к заказу')
+                    : (project.deliveryCount + ' ' + reminderPlural(project.deliveryCount, 'материал', 'материала', 'материалов') + ' в пути');
+                if (project.orderCount && project.deliveryCount) projectMeta += ' · ' + project.deliveryCount + ' в пути';
+                var summaryLabel = project.title + ': ' + projectMeta;
+                return '<details class="reminder-project-card" data-reminder-project="' + escapeHtml(project.projectId || project.key) + '">' +
+                    '<summary aria-label="' + escapeHtml(summaryLabel) + '">' +
+                        '<span class="reminder-project-icon" aria-hidden="true"><i data-lucide="building-2"></i></span>' +
+                        '<span class="reminder-project-copy"><strong>' + escapeHtml(project.title) + '</strong><small>' + escapeHtml(projectMeta) + '</small></span>' +
+                        '<span class="reminder-project-count"><b>' + primaryCount + '</b><small>' + primaryLabel + '</small></span>' +
+                        '<span class="reminder-project-chevron" aria-hidden="true"><i data-lucide="chevron-down"></i></span>' +
+                    '</summary>' +
+                    '<div class="reminder-project-list">' + project.items.map(reminderMaterialItemMarkup).join('') + '</div>' +
+                '</details>';
+            }).join('') + '</div>' +
+        '</section>';
     }
 
     function reminderGroupsMarkup(items) {
@@ -10669,8 +11331,9 @@ function renderLogsDayView(project, logs) {
             group.tone = group.rank === 0 ? 'danger' : (group.rank === 1 ? 'warn' : 'info');
             return group;
         }).filter(function (group) { return group.items.length; });
-        groups.sort(function (left, right) { return left.rank - right.rank || left.order - right.order; });
+        groups.sort(function (left, right) { return left.order - right.order; });
         return '<div class="reminder-groups">' + groups.map(function (group) {
+            if (group.key === 'materials') return reminderMaterialsGroupMarkup(group);
             var headingId = 'reminder-group-' + group.key;
             return '<section class="reminder-group is-' + group.tone + '" data-reminder-group="' + escapeHtml(group.key) + '" aria-labelledby="' + escapeHtml(headingId) + '">' +
                 '<header class="reminder-group-head"><span class="reminder-group-icon" aria-hidden="true"><i data-lucide="' + escapeHtml(group.icon) + '"></i></span><strong id="' + escapeHtml(headingId) + '">' + escapeHtml(group.title) + '</strong><span class="reminder-group-count">' + group.items.length + '</span></header>' +
@@ -10707,6 +11370,67 @@ function renderLogsDayView(project, logs) {
         '</div>';
     }
 
+    function reminderNoticeSignature(items) {
+        return (items || []).map(function (item) {
+            return [item.group, item.projectId, item.materialId, item.kind, item.actionKind, item.actionQty, item.sortAt, item.subject].join(':');
+        }).sort().join('|');
+    }
+
+    function hideReminderNotice() {
+        var toast = qs('[data-reminder-toast]');
+        if (reminderNoticeTimer) window.clearTimeout(reminderNoticeTimer);
+        reminderNoticeTimer = 0;
+        if (!toast) return;
+        toast.classList.remove('is-visible');
+        toast.hidden = true;
+    }
+
+    function triggerReminderNotice(button, items) {
+        if (!button || !items || !items.length) return;
+        var wrap = button.closest ? button.closest('.topbar-reminders-wrap') : null;
+        var toast = wrap ? qs('[data-reminder-toast]', wrap) : null;
+        var popover = wrap ? qs('[data-reminder-popover]', wrap) : null;
+        if (!toast && wrap) {
+            toast = document.createElement('span');
+            toast.className = 'reminder-toast';
+            toast.setAttribute('data-reminder-toast', '');
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            toast.setAttribute('aria-atomic', 'true');
+            toast.hidden = true;
+            wrap.appendChild(toast);
+        }
+        var snapshot = reminderMaterialSnapshot(items);
+        var projectIds = {};
+        items.forEach(function (item) { if (item.projectId) projectIds[String(item.projectId)] = true; });
+        var message;
+        if (snapshot.orderCount) {
+            message = 'Нужно заказать ' + snapshot.orderCount + ' ' + reminderPlural(snapshot.orderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.orderProjects + ' ' + reminderPlural(snapshot.orderProjects, 'объект', 'объекта', 'объектов');
+        } else {
+            message = 'Требуют внимания: ' + items.length + ' · ' + Object.keys(projectIds).length + ' ' + reminderPlural(Object.keys(projectIds).length, 'объект', 'объекта', 'объектов');
+        }
+        button.classList.remove('is-notifying');
+        void button.offsetWidth;
+        button.classList.add('is-notifying');
+        if (reminderMotionTimer) window.clearTimeout(reminderMotionTimer);
+        reminderMotionTimer = window.setTimeout(function () {
+            button.classList.remove('is-notifying');
+            reminderMotionTimer = 0;
+        }, 1900);
+        if (!toast || (popover && !popover.hidden)) return;
+        toast.textContent = message;
+        toast.hidden = false;
+        toast.classList.remove('is-visible');
+        void toast.offsetWidth;
+        toast.classList.add('is-visible');
+        if (reminderNoticeTimer) window.clearTimeout(reminderNoticeTimer);
+        reminderNoticeTimer = window.setTimeout(function () {
+            toast.classList.remove('is-visible');
+            toast.hidden = true;
+            reminderNoticeTimer = 0;
+        }, 4300);
+    }
+
     function renderReminderBell(items, loading, status) {
         var button = qs('[data-reminder-toggle]');
         var count = qs('[data-reminder-count]');
@@ -10719,7 +11443,12 @@ function renderLogsDayView(project, logs) {
             reminderLastItems = items.slice();
             reminderLastStatus = Object.assign({}, status);
         }
-        var badgeItems = items.filter(function (item) { return item.kind === 'danger' || item.kind === 'warn'; });
+        var materialSnapshot = reminderMaterialSnapshot(items);
+        var badgeItems = items.filter(function (item) {
+            var orderQty = Number(item.actionQty || 0);
+            var isOrder = item.group === 'materials' && item.actionKind === 'order' && Number.isFinite(orderQty) && orderQty > 0;
+            return isOrder || item.kind === 'danger' || item.kind === 'warn';
+        });
         var hasRefreshError = Number(status.failedCount || 0) > 0;
         button.classList.toggle('has-alerts', badgeItems.length > 0);
         button.classList.toggle('has-error', hasRefreshError);
@@ -10736,6 +11465,7 @@ function renderLogsDayView(project, logs) {
         if (subtitle) {
             if (loading) subtitle.textContent = 'Проверяем объекты...';
             else if (status.fullFailure) subtitle.textContent = 'Нужно повторить проверку';
+            else if (materialSnapshot.orderCount) subtitle.textContent = 'К заказу: ' + materialSnapshot.orderCount + ' • объектов: ' + materialSnapshot.orderProjects;
             else if (items.length) subtitle.textContent = 'Активных: ' + items.length + ' • объектов: ' + Object.keys(projectIds).length;
             else if (status.failedCount) subtitle.textContent = 'Проверка выполнена не полностью';
             else subtitle.textContent = 'На сейчас всё спокойно';
@@ -10752,6 +11482,9 @@ function renderLogsDayView(project, logs) {
             refreshLucideIcons(list);
             return;
         }
+        var noticeSignature = reminderNoticeSignature(items);
+        if (noticeSignature && noticeSignature !== reminderLastNoticeSignature) triggerReminderNotice(button, items);
+        reminderLastNoticeSignature = noticeSignature;
         if (!items.length) {
             list.innerHTML = reminderPartialStatusMarkup(status) + (status.failedCount
                 ? '<div class="reminder-empty is-partial"><b>В проверенных объектах срочного нет</b><span>Остальные объекты пока не проверены.</span></div>'
@@ -10760,7 +11493,7 @@ function renderLogsDayView(project, logs) {
             refreshLucideIcons(list);
             return;
         }
-        list.innerHTML = reminderPartialStatusMarkup(status) + reminderSummaryMarkup(items) + reminderGroupsMarkup(items);
+        list.innerHTML = reminderPartialStatusMarkup(status) + reminderOrderOverviewMarkup(items) + reminderGroupsMarkup(items);
         syncReminderRefreshState(false);
         refreshLucideIcons(list);
     }
@@ -10840,6 +11573,7 @@ function renderLogsDayView(project, logs) {
                 popover.hidden = !popover.hidden;
                 toggle.setAttribute('aria-expanded', popover.hidden ? 'false' : 'true');
                 if (!popover.hidden) {
+                    hideReminderNotice();
                     refreshReminderBell();
                     refreshLucideIcons(popover);
                     var closeControl = qs('[data-reminder-close]', popover);
@@ -10892,6 +11626,7 @@ function renderLogsDayView(project, logs) {
     initShell = function () {
         baseInitShellForReminders();
         initReminderBell();
+        if (!isGuestRole()) refreshReminderBell();
     };
 
     function removeProjectAssignmentsBlock() {
@@ -11230,10 +11965,12 @@ function renderLogsDayView(project, logs) {
     renderWorkManualCheck = function (item, sectionTitle, projectId) {
         var progress = projectId ? workActualProgress(projectId, sectionTitle, item) : { actual: 0, total: quantityPlanInfo(item).totalQty, unit: quantityPlanInfo(item).unit };
         var isDone = progress.total > 0 && progress.actual >= progress.total;
-        return '<div class="section-work-check work-list-check quantity-work-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '">' +
-            '<label class="quantity-check-main"><input type="checkbox" data-section-work-check data-item-id="' + escapeHtml(item.id || '') + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '"' + (isDone ? ' checked' : '') + '>' +
-            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>' + escapeHtml(formatWorkLine(item) || 'Объем не указан') + '</small></span></label>' +
-            renderActualQtyEditor('work', projectId, sectionTitle, item, progress) +
+        var canEditActual = !!(canManageSchedule && canManageSchedule());
+        var factAriaLabel = 'Внести выполненный объём: ' + String(item.title || 'Работа') + '. По смете ' + quantityText(progress.total) + ' ' + String(progress.unit || 'ед.') + ', сделано ' + quantityText(progress.actual) + ' ' + String(progress.unit || 'ед.');
+        var quantityInteraction = canEditActual ? ' data-work-quantity-open data-work-id="' + escapeHtml(item.id || '') + '" data-work-title="' + escapeHtml(item.title || '') + '" data-work-unit="' + escapeHtml(item.unit || '') + '" data-work-qty="' + escapeHtml(String(item.planned_qty != null ? item.planned_qty : item.plannedQty || '')) + '" data-project-id="' + escapeHtml(projectId || '') + '" data-section-title="' + escapeHtml(sectionTitle || '') + '" role="button" tabindex="0" aria-label="' + escapeHtml(factAriaLabel) + '"' : '';
+        return '<div class="section-work-check work-list-check quantity-work-check' + (canEditActual ? ' work-quantity-row' : '') + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '" data-item-id="' + escapeHtml(item.id || '') + '"' + quantityInteraction + '>' +
+            '<div class="quantity-check-main"><span class="section-work-row-icon" aria-hidden="true"><i data-lucide="hard-hat"></i></span>' +
+            '<span class="section-work-check-copy"><b>' + escapeHtml(item.title || '') + '</b><small>Сделано ' + escapeHtml(quantityText(progress.actual)) + ' из ' + escapeHtml(quantityText(progress.total)) + ' ' + escapeHtml(progress.unit || 'ед.') + '</small></span></div>' +
         '</div>';
     };
 
@@ -11502,7 +12239,7 @@ function renderLogsDayView(project, logs) {
 
     function saveActualQuantityInput(input, shouldRerender) {
         var projectId = Number(input.getAttribute('data-project-id') || 0);
-        if (!projectId) return;
+        if (!projectId) return Promise.resolve(null);
         var item = actualQuantityInputItem(input);
         var value = input.value;
         if (input.getAttribute('data-actual-kind') === 'work') {
@@ -11511,25 +12248,188 @@ function renderLogsDayView(project, logs) {
             setMaterialManualActualQty(projectId, item, value);
         }
         updateActualQuantityLabel(input, value);
-        if (!shouldRerender) return;
+        if (!shouldRerender) return Promise.resolve(null);
+        var planTotal = quantityPlanInfo(item).totalQty;
+        var request = Promise.resolve(null);
         if (input.dataset.progressSyncedValue !== String(value)) {
             input.dataset.progressSyncedValue = String(value);
-            postProgressItem(projectId, {
+            request = postProgressItem(projectId, {
                 kind: input.getAttribute('data-actual-kind') || '',
                 itemId: input.getAttribute('data-item-id') || '',
                 sectionTitle: input.getAttribute('data-section-title') || '',
                 title: item.title,
                 unit: item.unit,
                 actualQty: value,
-                completed: Number(value || 0) >= quantityPlanInfo(item).totalQty
+                completed: planTotal > 0 && Number(value || 0) >= planTotal
             }, input.getAttribute('data-section-title') || '').then(function () {
                 refreshSelectedProjectProgressViews(projectId);
             });
         }
         updateBulkSectionCheckState(sectionBulkScope(input));
         if (input.getAttribute('data-actual-kind') === 'material') {
-            updateMaterialScheduleItemDom(input.getAttribute('data-item-id') || '', Number(value || 0) >= quantityPlanInfo(item).totalQty);
+            updateMaterialScheduleItemDom(input.getAttribute('data-item-id') || '', planTotal > 0 && Number(value || 0) >= planTotal);
         }
+        return request;
+    }
+
+    function closeWorkQuantityDialog(modal, restoreFocus) {
+        modal = modal || qs('[data-work-quantity-dialog]');
+        if (!modal) return;
+        var form = qs('[data-work-quantity-form]', modal);
+        if (form && form.dataset.submitLocked === '1') return;
+        var returnFocus = modal._returnFocus || null;
+        var workId = modal.getAttribute('data-work-id') || '';
+        modal.remove();
+        document.body.classList.remove('work-quantity-dialog-open');
+        if (restoreFocus === false) return;
+        if (!returnFocus || !document.contains(returnFocus)) {
+            returnFocus = workId ? qs('[data-work-quantity-open][data-work-id="' + progressSelectorValue(workId) + '"]') : null;
+        }
+        if (returnFocus && typeof returnFocus.focus === 'function') {
+            try { returnFocus.focus({ preventScroll: true }); } catch (focusError) { returnFocus.focus(); }
+        }
+    }
+
+    function workQuantityDialogMetric(label, value, unit, tone) {
+        return '<div class="work-quantity-dialog-metric' + (tone ? (' is-' + escapeHtml(tone)) : '') + '"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + (unit ? ' <small>' + escapeHtml(unit) + '</small>' : '') + '</strong></div>';
+    }
+
+    function openWorkQuantityDialog(projectId, sectionTitle, item, opener) {
+        projectId = Number(projectId || 0);
+        item = item || {};
+        if (!projectId || !item.id) return Promise.reject(new Error('work_quantity_item_missing'));
+        if (!canManageSchedule || !canManageSchedule()) return Promise.reject(new Error('work_quantity_forbidden'));
+        closeWorkQuantityDialog(qs('[data-work-quantity-dialog]'), false);
+        var progress = workActualProgress(projectId, sectionTitle, item);
+        var total = Number(progress.total || 0);
+        var actual = Number(progress.actual || 0);
+        var remaining = total > 0 ? Math.max(total - actual, 0) : 0;
+        var unit = String(progress.unit || item.unit || 'ед.').trim() || 'ед.';
+        var titleId = 'work-quantity-dialog-title-' + String(item.id);
+        var descriptionId = titleId + '-description';
+        var maxAttribute = total > 0 ? (' max="' + escapeHtml(String(total)) + '"') : '';
+        var stepValue = '0.001';
+        var hintId = titleId + '-hint';
+        var errorId = titleId + '-error';
+        var modal = document.createElement('div');
+        modal.className = 'work-quantity-dialog';
+        modal.setAttribute('data-work-quantity-dialog', '');
+        modal.setAttribute('data-work-id', String(item.id));
+        modal.innerHTML = '<section class="work-quantity-dialog-card" role="dialog" aria-modal="true" aria-labelledby="' + escapeHtml(titleId) + '" aria-describedby="' + escapeHtml(descriptionId) + '">' +
+            '<header class="work-quantity-dialog-head"><div><span class="section-label">Работы</span><h3 id="' + escapeHtml(titleId) + '">Выполнение работы</h3><p id="' + escapeHtml(descriptionId) + '">Укажите итоговый объём, выполненный на объекте.</p></div><button class="ghost compact" type="button" data-work-quantity-close aria-label="Закрыть"><i data-lucide="x"></i></button></header>' +
+            '<form class="work-quantity-dialog-body" data-work-quantity-form novalidate>' +
+                '<div class="work-quantity-dialog-work"><span class="work-quantity-dialog-work-icon" aria-hidden="true"><i data-lucide="hard-hat"></i></span><div><small>' + escapeHtml(sectionTitle || 'Работы по смете') + '</small><strong>' + escapeHtml(item.title || 'Работа') + '</strong></div></div>' +
+                '<div class="work-quantity-dialog-metrics" aria-label="Текущий объём работы">' +
+                    workQuantityDialogMetric('По смете', total > 0 ? quantityText(total) : 'Не указан', total > 0 ? unit : '', 'plan') +
+                    workQuantityDialogMetric('Сделано', quantityText(actual), unit, 'actual') +
+                    workQuantityDialogMetric('Осталось', total > 0 ? quantityText(remaining) : '—', total > 0 ? unit : '', 'remaining') +
+                '</div>' +
+                '<label class="work-quantity-dialog-field"><span>Сделано всего</span><div><input type="number" name="actual_qty" min="0"' + maxAttribute + ' step="' + stepValue + '" inputmode="decimal" value="' + escapeHtml(String(Math.round(actual * 1000) / 1000)) + '" aria-label="Сделано всего, ' + escapeHtml(unit) + '" aria-describedby="' + escapeHtml(hintId + ' ' + errorId) + '" required><em>' + escapeHtml(unit) + '</em></div><small id="' + escapeHtml(hintId) + '">Это итог по позиции, а не прибавка за смену.</small></label>' +
+                '<div class="work-quantity-dialog-quick">' + (total > 0 ? '<button class="ghost compact" type="button" data-work-quantity-fill><i data-lucide="check-check"></i><span>Весь объём</span><small>' + escapeHtml(quantityText(total) + ' ' + unit) + '</small></button>' : '') + '<button class="ghost compact" type="button" data-work-quantity-clear><i data-lucide="rotate-ccw"></i><span>Обнулить</span></button></div>' +
+                '<div class="form-error" id="' + escapeHtml(errorId) + '" data-work-quantity-error role="alert" aria-live="polite"></div>' +
+                '<footer class="work-quantity-dialog-actions"><button class="ghost" type="button" data-work-quantity-close>Отмена</button><button class="primary" type="submit"><i data-lucide="check"></i><span>Сохранить объём</span></button></footer>' +
+            '</form>' +
+        '</section>';
+        modal._returnFocus = opener || document.activeElement;
+        document.body.appendChild(modal);
+        document.body.classList.add('work-quantity-dialog-open');
+        refreshLucideIcons(modal);
+        var form = qs('[data-work-quantity-form]', modal);
+        var input = form && form.elements.actual_qty;
+        var actualMetric = qs('.work-quantity-dialog-metric.is-actual strong', modal);
+        var remainingMetric = qs('.work-quantity-dialog-metric.is-remaining strong', modal);
+        var errorNode = qs('[data-work-quantity-error]', form);
+        function updateWorkQuantityPreview() {
+            var previewValue = Number(String(input.value || '').replace(',', '.'));
+            if (!Number.isFinite(previewValue) || previewValue < 0) return;
+            if (actualMetric) actualMetric.textContent = quantityText(previewValue) + ' ' + unit;
+            if (remainingMetric) remainingMetric.textContent = total > 0 ? (quantityText(Math.max(total - previewValue, 0)) + ' ' + unit) : '—';
+        }
+        input.addEventListener('input', function () {
+            input.removeAttribute('aria-invalid');
+            if (errorNode) {
+                errorNode.textContent = '';
+                errorNode.classList.remove('active');
+            }
+            updateWorkQuantityPreview();
+        });
+        qsa('[data-work-quantity-close]', modal).forEach(function (button) {
+            button.addEventListener('click', function () { closeWorkQuantityDialog(modal); });
+        });
+        var fill = qs('[data-work-quantity-fill]', modal);
+        if (fill) fill.addEventListener('click', function () { input.value = String(total); updateWorkQuantityPreview(); input.focus(); input.select(); });
+        var clear = qs('[data-work-quantity-clear]', modal);
+        if (clear) clear.addEventListener('click', function () { input.value = '0'; updateWorkQuantityPreview(); input.focus(); input.select(); });
+        modal.addEventListener('mousedown', function (event) {
+            if (event.target === modal) closeWorkQuantityDialog(modal);
+        });
+        modal.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeWorkQuantityDialog(modal);
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            var focusable = qsa('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])', modal).filter(function (node) {
+                return !node.hidden && node.getAttribute('aria-hidden') !== 'true' && node.offsetParent !== null;
+            });
+            if (!focusable.length) return;
+            var firstFocusable = focusable[0];
+            var lastFocusable = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === firstFocusable) {
+                event.preventDefault();
+                lastFocusable.focus();
+            } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+                event.preventDefault();
+                firstFocusable.focus();
+            }
+        });
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            if (errorNode) {
+                errorNode.textContent = '';
+                errorNode.classList.remove('active');
+            }
+            var value = Number(String(input.value || '').replace(',', '.'));
+            if (!Number.isFinite(value) || value < 0 || (total > 0 && value > total)) {
+                input.setAttribute('aria-invalid', 'true');
+                if (errorNode) {
+                    errorNode.textContent = total > 0 ? ('Введите число от 0 до ' + quantityText(total) + ' ' + unit + '.') : 'Введите корректный выполненный объём.';
+                    errorNode.classList.add('active');
+                }
+                input.focus();
+                return;
+            }
+            var previous = actual;
+            input.removeAttribute('aria-invalid');
+            withSubmitLock(form, function () {
+                var syncInput = document.createElement('input');
+                syncInput.value = String(value);
+                syncInput.setAttribute('data-actual-kind', 'work');
+                syncInput.setAttribute('data-project-id', String(projectId));
+                syncInput.setAttribute('data-section-title', sectionTitle || '');
+                syncInput.setAttribute('data-item-id', String(item.id));
+                syncInput.setAttribute('data-item-title', item.title || '');
+                syncInput.setAttribute('data-item-unit', item.unit || '');
+                syncInput.setAttribute('data-item-qty', String(item.plannedQty != null ? item.plannedQty : item.planned_qty || ''));
+                return saveActualQuantityInput(syncInput, true);
+            }).then(function () {
+                closeWorkQuantityDialog(modal);
+                showAppNotice('Выполненный объём сохранён.', 'success');
+            }).catch(function (error) {
+                setWorkActualQty(projectId, sectionTitle, item, previous);
+                if (errorNode) {
+                    errorNode.textContent = appErrorMessage(error, 'Не удалось сохранить выполненный объём.');
+                    errorNode.classList.add('active');
+                }
+            });
+        });
+        setTimeout(function () {
+            if (!document.contains(input)) return;
+            input.focus({ preventScroll: true });
+            input.select();
+        }, 0);
+        return Promise.resolve(modal);
     }
 
     function saveManualQuantityCheckbox(input) {
@@ -11751,7 +12651,7 @@ function renderLogsDayView(project, logs) {
         var qty = clampActualQty(reportQuantityFromClause(clauseText, candidate.item), plan.totalQty);
         var partial = reportHasPartialIntent(clauseText) || (plan.totalQty > 0 && qty > 0 && qty < plan.totalQty);
         var done = plan.totalQty > 0 ? (qty > 0 ? qty >= plan.totalQty : !partial) : !partial;
-        var appliedQty = done ? plan.totalQty : qty;
+        var appliedQty = done && plan.totalQty > 0 ? plan.totalQty : qty;
         var quantityIntent = appliedQty > 0
             ? reportWorkQuantityMode(clauseText, candidate.item, appliedQty)
             : { mode: 'delta_qty', value: 0 };
@@ -12428,6 +13328,7 @@ function renderLogsDayView(project, logs) {
                         '</div>' +
                         '<div data-reminder-list></div>' +
                     '</div>' +
+                    '<span class="reminder-toast" data-reminder-toast role="status" aria-live="polite" aria-atomic="true" hidden></span>' +
                 '</div>' +
                 '<button class="topbar-icon-button ai-circle" type="button" data-ai-open data-header-ai-trigger aria-label="Открыть AI помощника" title="AI помощник">' +
                     '<i data-lucide="sparkles" aria-hidden="true"></i>' +
@@ -13272,6 +14173,8 @@ function renderLogsDayView(project, logs) {
     if (typeof actualQuantityInputItem === 'function') PMBI.app.actualQuantityInputItem = actualQuantityInputItem;
     if (typeof renderCompactActualQtyEditor === 'function') PMBI.app.renderCompactActualQtyEditor = renderCompactActualQtyEditor;
     if (typeof saveActualQuantityInput === 'function') PMBI.app.saveActualQuantityInput = saveActualQuantityInput;
+    if (typeof openWorkQuantityDialog === 'function') PMBI.app.openWorkQuantityDialog = openWorkQuantityDialog;
+    if (typeof closeWorkQuantityDialog === 'function') PMBI.app.closeWorkQuantityDialog = closeWorkQuantityDialog;
     if (typeof saveManualQuantityCheckbox === 'function') PMBI.app.saveManualQuantityCheckbox = saveManualQuantityCheckbox;
     if (typeof rerenderProjectMaterialAndWorkViews === 'function') PMBI.app.rerenderProjectMaterialAndWorkViews = rerenderProjectMaterialAndWorkViews;
     if (typeof refreshSelectedProjectProgressViews === 'function') PMBI.app.refreshSelectedProjectProgressViews = refreshSelectedProjectProgressViews;
@@ -13329,8 +14232,9 @@ function renderLogsDayView(project, logs) {
             clearTimeout(state.marketAnalysisPollTimers[pollKey]);
         });
         state.marketAnalysisPollTimers = {};
-        document.body.classList.remove('menu-open', 'ai-open', 'cal-modal-open', 'project-edit-open', 'guest-access-modal-open');
+        document.body.classList.remove('menu-open', 'ai-open', 'cal-modal-open', 'project-edit-open', 'guest-access-modal-open', 'work-quantity-dialog-open');
         qsa('[data-guest-access-modal]').forEach(function (modal) { modal.remove(); });
+        qsa('[data-work-quantity-dialog]').forEach(function (modal) { modal.remove(); });
     }
 
     function setPage(nextPage) {

@@ -1052,7 +1052,7 @@ def build_procurement_alerts(
             item["title"],
         )
     )
-    return {"items": alerts[:10], "summary": summary}
+    return {"items": alerts, "summary": summary}
 
 
 def normalize_schedule_text(value: object) -> str:

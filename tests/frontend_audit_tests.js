@@ -194,6 +194,8 @@ test('Project shortages live in the reminder bell instead of a large projects ca
   assert.match(communicationsDocsPy, /"shortageAlerts": shortage_alerts/);
   assert.match(appJs, /Array\.isArray\(notifications\.shortageAlerts\)/);
   assert.match(appJs, /reminderShortageText\(shortage\)/);
+  assert.doesNotMatch(appJs, /if \(!procurement\.materialId\) return/);
+  assert.match(appJs, /reminderMaterialProjectGroups\(items\)/);
   assert.doesNotMatch(appJs, /items\.slice\(0, 20\)/);
 });
 

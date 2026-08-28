@@ -36,7 +36,7 @@ assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-final-structured-36/
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-saved-structured-37/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-browser-qa-39/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-touch-qa-40/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-unit-fallback-qa-43/);
+assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52/);
 assert.match(reportsCss, /\.reports-drawer-frame \.report-preview-board \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/);
 assert.match(
   reportsCss,
@@ -121,6 +121,8 @@ const reportModalCss = reportsCss.slice(reportsCss.indexOf('/* Report drawer */'
 assert.ok(reportModalCss.length > 0, 'The report modal layer must exist');
 const unifiedReportCss = reportsCss.slice(reportsCss.indexOf('/* Unified report sheet'));
 assert.ok(unifiedReportCss.length > 0, 'The unified report sheet layer must exist');
+const simplifiedReportCss = reportsCss.slice(reportsCss.indexOf('/* Final cascade for the simplified report composer. */'));
+assert.ok(simplifiedReportCss.length > 0, 'The simplified report composer cascade must exist');
 assert.equal(
   /#fff7ed|#fffbeb|#fff4d6|#fef3c7|#fde68a|#fed7aa|\byellow\b|\bamber\b/i.test(reportModalCss),
   false,
@@ -160,8 +162,46 @@ assert.match(
 assert.match(unifiedReportCss, /\.report-daily-form\s*\{[^}]*gap:\s*0 !important;[^}]*border-radius:\s*18px !important;[^}]*background:\s*var\(--report-surface\) !important;/s);
 assert.match(unifiedReportCss, /\.report-final-message\s*\{[^}]*border:\s*1px solid var\(--report-separator\);[^}]*border-radius:\s*16px;[^}]*background:\s*var\(--report-surface\);/s);
 assert.match(unifiedReportCss, /\.report-final-group\s*\{[^}]*border-top:\s*1px solid var\(--report-separator-soft\);/s);
-assert.match(unifiedReportCss, /\.report-final-full\s*\{[^}]*background:\s*var\(--report-accent-soft\);/s);
+assert.match(unifiedReportCss, /\.report-final-full\s*\{[^}]*display:\s*grid;[^}]*gap:\s*8px;[^}]*background:\s*var\(--report-accent-soft\);/s);
 assert.match(unifiedReportCss, /\.report-final-full output\s*\{[^}]*white-space:\s*pre-wrap;/s);
+assert.match(simplifiedReportCss, /\.report-draft-status\s*\{[^}]*grid-template-columns:\s*auto 7px minmax\(0, 1fr\) !important;/s);
+assert.match(simplifiedReportCss, /\[data-report-draft-clear\]\s*\{[^}]*grid-column:\s*1 !important;[^}]*background:\s*#d92d20 !important;[^}]*color:\s*#fff !important;/s);
+assert.match(simplifiedReportCss, /\.report-final-message\s*\{[^}]*border-radius:\s*14px !important;[^}]*box-shadow:\s*none !important;/s);
+assert.match(simplifiedReportCss, /\.report-final-summary > span\s*\{[^}]*border:\s*0 !important;[^}]*background:\s*transparent !important;/s);
+assert.match(simplifiedReportCss, /\.report-form-meta-section \.report-chat-header-compact\s*\{[^}]*grid-template-columns:\s*minmax\(190px, \.75fr\) minmax\(260px, 1\.25fr\) !important;[^}]*gap:\s*8px !important;/s);
+assert.match(simplifiedReportCss, /\.report-chat-header-compact > label,[\s\S]*?\.report-extra-grid > label\s*\{[^}]*gap:\s*0 !important;/s);
+assert.match(simplifiedReportCss, /\.report-compact-field-label\s*\{[^}]*display:\s*inline-flex !important;[^}]*margin:\s*0 0 5px !important;/s);
+assert.match(simplifiedReportCss, /\.report-extra-grid\s*\{[^}]*gap:\s*8px !important;[^}]*padding:\s*0 20px 14px !important;/s);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-preview-title-copy\s*\{[^}]*display:\s*grid !important;[^}]*gap:\s*3px !important;[^}]*min-width:\s*0;/s,
+  'Preview headings and helper copy must use separate rows instead of running together',
+);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-preview-title-copy strong,\s*\.reports-drawer-frame \.report-preview-title-copy small\s*\{[^}]*display:\s*block;/s,
+  'Preview title and subtitle must remain distinct on desktop and mobile',
+);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-additional-card \.report-preview-title\s*\{[^}]*align-items:\s*start !important;[^}]*margin-bottom:\s*12px !important;/s,
+  'Additional events must keep a clear gap between their heading and event list',
+);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-effects-summary-copy\s*\{[^}]*display:\s*grid !important;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) !important;[^}]*gap:\s*4px !important;/s,
+  'The save summary title and explanation must remain on separate rows',
+);
+assert.match(
+  reportsCss,
+  /\.reports-drawer-frame \.side-drawer-backdrop,[\s\S]*?\.reports-drawer-frame \.drawer-overlay\s*\{[^}]*z-index:\s*0 !important;[\s\S]*?\.reports-drawer-frame\[data-open="1"\] \.side-drawer-backdrop,[\s\S]*?\.reports-drawer-frame\[data-open="1"\] \.drawer-overlay\s*\{[^}]*opacity:\s*1 !important;[^}]*pointer-events:\s*auto !important;/s,
+  'The visible report backdrop must receive clicks so an outside click can dismiss the sheet',
+);
+assert.match(
+  reportsCss,
+  /\.reports-drawer-frame \.side-drawer-panel\.project-report-drawer-panel\s*\{[^}]*z-index:\s*1 !important;[^}]*position:\s*absolute !important;/s,
+  'The report sheet must stay above its clickable backdrop',
+);
 assert.match(unifiedReportCss, /\.report-entry-document\s*\{[^}]*border:\s*1px solid var\(--report-separator\);[^}]*border-radius:\s*15px;/s);
 assert.match(unifiedReportCss, /\.report-entry-full-copy\s*\{[^}]*white-space:\s*pre-wrap;/s);
 assert.match(unifiedReportCss, /\.report-resource-row\s*\{[^}]*grid-template-areas:\s*"name count hours remove" !important;/s);
@@ -181,6 +221,46 @@ assert.match(
   reportsCss,
   /\.reports-drawer-frame \.report-live-picked-item\s*\{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\) 22px;[^}]*width:\s*100%;/s,
   'Selected work and material rows must reserve their right edge for the remove control',
+);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-live-picked-item\s*\{[^}]*grid-template-areas:\s*"kind title remove"\s*"controls controls controls" !important;/s,
+  'Manual quantity controls must occupy their own full-width row while remove stays in the header',
+);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-live-picked-controls\.is-work\s*\{[^}]*grid-template-columns:\s*minmax\(180px, 1\.35fr\) minmax\(120px, \.8fr\) !important;[\s\S]*?\.report-live-picked-controls\.is-work\.has-unit-select\s*\{[^}]*minmax\(68px, \.4fr\) !important;/s,
+  'Desktop work controls must keep mode and quantity compact, adding a unit selector only when the catalog unit is missing',
+);
+assert.match(
+  unifiedReportCss,
+  /\.report-live-picked-progress\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*flex-wrap:\s*wrap;[\s\S]*?\.report-live-picked-plan,[\s\S]*?white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s,
+  'Plan, before-report, and after-report copy must wrap without overflowing narrow report cards',
+);
+assert.match(
+  unifiedReportCss,
+  /\.reports-drawer-frame \.report-live-picked-number\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*border-radius:\s*9px;[\s\S]*?\.report-live-picked-number:focus-within/s,
+  'Manual quantity and its unit suffix must render as one focused control',
+);
+assert.match(
+  unifiedReportCss,
+  /@media \(max-width: 720px\)[\s\S]*?\.report-live-picked-controls\.is-work,[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\) !important;/s,
+  'Manual controls must collapse to a two-column mobile grid',
+);
+assert.match(
+  unifiedReportCss,
+  /@media \(max-width: 720px\)[\s\S]*?\.reports-drawer-frame \.side-drawer-panel\.project-report-drawer-panel\s*\{[^}]*top:\s*0 !important;[^}]*right:\s*0 !important;[^}]*bottom:\s*0 !important;[^}]*left:\s*0 !important;[^}]*width:\s*100vw !important;[^}]*height:\s*100dvh !important;[^}]*transform:\s*none !important;/s,
+  'The report sheet must stay inside the viewport when opened directly on mobile',
+);
+assert.match(
+  unifiedReportCss,
+  /@media \(max-width: 720px\)[\s\S]*?\.reports-drawer-frame \.report-modal-header\s*\{[^}]*align-items:\s*flex-start !important;[^}]*flex-direction:\s*row !important;/s,
+  'The report close button must stay in the top-right corner on mobile',
+);
+assert.match(
+  unifiedReportCss,
+  /@media \(pointer: coarse\)[\s\S]*?\.report-live-picked-controls select,[\s\S]*?\.report-live-picked-unit\s*\{[^}]*height:\s*44px !important;[^}]*min-height:\s*44px !important;/s,
+  'Manual quantity controls must preserve 44px touch targets',
 );
 
 assert.match(deployHeaders, /Permissions-Policy:\s*camera=\(\), microphone=\(self\), geolocation=\(\)/);
@@ -231,6 +311,23 @@ assert.match(operationsJs, /<details class="report-extra-fields">/);
 assert.match(operationsJs, /role', 'dialog'/);
 assert.match(operationsJs, /aria-labelledby', 'project-report-modal-title'/);
 assert.match(operationsJs, /data-report-modal-scroll/);
+const sideDrawerFactoryStart = operationsJs.lastIndexOf('function ensureSideDrawerFromCard');
+const sideDrawerFactoryEnd = operationsJs.indexOf('function ensureLogCreateDrawer', sideDrawerFactoryStart);
+const sideDrawerFactoryJs = operationsJs.slice(sideDrawerFactoryStart, sideDrawerFactoryEnd);
+assert.ok(sideDrawerFactoryStart > -1 && sideDrawerFactoryEnd > sideDrawerFactoryStart, 'The side-drawer factory must exist');
+assert.match(
+  sideDrawerFactoryJs,
+  /wrapper\.addEventListener\('click',[\s\S]*?target\.closest\('\.side-drawer-panel'\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?closeSideDrawer\(wrapper\);[\s\S]*?\}, true\)/,
+  'Clicking outside the report sheet must close it while clicks inside stay inert',
+);
+const closeSideDrawerStart = operationsJs.lastIndexOf('function closeSideDrawer', sideDrawerFactoryStart);
+const closeSideDrawerEnd = operationsJs.indexOf('function ensureSideDrawerFromCard', closeSideDrawerStart);
+const closeSideDrawerJs = operationsJs.slice(closeSideDrawerStart, closeSideDrawerEnd);
+assert.match(
+  closeSideDrawerJs,
+  /var reportForm = qs\('\[data-report-draft-form\]', drawer\);[\s\S]*?saveReportDraftNow\(reportForm\);[\s\S]*?data-open', '0'/,
+  'Closing a report sheet from its backdrop must persist the current draft before dismissal',
+);
 assert.match(operationsJs, /report-form-section report-form-meta-section/);
 assert.match(operationsJs, /report-form-section report-form-main-section/);
 assert.match(operationsJs, /class="report-final-message"/);
@@ -267,9 +364,9 @@ for (const icon of [
   'image-plus',
   'upload',
   'route',
-  'list-checks',
   'file-check-2',
-  'file-text',
+  'trash-2',
+  'align-left',
 ]) {
   assert.match(reportModalFormJs, new RegExp(`data-lucide="${icon}"`), `Missing semantic report icon: ${icon}`);
 }
@@ -285,6 +382,12 @@ assert.equal(
 );
 assert.match(reportModalFormJs, /<b>Дата и доступ<\/b>/);
 assert.match(reportModalFormJs, /<b>Состав смены<\/b>/);
+assert.match(reportModalFormJs, /<textarea name="raw_input"[^>]*aria-label="Опишите, что произошло"/);
+assert.doesNotMatch(reportModalFormJs, /<span>Опишите, что произошло<\/span>/);
+for (const icon of ['calendar-days', 'eye', 'octagon-alert', 'arrow-right']) {
+  assert.match(reportModalFormJs, new RegExp(`report-compact-field-label[^>]*>[\\s\\S]*?data-lucide="${icon}"`));
+}
+assert.match(reportModalFormJs, /<textarea name="blockers" rows="1"/);
 assert.match(reportModalFormJs, /report-final-message-label[^>]*[\s\S]*?Готовый отчёт/);
 assert.equal(
   reportModalFormJs.includes('name="progress_percent"'),
@@ -306,23 +409,43 @@ assert.equal(reportModalFormJs.includes('report-section-auto'), false, 'Minimal 
 assert.match(reportModalFormJs, /data-log-error role="alert" aria-atomic="true"/);
 assert.match(reportModalFormJs, /data-report-final-document/);
 assert.match(reportModalFormJs, /data-report-final-groups/);
+assert.match(reportModalFormJs, /data-report-final-summary/);
+assert.match(reportModalFormJs, /data-report-final-shift/);
+assert.match(reportModalFormJs, /data-report-final-photos/);
 assert.match(reportModalFormJs, /data-report-final-section="full-text"/);
-assert.match(reportModalFormJs, /<span>Полный текст<\/span>/);
+assert.match(reportModalFormJs, /Описание дня/);
 assert.match(reportModalFormJs, /<input type="hidden" name="work_done" value="">/);
 assert.match(reportModalFormJs, /<output data-report-final-text aria-label="Готовый текст отчёта"><\/output>/);
 assert.doesNotMatch(reportModalFormJs, /<textarea[^>]*name="work_done"/);
 assert.doesNotMatch(reportModalFormJs, /<output[^>]*(?:readonly|required|tabindex)/);
-assert.ok(
-  reportModalFormJs.indexOf('class="primary report-submit-button"') < reportModalFormJs.indexOf('data-report-only-submit'),
-  'The primary submit must be first in DOM so Enter cannot silently choose report-only mode',
-);
+assert.doesNotMatch(reportModalFormJs, /data-report-only-submit|report-only-button/);
+assert.match(reportModalFormJs, /data-report-clear-dialog role="presentation"/);
+assert.match(reportModalFormJs, /role="alertdialog" aria-modal="true"/);
+assert.match(reportModalFormJs, /data-report-draft-clear-cancel/);
+assert.match(reportModalFormJs, /data-report-draft-clear-confirm/);
 assert.match(reportModalFormJs, /data-report-review hidden/);
+assert.ok(
+  reportModalFormJs.indexOf('data-report-draft-clear') < reportModalFormJs.indexOf('report-draft-status-dot'),
+  'The destructive clear action must be the leftmost item in the draft status row',
+);
+const reportFinalSummaryIndex = reportModalFormJs.indexOf('data-report-final-summary');
+const reportFinalDescriptionIndex = reportModalFormJs.indexOf('data-report-final-section="full-text"');
+const reportFinalGroupsIndex = reportModalFormJs.indexOf('data-report-final-groups');
+const reportFinalShiftIndex = reportModalFormJs.indexOf('data-report-final-shift');
+const reportFinalPhotosIndex = reportModalFormJs.indexOf('data-report-final-photos');
+assert.ok(
+  reportFinalSummaryIndex < reportFinalDescriptionIndex &&
+    reportFinalDescriptionIndex < reportFinalGroupsIndex &&
+    reportFinalGroupsIndex < reportFinalShiftIndex &&
+    reportFinalShiftIndex < reportFinalPhotosIndex,
+  'The ready report must show its description before structured details, shift, and photos',
+);
 const reportFlowOrder = [
   'report-form-meta-section',
   'report-form-main-section',
   'report-resources-section',
   'report-photos-section',
-  'assistant-confirm-card report-confirm-card',
+  'report-ready-card',
   'report-final-message',
   'report-intake-actions',
 ].map((marker) => reportModalFormJs.indexOf(marker));
@@ -377,7 +500,7 @@ assert.equal(operationsJs.includes('Прогресс по журналу'), fals
 assert.equal(operationsJs.includes('is-progress'), false, 'Historical report cards must not show progress chips');
 assert.match(operationsJs, /Фото в отчётах/);
 assert.match(operationsJs, /confirmed_actions:\s*confirmedActions/);
-assert.match(operationsJs, /data-report-only-submit/);
+assert.doesNotMatch(reportModalFormJs, /data-report-only-submit/);
 assert.match(operationsJs, /data-report-effect/);
 assert.match(operationsJs, /data-report-effect-qty/);
 assert.match(operationsJs, /data-report-live-assist/);
@@ -445,7 +568,7 @@ assert.match(finalMaterialMatcherJs, /toOrder/);
 assert.match(finalMaterialMatcherJs, /orderedPending/);
 assert.doesNotMatch(finalMaterialMatcherJs, /if \(!purchase && !used\) used = true/);
 assert.match(appJs, /data-report-effect-qty/);
-assert.match(appJs, /Сохранится только отчёт/);
+assert.doesNotMatch(appJs, /Сохранится только отчёт/);
 assert.match(appJs, /function buildProjectReportTextFromMatches/);
 assert.match(appJs, /function reportMatchConsumesClause/);
 assert.match(appJs, /function projectReportPreviewAdditionalClauses/);
@@ -460,14 +583,15 @@ assert.match(appJs, /pruneProjectReportManualSelections\(manualSelections, rawTe
 assert.match(appJs, /consumedClauseTexts/);
 assert.ok((appJs.match(/workDone\.value =/g) || []).length >= 2, 'The semantic report output must update after typing and quantity changes');
 assert.match(appJs, /reviewCard\.hidden = !rawText/);
-assert.match(appJs, /reportOnlyButton\.hidden = count === 0/);
 assert.match(appJs, /refreshLucideIcons\(liveAssist\)/);
 assert.match(appJs, /previewRoot\.innerHTML = renderReportPreviewHtml[\s\S]*?refreshLucideIcons\(previewRoot\)/);
 const finalReportPreviewStart = appJs.lastIndexOf('renderReportPreviewHtml = function');
 const finalReportPreviewEnd = appJs.indexOf('renderProjectReportForm = function', finalReportPreviewStart);
 const finalReportPreviewJs = appJs.slice(finalReportPreviewStart, finalReportPreviewEnd);
 assert.ok(finalReportPreviewStart > -1 && finalReportPreviewEnd > finalReportPreviewStart, 'The final report preview renderer must exist');
-assert.match(finalReportPreviewJs, /draft\.previewAdditionalClauses/);
+assert.match(finalReportPreviewJs, /report-action-staging-inner/);
+assert.match(finalReportPreviewJs, /type="checkbox" checked data-report-effect/);
+assert.match(finalReportPreviewJs, /data-report-effect-qty/);
 assert.equal(
   finalReportPreviewJs.includes('report-preview-card-main'),
   false,
@@ -475,21 +599,7 @@ assert.equal(
 );
 assert.equal(finalReportPreviewJs.includes('Пока не нашел работы'), false, 'Empty work cards must not clutter a narrated report');
 assert.equal(finalReportPreviewJs.includes('Материалы пока не найдены'), false, 'Empty material cards must not clutter a narrated report');
-for (const icon of ['hammer', 'sparkles', 'boxes']) {
-  assert.match(finalReportPreviewJs, new RegExp(`previewTitle\\('${icon}'`), `Missing preview heading icon: ${icon}`);
-}
-const previewSectionOrder = [
-  "previewTitle('hammer'",
-  "previewTitle('boxes'",
-  "previewTitle('sparkles'",
-].map((marker) => finalReportPreviewJs.indexOf(marker));
-assert.ok(
-  previewSectionOrder.every((position, index) => position > -1 && (index === 0 || position > previewSectionOrder[index - 1])),
-  'Action preview sections must follow Works → Materials → Events',
-);
-for (const icon of ['check', 'circle-help', 'info']) {
-  assert.match(finalReportPreviewJs, new RegExp(`data-lucide="${icon}"`), `Missing preview state icon: ${icon}`);
-}
+assert.doesNotMatch(finalReportPreviewJs, /report-preview-card|report-effects-summary|Только в отчёт/);
 assert.match(appJs, /function startPrimaryReportVoice\(form\)/);
 assert.match(appJs, /data-report-voice-unavailable/);
 assert.match(appJs, /function reportVoiceUnavailableMessage\(\)/);
@@ -499,19 +609,45 @@ assert.match(appJs, /errorCode === 'audio-capture'/);
 assert.match(appJs, /errorCode === 'network'/);
 assert.match(appJs, /errorCode === 'no-speech'/);
 assert.match(appJs, /data-effect-max=/);
-assert.match(appJs, /if \(!procurement\.materialId\) return/);
+assert.doesNotMatch(appJs, /if \(!procurement\.materialId\) return/);
+assert.match(appJs, /if \(!merged\.phase\) merged\.phase = 'order'/);
 assert.match(appJs, /уже заказано, ждём/);
 assert.match(appJs, /function reportLiveSuggestions\(projectId, rawText\)/);
 assert.match(appJs, /function reportSuggestionScore\(candidate, queryTokens, normalizedQuery\)/);
 assert.match(appJs, /data-report-suggestion=/);
 assert.match(appJs, /data-report-suggestion-remove=/);
+assert.match(appJs, /data-report-manual-action/, 'A manually selected material must expose an explicit action');
+assert.match(appJs, /data-report-manual-qty/, 'Manual work and material selections must expose a quantity input');
+assert.doesNotMatch(finalReportPreviewJs, /data-report-manual-work-mode|data-report-manual-quantity-mode|data-report-manual-unit/);
+assert.match(appJs, /Выберите действие/, 'A material without a recognized verb must require an explicit action');
+assert.match(appJs, /restored\.manualWorkMode === 'report'\) restored\.manualWorkMode = 'delta_qty'/);
+assert.match(appJs, /restored\.manualAction === 'report'\) restored\.manualAction = ''/);
+assert.match(appJs, /manualAction:\s*String\(selected\.manualAction/, 'Manual material action must survive draft autosave');
+assert.match(appJs, /manualQty:\s*String\(selected\.manualQty/, 'Manual quantity must survive draft autosave');
+assert.match(appJs, /manualUnit:\s*String\(selected\.manualUnit/, 'Manual report unit must survive draft autosave');
 assert.match(appJs, /mergeManualSelections\(draft, rawText\)/);
+assert.match(appJs, /reportClearManualSelectionEffectOverrides\(effectOverrides, selected\)/, 'Manual edits must clear the matching stale effect quantity');
+assert.match(appJs, /refreshPreview\(\{ skipCapture: true, skipLiveAssist: true \}\)/, 'Manual quantity input must rebuild without recapturing its old effect value');
+const manualQtyInputHandlerStart = appJs.indexOf("if (liveAssist) liveAssist.addEventListener('input'");
+const manualQtyInputHandlerEnd = appJs.indexOf("if (liveAssist) liveAssist.addEventListener('change'", manualQtyInputHandlerStart);
+const manualQtyInputHandlerSource = appJs.slice(manualQtyInputHandlerStart, manualQtyInputHandlerEnd);
+assert.match(
+  manualQtyInputHandlerSource,
+  /captureEffectOverrides\(\)[\s\S]*updateManualSelectionControl\(event\.target\)[\s\S]*normalizeManualWorkSelection\(selected\)[\s\S]*reportClearManualSelectionEffectOverrides\(effectOverrides, selected\)[\s\S]*refreshPreview\(\{ skipCapture: true, skipLiveAssist: true \}\)/,
+  'Replacing 40 with 5 must normalize the remaining work, preserve other overrides, clear this row, and rebuild without recapturing 40',
+);
+assert.match(appJs, /target\.matches\('\[data-report-manual-qty\]'\)[\s\S]*selected\.manualWorkMode = 'delta_qty'[\s\S]*selected\.manualQuantityMode = 'delta_qty'/);
+assert.match(appJs, /data-report-final-summary/);
+assert.match(appJs, /data-report-final-shift/);
+assert.match(appJs, /data-report-final-photos/);
+assert.match(appJs, /photoDrafts\.length \+ ' фото'/);
+assert.match(appJs, /var narrativeQuantity = reportWorkNarrativeQuantity\(entry\)/, 'Structured work rows must use the same accumulated quantity wording as the full report');
 assert.match(appJs, /function projectReportUnmatchedClauses\(/);
 assert.match(appJs, /clauseTexts:\s*\[\]/);
 assert.match(appJs, /function reportHasWorkCompletionIntent\(/);
 assert.match(appJs, /reportWorkResultFromClause = function \(clauseText, candidate\) \{\s*if \(!reportHasWorkCompletionIntent\(clauseText\)\) return null;/);
 assert.match(appJs, /Дополнительно выполнено/);
-assert.match(appJs, /Ничего не потеряется/);
+assert.match(appJs, /Доп\. работы/);
 assert.match(backendServer, /api_upload_daily_log_photo/);
 assert.match(communicationsDocs, /workers_json/);
 assert.match(communicationsDocs, /equipment_json/);
@@ -543,15 +679,25 @@ const storedReport = {
 const storedReportData = storedReportContext.savedReportData(storedReport);
 assert.equal(storedReportData.rows.works.length, 1);
 assert.equal(storedReportData.rows.materials.length, 1);
-assert.equal(storedReportData.rows.events.length, 3);
+assert.equal(storedReportData.rows.additional.length, 1);
+assert.equal(storedReportData.rows.blockers.length, 1);
+assert.equal(storedReportData.rows.next.length, 1);
 assert.match(storedReportData.rows.materials[0].title, /10\.5 м/);
 assert.match(storedReportData.fullText, /Проблемы и ограничения: Ждём поставку щита/);
 assert.match(storedReportData.fullText, /Следующий шаг: Проверить подключение/);
 const storedReportHtml = storedReportContext.savedReportHtml(storedReport);
 assert.match(storedReportHtml, /data-report-saved-section="works"/);
 assert.match(storedReportHtml, /data-report-saved-section="materials"/);
-assert.match(storedReportHtml, /data-report-saved-section="events"/);
+assert.match(storedReportHtml, /data-report-saved-section="additional"/);
+assert.match(storedReportHtml, /data-report-saved-section="blockers"/);
+assert.match(storedReportHtml, /data-report-saved-section="next"/);
+assert.match(storedReportHtml, /Доп\. работы/);
+assert.match(storedReportHtml, /Описание дня/);
 assert.match(storedReportHtml, /data-report-saved-document/);
+assert.ok(
+  storedReportHtml.indexOf('Описание дня') < storedReportHtml.indexOf('data-report-saved-section="works"'),
+  'Saved reports must keep the day description above work and material sections',
+);
 assert.doesNotMatch(storedReportHtml, /<script>/);
 const storedMultiReportData = storedReportContext.savedReportData({
   work_done: 'Выполнены работы: Монтаж розеток — 5 шт; Установка щита — 1 шт. Заказаны материалы: Кабель ВВГ 10 м; Розетка 5 шт.',
@@ -572,10 +718,12 @@ assert.equal((storedPartialSupplement.fullText.match(/Ждём электрик�
 assert.match(storedPartialSupplement.fullText, /Проблемы и ограничения: Нет кабеля\./);
 assert.match(storedPartialSupplement.fullText, /Следующий шаг: Проверить щит\./);
 assert.deepEqual(
-  Array.from(storedPartialSupplement.rows.events, (row) => row.title),
-  ['Ждём электрика', 'Нет кабеля', 'Проверить щит'],
-  'Saved structured events must retain only unique supplemental phrases',
+  Array.from(storedPartialSupplement.rows.additional, (row) => row.title),
+  ['Ждём электрика'],
+  'Saved additional work must stay separate from blockers and next steps',
 );
+assert.deepEqual(Array.from(storedPartialSupplement.rows.blockers, (row) => row.title), ['Нет кабеля']);
+assert.deepEqual(Array.from(storedPartialSupplement.rows.next, (row) => row.title), ['Проверить щит']);
 const storedSentenceBoundarySupplement = storedReportContext.savedReportData({
   work_done: 'Нет кабеля. Ждём щит.',
   blockers: 'Кабеля, ждём',
@@ -655,6 +803,33 @@ assert.match(materialReportText, /Кабель 40 м/);
 assert.match(materialReportText, /убрали строительный мусор/);
 assert.doesNotMatch(materialReportText, /Заказано: Заказали кабель/);
 
+const connectedManualReportText = formatterContext.buildMixedReport(
+  'Грунт разработали. Купили 20 скоб. Заказчик согласовал въезд.',
+  [{
+    item: { title: 'Разработка грунта', unit: 'м3', plannedQty: 70 },
+    actualQty: 40,
+    quantityLabel: '40 м3',
+    quantityMode: 'delta_qty',
+    done: false,
+    partial: true,
+    selectedManually: true,
+    clauseText: 'Грунт разработали',
+  }],
+  [{
+    item: { title: 'Скобы', unit: 'шт', plannedQty: 40, purchasedQty: 0 },
+    purchasedQty: 20,
+    receivedQty: 0,
+    usedQty: 0,
+    selectedManually: true,
+    clauseTexts: ['Купили 20 скоб'],
+  }],
+);
+assert.match(connectedManualReportText, /Частично выполнены: Разработка грунта — 40 м3 из 70 м3/);
+assert.match(connectedManualReportText, /Заказаны материалы: Скобы 20 шт из 40 шт \(осталось 20 шт\)/);
+assert.match(connectedManualReportText, /Дополнительно зафиксировано: Заказчик согласовал въезд/);
+assert.ok((connectedManualReportText.match(/\n/g) || []).length >= 2, 'Ready report sections must not collapse into one unreadable paragraph');
+assert.equal((connectedManualReportText.match(/Купили 20 скоб/g) || []).length, 0, 'A confirmed material card must replace the raw phrase with a report statement');
+
 const invalidCatalogUnitReportText = formatterContext.buildMixedReport(
   'Заказаны панели из поликарбоната 5 м2.',
   [],
@@ -691,10 +866,12 @@ const structuredFinalHtml = formatterContext.renderStructuredFinal({
 }, '', 'Проверить щит <script>alert(1)</script>');
 assert.match(structuredFinalHtml, /data-report-final-section="works"/);
 assert.match(structuredFinalHtml, /data-report-final-section="materials"/);
-assert.match(structuredFinalHtml, /data-report-final-section="events"/);
+assert.match(structuredFinalHtml, /data-report-final-section="blockers"/);
+assert.match(structuredFinalHtml, /data-report-final-section="next"/);
 assert.match(structuredFinalHtml, /Работы/);
-assert.match(structuredFinalHtml, /Закупки и материалы/);
-assert.match(structuredFinalHtml, /События/);
+assert.match(structuredFinalHtml, /Материалы/);
+assert.match(structuredFinalHtml, /Блокеры/);
+assert.match(structuredFinalHtml, /Следующий шаг/);
 assert.equal((structuredFinalHtml.match(/Кабель ВВГ/g) || []).length, 1, 'A recognized material must appear in exactly one structured row');
 assert.doesNotMatch(structuredFinalHtml, /Дополнительное событие/);
 assert.match(structuredFinalHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
@@ -721,15 +898,16 @@ const worksOnlyStructuredHtml = formatterContext.renderStructuredFinal({
 }, '', '');
 assert.match(worksOnlyStructuredHtml, /data-report-final-section="works"/);
 assert.doesNotMatch(worksOnlyStructuredHtml, /data-report-final-section="materials"/);
-assert.doesNotMatch(worksOnlyStructuredHtml, /data-report-final-section="events"/);
+assert.doesNotMatch(worksOnlyStructuredHtml, /data-report-final-section="(?:additional|blockers|next)"/);
 
 const additionalWorkStructuredHtml = formatterContext.renderStructuredFinal({
   workMatches: [],
   materialMatches: [],
   unmatchedClauses: ['Дополнительно сделали временное освещение'],
 }, '', '');
-assert.match(additionalWorkStructuredHtml, /data-report-final-section="works"/);
-assert.doesNotMatch(additionalWorkStructuredHtml, /data-report-final-section="events"/);
+assert.match(additionalWorkStructuredHtml, /data-report-final-section="additional"/);
+assert.match(additionalWorkStructuredHtml, /Доп\. работы/);
+assert.doesNotMatch(additionalWorkStructuredHtml, /data-report-final-section="(?:blockers|next)"/);
 
 const fullReportText = formatterContext.buildFullReport(
   'Выполнены работы: Монтаж розеток.',
@@ -821,6 +999,33 @@ assert.ok(
   'Effective quantity, work, and material matchers must be extractable',
 );
 assert.ok(parserManualEntryStart > -1 && parserManualEntryEnd > parserManualEntryStart, 'Manual report entries must be extractable');
+const clearManualOverridesStart = appJs.indexOf('function reportClearManualSelectionEffectOverrides(');
+const clearManualOverridesEnd = appJs.indexOf('\n    bindReportPreview = function', clearManualOverridesStart);
+assert.ok(clearManualOverridesStart > -1 && clearManualOverridesEnd > clearManualOverridesStart, 'Manual effect override clearing must be extractable');
+const clearManualOverridesContext = {};
+vm.runInNewContext(
+  `${appJs.slice(clearManualOverridesStart, clearManualOverridesEnd)}\nthis.clearManualOverrides = reportClearManualSelectionEffectOverrides;`,
+  clearManualOverridesContext,
+  { filename: 'report-manual-effect-overrides.js' },
+);
+const staleEffectOverrides = {
+  'work_progress:501': { qty: 40 },
+  'work_progress:502': { qty: 7 },
+  'material_purchase:601': { qty: 12 },
+  'material_receipt:601': { qty: 4 },
+};
+clearManualOverridesContext.clearManualOverrides(staleEffectOverrides, {
+  kind: 'work',
+  candidate: { item: { id: 501 } },
+});
+assert.equal(staleEffectOverrides['work_progress:501'], undefined, 'Old 40 must not overwrite a new manual work value of 5');
+assert.equal(staleEffectOverrides['work_progress:502'].qty, 7, 'Changing one row must preserve other explicit effect edits');
+clearManualOverridesContext.clearManualOverrides(staleEffectOverrides, {
+  kind: 'material',
+  candidate: { item: { id: 601 } },
+});
+assert.equal(staleEffectOverrides['material_purchase:601'], undefined, 'A material action change must clear the old purchase delta');
+assert.equal(staleEffectOverrides['material_receipt:601'], undefined, 'A material action change must clear every stale action for that material');
 const parserProjectId = 42;
 const parserContext = {
   state: {
@@ -864,10 +1069,95 @@ const parserContext = {
   }),
 };
 vm.runInNewContext(
-  `${appJs.slice(parserBaseStart, parserBaseEnd)}\n${appJs.slice(parserFinalStart, parserFinalEnd)}\n${appJs.slice(parserEffectiveMatcherStart, parserEffectiveMatcherEnd)}\n${appJs.slice(parserManualEntryStart, parserManualEntryEnd)}\nthis.reportParser = { build: buildProjectReportDraft, normalize: normalizeReportText };`,
+  `${appJs.slice(parserBaseStart, parserBaseEnd)}\n${appJs.slice(parserFinalStart, parserFinalEnd)}\n${appJs.slice(parserEffectiveMatcherStart, parserEffectiveMatcherEnd)}\n${appJs.slice(parserManualEntryStart, parserManualEntryEnd)}\nthis.reportParser = { build: buildProjectReportDraft, normalize: normalizeReportText, manualWork: reportManualWorkEntry, manualMaterial: reportManualMaterialEntry };`,
   parserContext,
   { filename: 'report-parser-runtime.js' },
 );
+
+const manualWorkOverride = parserContext.reportParser.manualWork(
+  { sectionTitle: 'Электрика', item: parserContext.state.sectionScheduleByProject[parserProjectId].sections[0].items[0] },
+  'Смонтировали розетки.',
+  { manualWorkMode: 'delta_qty', manualQty: '5', manualUnit: 'шт' },
+);
+assert.equal(manualWorkOverride.actualQty, 5, 'A manual work volume must override an auto-detected full completion');
+assert.equal(manualWorkOverride.partial, true);
+assert.equal(manualWorkOverride.done, false);
+assert.equal(manualWorkOverride.quantityLabel, '5 шт');
+const manualWorkWithExistingProgress = parserContext.reportParser.manualWork(
+  { sectionTitle: 'Отделка', item: { id: 971, title: 'Облицовка стен', plannedQty: 70, planned_qty: 70, unit: 'м2' } },
+  'Сделали облицовку стен.',
+  { manualWorkMode: 'delta_qty', manualQty: '40', manualUnit: 'м2' },
+  { actual: 60, total: 70, unit: 'м2' },
+);
+assert.equal(manualWorkWithExistingProgress.requestedQty, 40);
+assert.equal(manualWorkWithExistingProgress.actualQty, 10, 'At 60/70 only the remaining 10 may be applied for the shift');
+assert.equal(manualWorkWithExistingProgress.baseActualQty, 60);
+assert.equal(manualWorkWithExistingProgress.resultActualQty, 70);
+assert.equal(manualWorkWithExistingProgress.done, true);
+assert.equal(manualWorkWithExistingProgress.partial, false);
+const cappedManualWorkText = formatterContext.buildMixedReport(
+  'Сделали облицовку стен.',
+  [manualWorkWithExistingProgress],
+  [],
+);
+assert.match(cappedManualWorkText, /10 м2 за смену \(всего 70 из 70 м2, план выполнен\)/);
+assert.doesNotMatch(cappedManualWorkText, /40 м2/, 'The ready report must never claim an excess volume that cannot be applied');
+const manualWorkWithoutPlan = parserContext.reportParser.manualWork(
+  { sectionTitle: 'Дополнительные работы', item: { id: 972, title: 'Монтаж креплений', plannedQty: 0, planned_qty: 0, unit: 'шт' } },
+  'Сделали монтаж креплений.',
+  { manualWorkMode: 'delta_qty', manualQty: '5', manualUnit: 'шт' },
+  { actual: 0, total: 0, unit: 'шт' },
+);
+assert.equal(manualWorkWithoutPlan.actualQty, 5, 'A report-only work without a plan must retain its manually entered quantity');
+assert.equal(manualWorkWithoutPlan.actionEligible, false, 'A work without a plan must not create a ledger action');
+assert.equal(manualWorkWithoutPlan.done, true);
+assert.match(
+  formatterContext.buildMixedReport('Сделали монтаж креплений.', [manualWorkWithoutPlan], []),
+  /Монтаж креплений — 5 шт за смену/,
+  'A no-plan work quantity must stay in the ready report text',
+);
+const manualWorkTargetBelowCurrent = parserContext.reportParser.manualWork(
+  { sectionTitle: 'Отделка', item: { id: 973, title: 'Облицовка стен', plannedQty: 70, planned_qty: 70, unit: 'м2' } },
+  'Готово всего 50 м2 облицовки стен.',
+  { manualWorkMode: 'target_qty', manualQty: '50', manualUnit: 'м2' },
+  { actual: 60, total: 70, unit: 'м2' },
+);
+assert.equal(manualWorkTargetBelowCurrent.requestedQty, 50);
+assert.equal(manualWorkTargetBelowCurrent.actualQty, 60, 'A total target must never roll existing 60/70 progress back to 50');
+assert.equal(manualWorkTargetBelowCurrent.quantityValue, 60);
+assert.equal(manualWorkTargetBelowCurrent.actionEligible, false);
+const manualWorkPercentBelowCurrent = parserContext.reportParser.manualWork(
+  { sectionTitle: 'Отделка', item: { id: 974, title: 'Облицовка стен', plannedQty: 70, planned_qty: 70, unit: 'м2' } },
+  'Готово 50% облицовки стен.',
+  { manualWorkMode: 'percent', manualQty: '50', manualUnit: 'м2' },
+  { actual: 60, total: 70, unit: 'м2' },
+);
+assert.equal(manualWorkPercentBelowCurrent.actualQty, 60, 'A percentage target must not roll progress below the current quantity');
+assert.ok(Math.abs(manualWorkPercentBelowCurrent.quantityValue - (60 / 70 * 100)) < 1e-9);
+assert.equal(manualWorkPercentBelowCurrent.actionEligible, false);
+const manualWorkPercentOverride = parserContext.reportParser.manualWork(
+  { sectionTitle: 'Электрика', item: parserContext.state.sectionScheduleByProject[parserProjectId].sections[0].items[0] },
+  'Смонтировали розетки.',
+  { manualWorkMode: 'percent', manualQty: '40', manualUnit: 'шт' },
+);
+assert.equal(manualWorkPercentOverride.quantityMode, 'target_percent');
+assert.equal(manualWorkPercentOverride.quantityValue, 40);
+assert.equal(manualWorkPercentOverride.actualQty, 8, '40% of a 20-unit work plan must become an 8-unit target');
+const manualMaterialOverride = parserContext.reportParser.manualMaterial(
+  { item: parserContext.state.materialsByProject[parserProjectId][3] },
+  'Купили панели из поликарбоната.',
+  { manualAction: 'purchase', manualQuantityMode: 'delta_qty', manualQty: '5', manualUnit: 'м2' },
+);
+assert.equal(manualMaterialOverride.purchasedQty, 5, 'A manual material quantity must be applied within the plan');
+assert.equal(manualMaterialOverride.reportUnit, 'м2', 'A manual unit must stay on the report without mutating the catalog');
+assert.equal(manualMaterialOverride.actionEligible, true);
+const blankManualMaterialOverride = parserContext.reportParser.manualMaterial(
+  { item: parserContext.state.materialsByProject[parserProjectId][3] },
+  'Купили панели из поликарбоната.',
+  { manualAction: 'purchase', manualQuantityMode: 'delta_qty', manualQty: '', manualUnit: 'л' },
+);
+assert.equal(blankManualMaterialOverride.purchasedQty, 0, 'Choosing an action without a number must never invent the full planned quantity');
+assert.equal(blankManualMaterialOverride.actionEligible, false);
 
 const falsePurchaseDraft = parserContext.reportParser.build(parserProjectId, {
   raw_input: 'Смонтировали розетки. Заказчик согласовал кабель ВВГ.',
@@ -1166,6 +1456,51 @@ assert.equal(repeatedWorkTargetsDraft.workMatches.length, 1);
 assert.equal(repeatedWorkTargetsDraft.workMatches[0].quantityMode, 'delta_qty');
 assert.equal(repeatedWorkTargetsDraft.workMatches[0].actualQty, 20, 'Existing 20 must advance only to the final 40 target');
 
+const cappedDeltaWorkProjectId = 47;
+parserContext.state.sectionScheduleByProject[cappedDeltaWorkProjectId] = {
+  sections: [{
+    title: 'Отделка',
+    items: [{ id: 971, title: 'Облицовка стен', plannedQty: 70, planned_qty: 70, actualQty: 60, unit: 'м2' }],
+  }],
+};
+parserContext.state.materialsByProject[cappedDeltaWorkProjectId] = [];
+const cappedDeltaWorkDraft = parserContext.reportParser.build(cappedDeltaWorkProjectId, {
+  raw_input: 'Сделали 40 м2 облицовки стен.',
+});
+assert.equal(cappedDeltaWorkDraft.workMatches.length, 1);
+assert.equal(cappedDeltaWorkDraft.workMatches[0].quantityMode, 'delta_qty');
+assert.equal(cappedDeltaWorkDraft.workMatches[0].requestedQty, 40);
+assert.equal(cappedDeltaWorkDraft.workMatches[0].actualQty, 10, 'At 60/70 an automatic shift delta must be limited to the remaining 10');
+assert.equal(cappedDeltaWorkDraft.workMatches[0].resultActualQty, 70);
+assert.equal(cappedDeltaWorkDraft.workMatches[0].done, true);
+assert.equal(cappedDeltaWorkDraft.workMatches[0].partial, false);
+assert.match(cappedDeltaWorkDraft.text, /10 м2 за смену \(всего 70 из 70 м2, план выполнен\)/);
+assert.doesNotMatch(cappedDeltaWorkDraft.text, /40 м2/, 'The generated text must describe the applied delta instead of the rejected excess');
+const belowCurrentPercentDraft = parserContext.reportParser.build(cappedDeltaWorkProjectId, {
+  raw_input: 'Готово 50% облицовки стен.',
+});
+assert.equal(belowCurrentPercentDraft.workMatches[0].actualQty, 60);
+assert.ok(Math.abs(belowCurrentPercentDraft.workMatches[0].quantityValue - (60 / 70 * 100)) < 1e-9);
+assert.equal(belowCurrentPercentDraft.workMatches[0].actionEligible, false);
+assert.doesNotMatch(belowCurrentPercentDraft.text, /50%/, 'Automatic percent recognition must not report progress below the stored fact');
+assert.match(belowCurrentPercentDraft.text, /60 м2 из 70 м2/);
+
+const noPlanWorkProjectId = 48;
+parserContext.state.sectionScheduleByProject[noPlanWorkProjectId] = {
+  sections: [{
+    title: 'Дополнительные работы',
+    items: [{ id: 981, title: 'Монтаж креплений', plannedQty: 0, planned_qty: 0, unit: 'шт' }],
+  }],
+};
+parserContext.state.materialsByProject[noPlanWorkProjectId] = [];
+const noPlanWorkDraft = parserContext.reportParser.build(noPlanWorkProjectId, {
+  raw_input: 'Сделали монтаж креплений 5 шт.',
+});
+assert.equal(noPlanWorkDraft.workMatches.length, 1);
+assert.equal(noPlanWorkDraft.workMatches[0].actualQty, 5, 'An automatically recognized no-plan work must retain its volume');
+assert.equal(noPlanWorkDraft.workMatches[0].actionEligible, false);
+assert.match(noPlanWorkDraft.text, /5 шт за смену/);
+
 const ambiguousWorkProjectId = 44;
 parserContext.state.sectionScheduleByProject[ambiguousWorkProjectId] = {
   sections: [
@@ -1215,9 +1550,8 @@ const reportPreviewStart = appJs.lastIndexOf('renderReportPreviewHtml = function
 const reportPreviewEnd = appJs.indexOf('renderProjectReportForm = function', reportPreviewStart);
 assert.ok(reportPreviewStart > -1 && reportPreviewEnd > reportPreviewStart, 'The final report preview must be extractable');
 const reportPreviewSource = appJs.slice(reportPreviewStart, reportPreviewEnd);
-['План', 'Уже выполнено', 'Из отчёта', 'Итого'].forEach((columnLabel) => {
-  assert.ok(reportPreviewSource.includes(columnLabel), `Report quantity preview must include the "${columnLabel}" column`);
-});
+assert.match(reportPreviewSource, /report-action-staging-inner/);
+assert.doesNotMatch(reportPreviewSource, /report-effect-metrics|Из отчёта|Итого/);
 assert.match(reportPreviewSource, /work_progress/, 'Work rows in the preview must expose a work_progress effect');
 assert.match(reportPreviewSource, /reportEntryQuantityUnit\(entry\)/, 'Report effect rows must use the sanitized report unit');
 assert.match(appJs, /var safeUnit = suggestion\.kind === 'material' \? reportSafeQuantityUnit\(item\.unit\) : '';/, 'Material suggestions must hide invalid catalog units');

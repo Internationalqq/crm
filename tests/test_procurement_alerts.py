@@ -191,6 +191,28 @@ class ProcurementAlertTests(unittest.TestCase):
         self.assertEqual(alert["toOrderQty"], 60)
         self.assertEqual(alert["toReceiveQty"], 30)
 
+    def test_procurement_alerts_are_not_truncated_per_project(self) -> None:
+        materials = [
+            {
+                "id": 200 + index,
+                "title": f"Материал {index + 1}",
+                "unit": "шт",
+                "itemKind": "material",
+                "plannedQty": 10,
+                "missingQty": 10,
+                "purchasedQty": 0,
+                "receivedQty": 0,
+                "needByDate": "2026-08-27",
+                "deliveryDays": 1,
+            }
+            for index in range(15)
+        ]
+
+        procurement = build_procurement_alerts(materials, [], date(2026, 8, 24))
+
+        self.assertEqual(len(procurement["items"]), 15)
+        self.assertEqual({item["materialId"] for item in procurement["items"]}, {200 + index for index in range(15)})
+
     def test_critical_order_is_sorted_before_delivery_watch(self) -> None:
         procurement = build_procurement_alerts(
             [
