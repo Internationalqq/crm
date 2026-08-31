@@ -347,7 +347,13 @@
             '<div class="warehouse-control-section-body">' +
             (!movements.length ? '<div class="warehouse-control-empty"><span>Заказы, приходы и расходы появятся здесь.</span></div>' : '<div class="warehouse-movement-list">' + movements.map(function (move) {
                 var meta = movementMeta(move);
-                return '<article class="warehouse-movement-item is-' + meta[2] + '"><span class="warehouse-movement-icon"><i data-lucide="' + meta[1] + '"></i></span><div><header><span class="badge ' + meta[2] + '">' + meta[0] + '</span><b>' + escapeHtml(move.materialTitle) + '</b></header><p><strong>' + escapeHtml(quantity(Math.abs(Number(move.qty || 0)))) + ' ' + escapeHtml(move.materialUnit || '') + '</strong>' + (move.comment ? ' · ' + escapeHtml(move.comment) : '') + '</p><small>' + escapeHtml(dateTime(move.createdAt)) + (move.createdByName ? ' · ' + escapeHtml(move.createdByName) : '') + '</small></div></article>';
+                var sourceType = String(move.sourceType || 'manual');
+                var protectedSources = ['work_fact', 'work_fact_reversal', 'stock_move_reversal', 'warehouse_return_from_project'];
+                var canReverse = payload.canReverseStockMoves && move.isReversible === true && !move.isReversed && Number(move.qty || 0) > 0 && (move.moveType === 'use' || move.moveType === 'writeoff') && protectedSources.indexOf(sourceType) === -1;
+                var reversalAction = move.isReversed
+                    ? '<span class="warehouse-movement-reversed"><i data-lucide="undo-2"></i>Отменено</span>'
+                    : (canReverse ? '<button class="ghost compact warehouse-movement-reverse" type="button" data-reverse-stock-move="' + escapeHtml(move.id) + '"><i data-lucide="undo-2"></i>Отменить расход</button>' : '');
+                return '<article class="warehouse-movement-item is-' + meta[2] + (move.isReversed ? ' is-reversed' : '') + '"><span class="warehouse-movement-icon"><i data-lucide="' + meta[1] + '"></i></span><div><header><span class="badge ' + meta[2] + '">' + meta[0] + '</span><b>' + escapeHtml(move.materialTitle) + '</b></header><p><strong>' + escapeHtml(quantity(Math.abs(Number(move.qty || 0)))) + ' ' + escapeHtml(move.materialUnit || '') + '</strong>' + (move.comment ? ' · ' + escapeHtml(move.comment) : '') + '</p><small>' + escapeHtml(dateTime(move.createdAt)) + (move.createdByName ? ' · ' + escapeHtml(move.createdByName) : '') + '</small></div>' + reversalAction + '</article>';
             }).join('') + '</div>') + '</div></details>';
     }
 
@@ -852,6 +858,31 @@
                     showAppNotice('Запись отменена, остатки восстановлены.', 'success');
                 }).catch(function (error) {
                     showAppNotice(errorText(error, 'Не удалось отменить запись.'), 'error');
+                });
+            };
+        });
+
+        qsa('[data-reverse-stock-move]', panel).forEach(function (button) {
+            button.onclick = function () {
+                var reason = window.prompt('Почему нужно отменить расход?', 'Ошибка ввода');
+                if (reason === null) return;
+                reason = reason.trim();
+                if (!reason) {
+                    showAppNotice('Укажите причину отмены.', 'error');
+                    return;
+                }
+                var moveId = Number(button.getAttribute('data-reverse-stock-move') || 0);
+                button.disabled = true;
+                api('/api/projects/' + projectId + '/stock-moves/' + moveId + '/reverse', {
+                    method: 'POST',
+                    body: JSON.stringify({ reason: reason }),
+                    loaderText: 'Возвращаем материал в остаток...'
+                }).then(function (next) {
+                    applyPayload(projectId, next);
+                    showAppNotice('Расход отменён, остаток восстановлен.', 'success');
+                }).catch(function (error) {
+                    button.disabled = false;
+                    showAppNotice(errorText(error, 'Не удалось отменить расход.'), 'error');
                 });
             };
         });

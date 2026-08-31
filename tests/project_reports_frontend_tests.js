@@ -164,6 +164,7 @@ assert.match(unifiedReportCss, /\.report-final-message\s*\{[^}]*border:\s*1px so
 assert.match(unifiedReportCss, /\.report-final-group\s*\{[^}]*border-top:\s*1px solid var\(--report-separator-soft\);/s);
 assert.match(unifiedReportCss, /\.report-final-full\s*\{[^}]*display:\s*grid;[^}]*gap:\s*8px;[^}]*background:\s*var\(--report-accent-soft\);/s);
 assert.match(unifiedReportCss, /\.report-final-full output\s*\{[^}]*white-space:\s*pre-wrap;/s);
+assert.match(reportsCss, /\.reports-drawer-frame \.report-final-full textarea\[data-report-final-text\]\s*\{[^}]*min-height:\s*124px !important;[^}]*resize:\s*vertical;/s);
 assert.match(simplifiedReportCss, /\.report-draft-status\s*\{[^}]*grid-template-columns:\s*auto 7px minmax\(0, 1fr\) !important;/s);
 assert.match(simplifiedReportCss, /\[data-report-draft-clear\]\s*\{[^}]*grid-column:\s*1 !important;[^}]*background:\s*#d92d20 !important;[^}]*color:\s*#fff !important;/s);
 assert.match(simplifiedReportCss, /\.report-final-message\s*\{[^}]*border-radius:\s*14px !important;[^}]*box-shadow:\s*none !important;/s);
@@ -414,11 +415,12 @@ assert.match(reportModalFormJs, /data-report-final-shift/);
 assert.match(reportModalFormJs, /data-report-final-photos/);
 assert.match(reportModalFormJs, /data-report-final-section="full-text"/);
 assert.match(reportModalFormJs, /Описание дня/);
-assert.match(reportModalFormJs, /<input type="hidden" name="work_done" value="">/);
-assert.match(reportModalFormJs, /<output data-report-final-text aria-label="Готовый текст отчёта"><\/output>/);
-assert.doesNotMatch(reportModalFormJs, /<textarea[^>]*name="work_done"/);
-assert.doesNotMatch(reportModalFormJs, /<output[^>]*(?:readonly|required|tabindex)/);
-assert.doesNotMatch(reportModalFormJs, /data-report-only-submit|report-only-button/);
+assert.match(reportModalFormJs, /<textarea name="work_done"[^>]*data-report-final-text[^>]*data-report-manual="0"/);
+assert.doesNotMatch(reportModalFormJs, /<input type="hidden" name="work_done"/);
+assert.doesNotMatch(reportModalFormJs, /<output data-report-final-text/);
+assert.match(reportModalFormJs, /data-report-text-regenerate/);
+assert.match(reportModalFormJs, /data-report-only-submit/);
+assert.match(reportModalFormJs, /class="report-action-staging" data-report-preview><\/div>/, 'Accounting actions must be visible in the review card');
 assert.match(reportModalFormJs, /data-report-clear-dialog role="presentation"/);
 assert.match(reportModalFormJs, /role="alertdialog" aria-modal="true"/);
 assert.match(reportModalFormJs, /data-report-draft-clear-cancel/);
@@ -500,7 +502,11 @@ assert.equal(operationsJs.includes('Прогресс по журналу'), fals
 assert.equal(operationsJs.includes('is-progress'), false, 'Historical report cards must not show progress chips');
 assert.match(operationsJs, /Фото в отчётах/);
 assert.match(operationsJs, /confirmed_actions:\s*confirmedActions/);
-assert.doesNotMatch(reportModalFormJs, /data-report-only-submit/);
+assert.match(reportModalFormJs, /data-report-only-submit/);
+assert.match(reportModalFormJs, /Только отчёт/);
+assert.match(reportModalFormJs, /Сохранить и учесть/);
+assert.match(operationsJs, /var reportOnly = !!\(event\.submitter[\s\S]*?\[data-report-only-submit\]/);
+assert.match(operationsJs, /var confirmedActions = reportOnly \? \[\] : reportConfirmedActions\(form, clientRequestId\)/);
 assert.match(operationsJs, /data-report-effect/);
 assert.match(operationsJs, /data-report-effect-qty/);
 assert.match(operationsJs, /data-report-live-assist/);
@@ -515,7 +521,7 @@ assert.match(operationsJs, /delete state\.materialsByProject\[projectId\]/);
 assert.match(operationsJs, /PMBI\.warehouseControl\.load\(projectId, true\)/);
 assert.match(operationsJs, /daily_log_has_applied_actions/);
 assert.match(operationsJs, /report-actions-locked/);
-assert.match(operationsJs, /Сохранить отчёт/);
+assert.match(operationsJs, /Сохранить и учесть/);
 assert.match(operationsJs, /state\.projectLogsByProject\[projectId\] = updatedLogs/);
 assert.match(operationsJs, /name="workers_count" type="number"/);
 assert.match(operationsJs, /name="is_client_visible"/);
@@ -568,7 +574,7 @@ assert.match(finalMaterialMatcherJs, /toOrder/);
 assert.match(finalMaterialMatcherJs, /orderedPending/);
 assert.doesNotMatch(finalMaterialMatcherJs, /if \(!purchase && !used\) used = true/);
 assert.match(appJs, /data-report-effect-qty/);
-assert.doesNotMatch(appJs, /Сохранится только отчёт/);
+assert.match(appJs, /Сохранится только текст отчёта/);
 assert.match(appJs, /function buildProjectReportTextFromMatches/);
 assert.match(appJs, /function reportMatchConsumesClause/);
 assert.match(appJs, /function projectReportPreviewAdditionalClauses/);
@@ -581,7 +587,39 @@ assert.match(appJs, /finalGroups\.innerHTML = renderStructuredFinalReportHtml/);
 assert.match(appJs, /activeDraft\.previewAdditionalClauses = projectReportPreviewAdditionalClauses/);
 assert.match(appJs, /pruneProjectReportManualSelections\(manualSelections, rawText\)/);
 assert.match(appJs, /consumedClauseTexts/);
-assert.ok((appJs.match(/workDone\.value =/g) || []).length >= 2, 'The semantic report output must update after typing and quantity changes');
+assert.match(appJs, /function syncAuthorReportText\(value, force\)/);
+assert.match(appJs, /workDone\.dataset\.reportManual = '1'/);
+assert.match(appJs, /syncAuthorReportText\(activeRawText\)/);
+const effectiveReportPreviewBindStart = appJs.lastIndexOf('bindReportPreview = function ()');
+const effectiveReportPreviewBindEnd = appJs.indexOf('renderProjectReportsPanel = function', effectiveReportPreviewBindStart);
+assert.ok(effectiveReportPreviewBindStart > -1 && effectiveReportPreviewBindEnd > effectiveReportPreviewBindStart, 'The effective report preview binding must be extractable');
+const effectiveReportPreviewBindJs = appJs.slice(effectiveReportPreviewBindStart, effectiveReportPreviewBindEnd);
+assert.doesNotMatch(effectiveReportPreviewBindJs, /workDone\.value\s*=\s*(?:activeDraft|draft)\.text/, 'Structured positions must never overwrite the authored description');
+assert.match(effectiveReportPreviewBindJs, /syncAuthorReportText\(rawText\)/, 'Untouched description must mirror the source verbatim');
+assert.match(effectiveReportPreviewBindJs, /syncAuthorReportText\(rawInput \? rawInput\.value : '', true\)/, 'The explicit reset control must restore the source text');
+const authorTextHelperStart = effectiveReportPreviewBindJs.indexOf('function reportTextIsManual()');
+const authorTextHelperEnd = effectiveReportPreviewBindJs.indexOf('function createManualSelection(', authorTextHelperStart);
+assert.ok(authorTextHelperStart > -1 && authorTextHelperEnd > authorTextHelperStart, 'The authored-text helper must be extractable');
+const authorTextContext = { workDone: { value: '', dataset: {} } };
+vm.runInNewContext(
+  `var workDone = this.workDone;\n${effectiveReportPreviewBindJs.slice(authorTextHelperStart, authorTextHelperEnd)}\nthis.syncAuthorText = syncAuthorReportText;`,
+  authorTextContext,
+  { filename: 'report-author-text.js' },
+);
+const exactAuthorText = 'Сделал ровно 42 кг.\nФормулировку оставляю свою.';
+authorTextContext.syncAuthorText(exactAuthorText);
+assert.equal(authorTextContext.workDone.value, exactAuthorText, 'Untouched report text must remain byte-for-byte authored text');
+authorTextContext.workDone.value = 'Исправленный вручную текст';
+authorTextContext.workDone.dataset.reportManual = '1';
+authorTextContext.syncAuthorText('Парсер предложил другой текст');
+assert.equal(authorTextContext.workDone.value, 'Исправленный вручную текст', 'Parser refreshes must preserve a manual edit');
+authorTextContext.syncAuthorText(exactAuthorText, true);
+assert.equal(authorTextContext.workDone.value, exactAuthorText);
+assert.equal(authorTextContext.workDone.dataset.reportManual, '0');
+assert.match(operationsJs, /workDone:\s*String\(workDoneControl && workDoneControl\.value \|\| ''\)/, 'Draft autosave must retain the edited description');
+assert.match(operationsJs, /workDoneManual:\s*!!\(workDoneControl && workDoneControl\.dataset\.reportManual === '1'\)/, 'Draft autosave must retain the manual-edit flag');
+assert.match(operationsJs, /work_done:\s*snapshot\.workDone/);
+assert.match(operationsJs, /restoredWorkDone\.dataset\.reportManual = snapshot\.workDoneManual \? '1' : '0'/);
 assert.match(appJs, /reviewCard\.hidden = !rawText/);
 assert.match(appJs, /refreshLucideIcons\(liveAssist\)/);
 assert.match(appJs, /previewRoot\.innerHTML = renderReportPreviewHtml[\s\S]*?refreshLucideIcons\(previewRoot\)/);
@@ -592,6 +630,11 @@ assert.ok(finalReportPreviewStart > -1 && finalReportPreviewEnd > finalReportPre
 assert.match(finalReportPreviewJs, /report-action-staging-inner/);
 assert.match(finalReportPreviewJs, /type="checkbox" checked data-report-effect/);
 assert.match(finalReportPreviewJs, /data-report-effect-qty/);
+assert.match(
+  appJs,
+  /var reportQty = input\.checked \? Math\.max\(0, Number\(qtyInput && qtyInput\.value \|\| 0\)\) : 0;/,
+  'Unchecking an accounting action must remove its quantity from the displayed total',
+);
 assert.equal(
   finalReportPreviewJs.includes('report-preview-card-main'),
   false,
@@ -600,6 +643,7 @@ assert.equal(
 assert.equal(finalReportPreviewJs.includes('Пока не нашел работы'), false, 'Empty work cards must not clutter a narrated report');
 assert.equal(finalReportPreviewJs.includes('Материалы пока не найдены'), false, 'Empty material cards must not clutter a narrated report');
 assert.doesNotMatch(finalReportPreviewJs, /report-preview-card|report-effects-summary|Только в отчёт/);
+assert.match(finalReportPreviewJs, /report-effect-card report-effect-staging-row/);
 assert.match(appJs, /function startPrimaryReportVoice\(form\)/);
 assert.match(appJs, /data-report-voice-unavailable/);
 assert.match(appJs, /function reportVoiceUnavailableMessage\(\)/);
@@ -719,8 +763,8 @@ assert.match(storedPartialSupplement.fullText, /Проблемы и ограни
 assert.match(storedPartialSupplement.fullText, /Следующий шаг: Проверить щит\./);
 assert.deepEqual(
   Array.from(storedPartialSupplement.rows.additional, (row) => row.title),
-  ['Ждём электрика'],
-  'Saved additional work must stay separate from blockers and next steps',
+  [],
+  'Free-form author text must not be mislabeled as additional work',
 );
 assert.deepEqual(Array.from(storedPartialSupplement.rows.blockers, (row) => row.title), ['Нет кабеля']);
 assert.deepEqual(Array.from(storedPartialSupplement.rows.next, (row) => row.title), ['Проверить щит']);
@@ -866,12 +910,13 @@ const structuredFinalHtml = formatterContext.renderStructuredFinal({
 }, '', 'Проверить щит <script>alert(1)</script>');
 assert.match(structuredFinalHtml, /data-report-final-section="works"/);
 assert.match(structuredFinalHtml, /data-report-final-section="materials"/);
-assert.match(structuredFinalHtml, /data-report-final-section="blockers"/);
+assert.doesNotMatch(structuredFinalHtml, /data-report-final-section="blockers"/);
 assert.match(structuredFinalHtml, /data-report-final-section="next"/);
 assert.match(structuredFinalHtml, /Работы/);
 assert.match(structuredFinalHtml, /Материалы/);
-assert.match(structuredFinalHtml, /Блокеры/);
+assert.doesNotMatch(structuredFinalHtml, /Блокеры/);
 assert.match(structuredFinalHtml, /Следующий шаг/);
+assert.doesNotMatch(structuredFinalHtml, /Ждём электрика/, 'Free-form description must not be relabeled as a structured blocker');
 assert.equal((structuredFinalHtml.match(/Кабель ВВГ/g) || []).length, 1, 'A recognized material must appear in exactly one structured row');
 assert.doesNotMatch(structuredFinalHtml, /Дополнительное событие/);
 assert.match(structuredFinalHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
@@ -905,8 +950,9 @@ const additionalWorkStructuredHtml = formatterContext.renderStructuredFinal({
   materialMatches: [],
   unmatchedClauses: ['Дополнительно сделали временное освещение'],
 }, '', '');
-assert.match(additionalWorkStructuredHtml, /data-report-final-section="additional"/);
-assert.match(additionalWorkStructuredHtml, /Доп\. работы/);
+assert.doesNotMatch(additionalWorkStructuredHtml, /data-report-final-section="additional"/);
+assert.doesNotMatch(additionalWorkStructuredHtml, /Доп\. работы/);
+assert.doesNotMatch(additionalWorkStructuredHtml, /временное освещение/, 'Free-form author text belongs only to the editable description');
 assert.doesNotMatch(additionalWorkStructuredHtml, /data-report-final-section="(?:blockers|next)"/);
 
 const fullReportText = formatterContext.buildFullReport(
@@ -941,7 +987,7 @@ const partialSupplementHtml = formatterContext.renderStructuredFinal({
   materialMatches: [],
   unmatchedClauses: ['Ждём электрика'],
 }, 'Ждём электрика. Нет кабеля.', 'Ждём электрика. Проверить щит.');
-assert.equal((partialSupplementHtml.match(/Ждём электрика/g) || []).length, 1, 'Structured final report must not duplicate a dictated blocker phrase');
+assert.equal((partialSupplementHtml.match(/Ждём электрика/g) || []).length, 0, 'Structured groups must not repeat a blocker phrase already present in the editable description');
 assert.equal((partialSupplementHtml.match(/Нет кабеля/g) || []).length, 1, 'Structured final report must retain a unique blocker phrase');
 assert.equal((partialSupplementHtml.match(/Проверить щит/g) || []).length, 1, 'Structured final report must retain a unique next-step phrase');
 
@@ -983,6 +1029,9 @@ assert.equal(materialIntentContext.materialIntents.purchase('Заказчик с
 assert.equal(materialIntentContext.materialIntents.receipt('Кабеля ВВГ достаточно'), false);
 assert.equal(materialIntentContext.materialIntents.purchase('Заказали кабель ВВГ'), true);
 assert.equal(materialIntentContext.materialIntents.receipt('Доставили кабель ВВГ'), true);
+assert.equal(materialIntentContext.materialIntents.use('Потратил мастику 42 кг'), true);
+assert.equal(materialIntentContext.materialIntents.use('Израсходовали кабель ВВГ 20 м'), true);
+assert.equal(materialIntentContext.materialIntents.use('Расходовал грунтовку весь день'), true);
 
 const parserBaseStart = appJs.indexOf('function normalizeReportText(value)');
 const parserBaseEnd = appJs.indexOf('function rebuildProjectReportEffects', parserBaseStart);
@@ -1551,7 +1600,10 @@ const reportPreviewEnd = appJs.indexOf('renderProjectReportForm = function', rep
 assert.ok(reportPreviewStart > -1 && reportPreviewEnd > reportPreviewStart, 'The final report preview must be extractable');
 const reportPreviewSource = appJs.slice(reportPreviewStart, reportPreviewEnd);
 assert.match(reportPreviewSource, /report-action-staging-inner/);
-assert.doesNotMatch(reportPreviewSource, /report-effect-metrics|Из отчёта|Итого/);
+assert.match(reportPreviewSource, /report-effect-metrics/);
+assert.match(reportPreviewSource, /Из отчёта/);
+assert.match(reportPreviewSource, /Итого/);
+assert.doesNotMatch(reportPreviewSource, /report-effect-staging-row" hidden/, 'Accounting actions must stay visible before submit');
 assert.match(reportPreviewSource, /work_progress/, 'Work rows in the preview must expose a work_progress effect');
 assert.match(reportPreviewSource, /reportEntryQuantityUnit\(entry\)/, 'Report effect rows must use the sanitized report unit');
 assert.match(appJs, /var safeUnit = suggestion\.kind === 'material' \? reportSafeQuantityUnit\(item\.unit\) : '';/, 'Material suggestions must hide invalid catalog units');

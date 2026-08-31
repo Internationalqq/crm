@@ -41,6 +41,24 @@ class ApiRouteDispatchTests(unittest.TestCase):
         self.assertEqual(calls, [valid])
         self.assertEqual(responses[-1][1], {"error": "not_found"})
 
+    def test_report_correction_routes_are_exact(self) -> None:
+        handler = object.__new__(server.PMBIHandler)
+        calls: list[tuple[str, str]] = []
+        responses: list[tuple[int, dict]] = []
+        handler.api_update_daily_log_text = lambda path: calls.append(("text", path))
+        handler.api_reverse_stock_move = lambda path: calls.append(("stock", path))
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+
+        text_path = "/api/projects/42/daily-logs/17/update"
+        stock_path = "/api/projects/42/stock-moves/73/reverse"
+        server.PMBIHandler.handle_api(handler, "POST", text_path)
+        server.PMBIHandler.handle_api(handler, "POST", stock_path)
+        server.PMBIHandler.handle_api(handler, "POST", text_path + "/nested")
+        server.PMBIHandler.handle_api(handler, "POST", stock_path + "/nested")
+
+        self.assertEqual(calls, [("text", text_path), ("stock", stock_path)])
+        self.assertEqual(responses[-1][1], {"error": "not_found"})
+
     def test_exact_project_delete_still_dispatches_project_delete(self) -> None:
         handler = object.__new__(server.PMBIHandler)
         calls: list[tuple[str, str]] = []

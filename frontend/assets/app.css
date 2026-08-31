@@ -4,7 +4,7 @@
 @import "./css/components.css?v=20260818-section-presence-1";
 @import "./css/projects.css?v=20260826-centered-project-modal-1-project-company-filter-25-company-filter-minimal-26";
 @import "./css/planning.css?v=20260825-production-stepper-neutral-2-production-editor-3-production-scroll-align-1-production-zone-wheel-2-production-zone-cursor-3-production-compact-center-4-production-single-sticky-head-5-production-duration-lift-dotless-6-production-moving-metrics-control-lift-7";
-@import "./css/procurement.css?v=20260822-object-inventory-ledger-1";
+@import "./css/procurement.css?v=20260822-object-inventory-ledger-1-stock-move-reversal-14";
 @import "./css/economics.css?v=20260821-economics-workspace-1";
 @import "./css/operations.css?v=20260818-section-presence-1";
 @import "./css/overrides.css?v=20260821-mist-fade-2-sidebar-motion-2";
@@ -13,7 +13,7 @@
 @import "./css/ui-workspaces.css?v=20260824-schedule-minimal-1-simple-warehouse-1-motion-reveal-2";
 @import "./css/ui-final.css?v=20260821-ui-iteration-4-final-motion-reveal-2-login-guest-entry-1-credential-guest-2";
 @import "./css/ui-qa.css?v=20260821-ui-final-qa-1-quantity-normalization-1-motion-reveal-2";
-@import "./css/project-reports.css?v=20260826-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-modal-neutral-4-report-create-plus-5-report-refresh-8-report-calendar-9-report-calendar-apple-10-foreman-daily-11-foreman-flow-13-report-live-suggestions-16-report-entry-hierarchy-17-report-action-history-18-report-picked-close-right-20-report-rich-shifts-21-report-draft-autosave-24-report-flow-cleanup-27-report-quantity-actions-29-effect-metrics-30-report-icon-minimal-32-report-photo-tone-33-report-sheet-minimal-34-report-resource-remove-right-35-report-final-structured-36-report-saved-structured-37-report-browser-qa-39-report-touch-qa-40-report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52-report-unified-ready-54-report-description-first-55-report-compact-fields-57-label-gap-58";
+@import "./css/project-reports.css?v=20260826-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-modal-neutral-4-report-create-plus-5-report-refresh-8-report-calendar-9-report-calendar-apple-10-foreman-daily-11-foreman-flow-13-report-live-suggestions-16-report-entry-hierarchy-17-report-action-history-18-report-picked-close-right-20-report-rich-shifts-21-report-draft-autosave-24-report-flow-cleanup-27-report-quantity-actions-29-effect-metrics-30-report-icon-minimal-32-report-photo-tone-33-report-sheet-minimal-34-report-resource-remove-right-35-report-final-structured-36-report-saved-structured-37-report-browser-qa-39-report-touch-qa-40-report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52-report-unified-ready-54-report-description-first-55-report-compact-fields-57-label-gap-58-report-corrections-59";
 @import "./css/autobot.css?v=20260824-autobot-scroll-head-1";
 @import "./css/skeletons.css?v=20260821-crm-skeletons-1";
 @import "./css/finance-redesign.css?v=20260824-finance-workspace-1-finance-delete-1-payables-minimal-1";

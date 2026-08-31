@@ -78,6 +78,8 @@ assert.match(moduleSource, /data-warehouse-dialog="' \+ escapeHtml\(name\) \+ '"
 assert.match(moduleSource, /'<div class="warehouse-control-main">' \+ materialsTable\(payload\) \+ '<\/div>'/);
 assert.match(moduleSource, /openWarehouseDialog\('movement', null, false\)/);
 assert.match(moduleSource, /Все операции по складу/);
+assert.match(moduleSource, /warehouse_return_from_project/);
+assert.match(moduleSource, /move\.isReversible === true/);
 assert.match(moduleSource, /data-work-material-norm-form/);
 assert.match(moduleSource, /data-work-fact-form/);
 assert.match(moduleSource, /unaccountedQty/);
@@ -132,6 +134,7 @@ const rendered = browserWindow.PMBI.warehouseControl.render({
     canRecordFacts: true,
     canManageNorms: false,
     canReverseFacts: false,
+    canReverseStockMoves: true,
     works: [],
     norms: [],
     facts: [],
@@ -144,6 +147,26 @@ const rendered = browserWindow.PMBI.warehouseControl.render({
         qty: 10,
         sourceType: 'manual',
         createdAt: 1787385600,
+    }, {
+        id: 2,
+        materialItemId: 7,
+        materialTitle: 'Лампочка',
+        materialUnit: 'шт',
+        moveType: 'use',
+        qty: 1,
+        sourceType: 'manual',
+        isReversible: true,
+        createdAt: 1787385601,
+    }, {
+        id: 3,
+        materialItemId: 7,
+        materialTitle: 'Лампочка',
+        materialUnit: 'шт',
+        moveType: 'use',
+        qty: 1,
+        sourceType: 'warehouse_return_from_project',
+        isReversible: false,
+        createdAt: 1787385602,
     }],
     materials: [{
         id: 7,
@@ -194,6 +217,8 @@ assert.match(rendered, /data-label="Потрачено" aria-label="Потрач
 assert.match(rendered, /Всё использовано/);
 assert.doesNotMatch(rendered, /data-material-move=|<div class="warehouse-material-actions">/);
 assert.match(rendered, /Все операции по складу/);
+assert.match(rendered, /data-reverse-stock-move="2"/);
+assert.doesNotMatch(rendered, /data-reverse-stock-move="3"/);
 assert.match(rendered, /data-warehouse-dialog="movement" hidden/);
 assert.match(rendered, /data-select-material-button="7"/);
 assert.doesNotMatch(rendered, /warehouse-material-card[^>]*role="button"/);

@@ -5627,33 +5627,8 @@ function renderLogsDayView(project, logs) {
             addUnique(materialRows, entry.item && entry.item.title || 'Материал', details.join(' · ') || reportMatchSourceText(entry) || 'Упомянуто в отчёте');
         });
 
-        (draft.unmatchedClauses || []).forEach(function (clause) {
-            var category = projectReportClauseCategory(clause);
-            var labels = {
-                order: 'Заказ',
-                purchase: 'Покупка',
-                delivery: 'Поставка',
-                work: 'Дополнительная работа',
-                note: 'Дополнительно'
-            };
-            if (category === 'order' || category === 'purchase' || category === 'delivery') {
-                addUnique(materialRows, clause, labels[category]);
-                return;
-            }
-            if (category === 'work') {
-                addUnique(additionalRows, clause, labels.work);
-                return;
-            }
-            if (category === 'blocker') {
-                addUnique(blockerRows, clause, 'Блокер');
-                return;
-            }
-            if (category === 'next') {
-                addUnique(nextRows, clause, 'Следующий шаг');
-                return;
-            }
-            addUnique(additionalRows, clause, labels.note);
-        });
+        // Free-form author text stays free-form. Only catalog matches and the
+        // dedicated blocker/next-step fields become structured groups.
 
         var uniqueSupplementalPhrases = createReportPhraseDeduper(
             draft.text || (draft.unmatchedClauses || []).join('. ')
@@ -7577,7 +7552,7 @@ function renderLogsDayView(project, logs) {
 
     function reportHasUseIntent(text) {
         var normalized = normalizeReportText(text);
-        return /(^|\s)(?:установил(?:а|и)?|установлен(?:а|о|ы)?|смонтировал(?:а|и)?|смонтирован(?:а|о|ы)?|монтировал(?:а|и)?|монтирован(?:а|о|ы)?|уложил(?:а|и)?|уложен(?:а|о|ы)?|использовал(?:а|и)?|использован(?:а|о|ы)?|применил(?:а|и)?|применен(?:а|о|ы)?|передал(?:а|и)?|передан(?:а|о|ы)?|провел(?:а|и)?|проведен(?:а|о|ы)?|проложил(?:а|и)?|проложен(?:а|о|ы)?|поставил(?:а|и)?|поставлен(?:а|о|ы)?|подключил(?:а|и)?|подключен(?:а|о|ы)?)(?=\s|$)/.test(normalized);
+        return /(^|\s)(?:установил(?:а|и)?|установлен(?:а|о|ы)?|смонтировал(?:а|и)?|смонтирован(?:а|о|ы)?|монтировал(?:а|и)?|монтирован(?:а|о|ы)?|уложил(?:а|и)?|уложен(?:а|о|ы)?|использовал(?:а|и)?|использован(?:а|о|ы)?|потратил(?:а|и)?|израсходовал(?:а|и)?|расходовал(?:а|и)?|израсходован(?:а|о|ы)?|применил(?:а|и)?|применен(?:а|о|ы)?|передал(?:а|и)?|передан(?:а|о|ы)?|провел(?:а|и)?|проведен(?:а|о|ы)?|проложил(?:а|и)?|проложен(?:а|о|ы)?|поставил(?:а|и)?|поставлен(?:а|о|ы)?|подключил(?:а|и)?|подключен(?:а|о|ы)?)(?=\s|$)/.test(normalized);
     }
 
     function reportHasWorkCompletionIntent(text) {
@@ -7590,7 +7565,7 @@ function renderLogsDayView(project, logs) {
 
     function reportTextClauses(value) {
         var clauses = String(value || '')
-            .split(/\n|[.!?;]+|,\s*(?:и\s+)?(?=(?:там\s+)?(?:(?:дополнительно|также|потом|затем|еще|ещё)\s+)?(?:демонт|постав|куп|закуп|заказ|приобр|сдел|выполн|смонт|монт|установ|улож|использ|примен|перед|привез|завез|достав|получ|закры|покрас|залил|подключ|собрал|подготов|почин|отремонт|восстанов|провел|провёл|произвел|произвёл|убрал))|\s+(?:и\s+)?(?=(?:(?:дополнительно|также|потом|затем|еще|ещё)\s+)?(?:купили|купил|закупили|заказали|заказал|приобрели|сделали|сделал|выполнили|выполнил|смонтировали|установили|уложили|демонтировали|покрасили|покрасил|залили|залил|подключили|подключил|собрали|собрал|подготовили|подготовил|починили|починил|отремонтировали|отремонтировал|восстановили|восстановил|провели|провел|провёл|произвели|произвел|произвёл|убрали|убрал|привезли|завезли|доставили|получили|приняли|ждем|ждём|планируем|будем)(?=\s|$))/i)
+            .split(/\n|[.!?;]+|,\s*(?:и\s+)?(?=(?:там\s+)?(?:(?:дополнительно|также|потом|затем|еще|ещё)\s+)?(?:демонт|постав|куп|закуп|заказ|приобр|сдел|выполн|смонт|монт|установ|улож|использ|потрат|израсход|расход|примен|перед|привез|завез|достав|получ|закры|покрас|залил|подключ|собрал|подготов|почин|отремонт|восстанов|провел|провёл|произвел|произвёл|убрал))|\s+(?:и\s+)?(?=(?:(?:дополнительно|также|потом|затем|еще|ещё)\s+)?(?:купили|купил|закупили|заказали|заказал|приобрели|сделали|сделал|выполнили|выполнил|смонтировали|установили|уложили|использовали|использовал|потратили|потратил|израсходовали|израсходовал|расходовали|расходовал|демонтировали|покрасили|покрасил|залили|залил|подключили|подключил|собрали|собрал|подготовили|подготовил|починили|починил|отремонтировали|отремонтировал|восстановили|восстановил|провели|провел|провёл|произвели|произвел|произвёл|убрали|убрал|привезли|завезли|доставили|получили|приняли|ждем|ждём|планируем|будем)(?=\s|$))/i)
             .map(function (part) { return part.trim(); })
             .filter(Boolean);
         clauses = clauses.reduce(function (result, clause) {
@@ -7606,7 +7581,7 @@ function renderLogsDayView(project, logs) {
             }
             return result;
         }, []);
-        var actionWordPattern = /(?:^|\s)(купили|купил|купила|закупили|закупил|закупила|заказали|заказал|заказала|заказаны|заказан|заказана|заказано|приобрели|приобрел|приобрела|привезли|привез|привезла|завезли|завез|завезла|доставили|доставил|доставила|получили|получил|получила|приняли|принял|приняла|использовали|использовал|использовала|передали|передал|передала|сделали|сделал|сделала|выполнили|выполнил|выполнила|смонтировали|смонтировал|смонтировала|смонтированы|смонтирован|смонтирована|смонтировано|установили|установил|установила|уложили|уложил|уложила|демонтировали|демонтировал|демонтировала|покрасили|покрасил|покрасила|залили|залил|залила|подключили|подключил|подключила|собрали|собрал|собрала|подготовили|подготовил|подготовила|починили|починил|починила|отремонтировали|отремонтировал|отремонтировала|восстановили|восстановил|восстановила|провели|провел|провёл|произвели|произвел|произвёл|убрали|убрал|убрала)(?=\s|$)/i;
+        var actionWordPattern = /(?:^|\s)(купили|купил|купила|закупили|закупил|закупила|заказали|заказал|заказала|заказаны|заказан|заказана|заказано|приобрели|приобрел|приобрела|привезли|привез|привезла|завезли|завез|завезла|доставили|доставил|доставила|получили|получил|получила|приняли|принял|приняла|использовали|использовал|использовала|потратили|потратил|потратила|израсходовали|израсходовал|израсходовала|расходовали|расходовал|расходовала|передали|передал|передала|сделали|сделал|сделала|выполнили|выполнил|выполнила|смонтировали|смонтировал|смонтировала|смонтированы|смонтирован|смонтирована|смонтировано|установили|установил|установила|уложили|уложил|уложила|демонтировали|демонтировал|демонтировала|покрасили|покрасил|покрасила|залили|залил|залила|подключили|подключил|подключила|собрали|собрал|собрала|подготовили|подготовил|подготовила|починили|починил|починила|отремонтировали|отремонтировал|отремонтировала|восстановили|восстановил|восстановила|провели|провел|провёл|произвели|произвел|произвёл|убрали|убрал|убрала)(?=\s|$)/i;
         var quantityWithUnitPattern = /\d+(?:[\.,]\d+)?\s*(?:шт\.?|штук[аи]?|ед\.?|м(?:2|3|²|³)?|кв\.?\s*м|куб\.?\s*м|кг|т|л|компл(?:ект)?(?:ов|а)?|упак(?:овок|овки|овка)?)(?=\s|$)/i;
         var enumeratedBoundaryPattern = /(?:\s+(?:и|а)\s+|,\s*)(?=[^,.;!?]{0,72}\d+(?:[\.,]\d+)?\s*(?:шт\.?|штук[аи]?|ед\.?|м(?:2|3|²|³)?|кв\.?\s*м|куб\.?\s*м|кг|т|л|компл(?:ект)?(?:ов|а)?|упак(?:овок|овки|овка)?)(?=\s|$))/i;
         return clauses.reduce(function (result, clause) {
@@ -8104,6 +8079,17 @@ function renderLogsDayView(project, logs) {
             var manualSelections = {};
             var effectOverrides = {};
 
+            function reportTextIsManual() {
+                return !!(workDone && workDone.dataset.reportManual === '1');
+            }
+
+            function syncAuthorReportText(value, force) {
+                if (!workDone || (!force && reportTextIsManual())) return;
+                workDone.value = String(value || '');
+                workDone.dataset.reportManual = '0';
+                workDone.dataset.autogenerated = '1';
+            }
+
             function createManualSelection(suggestion, clauseText) {
                 var selected = Object.assign({}, suggestion || {});
                 var candidate = selected.candidate || {};
@@ -8170,7 +8156,7 @@ function renderLogsDayView(project, logs) {
                 qsa('[data-report-effect]', previewRoot).forEach(function (input) {
                     var override = effectOverrides[reportEffectOverrideKey(input)];
                     if (!override) return;
-                    input.checked = true;
+                    input.checked = override.checked !== false;
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
                     if (!qtyInput || !isFinite(Number(override.qty)) || Number(override.qty) <= 0) return;
@@ -8508,19 +8494,17 @@ function renderLogsDayView(project, logs) {
                     form.blockers && form.blockers.value || '',
                     form.next_steps && form.next_steps.value || ''
                 );
-                if (finalText) finalText.value = activeRawText ? buildProjectReportFullText(
-                    activeDraft.text,
-                    form.blockers && form.blockers.value || '',
-                    form.next_steps && form.next_steps.value || ''
-                ) : '';
+                if (finalText && finalText === workDone) syncAuthorReportText(activeRawText);
                 var workforceRows = qsa('[data-report-resource-row="workforce"]', form).map(function (row) {
                     var label = qs('[data-report-resource-label]', row);
                     var count = qs('[data-report-resource-count]', row);
                     var hours = qs('[data-report-resource-hours]', row);
+                    var names = qs('[data-report-resource-names]', row);
                     return {
                         label: String(label && label.value || '').trim(),
                         count: Math.max(0, Number(count && count.value || 0)),
-                        hours: Math.max(0, Number(hours && hours.value || 0))
+                        hours: Math.max(0, Number(hours && hours.value || 0)),
+                        names: String(names && names.value || '').split(/[\r\n;]+/).map(function (name) { return name.replace(/\s+/g, ' ').trim(); }).filter(Boolean)
                     };
                 }).filter(function (entry) { return entry.label && entry.count > 0; });
                 var equipmentRows = qsa('[data-report-resource-row="equipment"]', form).map(function (row) {
@@ -8558,7 +8542,8 @@ function renderLogsDayView(project, logs) {
                 }
                 if (finalShift) {
                     var shiftRows = workforceRows.map(function (entry) {
-                        return '<li><span class="report-final-row-copy"><b>' + escapeHtml(entry.label) + '</b><small>' + escapeHtml(finalSectionSummaryNumber(entry.count) + ' чел. · ' + finalSectionSummaryNumber(entry.hours) + ' ч/чел. · ' + finalSectionSummaryNumber(entry.count * entry.hours) + ' чел.-ч') + '</small></span></li>';
+                        var namesCopy = entry.names.length ? '<span class="report-final-worker-names">' + entry.names.map(function (name) { return '<em>' + escapeHtml(name) + '</em>'; }).join('') + '</span>' : '';
+                        return '<li><span class="report-final-row-copy"><b>' + escapeHtml(entry.label) + '</b><small>' + escapeHtml(finalSectionSummaryNumber(entry.count) + ' чел. · ' + finalSectionSummaryNumber(entry.hours) + ' ч/чел. · ' + finalSectionSummaryNumber(entry.count * entry.hours) + ' чел.-ч') + '</small>' + namesCopy + '</span></li>';
                     }).concat(equipmentRows.map(function (entry) {
                         return '<li><span class="report-final-row-copy"><b>' + escapeHtml(entry.label) + '</b><small>' + escapeHtml(finalSectionSummaryNumber(entry.count) + ' ед. · ' + finalSectionSummaryNumber(entry.hours) + ' ч · ' + finalSectionSummaryNumber(entry.count * entry.hours) + ' маш.-ч') + '</small></span></li>';
                     }));
@@ -8637,17 +8622,24 @@ function renderLogsDayView(project, logs) {
                 activeDraft.text = buildProjectReportTextFromMatches(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
                 activeDraft.unmatchedClauses = projectReportUnmatchedClauses(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
                 activeDraft.previewAdditionalClauses = projectReportPreviewAdditionalClauses(activeRawText, activeDraft.workMatches, activeDraft.materialMatches);
-                if (workDone) workDone.value = activeRawText ? activeDraft.text : '';
+                syncAuthorReportText(activeRawText);
                 refreshStructuredFinalReport();
             }
             function refreshEffectsSummary() {
                 if (!previewRoot) return;
                 syncReportTextFromEffectQuantities();
                 qsa('[data-report-effect]', previewRoot).forEach(function (input) {
-                    input.checked = true;
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
-                    if (qtyInput) qtyInput.disabled = false;
+                    if (qtyInput) qtyInput.disabled = !input.checked;
+                    if (card && card.classList) card.classList.toggle('is-disabled', !input.checked);
+                    var resultNode = card ? qs('[data-report-effect-result]', card) : null;
+                    if (resultNode) {
+                        var baseQty = Math.max(0, Number(input.getAttribute('data-effect-base') || 0));
+                        var reportQty = input.checked ? Math.max(0, Number(qtyInput && qtyInput.value || 0)) : 0;
+                        var unitNode = card ? qs('.report-effect-quantity em', card) : null;
+                        resultNode.textContent = finalSectionSummaryNumber(baseQty + reportQty) + ' ' + String(unitNode && unitNode.textContent || 'ед.');
+                    }
                 });
             }
             function refreshPreview(options) {
@@ -8664,10 +8656,7 @@ function renderLogsDayView(project, logs) {
                 activeDraft = draft;
                 activeRawText = rawText;
                 if (reviewCard) reviewCard.hidden = !rawText;
-                if (workDone) {
-                    workDone.value = rawText ? draft.text : '';
-                    workDone.dataset.autogenerated = '1';
-                }
+                syncAuthorReportText(rawText);
                 if (titleInput) {
                     titleInput.value = 'Отчет за ' + (form.report_date && form.report_date.value ? form.report_date.value : APP_TODAY);
                     titleInput.dataset.autogenerated = '1';
@@ -8681,6 +8670,18 @@ function renderLogsDayView(project, logs) {
                 refreshEffectsSummary();
             }
             if (rawInput) rawInput.addEventListener('input', refreshPreview);
+            if (workDone) workDone.addEventListener('input', function () {
+                workDone.dataset.reportManual = '1';
+                workDone.dataset.autogenerated = '0';
+                notifyReportDraftChanged();
+            });
+            var regenerateTextButton = qs('[data-report-text-regenerate]', form);
+            if (regenerateTextButton) regenerateTextButton.addEventListener('click', function () {
+                syncAuthorReportText(rawInput ? rawInput.value : '', true);
+                refreshStructuredFinalReport();
+                notifyReportDraftChanged();
+                if (workDone) workDone.focus();
+            });
             if (form.report_date) form.report_date.addEventListener('change', refreshPreview);
             [form.blockers, form.next_steps].forEach(function (control) {
                 if (control) control.addEventListener('input', refreshStructuredFinalReport);
@@ -8776,6 +8777,10 @@ function renderLogsDayView(project, logs) {
                 manualSelections = {};
                 activeSuggestionsByKey = {};
                 effectOverrides = {};
+                if (workDone) {
+                    workDone.dataset.reportManual = '0';
+                    workDone.dataset.autogenerated = '1';
+                }
             });
             form._reportPreviewDraftController = {
                 serialize: reportPreviewDraftSnapshot,
@@ -8878,10 +8883,19 @@ function renderLogsDayView(project, logs) {
             var controlId = 'report-effect-' + String(item.id || 'item') + '-' + String(effectCount);
             var safeQty = Math.min(Number(qty) || 0, Number(maxQty) || 0);
             var resultQty = Math.min(Number(plannedQty) || (Number(baseQty) + safeQty), Number(baseQty) + safeQty);
-            return '<span class="report-effect-card report-effect-staging-row" hidden>' +
-                '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(safeQty) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-effect-base="' + escapeHtml(Number(baseQty) || 0) + '" data-original-effect-qty="' + escapeHtml(safeQty) + '" data-quantity-mode="' + escapeHtml(quantityMode || 'delta_qty') + '" data-input-value="' + escapeHtml(quantityValue != null ? quantityValue : safeQty) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
-                '<input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(safeQty) + '" data-report-effect-qty tabindex="-1" aria-hidden="true">' +
-            '</span>';
+            return '<div class="report-effect-card report-effect-staging-row is-' + escapeHtml(kind) + '">' +
+                '<label class="report-effect-toggle" for="' + escapeHtml(controlId) + '">' +
+                    '<input id="' + escapeHtml(controlId) + '" type="checkbox" checked data-report-effect data-effect-kind="' + escapeHtml(kind) + '" data-item-id="' + escapeHtml(item.id || '') + '" data-effect-qty="' + escapeHtml(safeQty) + '" data-effect-max="' + escapeHtml(Number(maxQty)) + '" data-effect-base="' + escapeHtml(Number(baseQty) || 0) + '" data-original-effect-qty="' + escapeHtml(safeQty) + '" data-quantity-mode="' + escapeHtml(quantityMode || 'delta_qty') + '" data-input-value="' + escapeHtml(quantityValue != null ? quantityValue : safeQty) + '" data-client-action-id="' + escapeHtml(actionId) + '">' +
+                    '<span class="report-effect-check" aria-hidden="true"><i data-lucide="check"></i></span>' +
+                    '<span class="report-effect-copy"><b>' + escapeHtml(label) + '</b><strong>' + escapeHtml(item.title || 'Позиция') + '</strong><small>' + escapeHtml(note) + '</small></span>' +
+                '</label>' +
+                '<div class="report-effect-metrics">' +
+                    '<span class="report-effect-metric"><small>План</small><b>' + escapeHtml(reportEffectValue(plannedQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
+                    '<span class="report-effect-metric"><small>' + escapeHtml(baseLabel || 'Уже учтено') + '</small><b>' + escapeHtml(reportEffectValue(baseQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
+                    '<label class="report-effect-quantity report-effect-metric"><span>Из отчёта</span><input type="number" min="0.001" max="' + escapeHtml(Number(maxQty)) + '" step="0.001" value="' + escapeHtml(safeQty) + '" data-report-effect-qty aria-label="Количество из отчёта: ' + escapeHtml(item.title || 'позиция') + '"><em>' + escapeHtml(unit || 'ед.') + '</em></label>' +
+                    '<span class="report-effect-metric report-effect-result"><small>Итого</small><b data-report-effect-result>' + escapeHtml(reportEffectValue(resultQty)) + ' ' + escapeHtml(unit || 'ед.') + '</b></span>' +
+                '</div>' +
+            '</div>';
         }
         function materialEffect(entry, kind, qty, maxQty, label, note) {
             var item = entry.item || {};
@@ -8936,7 +8950,8 @@ function renderLogsDayView(project, logs) {
                 }).join(''));
         }
         html.push('</div>');
-        return html.join('');
+        if (!effectCount) return '<div class="report-action-staging-empty"><i data-lucide="file-text" aria-hidden="true"></i><span><b>Сохранится только текст отчёта</b><small>Учёт работ и материалов не изменится</small></span></div>';
+        return '<div class="report-action-staging-head"><span><i data-lucide="list-checks" aria-hidden="true"></i><b>Что попадёт в учёт</b></span><small>Снимите галочку или исправьте количество</small></div>' + html.join('');
     };
 
     renderProjectReportForm = function (project) {

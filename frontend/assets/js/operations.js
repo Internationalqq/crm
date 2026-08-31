@@ -182,7 +182,70 @@
         }
         return '<button class="ghost report-delete-btn' + (compact ? ' compact' : '') + '" type="button" data-project-report-delete="' + escapeHtml(log.id) + '" data-project-id="' + escapeHtml(projectId) + '" aria-label="Удалить отчет" title="Удалить отчет"><i data-lucide="trash-2"></i><span>Удалить</span></button>';
     }
+    function renderProjectReportEditButton(projectId, log, compact) {
+        if (!canCreateProjectReport() || !projectId || !log || !log.id || projectReportEntryKind(log) === 'section-progress') return '';
+        return '<button class="ghost report-edit-btn' + (compact ? ' compact' : '') + '" type="button" data-project-report-edit="' + escapeHtml(log.id) + '" data-project-id="' + escapeHtml(projectId) + '" aria-label="Исправить текст отчёта" title="Исправить текст отчёта"><i data-lucide="pencil-line"></i><span>Исправить</span></button>';
+    }
+
+    function projectReportLogById(projectId, logId) {
+        var logs = state.projectLogsByProject && state.projectLogsByProject[Number(projectId)] || [];
+        return logs.find(function (log) { return Number(log && log.id || 0) === Number(logId); }) || null;
+    }
+
+    function reloadProjectReportsAfterChange(projectId) {
+        if (state.materialsByProject) delete state.materialsByProject[projectId];
+        if (window.PMBI && PMBI.warehouseControl && typeof PMBI.warehouseControl.load === 'function') {
+            PMBI.warehouseControl.load(projectId, true);
+        }
+        refreshProjectOverview(projectId);
+        refreshReminderBell();
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || state.selectedProject || { id: projectId, title: 'Объект' };
+        loadProjectLogs(projectId, function (logs) {
+            loadProjectNotifications(projectId, function (notifications) {
+                renderLogsStats(logs, notifications);
+                renderLogsAlerts(notifications);
+                renderLogsCalendar(project, logs);
+                renderLogsList(project, logs);
+            });
+        });
+    }
     function bindProjectReportDeleteActions() {
+        qsa('[data-project-report-edit]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                openProjectReportTextEditor(Number(button.dataset.projectId || 0), Number(button.dataset.projectReportEdit || 0));
+            });
+        });
+        qsa('[data-report-stock-move-reverse]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var projectId = Number(button.dataset.projectId || 0);
+                var stockMoveId = Number(button.dataset.reportStockMoveReverse || 0);
+                if (!projectId || !stockMoveId || !window.confirm('Отменить этот расход и вернуть количество в остаток материала?')) return;
+                button.disabled = true;
+                api('/api/projects/' + projectId + '/stock-moves/' + stockMoveId + '/reverse', {
+                    method: 'POST',
+                    body: JSON.stringify({ reason: 'Исправление ошибочного расхода из дневного отчёта' })
+                }).then(function () {
+                    showAppNotice('Расход отменён, количество возвращено в остаток.', 'success');
+                    reloadProjectReportsAfterChange(projectId);
+                }).catch(function (error) {
+                    button.disabled = false;
+                    showAppNotice(appErrorMessage(error, 'Не удалось отменить расход.'), 'error');
+                });
+            });
+        });
+        qsa('[data-report-worker-statement]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var projectId = Number(button.dataset.projectId || 0);
+                var log = projectReportLogById(projectId, Number(button.dataset.reportWorkerStatement || 0));
+                if (log) openProjectReportWorkerStatement(projectId, log);
+            });
+        });
         qsa('[data-project-report-delete]').forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -218,6 +281,108 @@
             });
         });
     }
+
+    function closeProjectReportTextEditor(dialog) {
+        if (!dialog) return;
+        if (typeof dialog.close === 'function' && dialog.open) dialog.close();
+        else dialog.removeAttribute('open');
+    }
+
+    function ensureProjectReportTextEditor() {
+        var dialog = qs('[data-report-text-editor]');
+        if (dialog) return dialog;
+        dialog = document.createElement('dialog');
+        dialog.className = 'report-text-editor';
+        dialog.setAttribute('data-report-text-editor', '');
+        dialog.innerHTML = '<form class="report-text-editor-card" data-report-text-editor-form><div class="report-text-editor-head"><div><b>Исправить отчёт</b><small>Учёт работ и материалов останется без изменений</small></div><button type="button" data-report-text-editor-close aria-label="Закрыть"><i data-lucide="x" aria-hidden="true"></i></button></div><label><span>Описание дня</span><textarea name="work_done" rows="8" required></textarea></label><label><span>Блокеры</span><textarea name="blockers" rows="2"></textarea></label><label><span>Следующий шаг</span><input name="next_steps"></label><div class="form-error" data-report-text-editor-error role="alert"></div><div class="report-text-editor-actions"><button class="ghost" type="button" data-report-text-editor-close>Отмена</button><button class="primary" type="submit">Сохранить исправления</button></div></form>';
+        document.body.appendChild(dialog);
+        refreshLucideIcons(dialog);
+        qsa('[data-report-text-editor-close]', dialog).forEach(function (button) {
+            button.addEventListener('click', function () { closeProjectReportTextEditor(dialog); });
+        });
+        dialog.addEventListener('click', function (event) { if (event.target === dialog) closeProjectReportTextEditor(dialog); });
+        var form = qs('[data-report-text-editor-form]', dialog);
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var projectId = Number(dialog.dataset.projectId || 0);
+            var logId = Number(dialog.dataset.logId || 0);
+            var error = qs('[data-report-text-editor-error]', form);
+            if (error) { error.textContent = ''; error.classList.remove('active'); }
+            withSubmitLock(form, function () {
+                return api('/api/projects/' + projectId + '/daily-logs/' + logId + '/update', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        work_done: form.elements.work_done.value.trim(),
+                        blockers: form.elements.blockers.value.trim(),
+                        next_steps: form.elements.next_steps.value.trim()
+                    })
+                }).then(function (data) {
+                    var logs = state.projectLogsByProject && state.projectLogsByProject[projectId];
+                    if (data && data.log && Array.isArray(logs)) {
+                        state.projectLogsByProject[projectId] = logs.map(function (log) {
+                            return Number(log.id) === Number(data.log.id) ? data.log : log;
+                        });
+                    }
+                    closeProjectReportTextEditor(dialog);
+                    showAppNotice('Текст отчёта исправлен. Учёт не изменён.', 'success');
+                    reloadProjectReportsAfterChange(projectId);
+                }).catch(function (requestError) {
+                    var message = appErrorMessage(requestError, 'Не удалось сохранить исправления.');
+                    if (error) { error.textContent = message; error.classList.add('active'); }
+                    showAppNotice(message, 'error');
+                });
+            });
+        });
+        return dialog;
+    }
+
+    function openProjectReportTextEditor(projectId, logId) {
+        var log = projectReportLogById(projectId, logId);
+        if (!log) return;
+        var dialog = ensureProjectReportTextEditor();
+        var form = qs('[data-report-text-editor-form]', dialog);
+        dialog.dataset.projectId = String(projectId);
+        dialog.dataset.logId = String(logId);
+        form.elements.work_done.value = String(log.work_done || '');
+        form.elements.blockers.value = String(log.blockers || '');
+        form.elements.next_steps.value = String(log.next_steps || '');
+        var error = qs('[data-report-text-editor-error]', form);
+        if (error) { error.textContent = ''; error.classList.remove('active'); }
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
+        setTimeout(function () { form.elements.work_done.focus(); }, 30);
+    }
+
+    function openProjectReportWorkerStatement(projectId, log) {
+        var workforce = Array.isArray(log && log.workforce) ? log.workforce : [];
+        var rows = [];
+        workforce.forEach(function (entry) {
+            (Array.isArray(entry.names) ? entry.names : []).forEach(function (name) {
+                rows.push({ name: name, role: entry.role || '', hours: entry.hours || 0 });
+            });
+        });
+        if (!rows.length) {
+            showAppNotice('Сначала укажите ФИО работников в составе смены.', 'warn');
+            return;
+        }
+        var project = state.projects.find(function (item) { return Number(item.id) === Number(projectId); }) || {};
+        var popup = window.open('', '_blank');
+        if (!popup) {
+            showAppNotice('Браузер заблокировал окно ведомости. Разрешите всплывающие окна и повторите.', 'error');
+            return;
+        }
+        try { popup.opener = null; } catch (error) {}
+        var title = 'Ведомость на подпись — ' + String(project.title || 'Объект');
+        var bodyRows = rows.map(function (worker, index) {
+            return '<tr><td>' + escapeHtml(index + 1) + '</td><td>' + escapeHtml(worker.name) + '</td><td>' + escapeHtml(worker.role) + '</td><td>' + escapeHtml(finalSectionSummaryNumber(worker.hours)) + '</td><td class="blank"></td><td class="signature"></td><td class="date"></td></tr>';
+        }).join('');
+        var html = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escapeHtml(title) + '</title><style>body{margin:0;padding:32px;font:14px Arial,sans-serif;color:#111}h1{margin:0 0 8px;font-size:22px}p{margin:4px 0}.meta{margin:0 0 24px;color:#444}.toolbar{margin-bottom:20px}.toolbar button{padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{height:42px;padding:7px;border:1px solid #222;text-align:left;vertical-align:middle}th{background:#f1f5f9;font-size:12px}th:first-child,td:first-child{width:34px;text-align:center}th:nth-child(4),td:nth-child(4){width:58px;text-align:center}th:nth-child(5),td:nth-child(5){width:90px}th:nth-child(6),td:nth-child(6){width:110px}th:nth-child(7),td:nth-child(7){width:80px}.note{margin-top:12px;font-size:12px;color:#555}@media print{body{padding:0}.toolbar{display:none}@page{size:A4 landscape;margin:12mm}}</style></head><body><div class="toolbar"><button type="button" onclick="window.print()">Печать / сохранить PDF</button></div><h1>Ведомость о получении денежных средств</h1><div class="meta"><p><b>Объект:</b> ' + escapeHtml(project.title || '—') + '</p><p><b>Смена:</b> ' + escapeHtml(finalGraphDate(log.report_date)) + '</p><p><b>Отчёт:</b> ' + escapeHtml(log.title || ('№ ' + log.id)) + '</p></div><table><thead><tr><th>№</th><th>ФИО</th><th>Специальность</th><th>Часов</th><th>Сумма</th><th>Подпись</th><th>Дата</th></tr></thead><tbody>' + bodyRows + '</tbody></table><p class="note">Сумма, подпись и дата заполняются при фактической выдаче денежных средств. Формирование ведомости само по себе не отмечает выплату в системе.</p></body></html>';
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+        popup.focus();
+    }
+
     function teamCurrentUser() {
         return (window.PMBI && window.PMBI.state && window.PMBI.state.currentUser) || null;
     }
@@ -3840,6 +4005,7 @@
                         '<span class="badge">' + escapeHtml(finalGraphDate(log.report_date)) + '</span>' +
                         '<span class="badge">' + escapeHtml(log.workers_count || 0) + ' \u0447\u0435\u043b.</span>' +
                         '<span class="badge ' + (Number(log.is_client_visible) === 1 ? '' : 'warn') + '">' + visibility + '</span>' +
+                        renderProjectReportEditButton(project && project.id, log, true) +
                         renderProjectReportDeleteButton(project && project.id, log, true) +
                     '</div>' +
                 '</div>' +
@@ -3936,6 +4102,9 @@
             bad_workforce_label: 'Укажите специальность или название бригады.',
             bad_workforce_count: 'Количество людей должно быть целым числом больше нуля.',
             bad_workforce_hours: 'Часы смены должны быть больше нуля и не больше 24.',
+            bad_workforce_names: 'Проверьте список ФИО работников.',
+            bad_workforce_name: 'ФИО работника слишком длинное.',
+            too_many_workforce_names: 'В одном отчёте указано слишком много работников.',
             bad_equipment_entries: 'Не удалось прочитать список техники.',
             bad_equipment_entry: 'Проверьте строки техники.',
             bad_equipment_label: 'Укажите вид техники.',
@@ -3958,12 +4127,25 @@
     function reportResourceRowHtml(kind) {
         var config = reportResourceConfig(kind);
         var datalist = kind === 'equipment' ? 'report-equipment-types' : 'report-workforce-types';
-        return '<div class="report-resource-row" data-report-resource-row="' + kind + '">' +
+        return '<div class="report-resource-row' + (kind === 'workforce' ? ' is-workforce-row' : '') + '" data-report-resource-row="' + kind + '">' +
             '<label class="report-resource-name"><span>' + (kind === 'equipment' ? 'Вид техники' : 'Специалист / бригада') + '</span><input type="text" list="' + datalist + '" placeholder="' + config.placeholder + '" data-report-resource-label></label>' +
             '<label><span>Количество</span><input type="number" min="1" max="999" step="1" value="1" inputmode="numeric" data-report-resource-count></label>' +
             '<label><span>' + (kind === 'equipment' ? 'Часов работы' : 'Часов на человека') + '</span><input type="number" min="0.25" max="24" step="0.25" value="8" inputmode="decimal" data-report-resource-hours></label>' +
+            (kind === 'workforce' ? '<label class="report-resource-workers"><span>ФИО работников · по одному в строке</span><textarea rows="2" placeholder="Иванов Иван Иванович&#10;Петров Пётр Сергеевич" data-report-resource-names></textarea><small>Количество людей подставится по списку автоматически</small></label>' : '') +
             '<button class="report-resource-remove" type="button" data-report-resource-remove aria-label="Удалить строку ' + config.label.toLowerCase() + '"><i data-lucide="x" aria-hidden="true"></i></button>' +
         '</div>';
+    }
+
+    function reportWorkerNames(value) {
+        var seen = {};
+        return String(value || '').split(/[\r\n;]+/).map(function (name) {
+            return name.replace(/\s+/g, ' ').trim();
+        }).filter(function (name) {
+            var key = name.toLowerCase();
+            if (!name || seen[key]) return false;
+            seen[key] = true;
+            return true;
+        }).slice(0, 250);
     }
 
     function reportResourceRows(form, kind) {
@@ -3976,6 +4158,11 @@
         reportResourceRows(form, kind).forEach(function (row) {
             var countInput = qs('[data-report-resource-count]', row);
             var hoursInput = qs('[data-report-resource-hours]', row);
+            var namesInput = kind === 'workforce' ? qs('[data-report-resource-names]', row) : null;
+            var names = reportWorkerNames(namesInput && namesInput.value || '');
+            if (names.length && countInput && Number(countInput.value || 0) !== names.length) {
+                countInput.value = String(names.length);
+            }
             var rowCount = Math.max(0, Number(countInput && countInput.value || 0));
             var rowHours = Math.max(0, Number(hoursInput && hoursInput.value || 0));
             count += rowCount;
@@ -4011,8 +4198,10 @@
             var labelInput = qs('[data-report-resource-label]', row);
             var countInput = qs('[data-report-resource-count]', row);
             var hoursInput = qs('[data-report-resource-hours]', row);
+            var namesInput = kind === 'workforce' ? qs('[data-report-resource-names]', row) : null;
             var label = String(labelInput && labelInput.value || '').trim();
-            var count = Number(countInput && countInput.value || 0);
+            var names = reportWorkerNames(namesInput && namesInput.value || '');
+            var count = names.length || Number(countInput && countInput.value || 0);
             var hours = Number(hoursInput && hoursInput.value || 0);
             if (!label || !Number.isInteger(count) || count < 1 || count > 999 || !(hours > 0) || hours > 24) {
                 invalid = {
@@ -4023,6 +4212,7 @@
             }
             var entry = { count: count, hours: hours };
             entry[kind === 'equipment' ? 'name' : 'role'] = label;
+            if (kind === 'workforce' && names.length) entry.names = names;
             entries.push(entry);
         });
         return { entries: entries, invalid: invalid };
@@ -4052,6 +4242,31 @@
                 syncReportResourceSummary(form, kind || 'workforce');
                 form.dispatchEvent(new CustomEvent('pmbi:report-draft-changed', { bubbles: true }));
             });
+        });
+        var repeatShiftButton = qs('[data-report-repeat-last-shift]', form);
+        if (repeatShiftButton) repeatShiftButton.addEventListener('click', function () {
+            var projectControl = reportFormControl(form, 'project_id');
+            var projectId = Number(projectControl && projectControl.value || 0);
+            var logs = state.projectLogsByProject && state.projectLogsByProject[projectId] || [];
+            var previous = logs.find(function (log) {
+                return Array.isArray(log && log.workforce) && log.workforce.length;
+            });
+            if (!previous) {
+                showAppNotice('В прошлых отчётах состав смены пока не найден.', 'info');
+                return;
+            }
+            if (reportResourceRows(form, 'workforce').length && !window.confirm('Заменить текущий состав смены данными из прошлого отчёта?')) return;
+            restoreReportDraftResources(form, 'workforce', previous.workforce.map(function (entry) {
+                return {
+                    label: entry.role,
+                    count: entry.count,
+                    hours: entry.hours,
+                    names: Array.isArray(entry.names) ? entry.names : []
+                };
+            }));
+            refreshLucideIcons(form);
+            form.dispatchEvent(new CustomEvent('pmbi:report-draft-changed', { bubbles: true }));
+            showAppNotice('Состав прошлой смены добавлен.', 'success');
         });
         syncReportResourceSummary(form, 'workforce');
         syncReportResourceSummary(form, 'equipment');
@@ -4102,10 +4317,12 @@
             var label = qs('[data-report-resource-label]', row);
             var count = qs('[data-report-resource-count]', row);
             var hours = qs('[data-report-resource-hours]', row);
+            var names = qs('[data-report-resource-names]', row);
             return {
                 label: String(label && label.value || ''),
                 count: String(count && count.value || ''),
-                hours: String(hours && hours.value || '')
+                hours: String(hours && hours.value || ''),
+                names: reportWorkerNames(names && names.value || '')
             };
         }).slice(0, 40);
     }
@@ -4139,6 +4356,7 @@
         var dateControl = reportFormControl(form, 'report_date');
         var visibilityControl = reportFormControl(form, 'is_client_visible');
         var rawControl = reportFormControl(form, 'raw_input');
+        var workDoneControl = reportFormControl(form, 'work_done');
         var blockersControl = reportFormControl(form, 'blockers');
         var nextStepsControl = reportFormControl(form, 'next_steps');
         var extra = qs('.report-extra-fields', form);
@@ -4154,6 +4372,8 @@
             reportDateTouched: form.dataset.reportDateTouched === '1',
             isClientVisible: String(visibilityControl && visibilityControl.value || '1'),
             rawInput: String(rawControl && rawControl.value || ''),
+            workDone: String(workDoneControl && workDoneControl.value || ''),
+            workDoneManual: !!(workDoneControl && workDoneControl.dataset.reportManual === '1'),
             blockers: String(blockersControl && blockersControl.value || ''),
             nextSteps: String(nextStepsControl && nextStepsControl.value || ''),
             extraOpen: !!(extra && extra.open),
@@ -4170,6 +4390,7 @@
         var assistant = snapshot.assistant || {};
         return snapshot.phase !== 'editing'
             || !!String(snapshot.rawInput || '').trim()
+            || !!String(snapshot.workDone || '').trim()
             || !!String(snapshot.blockers || '').trim()
             || !!String(snapshot.nextSteps || '').trim()
             || snapshot.reportDateTouched
@@ -4406,9 +4627,11 @@
             var label = qs('[data-report-resource-label]', row);
             var count = qs('[data-report-resource-count]', row);
             var hours = qs('[data-report-resource-hours]', row);
+            var names = qs('[data-report-resource-names]', row);
             if (label) label.value = String(entry && entry.label || '');
             if (count) count.value = String(entry && entry.count || '');
             if (hours) hours.value = String(entry && entry.hours || '');
+            if (names) names.value = (Array.isArray(entry && entry.names) ? entry.names : []).join('\n');
         });
         syncReportResourceSummary(form, kind);
     }
@@ -4598,6 +4821,7 @@
             report_date: snapshot.reportDate,
             is_client_visible: snapshot.isClientVisible,
             raw_input: snapshot.rawInput,
+            work_done: snapshot.workDone,
             blockers: snapshot.blockers,
             next_steps: snapshot.nextSteps
         };
@@ -4605,6 +4829,8 @@
             var control = reportFormControl(form, name);
             if (control && values[name] != null) control.value = String(values[name]);
         });
+        var restoredWorkDone = reportFormControl(form, 'work_done');
+        if (restoredWorkDone) restoredWorkDone.dataset.reportManual = snapshot.workDoneManual ? '1' : '0';
         var extra = qs('.report-extra-fields', form);
         if (extra) extra.open = !!snapshot.extraOpen;
         restoreReportDraftResources(form, 'workforce', snapshot.workforce);
@@ -4997,6 +5223,7 @@
             });
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
+                var reportOnly = !!(event.submitter && event.submitter.matches && event.submitter.matches('[data-report-only-submit]'));
                 var error = qs('[data-log-error]', form) || qs('[data-log-error]');
                 if (error) {
                     error.textContent = '';
@@ -5025,7 +5252,7 @@
                 var photoDraftIssue = reportPhotoDrafts(form).find(function (draft) {
                     return draft.status === 'loading' || draft.status === 'uploading' || draft.status === 'error';
                 });
-                var invalidManualSelection = !recoveringSubmission ? qsa('[data-report-manual-row]', form).map(function (row) {
+                var invalidManualSelection = !recoveringSubmission && !reportOnly ? qsa('[data-report-manual-row]', form).map(function (row) {
                     var quantity = qs('[data-report-manual-qty]', row);
                     var action = qs('[data-report-manual-action]', row);
                     if (action && !String(action.value || '').trim()) {
@@ -5036,7 +5263,7 @@
                     }
                     return null;
                 }).find(Boolean) : null;
-                var invalidEffectQty = qsa('[data-report-effect]:checked', form).map(function (input) {
+                var invalidEffectQty = (reportOnly ? [] : qsa('[data-report-effect]:checked', form)).map(function (input) {
                     var card = input.closest ? input.closest('.report-effect-card') : null;
                     var qtyInput = card ? qs('[data-report-effect-qty]', card) : null;
                     return { toggle: input, qty: qtyInput };
@@ -5047,7 +5274,7 @@
                 }) || null;
                 var clientRequestId = String(recoveredSubmissionPayload && recoveredSubmissionPayload.client_request_id || reportClientRequestId(form));
                 if (clientRequestId) form.dataset.clientRequestId = clientRequestId;
-                var confirmedActions = reportConfirmedActions(form, clientRequestId);
+                var confirmedActions = reportOnly ? [] : reportConfirmedActions(form, clientRequestId);
                 var projectId = Number(projectControl && projectControl.value || 0);
                 var todayIso = currentLocalDateIso();
                 if (dateControl && form.dataset.reportDateTouched !== '1' && (!dateControl.value || dateControl.value === APP_TODAY)) {
@@ -5378,12 +5605,17 @@
             return '<section class="report-shift-group is-' + kind + '"><div class="report-shift-group-head"><span aria-hidden="true"><i data-lucide="' + (kind === 'workforce' ? 'users-round' : 'truck') + '"></i></span><div><b>' + title + '</b><small>' + entries.length + ' ' + (entries.length === 1 ? 'тип' : 'поз.') + '</small></div></div><div class="report-shift-list">' + entries.map(function (entry) {
                 var label = kind === 'workforce' ? entry.role : entry.name;
                 var totalHours = Number(entry.count || 0) * Number(entry.hours || 0);
-                return '<div class="report-shift-row"><div><strong>' + escapeHtml(label || 'Без названия') + '</strong><small>' + escapeHtml(entry.count || 0) + (kind === 'workforce' ? ' чел.' : ' ед.') + ' × ' + escapeHtml(finalSectionSummaryNumber(entry.hours || 0)) + ' ч</small></div><b>' + escapeHtml(finalSectionSummaryNumber(totalHours)) + '<span>' + (kind === 'workforce' ? ' чел.-ч' : ' маш.-ч') + '</span></b></div>';
+                var names = kind === 'workforce' && Array.isArray(entry.names) ? entry.names : [];
+                return '<div class="report-shift-row"><div><strong>' + escapeHtml(label || 'Без названия') + '</strong><small>' + escapeHtml(entry.count || 0) + (kind === 'workforce' ? ' чел.' : ' ед.') + ' × ' + escapeHtml(finalSectionSummaryNumber(entry.hours || 0)) + ' ч</small>' + (names.length ? '<span class="report-shift-worker-names">' + names.map(function (name) { return '<em>' + escapeHtml(name) + '</em>'; }).join('') + '</span>' : '') + '</div><b>' + escapeHtml(finalSectionSummaryNumber(totalHours)) + '<span>' + (kind === 'workforce' ? ' чел.-ч' : ' маш.-ч') + '</span></b></div>';
             }).join('') + '</div></section>';
         }
+        var namedWorkers = workforce.reduce(function (sum, entry) {
+            return sum + (Array.isArray(entry.names) ? entry.names.length : 0);
+        }, 0);
         return '<div class="report-shift-board">' +
             resourceGroup('workforce', 'Люди на смене', workforce) +
             resourceGroup('equipment', 'Техника на смене', equipmentEntries) +
+            (namedWorkers ? '<div class="report-shift-document-action"><button class="ghost compact" type="button" data-report-worker-statement="' + escapeHtml(log.id) + '" data-project-id="' + escapeHtml(log.project_id) + '"><i data-lucide="file-signature" aria-hidden="true"></i>Ведомость на подпись</button><small>' + escapeHtml(namedWorkers) + ' работников</small></div>' : '') +
         '</div>';
     }
 
@@ -5585,10 +5817,7 @@
             var match = labels.find(function (entry) {
                 return sentence.indexOf(entry.prefix + ':') === 0;
             });
-            if (!match) {
-                add('additional', sentence, 'Дополнительно');
-                return;
-            }
+            if (!match) return;
             String(sentence.slice(match.prefix.length + 1) || '').split(/\s*;\s*|,\s+(?=[A-Z\u0410-\u042f\u0401])/).forEach(function (part) {
                 add(match.kind, part, match.detail);
             });
@@ -5637,7 +5866,27 @@
                 group('blockers', 'octagon-alert', 'Блокеры') +
                 group('next', 'arrow-right', 'Следующий шаг') +
             '</div>' +
+            projectReportAppliedActionsHtml(log) +
         '</section>';
+    }
+
+    function projectReportAppliedActionsHtml(log) {
+        var actions = Array.isArray(log && log.applied_actions) ? log.applied_actions : [];
+        if (!actions.length) return '';
+        var labels = {
+            material_purchase: 'Заказ материала',
+            material_receipt: 'Приход материала',
+            material_use: 'Расход материала',
+            work_progress: 'Факт работы'
+        };
+        return '<details class="report-applied-actions"><summary><span><i data-lucide="clipboard-check" aria-hidden="true"></i><b>Учёт из отчёта</b></span><small>' + escapeHtml(actions.length) + '</small><i data-lucide="chevron-down" aria-hidden="true"></i></summary><div class="report-applied-action-list">' + actions.map(function (action) {
+            var title = action.kind === 'work' ? action.workTitle : action.materialTitle;
+            var reversed = !!action.isReversed;
+            var canReverseUse = action.kind === 'material' && action.type === 'material_use' && !reversed && canApplyDailyReportMaterialActions();
+            return '<div class="report-applied-action' + (reversed ? ' is-reversed' : '') + '"><span><b>' + escapeHtml(labels[action.type] || 'Учёт') + '</b><small>' + escapeHtml(title || 'Позиция') + ' · ' + escapeHtml(finalSectionSummaryNumber(action.qty || 0)) + ' ' + escapeHtml(action.unit || '') + '</small></span>' +
+                (reversed ? '<em><i data-lucide="undo-2" aria-hidden="true"></i>Отменено</em>' : (canReverseUse ? '<button class="ghost compact" type="button" data-report-stock-move-reverse="' + escapeHtml(action.stockMoveId) + '" data-project-id="' + escapeHtml(log.project_id) + '" data-report-id="' + escapeHtml(log.id) + '"><i data-lucide="undo-2" aria-hidden="true"></i>Отменить расход</button>' : '<em>Учтено</em>')) +
+            '</div>';
+        }).join('') + '</div></details>';
     }
 
     function projectReportDateParts(isoDate) {
@@ -5850,7 +6099,7 @@
                         '<article class="report-resource-card is-workforce">' +
                             '<div class="report-resource-head"><span class="report-resource-symbol" aria-hidden="true"><i data-lucide="hard-hat"></i></span><div><b>Люди на смене</b><small>Количество и часы на человека</small></div><div class="report-resource-total"><strong data-report-resource-total="workforce">0</strong><span>чел.</span><small data-report-resource-hours-total="workforce">0 чел.-ч</small></div></div>' +
                             '<div class="report-resource-list" data-report-resource-list="workforce"></div>' +
-                            '<button class="report-resource-add" type="button" data-report-resource-add="workforce"><span aria-hidden="true"><i data-lucide="plus"></i></span>Добавить людей</button>' +
+                            '<div class="report-resource-card-actions"><button class="report-resource-add" type="button" data-report-resource-add="workforce"><span aria-hidden="true"><i data-lucide="plus"></i></span>Добавить людей</button><button class="report-resource-repeat" type="button" data-report-repeat-last-shift><span aria-hidden="true"><i data-lucide="history"></i></span>Повторить прошлую смену</button></div>' +
                             '<label class="report-visually-hidden"><span>Всего людей</span><input name="workers_count" type="number" min="0" step="1" value="0" readonly tabindex="-1"></label>' +
                         '</article>' +
                         '<article class="report-resource-card is-equipment">' +
@@ -5876,14 +6125,14 @@
                     '</div>' +
                 '</details>' +
                 '<section class="report-ready-card" data-report-review hidden>' +
-                    '<div class="report-action-staging" data-report-preview hidden aria-hidden="true"></div>' +
+                    '<div class="report-action-staging" data-report-preview></div>' +
                     '<section class="report-final-message" data-report-final-document aria-labelledby="report-final-message-title">' +
                         '<div class="report-final-message-head"><span class="report-final-message-label" id="report-final-message-title"><i data-lucide="file-check-2" aria-hidden="true"></i>Готовый отчёт</span><small>Обновляется по мере заполнения</small></div>' +
                         '<div class="report-final-summary" data-report-final-summary></div>' +
                         '<section class="report-final-full" data-report-final-section="full-text" aria-label="Описание дня">' +
-                            '<span><i data-lucide="align-left" aria-hidden="true"></i>Описание дня</span>' +
-                            '<input type="hidden" name="work_done" value="">' +
-                            '<output data-report-final-text aria-label="Готовый текст отчёта"></output>' +
+                            '<div class="report-final-text-head"><span><i data-lucide="align-left" aria-hidden="true"></i>Описание дня</span><button type="button" data-report-text-regenerate><i data-lucide="rotate-ccw" aria-hidden="true"></i>Вернуть исходный текст</button></div>' +
+                            '<textarea name="work_done" rows="5" required data-report-final-text data-report-manual="0" aria-label="Описание дня"></textarea>' +
+                            '<small class="report-final-text-hint">Это ваш текст. Работы, материалы и количества ниже не будут его переписывать.</small>' +
                         '</section>' +
                         '<div class="report-final-groups" data-report-final-groups></div>' +
                         '<div class="report-final-shift" data-report-final-shift></div>' +
@@ -5893,7 +6142,7 @@
                 '<div class="form-error" data-log-error role="alert" aria-atomic="true"></div>' +
                 '<div class="report-intake-actions">' +
                     '<small>Работы и материалы будут учтены при сохранении отчёта.</small>' +
-                    '<span class="report-submit-group"><button class="primary report-submit-button" type="submit"><span>Сохранить отчёт</span></button></span>' +
+                    '<span class="report-submit-group"><button class="ghost report-only-button" type="submit" data-report-only-submit><span>Только отчёт</span></button><button class="primary report-submit-button" type="submit"><span>Сохранить и учесть</span></button></span>' +
                 '</div>' +
             '</form>' +
             '<div class="report-clear-dialog" data-report-clear-dialog role="presentation" aria-hidden="true" hidden>' +
@@ -6072,7 +6321,7 @@
             var status = reportLogStatus(log);
             var entryKind = projectReportEntryKind(log);
             return '<article class="report-day-entry is-' + entryKind + (status.kind === 'danger' ? ' is-danger' : '') + '" data-report-entry-kind="' + entryKind + '">' +
-                '<div class="report-day-entry-head"><div class="report-author-block"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions">' + projectReportEntryTypeHtml(log) + projectReportStatusHtml(log, status) + renderProjectReportDeleteButton(projectId, log, true) + '</div></div>' +
+                '<div class="report-day-entry-head"><div class="report-author-block"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions">' + projectReportEntryTypeHtml(log) + projectReportStatusHtml(log, status) + renderProjectReportEditButton(projectId, log, true) + renderProjectReportDeleteButton(projectId, log, true) + '</div></div>' +
                 projectReportDocumentHtml(log) +
                 projectReportMetaHtml(log) + projectReportDetailsHtml(log) + projectReportSourceHtml(log) +
             '</article>';
@@ -6115,7 +6364,7 @@
                 return '<article class="report-history-entry is-' + entryKind + (status.kind === 'danger' ? ' is-danger' : '') + '" data-report-entry-kind="' + entryKind + '">' +
                     '<div class="report-history-date"><strong>' + escapeHtml(dateParts.day) + '</strong><span>' + escapeHtml(dateParts.month) + '</span><small>' + escapeHtml(dateParts.year) + '</small></div>' +
                     '<div class="report-history-content">' +
-                        '<div class="report-history-entry-head"><div class="report-author-inline"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions">' + projectReportEntryTypeHtml(log) + projectReportStatusHtml(log, status) + renderProjectReportDeleteButton(project && project.id, log, true) + '</div></div>' +
+                        '<div class="report-history-entry-head"><div class="report-author-inline"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions">' + projectReportEntryTypeHtml(log) + projectReportStatusHtml(log, status) + renderProjectReportEditButton(project && project.id, log, true) + renderProjectReportDeleteButton(project && project.id, log, true) + '</div></div>' +
                         projectReportDocumentHtml(log) +
                         projectReportMetaHtml(log) + projectReportDetailsHtml(log) + projectReportSourceHtml(log) +
                     '</div>' +

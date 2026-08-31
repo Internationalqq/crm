@@ -8,6 +8,41 @@ from datetime import date
 
 
 FACT_SOURCE_TYPES = {"work_fact", "work_fact_reversal"}
+WAREHOUSE_RETURN_SOURCE_TYPE = "warehouse_return_from_project"
+LEGACY_WAREHOUSE_RETURN_COMMENT_PREFIX = "Произведен возврат на склад:"
+NON_REVERSIBLE_STOCK_MOVE_SOURCE_TYPES = frozenset(
+    {
+        *FACT_SOURCE_TYPES,
+        "stock_move_reversal",
+        WAREHOUSE_RETURN_SOURCE_TYPE,
+    }
+)
+
+
+def normalized_stock_move_source_type(move: sqlite3.Row | dict) -> str:
+    """Classify legacy central-warehouse returns before exposing reversal controls."""
+
+    payload = dict(move)
+    source_type = str(payload.get("source_type") or "manual").strip() or "manual"
+    comment = str(payload.get("comment") or "").lstrip()
+    if (
+        source_type == "manual"
+        and str(payload.get("move_type") or "") == "use"
+        and _float(payload.get("qty")) > 0
+        and comment.casefold().startswith(LEGACY_WAREHOUSE_RETURN_COMMENT_PREFIX.casefold())
+    ):
+        return WAREHOUSE_RETURN_SOURCE_TYPE
+    return source_type
+
+
+def stock_move_is_reversible(move: sqlite3.Row | dict) -> bool:
+    payload = dict(move)
+    return (
+        str(payload.get("move_type") or "") in {"use", "writeoff"}
+        and _float(payload.get("qty")) > 0
+        and normalized_stock_move_source_type(payload)
+        not in NON_REVERSIBLE_STOCK_MOVE_SOURCE_TYPES
+    )
 
 
 def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
@@ -538,6 +573,12 @@ def build_warehouse_control(con: sqlite3.Connection, project_id: int) -> dict:
         """
         SELECT move.id, move.estimate_item_id, move.move_type, move.qty,
                move.comment, move.created_at, move.source_type,
+               EXISTS(
+                   SELECT 1 FROM stock_moves reversal
+                   WHERE reversal.project_id = move.project_id
+                     AND reversal.source_type = 'stock_move_reversal'
+                     AND reversal.source_id = move.id
+               ) AS is_reversed,
                COALESCE(NULLIF(move.material_title_snapshot, ''), item.title) AS item_title,
                COALESCE(NULLIF(move.material_unit_snapshot, ''), item.unit) AS item_unit,
                user.name AS user_name, user.first_name, user.last_name
@@ -559,7 +600,9 @@ def build_warehouse_control(con: sqlite3.Connection, project_id: int) -> dict:
             "moveType": str(row["move_type"]),
             "qty": _float(row["qty"]),
             "comment": str(row["comment"] or ""),
-            "sourceType": str(row["source_type"] or "manual"),
+            "sourceType": normalized_stock_move_source_type(row),
+            "isReversible": stock_move_is_reversible(row),
+            "isReversed": bool(row["is_reversed"]),
             "createdByName": _display_user(row),
             "createdAt": int(row["created_at"]),
         }

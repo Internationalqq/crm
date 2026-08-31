@@ -131,6 +131,7 @@ from warehouse_control import (
     create_work_fact,
     ensure_warehouse_control_schema,
     reverse_work_fact,
+    stock_move_is_reversible,
     upsert_work_material_norm,
 )
 
@@ -239,6 +240,7 @@ from communications_docs import (
     api_project_documents as comm_api_project_documents,
     api_project_executive_docs as comm_api_project_executive_docs,
     api_project_notifications as comm_api_project_notifications,
+    api_update_daily_log_text as comm_api_update_daily_log_text,
     api_update_document as comm_api_update_document,
     api_upload_daily_log_photo as comm_api_upload_daily_log_photo,
     api_upload_project_document as comm_api_upload_project_document,
@@ -5742,6 +5744,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_create_daily_log(path)
             elif method == "POST" and re.fullmatch(r"/api/projects/\d+/daily-logs/\d+/photos", path):
                 self.api_upload_daily_log_photo(path)
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/daily-logs/\d+/update", path):
+                self.api_update_daily_log_text(path)
             elif method == "POST" and path.startswith("/api/projects/") and "/daily-logs/" in path and path.endswith("/delete"):
                 self.api_delete_daily_log(path)
             elif method == "GET" and path.startswith("/api/projects/") and path.endswith("/chats"):
@@ -5752,6 +5756,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_create_chat_message(path)
             elif method == "POST" and path.startswith("/api/projects/") and path.endswith("/stock-moves"):
                 self.api_create_stock_move(path)
+            elif method == "POST" and re.fullmatch(r"/api/projects/\d+/stock-moves/\d+/reverse", path):
+                self.api_reverse_stock_move(path)
             else:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
         except json.JSONDecodeError:
@@ -7938,6 +7944,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
                 "canRecordFacts": True,
                 "canReverseFacts": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"}),
+                "canReverseStockMoves": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman", "purchaser"}),
             }
         )
         self.send_json(HTTPStatus.OK, payload)
@@ -7996,7 +8003,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
-        result.update({"created": created, "canManageNorms": True, "canRecordFacts": True, "canReverseFacts": True})
+        result.update({"created": created, "canManageNorms": True, "canRecordFacts": True, "canReverseFacts": True, "canReverseStockMoves": True})
         self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
 
     def api_create_project_work_fact(self, path: str) -> None:
@@ -8064,6 +8071,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
                 "canRecordFacts": True,
                 "canReverseFacts": True,
+                "canReverseStockMoves": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman", "purchaser"}),
             }
         )
         self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
@@ -8121,6 +8129,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
                 "canRecordFacts": True,
                 "canReverseFacts": True,
+                "canReverseStockMoves": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman", "purchaser"}),
             }
         )
         self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
@@ -9257,6 +9266,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
     def api_upload_daily_log_photo(self, path: str) -> None:
         return comm_api_upload_daily_log_photo(self, path)
 
+    def api_update_daily_log_text(self, path: str) -> None:
+        return comm_api_update_daily_log_text(self, path)
+
     def api_delete_daily_log(self, path: str) -> None:
         return comm_api_delete_daily_log(self, path)
 
@@ -9333,6 +9345,115 @@ class PMBIHandler(BaseHTTPRequestHandler):
             )
             con.commit()
         self.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid})
+
+    def api_reverse_stock_move(self, path: str) -> None:
+        project_id = parse_path_int(path, 2)
+        stock_move_id = parse_path_int(path, 4)
+        if not project_id or not stock_move_id:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stock_move_id"})
+            return
+        user = self.require_project_access(project_id)
+        if not user:
+            return
+        can_reverse = user_is_main_admin(user) or user_has_any_role(
+            user, {"admin", "director", "foreman", "purchaser"}
+        )
+        if user_is_guest(user) or user["role"] == "customer" or not can_reverse:
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        payload = self.read_json()
+        reason = re.sub(r"\s+", " ", str(payload.get("reason", "")).strip())
+        if len(reason) > 500:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "stock_move_reversal_reason_too_long"})
+            return
+        if not reason:
+            reason = "Исправление ошибочной операции"
+        timestamp = now_ts()
+        with db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            original = con.execute(
+                "SELECT * FROM stock_moves WHERE id = ? AND project_id = ?",
+                (stock_move_id, project_id),
+            ).fetchone()
+            if not original:
+                con.rollback()
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "stock_move_not_found"})
+                return
+            if not stock_move_is_reversible(original):
+                con.rollback()
+                self.send_json(HTTPStatus.CONFLICT, {"error": "stock_move_not_reversible"})
+                return
+            existing = con.execute(
+                """
+                SELECT id FROM stock_moves
+                WHERE project_id = ? AND source_type = 'stock_move_reversal' AND source_id = ?
+                ORDER BY id LIMIT 1
+                """,
+                (project_id, stock_move_id),
+            ).fetchone()
+            created = existing is None
+            if created:
+                reversal = con.execute(
+                    """
+                    INSERT INTO stock_moves (
+                        project_id, estimate_item_id, move_type, qty, price, comment,
+                        created_by, created_at, source_type, source_id, source_key,
+                        material_title_snapshot, material_unit_snapshot
+                    )
+                    VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'stock_move_reversal', ?, ?, ?, ?)
+                    """,
+                    (
+                        project_id,
+                        original["estimate_item_id"],
+                        str(original["move_type"]),
+                        -abs(float(original["qty"])),
+                        f"Отмена операции #{stock_move_id}: {reason}",
+                        user["id"],
+                        timestamp,
+                        stock_move_id,
+                        f"stock_move_reversal:{stock_move_id}",
+                        original["material_title_snapshot"],
+                        original["material_unit_snapshot"],
+                    ),
+                )
+                reversal_id = int(reversal.lastrowid)
+                con.execute(
+                    """
+                    INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
+                    VALUES (?, 'reverse_stock_move', 'stock_move', ?, ?, ?)
+                    """,
+                    (
+                        user["id"],
+                        stock_move_id,
+                        json.dumps(
+                            {
+                                "project_id": project_id,
+                                "reversal_stock_move_id": reversal_id,
+                                "move_type": original["move_type"],
+                                "qty": original["qty"],
+                                "reason": reason,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        timestamp,
+                    ),
+                )
+            else:
+                reversal_id = int(existing["id"])
+            result = build_warehouse_control(con, project_id)
+            con.commit()
+        result.update(
+            {
+                "id": reversal_id,
+                "reversedStockMoveId": stock_move_id,
+                "idempotentReplay": not created,
+                "canManageNorms": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}),
+                "canRecordFacts": True,
+                "canReverseFacts": user_is_main_admin(user) or user_has_any_role(user, {"admin", "director", "foreman"}),
+                "canReverseStockMoves": can_reverse,
+            }
+        )
+        self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
 
     def render_template(self, template_name: str, variables: dict[str, str]) -> bytes:
         template = (FRONTEND_TEMPLATES / template_name).read_text(encoding="utf-8")

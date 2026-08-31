@@ -974,8 +974,11 @@ def api_warehouse_receipt(handler) -> None:
         message = f"Произведен возврат на склад: {material['title']} — {qty:g} {material['unit']}"
         con.execute(
             """
-            INSERT INTO stock_moves (project_id, estimate_item_id, move_type, qty, price, comment, created_by, created_at)
-            VALUES (?, ?, 'use', ?, 0, ?, ?, ?)
+            INSERT INTO stock_moves (
+                project_id, estimate_item_id, move_type, qty, price, comment,
+                created_by, created_at, source_type
+            )
+            VALUES (?, ?, 'use', ?, 0, ?, ?, ?, 'warehouse_return_from_project')
             """,
             (project_id, estimate_item_id, qty, message, user["id"], now_ts()),
         )

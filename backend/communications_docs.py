@@ -86,6 +86,7 @@ DAILY_LOG_WORK_ACTION_TYPE = "work_progress"
 DAILY_LOG_WORK_QUANTITY_MODES = frozenset({"delta_qty", "target_qty", "target_percent"})
 
 DAILY_LOG_RESOURCE_LIMIT = 40
+DAILY_LOG_WORKER_NAME_LIMIT = 250
 DAILY_LOG_PHOTO_LIMIT = 8
 DAILY_LOG_PHOTO_MAX_BYTES = 20 * 1024 * 1024
 DAILY_LOG_PHOTO_MAX_PIXELS = 40_000_000
@@ -427,6 +428,8 @@ def daily_log_payload(
     )
     payload.setdefault("photos", [])
     if guest_view:
+        for entry in workforce:
+            entry.pop("names", None)
         payload.pop("raw_input", None)
         payload.pop("created_by", None)
         payload.pop("client_request_id", None)
@@ -475,7 +478,36 @@ def normalize_daily_log_resources(
             return [], {"error": f"bad_{kind}_count", "entryIndex": index}
         if not math.isfinite(hours) or hours <= 0 or hours > 24:
             return [], {"error": f"bad_{kind}_hours", "entryIndex": index}
-        normalized.append({label_key: label, "count": count, "hours": round(hours, 2)})
+        normalized_entry = {label_key: label, "count": count, "hours": round(hours, 2)}
+        if kind == "workforce":
+            raw_names = raw_entry.get("names", raw_entry.get("workers", []))
+            if raw_names in (None, ""):
+                raw_names = []
+            if isinstance(raw_names, str):
+                raw_names = re.split(r"[\r\n;]+", raw_names)
+            if not isinstance(raw_names, list):
+                return [], {"error": "bad_workforce_names", "entryIndex": index}
+            names: list[str] = []
+            seen_names: set[str] = set()
+            for raw_name in raw_names:
+                worker_name = re.sub(r"\s+", " ", str(raw_name or "")).strip()
+                if not worker_name:
+                    continue
+                if len(worker_name) > 120:
+                    return [], {"error": "bad_workforce_name", "entryIndex": index}
+                name_key = worker_name.casefold()
+                if name_key in seen_names:
+                    continue
+                seen_names.add(name_key)
+                names.append(worker_name)
+            if len(names) > DAILY_LOG_WORKER_NAME_LIMIT:
+                return [], {"error": "too_many_workforce_names", "entryIndex": index}
+            if len(names) > count:
+                count = len(names)
+                normalized_entry["count"] = count
+            if names:
+                normalized_entry["names"] = names
+        normalized.append(normalized_entry)
     return normalized, None
 
 
@@ -1911,6 +1943,12 @@ def api_project_daily_logs(handler, path: str) -> None:
             log_payloads,
             visible_only=restricted_view,
         )
+        for log_payload in log_payloads:
+            log_payload["applied_actions"] = (
+                []
+                if restricted_view
+                else daily_log_applied_actions(con, int(log_payload["id"]))
+            )
     handler.send_json(
         HTTPStatus.OK,
         {"logs": log_payloads},
@@ -2033,7 +2071,13 @@ def daily_log_applied_actions(con: sqlite3.Connection, daily_log_id: int) -> lis
         SELECT action.id, action.action_type, action.estimate_item_id,
                action.material_title_snapshot, action.material_unit_snapshot,
                action.qty, action.client_action_id, action.stock_move_id,
-               move.move_type
+               move.move_type,
+               EXISTS(
+                   SELECT 1 FROM stock_moves reversal
+                   WHERE reversal.project_id = action.project_id
+                     AND reversal.source_type = 'stock_move_reversal'
+                     AND reversal.source_id = move.id
+               ) AS is_reversed
         FROM daily_log_actions action
         JOIN stock_moves move ON move.id = action.stock_move_id
         WHERE action.daily_log_id = ?
@@ -2053,6 +2097,7 @@ def daily_log_applied_actions(con: sqlite3.Connection, daily_log_id: int) -> lis
             "clientActionId": str(row["client_action_id"]),
             "stockMoveId": int(row["stock_move_id"]),
             "moveType": str(row["move_type"]),
+            "isReversed": bool(row["is_reversed"]),
         }
         for row in rows
     ]
@@ -2111,6 +2156,7 @@ def send_daily_log_replay(handler, project_id: int, user: dict, client_request_i
             visible_only=user_is_guest(user) or user["role"] == "customer",
         )
     log_payload["has_applied_actions"] = 1 if applied_actions else 0
+    log_payload["applied_actions"] = applied_actions
     handler.send_json(
         HTTPStatus.OK,
         {
@@ -2671,6 +2717,7 @@ def api_create_daily_log(handler, path: str) -> None:
         return
     log_payload = daily_log_payload(log_row, authored_report=True)
     log_payload["has_applied_actions"] = 1 if applied_actions else 0
+    log_payload["applied_actions"] = applied_actions
     handler.send_json(
         HTTPStatus.CREATED,
         {
@@ -3021,6 +3068,102 @@ def api_delete_daily_log(handler, path: str) -> None:
             "photoCleanupFailed": photo_cleanup_failed,
             "project": serialize_project(refreshed_project, user) if refreshed_project else None,
         },
+    )
+
+
+def api_update_daily_log_text(handler, path: str) -> None:
+    """Edit the human-authored report text without touching applied accounting actions."""
+
+    project_id = parse_path_int(path, 2)
+    log_id = parse_path_int(path, 4)
+    if not project_id or not log_id:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_log_id"})
+        return
+    user = handler.require_project_access(project_id)
+    if not user:
+        return
+    if user["role"] == "customer" or user_is_guest(user):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        return
+    payload = handler.read_json()
+    work_done = str(payload.get("work_done", payload.get("workDone", ""))).strip()
+    blockers = str(payload.get("blockers", "")).strip()
+    next_steps = str(payload.get("next_steps", payload.get("nextSteps", ""))).strip()
+    if not work_done:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "work_done_required"})
+        return
+    if len(work_done) > 20_000 or len(blockers) > 5_000 or len(next_steps) > 5_000:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "daily_log_text_too_long"})
+        return
+
+    timestamp = now_ts()
+    with db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        previous = con.execute(
+            "SELECT * FROM daily_logs WHERE id = ? AND project_id = ?",
+            (log_id, project_id),
+        ).fetchone()
+        if not previous:
+            con.rollback()
+            handler.send_json(HTTPStatus.NOT_FOUND, {"error": "log_not_found"})
+            return
+        con.execute(
+            """
+            UPDATE daily_logs
+            SET work_done = ?, blockers = ?, next_steps = ?, updated_at = ?
+            WHERE id = ? AND project_id = ?
+            """,
+            (work_done, blockers, next_steps, timestamp, log_id, project_id),
+        )
+        con.execute(
+            """
+            INSERT INTO audit_log (user_id, action, entity, entity_id, payload, created_at)
+            VALUES (?, 'update_daily_log_text', 'daily_log', ?, ?, ?)
+            """,
+            (
+                user["id"],
+                log_id,
+                json.dumps(
+                    {
+                        "project_id": project_id,
+                        "previous": {
+                            "work_done": previous["work_done"],
+                            "blockers": previous["blockers"],
+                            "next_steps": previous["next_steps"],
+                        },
+                        "updated": {
+                            "work_done": work_done,
+                            "blockers": blockers,
+                            "next_steps": next_steps,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                timestamp,
+            ),
+        )
+        row = con.execute(
+            """
+            SELECT l.*,
+                   COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS author_name,
+                   (
+                       EXISTS(SELECT 1 FROM daily_log_actions action WHERE action.daily_log_id = l.id)
+                       OR EXISTS(SELECT 1 FROM daily_log_work_actions action WHERE action.daily_log_id = l.id)
+                   ) AS has_applied_actions
+            FROM daily_logs l
+            LEFT JOIN users u ON u.id = l.created_by
+            WHERE l.id = ?
+            """,
+            (log_id,),
+        ).fetchone()
+        log_payload = daily_log_payload(row, authored_report=True)
+        attach_daily_log_photos(con, [log_payload])
+        log_payload["applied_actions"] = daily_log_applied_actions(con, log_id)
+        project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        con.commit()
+    handler.send_json(
+        HTTPStatus.OK,
+        {"id": log_id, "log": log_payload, "project": serialize_project(project_row, user)},
     )
 
 

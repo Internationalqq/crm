@@ -3383,6 +3383,297 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     }
 }
 
+/* Report corrections: authored text, explicit accounting and named crews. */
+.reports-drawer-frame .report-action-staging {
+    display: grid !important;
+    gap: 10px;
+    margin: 0 0 14px;
+    padding: 14px;
+    border: 1px solid #cfe0f7;
+    border-radius: 14px;
+    background: #f7faff !important;
+}
+
+.reports-drawer-frame .report-action-staging-head,
+.reports-drawer-frame .report-action-staging-empty {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: #334155;
+}
+
+.reports-drawer-frame .report-action-staging-head > span,
+.reports-drawer-frame .report-action-staging-empty {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.reports-drawer-frame .report-action-staging-head svg,
+.reports-drawer-frame .report-action-staging-empty svg {
+    width: 17px;
+    height: 17px;
+    color: #2563eb;
+}
+
+.reports-drawer-frame .report-action-staging-head small,
+.reports-drawer-frame .report-action-staging-empty small {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.reports-drawer-frame .report-action-staging-empty > span {
+    display: grid;
+    gap: 2px;
+}
+
+.reports-drawer-frame .report-action-staging-inner,
+.reports-drawer-frame .report-effect-list {
+    display: grid;
+    gap: 8px;
+}
+
+.reports-drawer-frame .report-effect-staging-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(290px, .9fr);
+    gap: 12px;
+    padding: 11px 12px !important;
+    border: 1px solid #d7e2ef !important;
+    border-radius: 11px !important;
+    background: #fff !important;
+}
+
+.reports-drawer-frame .report-effect-staging-row.is-disabled {
+    opacity: .62;
+    background: #f8fafc !important;
+}
+
+.reports-drawer-frame .report-effect-staging-row .report-effect-toggle {
+    min-width: 0;
+}
+
+.reports-drawer-frame .report-effect-staging-row .report-effect-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+}
+
+.reports-drawer-frame .report-effect-staging-row .report-effect-metric {
+    min-width: 0;
+    padding: 7px !important;
+}
+
+.reports-drawer-frame .report-final-text-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.reports-drawer-frame .report-final-text-head > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--report-secondary);
+}
+
+.reports-drawer-frame .report-final-text-head button {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px !important;
+    padding: 0 9px !important;
+    border: 1px solid #d8e3ef !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    color: #475569 !important;
+    box-shadow: none !important;
+    font-size: 10px !important;
+}
+
+.reports-drawer-frame .report-final-text-head button svg {
+    width: 13px;
+    height: 13px;
+}
+
+.reports-drawer-frame .report-final-full textarea[data-report-final-text] {
+    min-height: 124px !important;
+    resize: vertical;
+    border-color: #b9cbe0 !important;
+    background: #fff !important;
+    font-size: 13px !important;
+    line-height: 1.55 !important;
+}
+
+.reports-drawer-frame .report-final-text-hint {
+    color: #64748b;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.reports-drawer-frame .report-resource-row.is-workforce-row {
+    grid-template-areas:
+        "name count hours remove"
+        "names names names remove" !important;
+}
+
+.reports-drawer-frame .report-resource-workers {
+    grid-area: names !important;
+}
+
+.reports-drawer-frame .report-resource-workers textarea {
+    min-height: 68px !important;
+    resize: vertical;
+}
+
+.reports-drawer-frame .report-resource-workers > small {
+    display: block;
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 9px;
+}
+
+.reports-drawer-frame .report-resource-card-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.reports-drawer-frame .report-resource-repeat {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px !important;
+    padding: 0 8px !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: #64748b !important;
+    box-shadow: none !important;
+    font-size: 10px !important;
+}
+
+.reports-drawer-frame .report-resource-repeat:hover {
+    background: #f1f5f9 !important;
+    color: #1d4ed8 !important;
+}
+
+.report-final-worker-names,
+.report-shift-worker-names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.report-final-worker-names em,
+.report-shift-worker-names em {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: #334155;
+    font-size: 10px;
+    font-style: normal;
+}
+
+.report-shift-document-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--report-separator-soft);
+}
+
+.report-shift-document-action small {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.report-applied-actions {
+    border-top: 1px solid var(--report-separator-soft);
+}
+
+.report-applied-actions > summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 18px;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 15px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.report-applied-actions > summary::-webkit-details-marker { display: none; }
+.report-applied-actions > summary > span { display: inline-flex; align-items: center; gap: 7px; }
+.report-applied-actions > summary svg { width: 15px; height: 15px; }
+.report-applied-actions > summary small { color: #64748b; }
+
+.report-applied-action-list { display: grid; gap: 0; padding: 0 15px 12px; }
+.report-applied-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #edf1f5; }
+.report-applied-action > span { display: grid; gap: 2px; min-width: 0; }
+.report-applied-action > span b { font-size: 11px; }
+.report-applied-action > span small { color: #64748b; font-size: 10px; }
+.report-applied-action > em { display: inline-flex; align-items: center; gap: 5px; color: #64748b; font-size: 10px; font-style: normal; }
+.report-applied-action.is-reversed { opacity: .7; }
+
+.report-text-editor {
+    width: min(92vw, 660px);
+    padding: 0;
+    border: 0;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, .24);
+}
+
+.report-text-editor::backdrop { background: rgba(15, 23, 42, .44); backdrop-filter: blur(4px); }
+.report-text-editor-card { display: grid; gap: 14px; padding: 20px; }
+.report-text-editor-card label { display: grid; gap: 6px; }
+.report-text-editor-card label > span { color: #475569; font-size: 11px; font-weight: 700; }
+.report-text-editor-card textarea,
+.report-text-editor-card input { width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 10px; font: inherit; }
+.report-text-editor-head,
+.report-text-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.report-text-editor-head > div { display: grid; gap: 3px; }
+.report-text-editor-head b { font-size: 18px; }
+.report-text-editor-head small { color: #64748b; font-size: 11px; }
+.report-text-editor-head > button { width: 36px; height: 36px; padding: 0 !important; }
+.report-text-editor-actions { justify-content: flex-end; }
+
+@media (max-width: 720px) {
+    .reports-drawer-frame .report-effect-staging-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .reports-drawer-frame .report-effect-staging-row .report-effect-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .reports-drawer-frame .report-resource-row.is-workforce-row {
+        grid-template-areas:
+            "name name remove"
+            "count hours remove"
+            "names names names" !important;
+    }
+
+    .reports-drawer-frame .report-final-text-head,
+    .reports-drawer-frame .report-action-staging-head,
+    .report-applied-action {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .reports-drawer-frame .report-final-text-head button,
+    .report-applied-action button {
+        width: 100% !important;
+        justify-content: center;
+    }
+
+    .reports-drawer-frame .report-submit-group {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+
 /* Local report draft feedback. Kept compact so it remains visible at the top
    of the drawer without competing with the report itself. */
 .reports-drawer-frame .report-draft-status {

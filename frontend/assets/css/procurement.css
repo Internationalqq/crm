@@ -3929,3 +3929,44 @@ textarea,
         transition: none;
     }
 }
+
+.warehouse-movement-item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.warehouse-movement-item.is-reversed {
+    opacity: .68;
+}
+
+.warehouse-movement-reverse,
+.warehouse-movement-reversed {
+    align-self: center;
+    white-space: nowrap;
+}
+
+.warehouse-movement-reversed {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #15803d;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.warehouse-movement-reversed svg,
+.warehouse-movement-reverse svg {
+    width: 14px;
+    height: 14px;
+}
+
+@media (max-width: 680px) {
+    .warehouse-movement-item {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .warehouse-movement-reverse,
+    .warehouse-movement-reversed {
+        grid-column: 2;
+        justify-self: start;
+    }
+}

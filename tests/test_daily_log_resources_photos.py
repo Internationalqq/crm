@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -107,6 +108,16 @@ class DailyLogResourcePhotoTests(unittest.TestCase):
                     (timestamp, timestamp),
                 ).lastrowid
             )
+            self.material_id = int(
+                con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price, item_kind, updated_at
+                    ) VALUES (?, 'Кабель силовой', 'м', 100, 0, 'material', ?)
+                    """,
+                    (self.project_id, timestamp),
+                ).lastrowid
+            )
             con.commit()
         self.admin = {"id": self.admin_id, "role": "admin", "roles": []}
 
@@ -182,6 +193,230 @@ class DailyLogResourcePhotoTests(unittest.TestCase):
         )
         self.assertEqual(listed.status, HTTPStatus.OK)
         self.assertEqual(listed.response["logs"][0]["worker_hours"], 37)
+
+    def test_workforce_names_are_normalized_stored_and_listed_for_staff(self) -> None:
+        created = self.create_log(
+            client_request_id="named-workforce-report",
+            workforce=[
+                {
+                    "role": "Электрики",
+                    "count": 2,
+                    "hours": 8,
+                    "names": ["  Иванов   Иван Иванович  ", "Петров Пётр Петрович"],
+                },
+                {
+                    "role": "Маляры",
+                    "count": 1,
+                    "hours": 6,
+                    "workers": "Сидорова Анна Сергеевна",
+                },
+            ],
+        )
+
+        self.assertEqual(created.status, HTTPStatus.CREATED)
+        self.assertEqual(created.response["log"]["workers_count"], 3)
+        self.assertEqual(
+            created.response["log"]["workforce"][0]["names"],
+            ["Иванов Иван Иванович", "Петров Пётр Петрович"],
+        )
+        self.assertEqual(
+            created.response["log"]["workforce"][1]["names"],
+            ["Сидорова Анна Сергеевна"],
+        )
+
+        with server.db() as con:
+            stored = json.loads(
+                con.execute(
+                    "SELECT workers_json FROM daily_logs WHERE id = ?",
+                    (created.response["id"],),
+                ).fetchone()[0]
+            )
+        self.assertEqual(stored, created.response["log"]["workforce"])
+
+        listed = Handler(self.admin)
+        communications_docs.api_project_daily_logs(
+            listed,
+            f"/api/projects/{self.project_id}/daily-logs",
+        )
+        self.assertEqual(listed.status, HTTPStatus.OK)
+        self.assertEqual(listed.response["logs"][0]["workforce"], stored)
+
+    def test_workforce_names_are_hidden_from_customer_and_guest_views(self) -> None:
+        created = self.create_log(
+            client_request_id="private-workforce-names",
+            raw_input="На объекте работал Иванов Иван Иванович.",
+            is_client_visible=True,
+            workforce=[
+                {
+                    "role": "Монтажники",
+                    "count": 2,
+                    "hours": 8,
+                    "names": ["Иванов Иван Иванович", "Петров Пётр Петрович"],
+                }
+            ],
+        )
+        self.assertEqual(created.status, HTTPStatus.CREATED)
+        self.assertIn("names", created.response["log"]["workforce"][0])
+
+        restricted_users = [
+            {"id": 901, "role": "customer", "roles": []},
+            {"id": 902, "role": "guest", "roles": [], "isGuest": True},
+        ]
+        for restricted_user in restricted_users:
+            with self.subTest(role=restricted_user["role"]):
+                listed = Handler(restricted_user)
+                communications_docs.api_project_daily_logs(
+                    listed,
+                    f"/api/projects/{self.project_id}/daily-logs",
+                )
+                self.assertEqual(listed.status, HTTPStatus.OK)
+                self.assertEqual(len(listed.response["logs"]), 1)
+                restricted_log = listed.response["logs"][0]
+                self.assertEqual(
+                    restricted_log["workforce"],
+                    [{"role": "Монтажники", "count": 2, "hours": 8.0}],
+                )
+                self.assertNotIn("raw_input", restricted_log)
+
+        with server.db() as con:
+            stored = json.loads(
+                con.execute(
+                    "SELECT workers_json FROM daily_logs WHERE id = ?",
+                    (created.response["id"],),
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            stored[0]["names"],
+            ["Иванов Иван Иванович", "Петров Пётр Петрович"],
+        )
+
+    def test_text_only_update_preserves_applied_actions_and_resource_data(self) -> None:
+        created = self.create_log(
+            client_request_id="text-update-with-applied-action",
+            work_done="Первоначальный текст отчёта.",
+            blockers="Первоначальный блокер.",
+            next_steps="Первоначальный следующий шаг.",
+            workforce=[
+                {
+                    "role": "Электрики",
+                    "count": 1,
+                    "hours": 8,
+                    "names": ["Иванов Иван Иванович"],
+                }
+            ],
+            confirmed_actions=[
+                {
+                    "action_type": "material_purchase",
+                    "estimate_item_id": self.material_id,
+                    "qty": 42,
+                    "client_action_id": "text-update-with-applied-action:purchase",
+                }
+            ],
+        )
+        self.assertEqual(created.status, HTTPStatus.CREATED)
+        log_id = int(created.response["id"])
+
+        with server.db() as con:
+            action_before = [
+                tuple(row)
+                for row in con.execute(
+                    """
+                    SELECT id, daily_log_id, action_type, estimate_item_id, qty,
+                           client_action_id, stock_move_id, created_by, created_at
+                    FROM daily_log_actions WHERE daily_log_id = ? ORDER BY id
+                    """,
+                    (log_id,),
+                ).fetchall()
+            ]
+            move_before = [
+                tuple(row)
+                for row in con.execute(
+                    """
+                    SELECT id, project_id, estimate_item_id, move_type, qty, price,
+                           comment, source_type, source_id, source_key
+                    FROM stock_moves WHERE source_type = 'daily_log_action' ORDER BY id
+                    """
+                ).fetchall()
+            ]
+            resources_before = con.execute(
+                "SELECT workers_count, workers_json, equipment_json FROM daily_logs WHERE id = ?",
+                (log_id,),
+            ).fetchone()
+            apply_audits_before = int(
+                con.execute(
+                    "SELECT COUNT(*) FROM audit_log WHERE action = 'apply_daily_log_material_action'"
+                ).fetchone()[0]
+            )
+        self.assertEqual(apply_audits_before, 1)
+
+        updated = Handler(
+            self.admin,
+            payload={
+                "work_done": "Исправленный текст — без изменения складского факта.",
+                "blockers": "Блокер исправлен.",
+                "next_steps": "Следующий шаг исправлен.",
+            },
+        )
+        communications_docs.api_update_daily_log_text(
+            updated,
+            f"/api/projects/{self.project_id}/daily-logs/{log_id}/update",
+        )
+
+        self.assertEqual(updated.status, HTTPStatus.OK)
+        self.assertEqual(
+            updated.response["log"]["work_done"],
+            "Исправленный текст — без изменения складского факта.",
+        )
+        self.assertEqual(len(updated.response["log"]["applied_actions"]), 1)
+        self.assertEqual(updated.response["log"]["applied_actions"][0]["qty"], 42)
+
+        with server.db() as con:
+            action_after = [
+                tuple(row)
+                for row in con.execute(
+                    """
+                    SELECT id, daily_log_id, action_type, estimate_item_id, qty,
+                           client_action_id, stock_move_id, created_by, created_at
+                    FROM daily_log_actions WHERE daily_log_id = ? ORDER BY id
+                    """,
+                    (log_id,),
+                ).fetchall()
+            ]
+            move_after = [
+                tuple(row)
+                for row in con.execute(
+                    """
+                    SELECT id, project_id, estimate_item_id, move_type, qty, price,
+                           comment, source_type, source_id, source_key
+                    FROM stock_moves WHERE source_type = 'daily_log_action' ORDER BY id
+                    """
+                ).fetchall()
+            ]
+            resources_after = con.execute(
+                "SELECT workers_count, workers_json, equipment_json FROM daily_logs WHERE id = ?",
+                (log_id,),
+            ).fetchone()
+            apply_audits_after = int(
+                con.execute(
+                    "SELECT COUNT(*) FROM audit_log WHERE action = 'apply_daily_log_material_action'"
+                ).fetchone()[0]
+            )
+            update_audit = con.execute(
+                "SELECT payload FROM audit_log WHERE action = 'update_daily_log_text' AND entity_id = ?",
+                (log_id,),
+            ).fetchone()
+
+        self.assertEqual(action_after, action_before)
+        self.assertEqual(move_after, move_before)
+        self.assertEqual(tuple(resources_after), tuple(resources_before))
+        self.assertEqual(apply_audits_after, apply_audits_before)
+        self.assertIsNotNone(update_audit)
+        update_payload = json.loads(update_audit["payload"])
+        self.assertEqual(update_payload["previous"]["work_done"], "Первоначальный текст отчёта.")
+        self.assertEqual(
+            update_payload["updated"]["work_done"],
+            "Исправленный текст — без изменения складского факта.",
+        )
 
     def test_invalid_resource_hours_reject_the_report(self) -> None:
         invalid = self.create_log(
