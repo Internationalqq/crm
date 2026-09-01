@@ -219,6 +219,40 @@ body.cal-modal-open .calendar-modal-overlay {
     border-radius: 999px;
 }
 
+@media (min-width: 721px) {
+    body[data-page="projects"] [data-project-detail]:has([data-panel="production-schedule"].active .production-schedule-card) {
+        position: relative;
+        z-index: 20;
+    }
+
+    body[data-page="projects"] [data-project-detail]:has([data-panel="production-schedule"].active .production-schedule-card) .project-detail-nav {
+        position: static;
+    }
+
+    [data-panel="production-schedule"].active .production-schedule-card {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 16px);
+        height: calc(100dvh - 16px);
+        min-height: 0;
+        overflow: hidden;
+        position: sticky;
+        top: 8px;
+        z-index: 12;
+    }
+
+    [data-panel="production-schedule"].active .production-table-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    [data-panel="production-schedule"].active .production-table-scroll {
+        height: 100%;
+        max-height: none;
+    }
+}
+
 .production-schedule-table {
     --production-number-width: 40px;
     --production-work-width: 340px;

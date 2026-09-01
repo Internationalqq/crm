@@ -3761,6 +3761,49 @@
         return !!overFrozenColumns;
     }
 
+    function scrollProductionScheduleVertically(scroller, event) {
+        if (!scroller || !event) return false;
+        var deltaX = Number(event.deltaX || 0);
+        var deltaY = Number(event.deltaY || 0);
+        if (!deltaY || Math.abs(deltaX) > Math.abs(deltaY)) return false;
+
+        var delta = deltaY;
+        if (event.deltaMode === 1) delta *= 24;
+        if (event.deltaMode === 2) delta *= Math.max(1, window.innerHeight || scroller.clientHeight);
+        if (!delta) return false;
+
+        var card = scroller.closest ? scroller.closest('[data-production-schedule-card]') : null;
+        if (!card || !card.getBoundingClientRect || typeof window.scrollBy !== 'function') return false;
+        var stickyTop = parseFloat(window.getComputedStyle(card).top);
+        if (!isFinite(stickyTop)) stickyTop = 8;
+        var cardTop = Number(card.getBoundingClientRect().top || 0);
+        var tolerance = 2;
+
+        event.preventDefault();
+        if (cardTop > stickyTop + tolerance) {
+            if (delta < 0) {
+                window.scrollBy(0, delta);
+                return true;
+            }
+            var pageStep = Math.min(delta, cardTop - stickyTop);
+            window.scrollBy(0, pageStep);
+            delta -= pageStep;
+        } else if (cardTop < stickyTop - tolerance) {
+            window.scrollBy(0, delta);
+            return true;
+        }
+
+        if (Math.abs(delta) < 0.5) return true;
+        var current = Math.max(0, Number(scroller.scrollTop || 0));
+        var maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        var next = Math.max(0, Math.min(maximum, current + delta));
+        var consumed = next - current;
+        scroller.scrollTop = next;
+        var pageRemainder = delta - consumed;
+        if (Math.abs(pageRemainder) >= 0.5) window.scrollBy(0, pageRemainder);
+        return true;
+    }
+
     function bindProductionScheduleScroll(scroller) {
         if (!scroller || scroller.dataset.productionScrollBound === '1') return scroller || null;
         scroller.dataset.productionScrollBound = '1';
@@ -3777,7 +3820,10 @@
         }, { passive: true });
         scroller.addEventListener('wheel', function (event) {
             if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
-            if (productionPointerOverFrozenColumns(scroller, event)) return;
+            if (productionPointerOverFrozenColumns(scroller, event)) {
+                scrollProductionScheduleVertically(scroller, event);
+                return;
+            }
 
             var deltaX = Number(event.deltaX || 0);
             var deltaY = Number(event.deltaY || 0);

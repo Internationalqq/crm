@@ -8,6 +8,9 @@ const appJs = fs.readFileSync(path.join(root, 'frontend/assets/js/app.js'), 'utf
 const planningJs = fs.readFileSync(path.join(root, 'frontend/assets/js/planning.js'), 'utf8');
 const projectsHtml = fs.readFileSync(path.join(root, 'frontend/pages/projects.html'), 'utf8');
 const planningCss = fs.readFileSync(path.join(root, 'frontend/assets/css/planning.css'), 'utf8');
+const rootCss = fs.readFileSync(path.join(root, 'frontend/assets/app.css'), 'utf8');
+const routerJs = fs.readFileSync(path.join(root, 'frontend/assets/js/router.js'), 'utf8');
+const baseHtml = fs.readFileSync(path.join(root, 'frontend/templates/base.html'), 'utf8');
 
 assert.match(projectsHtml, /data-tab="production-schedule"/);
 assert.match(projectsHtml, /data-panel="production-schedule"/);
@@ -116,6 +119,23 @@ const productionShell = {
     },
   },
 };
+let productionCardTop = 108;
+const productionScheduleCard = {
+  getBoundingClientRect() {
+    return { top: productionCardTop };
+  },
+};
+const productionPageScrolls = [];
+const productionWindow = {
+  innerHeight: 800,
+  getComputedStyle(target) {
+    assert.equal(target, productionScheduleCard);
+    return { top: '8px' };
+  },
+  scrollBy(x, y) {
+    productionPageScrolls.push([x, y]);
+  },
+};
 const productionScroller = {
   dataset: {},
   classList: {
@@ -129,12 +149,16 @@ const productionScroller = {
   scrollWidth: 1000,
   clientWidth: 400,
   scrollLeft: 100,
+  scrollHeight: 1000,
+  clientHeight: 400,
+  scrollTop: 0,
   getBoundingClientRect() {
     return { left: 0, right: 900 };
   },
   closest(selector) {
-    assert.equal(selector, '[data-production-table-shell]');
-    return productionShell;
+    if (selector === '[data-production-table-shell]') return productionShell;
+    if (selector === '[data-production-schedule-card]') return productionScheduleCard;
+    throw new Error(`Unexpected closest selector: ${selector}`);
   },
   addEventListener(type, handler, options) {
     productionScrollHandlers[type] = handler;
@@ -143,6 +167,7 @@ const productionScroller = {
 };
 const productionScrollApi = new Function(
   'qs',
+  'window',
   `${planningJs.slice(productionScrollStart, productionScrollEnd)}\nreturn { bindProductionScheduleScroll, syncProductionScheduleScroll };`,
 )((selector, root) => {
   if (selector === '.production-work-title') {
@@ -150,7 +175,7 @@ const productionScrollApi = new Function(
     return productionWorkTitle;
   }
   throw new Error(`Unexpected selector: ${selector}`);
-});
+}, productionWindow);
 productionScrollApi.bindProductionScheduleScroll(productionScroller);
 assert.deepEqual(productionScrollOptions.scroll, { passive: true });
 assert.deepEqual(productionScrollOptions.pointermove, { passive: true });
@@ -191,11 +216,26 @@ productionScrollHandlers.pointerleave();
 assert.equal(productionScrollerClasses['is-wheel-vertical-zone'], false);
 assert.equal(productionScrollerClasses['is-wheel-horizontal-zone'], false);
 productionScrollHandlers.wheel(productionWheelEvent({ target: frozenColumnTarget, clientX: 200 }));
-assert.equal(productionScroller.scrollLeft, 100, 'Wheel over the frozen name area must remain vertical page scrolling');
-assert.equal(productionWheelPrevented, 0, 'The frozen name area must never capture the vertical wheel');
+assert.equal(productionScroller.scrollLeft, 100, 'Wheel over the frozen name area must remain vertical');
+assert.equal(productionScroller.scrollTop, 0);
+assert.deepEqual(productionPageScrolls, [[0, 90]], 'The page must move until the production card reaches the viewport');
+assert.equal(productionWheelPrevented, 1);
+productionCardTop = 38;
 productionScrollHandlers.wheel(productionWheelEvent({ clientX: 200 }));
 assert.equal(productionScroller.scrollLeft, 100, 'The visual left zone of a colspan row must remain vertical');
-assert.equal(productionWheelPrevented, 0);
+assert.equal(productionScroller.scrollTop, 60, 'The remaining wheel delta must continue inside the table');
+assert.deepEqual(productionPageScrolls.at(-1), [0, 30]);
+assert.equal(productionWheelPrevented, 2);
+productionCardTop = 8;
+productionScroller.scrollTop = 30;
+productionScrollHandlers.wheel(productionWheelEvent({ target: frozenColumnTarget, clientX: 200, deltaY: -90 }));
+assert.equal(productionScroller.scrollTop, 0);
+assert.deepEqual(productionPageScrolls.at(-1), [0, -60], 'Unused upward delta must return to page scrolling');
+productionScroller.scrollTop = 580;
+productionScrollHandlers.wheel(productionWheelEvent({ target: frozenColumnTarget, clientX: 200, deltaY: 90 }));
+assert.equal(productionScroller.scrollTop, 600);
+assert.deepEqual(productionPageScrolls.at(-1), [0, 70], 'Unused downward delta must continue down the page');
+productionWheelPrevented = 0;
 productionScrollHandlers.wheel(productionWheelEvent());
 assert.equal(productionScroller.scrollLeft, 190, 'Wheel over the timeline must move it horizontally without Shift');
 assert.equal(productionWheelPrevented, 1);
@@ -233,6 +273,11 @@ assert.doesNotMatch(planningJs, /data-production-sticky-header/);
 assert.equal((planningJs.match(/\+ tableHeader \+/g) || []).length, 1, 'The schedule must render one real table header');
 assert.match(planningJs, /Колесо: над названием — вверх\/вниз, над графиком — по дням/);
 assert.match(planningCss, /\.production-table-scroll\s*\{[^}]*max-height: min\(64vh, 600px\);[^}]*overflow-x: auto;[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain;/s);
+assert.match(planningCss, /@media \(min-width: 721px\)[\s\S]*?\[data-panel="production-schedule"\]\.active \.production-schedule-card\s*\{[^}]*height: calc\(100dvh - 16px\);[^}]*position: sticky;[^}]*top: 8px;/s);
+assert.match(planningCss, /\[data-panel="production-schedule"\]\.active \.production-table-shell\s*\{[^}]*flex: 1 1 auto;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
+assert.match(planningCss, /\[data-panel="production-schedule"\]\.active \.production-table-scroll\s*\{[^}]*height: 100%;[^}]*max-height: none;/s);
+assert.match(planningJs, /function scrollProductionScheduleVertically/);
+assert.match(planningJs, /window\.scrollBy\(0, pageStep\)/);
 assert.doesNotMatch(planningCss, /\.production-table-sticky-header/);
 assert.match(planningCss, /\.production-cell-toggle\s*\{[^}]*inset: 0;[^}]*position: absolute;/s);
 assert.match(planningCss, /\.production-day-half-cell\s*\{[^}]*position: relative;/s);
@@ -267,5 +312,9 @@ assert.match(planningCss, /\.production-work-meta\s*\{[^}]*margin: 2px 0 0;/s);
 assert.match(planningCss, /\.production-duration-cell \.production-duration-stepper input\[data-production-duration\]\s*\{[^}]*height: 100% !important;[^}]*line-height: 14px !important;[^}]*min-height: 0 !important;[^}]*padding: 0 2px 8px !important;/s);
 assert.match(planningCss, /\.production-duration-step-button > span\s*\{[^}]*transform: translateY\(-4px\);/s);
 assert.match(planningJs, /var scrollTop = scroll \? scroll\.scrollTop : 0;[\s\S]*?nextScroll\.scrollTop = scrollTop;/s);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*production-sticky-viewport-8/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sticky-viewport-8/);
+assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sticky-viewport-8/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-sticky-viewport-8/);
 
 console.log('production_schedule_frontend_ok');
