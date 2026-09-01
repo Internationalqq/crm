@@ -1,0 +1,174 @@
+/* PM.bi connection status: .connection-shell[data-state] >
+   .connection-shell__level (with three i ticks) + .connection-shell__copy. */
+
+.connection-shell {
+    --connection-accent: #2f6fed;
+    --connection-accent-soft: rgba(47, 111, 237, .18);
+    --connection-surface: rgba(255, 255, 255, .97);
+    position: fixed;
+    z-index: 100002;
+    top: max(10px, env(safe-area-inset-top));
+    left: 50%;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    max-width: calc(100vw - 24px);
+    min-height: 34px;
+    padding: 5px 11px 5px 8px;
+    border: 1px solid var(--connection-accent-soft);
+    border-radius: 999px;
+    background: var(--connection-surface);
+    color: #1d2b44;
+    box-shadow: 0 8px 24px rgba(24, 50, 89, .14);
+    font: 700 12px/1.25 system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: .01em;
+    transform: translate(-50%, 0);
+    transition: opacity .2s ease, transform .2s ease, border-color .2s ease;
+    isolation: isolate;
+}
+
+.connection-shell[hidden],
+.connection-shell[data-state="idle"] {
+    display: none;
+}
+
+.connection-shell__level {
+    position: relative;
+    display: grid;
+    flex: 0 0 62px;
+    grid-template-columns: repeat(3, 1fr);
+    place-items: center;
+    width: 62px;
+    height: 16px;
+    color: var(--connection-accent);
+}
+
+.connection-shell__level::before {
+    content: "";
+    position: absolute;
+    right: 3px;
+    left: 3px;
+    top: 7px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: .22;
+}
+
+.connection-shell__level::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: 4px;
+    left: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 4px var(--connection-accent-soft), 0 0 11px currentColor;
+    animation: connection-level-scan 1.25s cubic-bezier(.45, 0, .25, 1) infinite alternate;
+}
+
+.connection-shell__level > i {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 2px;
+    height: 8px;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: .68;
+}
+
+.connection-shell__copy {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.connection-shell[data-state="slow"] {
+    --connection-accent: #d97706;
+    --connection-accent-soft: rgba(217, 119, 6, .2);
+    --connection-surface: rgba(255, 251, 235, .98);
+    color: #7c4a03;
+}
+
+.connection-shell[data-state="slow"] .connection-shell__level::after {
+    animation-duration: 2s;
+}
+
+.connection-shell[data-state="offline"] {
+    --connection-accent: #dc3f35;
+    --connection-accent-soft: rgba(220, 63, 53, .2);
+    --connection-surface: rgba(255, 247, 246, .98);
+    color: #8f332c;
+}
+
+.connection-shell[data-state="offline"] .connection-shell__level::after {
+    left: 50%;
+    animation: connection-level-alert 1.15s ease-in-out infinite;
+}
+
+.connection-shell[data-state="done"] {
+    --connection-accent: #27864d;
+    --connection-accent-soft: rgba(39, 134, 77, .2);
+    --connection-surface: rgba(244, 252, 247, .98);
+    color: #235c39;
+}
+
+.connection-shell[data-state="done"] .connection-shell__level::after {
+    animation: connection-level-done .38s ease-out both;
+}
+
+@keyframes connection-level-scan {
+    from { transform: translateX(0); }
+    to { transform: translateX(46px); }
+}
+
+@keyframes connection-level-alert {
+    0%, 100% { opacity: .55; transform: translateX(-50%) scale(.82); }
+    50% { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+@keyframes connection-level-done {
+    from { transform: translateX(0) scale(.9); }
+    to { transform: translateX(46px) scale(1); }
+}
+
+@media (max-width: 420px) {
+    .connection-shell {
+        top: max(7px, env(safe-area-inset-top));
+        min-height: 32px;
+        padding-right: 9px;
+    }
+
+    .connection-shell__level {
+        flex-basis: 54px;
+        width: 54px;
+    }
+
+    @keyframes connection-level-scan {
+        from { transform: translateX(0); }
+        to { transform: translateX(38px); }
+    }
+
+    @keyframes connection-level-done {
+        from { transform: translateX(0) scale(.9); }
+        to { transform: translateX(38px) scale(1); }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .connection-shell {
+        transition: none;
+    }
+
+    .connection-shell__level::after,
+    .connection-shell[data-state="slow"] .connection-shell__level::after,
+    .connection-shell[data-state="offline"] .connection-shell__level::after,
+    .connection-shell[data-state="done"] .connection-shell__level::after {
+        left: 50%;
+        animation: none;
+        transform: translateX(-50%);
+    }
+}

@@ -6,9 +6,17 @@
     <meta name="robots" content="noindex,nofollow,noarchive">
     <title>PM.bi — управление строительными объектами</title>
     <link rel="icon" type="image/png" href="/assets/logo.png?v=20260728-textfix2">
-    <link rel="stylesheet" href="/assets/app.css?v=20260826-public-entry-21-credential-guest-22-works-plan-fact-14-works-progress-tones-15-report-unified-ready-53-reminder-object-orders-3-motion-1-reminder-day-focus-4">
+    <link rel="stylesheet" href="/assets/css/tokens.css?v=20260821-ui-iteration-1-light-sidebar-motion-reveal-3">
+    <link rel="stylesheet" href="/assets/css/base.css?v=20260821-ui-iteration-1-light-sidebar">
+    <link rel="stylesheet" href="/assets/css/public-entry.css?v=20260826-public-entry-1">
+    <link rel="stylesheet" href="/assets/css/connection-shell.css?v=20260901-connection-shell-1">
+    <script defer src="/assets/js/connection-shell.js?v=20260901-connection-shell-1"></script>
 </head>
 <body class="public-entry-page" data-page="welcome">
+    <div class="connection-shell" data-connection-shell data-state="idle" hidden role="status" aria-live="polite" aria-atomic="true">
+        <span class="connection-shell__level" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="connection-shell__copy" data-connection-copy>Открываем защищённый вход</span>
+    </div>
     <main class="public-entry-shell">
         <section class="public-entry-window" aria-labelledby="public-entry-title">
             <header class="public-entry-window-bar">
@@ -27,7 +35,7 @@
                     <span class="public-entry-eyebrow">Управление строительством</span>
                     <h1 id="public-entry-title">Вся работа по объектам — в одном окне</h1>
                     <p>Отчёты с площадки, график производства, сметы и команда собраны в защищённом рабочем пространстве.</p>
-                    <a class="public-entry-login" href="{{login_path}}" data-public-login>
+                    <a class="public-entry-login" href="{{login_path}}" data-public-login data-connection-link data-connection-message="Открываем защищённый вход">
                         <span>Войти</span>
                         <span aria-hidden="true">→</span>
                     </a>

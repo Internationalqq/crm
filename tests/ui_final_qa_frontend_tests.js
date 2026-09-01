@@ -115,8 +115,10 @@ assert.match(appCss, /ui-qa\.css\?v=20260821-ui-final-qa-1/);
 assert.match(appCss, /overrides\.css\?v=20260821-mist-fade-2/);
 assert.match(appCss, /skeletons\.css\?v=20260821-crm-skeletons-1/);
 assert.match(baseHtml, /ui-final-qa-1/);
-assert.match(loginHtml, /ui-final-qa-1/);
+assert.doesNotMatch(loginHtml, /assets\/app\.css/);
+assert.match(loginHtml, /assets\/css\/ui-system\.css/);
+assert.match(loginHtml, /assets\/css\/ui-final\.css/);
 assert.match(baseHtml, /mist-fade-3-crm-skeletons-1/);
-assert.match(loginHtml, /mist-fade-3-crm-skeletons-1/);
+assert.match(loginHtml, /login-fast-1/);
 
 console.log('ui_final_qa_frontend_ok');
