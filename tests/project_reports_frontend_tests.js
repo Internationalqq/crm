@@ -17,6 +17,39 @@ const backendServer = read('backend/server.py');
 const communicationsDocs = read('backend/communications_docs.py');
 const deployHeaders = read('deploy/_headers');
 
+const refreshPreviewHelperStart = appJs.indexOf('    function refreshOpenReportPreviewsForProject(projectId) {');
+const refreshPreviewHelperEnd = appJs.indexOf('\n    function loadMaterials(', refreshPreviewHelperStart);
+assert.ok(refreshPreviewHelperStart >= 0 && refreshPreviewHelperEnd > refreshPreviewHelperStart);
+const previewRefreshEvents = [];
+function previewRefreshForm(projectId, rawValue) {
+  const controls = {
+    project_id: { value: String(projectId) },
+    raw_input: {
+      value: rawValue,
+      dispatchEvent(event) { previewRefreshEvents.push({ projectId, event }); },
+    },
+  };
+  return { elements: { namedItem(name) { return controls[name] || null; } } };
+}
+const previewRefreshContext = {
+  qsa() {
+    return [previewRefreshForm(42, 'Использовали мастику 42 кг'), previewRefreshForm(7, 'Другой объект'), previewRefreshForm(42, '  ')];
+  },
+  Event: class Event {
+    constructor(type, options) { this.type = type; this.bubbles = !!(options && options.bubbles); }
+  },
+};
+vm.runInNewContext(
+  `${appJs.slice(refreshPreviewHelperStart, refreshPreviewHelperEnd)}\nthis.refreshOpenReportPreviewsForProject = refreshOpenReportPreviewsForProject;`,
+  previewRefreshContext,
+  { filename: 'report-preview-refresh-runtime.js' },
+);
+previewRefreshContext.refreshOpenReportPreviewsForProject(42);
+assert.equal(previewRefreshEvents.length, 1, 'Only a non-empty report draft for the changed project must refresh');
+assert.equal(previewRefreshEvents[0].projectId, 42);
+assert.equal(previewRefreshEvents[0].event.type, 'input');
+assert.equal(previewRefreshEvents[0].event.bubbles, true);
+
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*project-report-modal-1/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-modal-cool-2/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-modal-native-3/);
@@ -1200,6 +1233,24 @@ const manualMaterialOverride = parserContext.reportParser.manualMaterial(
 assert.equal(manualMaterialOverride.purchasedQty, 5, 'A manual material quantity must be applied within the plan');
 assert.equal(manualMaterialOverride.reportUnit, 'м2', 'A manual unit must stay on the report without mutating the catalog');
 assert.equal(manualMaterialOverride.actionEligible, true);
+const unavailableManualUseOverride = parserContext.reportParser.manualMaterial(
+  { item: { id: 605, title: 'Мастика', unit: 'кг', plannedQty: 42, receivedQty: 42, usedQty: 42, stockBalanceQty: 0 } },
+  'Использовали мастику 42 кг.',
+  { manualAction: 'use', manualQuantityMode: 'delta_qty', manualQty: '42', manualUnit: 'кг' },
+);
+assert.equal(unavailableManualUseOverride.useMaxQty, 0);
+assert.equal(unavailableManualUseOverride.usedQty, 0, 'A zero stock balance must not preview another material use');
+assert.equal(unavailableManualUseOverride.actionEligible, false, 'An unavailable material use must stay text-only until the mistaken stock move is reversed');
+const restoredManualUseOverride = parserContext.reportParser.manualMaterial(
+  { item: { id: 605, title: 'Мастика', unit: 'кг', plannedQty: 42, receivedQty: 42, usedQty: 0, stockBalanceQty: 42 } },
+  'Использовали мастику 42 кг.',
+  { manualAction: 'use', manualQuantityMode: 'delta_qty', manualQty: '42', manualUnit: 'кг' },
+);
+assert.equal(restoredManualUseOverride.useMaxQty, 42);
+assert.equal(restoredManualUseOverride.usedQty, 42, 'A reversed mistaken use must make the material available to the report again');
+assert.equal(restoredManualUseOverride.actionEligible, true);
+assert.match(appJs, /PMBI\.app\.refreshOpenReportPreviewsForProject = refreshOpenReportPreviewsForProject/);
+assert.match(appJs, /if \(currentMaterial\) selected\.candidate\.item = currentMaterial/);
 const blankManualMaterialOverride = parserContext.reportParser.manualMaterial(
   { item: parserContext.state.materialsByProject[parserProjectId][3] },
   'Купили панели из поликарбоната.',

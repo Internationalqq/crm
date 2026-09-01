@@ -10,13 +10,6 @@ from datetime import date
 FACT_SOURCE_TYPES = {"work_fact", "work_fact_reversal"}
 WAREHOUSE_RETURN_SOURCE_TYPE = "warehouse_return_from_project"
 LEGACY_WAREHOUSE_RETURN_COMMENT_PREFIX = "Произведен возврат на склад:"
-NON_REVERSIBLE_STOCK_MOVE_SOURCE_TYPES = frozenset(
-    {
-        *FACT_SOURCE_TYPES,
-        "stock_move_reversal",
-        WAREHOUSE_RETURN_SOURCE_TYPE,
-    }
-)
 
 
 def normalized_stock_move_source_type(move: sqlite3.Row | dict) -> str:
@@ -40,8 +33,7 @@ def stock_move_is_reversible(move: sqlite3.Row | dict) -> bool:
     return (
         str(payload.get("move_type") or "") in {"use", "writeoff"}
         and _float(payload.get("qty")) > 0
-        and normalized_stock_move_source_type(payload)
-        not in NON_REVERSIBLE_STOCK_MOVE_SOURCE_TYPES
+        and normalized_stock_move_source_type(payload) == "manual"
     )
 
 

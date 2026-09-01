@@ -47,7 +47,10 @@ for (const removedInventoryHeading of [
     assert.equal(moduleSource.includes(removedInventoryHeading), false, `Redundant inventory heading remains: ${removedInventoryHeading}`);
 }
 assert.match(moduleSource, /function materialFlowHeader\(label, icon, tone\)/);
-assert.match(moduleSource, /function materialFlowCell\(label, icon, tone, value, unit, context\)/);
+assert.match(moduleSource, /function materialFlowCell\(label, icon, tone, value, unit, context, correction\)/);
+assert.match(moduleSource, /function reversibleMaterialMoves\(payload, materialId, moveType\)/);
+assert.match(moduleSource, /String\(move\.sourceType \|\| 'manual'\) === 'manual'/);
+assert.match(moduleSource, /syncProjectMaterials\(projectId, payload\);[\s\S]{0,260}PMBI\.app\.refreshOpenReportPreviewsForProject\(projectId\)/);
 assert.match(moduleSource, /function groupedMaterials\(materials\)/);
 assert.match(moduleSource, /data-warehouse-material-section-group/);
 assert.match(moduleSource, /qsa\('\[data-select-material\]\.is-actionable', panel\)/);
@@ -80,6 +83,9 @@ assert.match(moduleSource, /openWarehouseDialog\('movement', null, false\)/);
 assert.match(moduleSource, /Все операции по складу/);
 assert.match(moduleSource, /warehouse_return_from_project/);
 assert.match(moduleSource, /move\.isReversible === true/);
+assert.match(moduleSource, /data-stock-correction-open/);
+assert.match(moduleSource, /data-correction-reverse-move/);
+assert.match(moduleSource, /Материал снова доступен для дневного отчёта/);
 assert.match(moduleSource, /data-work-material-norm-form/);
 assert.match(moduleSource, /data-work-fact-form/);
 assert.match(moduleSource, /unaccountedQty/);
@@ -101,6 +107,8 @@ assert.match(objectControlCss, /\.warehouse-material-flow\.is-purchase \{[\s\S]*
 assert.match(objectControlCss, /\.warehouse-material-flow\.is-receipt \{[\s\S]*?--warehouse-flow-color: var\(--color-success/);
 assert.match(objectControlCss, /\.warehouse-material-flow\.is-use \{[\s\S]*?--warehouse-flow-color: #6d5bd0;/);
 assert.match(objectControlCss, /\.warehouse-material-flow-value\.is-empty \{[\s\S]*?background: transparent;/);
+assert.match(objectControlCss, /\.warehouse-material-correction-trigger \{[\s\S]*?cursor: pointer;/);
+assert.match(objectControlCss, /\.warehouse-stock-correction-summary \{/);
 assert.match(objectControlCss, /@media \(min-width: 721px\) and \(max-width: 1080px\) \{[\s\S]*?\.warehouse-material-card \{[\s\S]*?grid-template-columns: repeat\(5, minmax\(0, 1fr\)\);/);
 assert.match(objectControlCss, /\.warehouse-material-card \.warehouse-material-cell:nth-child\(3\) \{[\s\S]*?display: block;/);
 assert.match(objectControlCss, /\.warehouse-material-cell > \.warehouse-material-flow-label \{[\s\S]*?display: inline-flex;/);
@@ -214,6 +222,10 @@ assert.match(rendered, /warehouse-material-flow is-purchase[\s\S]*?data-lucide="
 assert.match(rendered, /data-label="Заказано" aria-label="Заказано: 10 шт\. Нужно по смете: 10 шт"[\s\S]*?warehouse-material-flow-value">10 <small>шт<\/small>/);
 assert.match(rendered, /data-label="Привезено" aria-label="Привезено: 10 шт"[\s\S]*?warehouse-material-flow-value">10 <small>шт<\/small>/);
 assert.match(rendered, /data-label="Потрачено" aria-label="Потрачено: 10 шт"[\s\S]*?warehouse-material-flow-value">10 <small>шт<\/small>/);
+assert.match(rendered, /data-stock-correction-open data-material-id="7" data-move-type="use"/);
+assert.match(rendered, /aria-label="Исправить: Потрачено: 10 шт"/);
+assert.match(rendered, /data-warehouse-dialog="correction" hidden/);
+assert.match(rendered, /data-stock-correction-body/);
 assert.match(rendered, /Всё использовано/);
 assert.doesNotMatch(rendered, /data-material-move=|<div class="warehouse-material-actions">/);
 assert.match(rendered, /Все операции по складу/);
@@ -281,5 +293,42 @@ assert.match(zeroRendered, /data-label="Заказано" aria-label="Заказ
 assert.match(zeroRendered, /data-label="Привезено" aria-label="Привезено: нет данных"[\s\S]*?warehouse-material-flow-value is-empty is-invalid"><span aria-hidden="true">—<\/span><span class="visually-hidden">Нет данных<\/span>/);
 assert.match(zeroRendered, /data-label="Потрачено" aria-label="Потрачено: 0 шт"[\s\S]*?warehouse-material-flow-value is-empty"><span aria-hidden="true">—<\/span><span class="visually-hidden">0 шт<\/span>/);
 assert.doesNotMatch(zeroRendered, /warehouse-material-flow-value[^>]*>0\s*<small>/);
+assert.doesNotMatch(zeroRendered, /data-stock-correction-open/);
+
+const reportUseRendered = browserWindow.PMBI.warehouseControl.render({
+    canRecordFacts: true,
+    canManageNorms: false,
+    canReverseFacts: false,
+    canReverseStockMoves: true,
+    projectId: 9,
+    works: [], norms: [], facts: [],
+    movements: [{
+        id: 11,
+        materialItemId: 11,
+        materialTitle: 'Мастика',
+        materialUnit: 'кг',
+        moveType: 'use',
+        qty: 42,
+        sourceType: 'daily_log_action',
+        isReversible: true,
+        createdAt: 1787385600,
+    }],
+    materials: [{
+        id: 11,
+        title: 'Мастика',
+        sectionTitle: 'Гидроизоляция',
+        unit: 'кг',
+        plannedQty: 42,
+        purchasedQty: 42,
+        receivedQty: 42,
+        factUsedQty: 0,
+        manualUsedQty: 42,
+        stockBalanceQty: 0,
+        unaccountedQty: 0,
+        hasReceipt: true,
+    }],
+    summary: { materialsCount: 1, fullyReceivedMaterials: 1, needReceiptMaterials: 0, riskMaterials: 0 },
+});
+assert.doesNotMatch(reportUseRendered, /data-stock-correction-open/, 'Daily report movements must not be exposed as manual corrections');
 
 console.log('warehouse control frontend checks passed');

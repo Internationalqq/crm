@@ -672,6 +672,94 @@ class DailyLogMaterialActionTests(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_log_actions").fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM stock_moves").fetchone()[0], 0)
 
+    def test_erroneous_manual_use_can_be_reversed_before_recording_it_in_report(self) -> None:
+        with server.db() as con:
+            timestamp = server.now_ts()
+            con.execute(
+                "UPDATE estimate_items SET title = 'Мастика', unit = 'кг', planned_qty = 42 WHERE id = ?",
+                (self.material_id,),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price, comment,
+                    created_by, created_at, source_type,
+                    material_title_snapshot, material_unit_snapshot
+                ) VALUES (?, ?, 'receipt', 42, 0, 'Привезено', ?, ?, 'manual', 'Мастика', 'кг')
+                """,
+                (self.project_id, self.material_id, self.admin_id, timestamp),
+            )
+            mistaken_move_id = int(
+                con.execute(
+                    """
+                    INSERT INTO stock_moves (
+                        project_id, estimate_item_id, move_type, qty, price, comment,
+                        created_by, created_at, source_type,
+                        material_title_snapshot, material_unit_snapshot
+                    ) VALUES (?, ?, 'use', 42, 0, 'Ошибочный расход', ?, ?, 'manual', 'Мастика', 'кг')
+                    """,
+                    (self.project_id, self.material_id, self.admin_id, timestamp + 1),
+                ).lastrowid
+            )
+            con.commit()
+
+        blocked_payload = self.base_payload("mastika-before-reversal")
+        blocked_payload["work_done"] = "Использовали мастику 42 кг"
+        blocked_payload["confirmed_actions"] = [{
+            "action_type": "material_use",
+            "estimate_item_id": self.material_id,
+            "qty": 42,
+            "client_action_id": "mastika-before-reversal:use",
+        }]
+        blocked = self.create_log(blocked_payload)
+        self.assertEqual(blocked.status, HTTPStatus.CONFLICT)
+        self.assertEqual(blocked.response["error"], "daily_log_action_qty_exceeds_limit")
+        self.assertEqual(blocked.response["allowedQty"], 0)
+
+        reversal = FakeDailyLogHandler(self.admin, {"reason": "Ошибка ввода"})
+        server.PMBIHandler.api_reverse_stock_move(
+            reversal,
+            f"/api/projects/{self.project_id}/stock-moves/{mistaken_move_id}/reverse",
+        )
+        self.assertEqual(reversal.status, HTTPStatus.CREATED)
+        reversed_material = next(
+            item for item in reversal.response["materials"]
+            if item["id"] == self.material_id
+        )
+        self.assertEqual(reversed_material["manualUsedQty"], 0)
+        self.assertEqual(reversed_material["stockBalanceQty"], 42)
+
+        accepted_payload = self.base_payload("mastika-after-reversal")
+        accepted_payload["work_done"] = "Использовали мастику 42 кг"
+        accepted_payload["confirmed_actions"] = [{
+            "action_type": "material_use",
+            "estimate_item_id": self.material_id,
+            "qty": 42,
+            "client_action_id": "mastika-after-reversal:use",
+        }]
+        accepted = self.create_log(accepted_payload)
+        self.assertEqual(accepted.status, HTTPStatus.CREATED)
+
+        with server.db() as con:
+            material = next(
+                item for item in build_warehouse_control(con, self.project_id)["materials"]
+                if item["id"] == self.material_id
+            )
+            use_rows = con.execute(
+                """
+                SELECT qty, source_type, source_id FROM stock_moves
+                WHERE project_id = ? AND estimate_item_id = ? AND move_type = 'use'
+                ORDER BY id
+                """,
+                (self.project_id, self.material_id),
+            ).fetchall()
+
+        self.assertEqual([float(row["qty"]) for row in use_rows], [42, -42, 42])
+        self.assertEqual([str(row["source_type"]) for row in use_rows], ["manual", "stock_move_reversal", "daily_log_action"])
+        self.assertEqual(int(use_rows[1]["source_id"]), mistaken_move_id)
+        self.assertEqual(material["manualUsedQty"], 42)
+        self.assertEqual(material["stockBalanceQty"], 0)
+
     def test_report_with_applied_actions_cannot_be_deleted_silently(self) -> None:
         payload = self.base_payload("protected-report")
         payload["confirmed_actions"] = [

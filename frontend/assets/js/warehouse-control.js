@@ -207,7 +207,17 @@
         return '<span class="warehouse-material-flow is-' + escapeHtml(tone) + '"><i data-lucide="' + escapeHtml(icon) + '" aria-hidden="true"></i>' + escapeHtml(label) + '</span>';
     }
 
-    function materialFlowCell(label, icon, tone, value, unit, context) {
+    function reversibleMaterialMoves(payload, materialId, moveType) {
+        if (!payload || !payload.canReverseStockMoves) return [];
+        return (payload.movements || []).filter(function (move) {
+            return Number(move.materialItemId || 0) === Number(materialId || 0) &&
+                String(move.moveType || '') === String(moveType || '') &&
+                String(move.sourceType || 'manual') === 'manual' &&
+                move.isReversible === true && !move.isReversed && Number(move.qty || 0) > 0;
+        });
+    }
+
+    function materialFlowCell(label, icon, tone, value, unit, context, correction) {
         var sourceValue = value == null || value === '' ? 0 : value;
         var number = Number(sourceValue);
         var isValid = Number.isFinite(number);
@@ -219,9 +229,13 @@
         var visibleValue = hasValue
             ? escapeHtml(formattedValue) + (formattedUnit ? ' <small>' + escapeHtml(formattedUnit) + '</small>' : '')
             : '<span aria-hidden="true">—</span><span class="visually-hidden">' + escapeHtml(isValid ? accessibleAmount : 'Нет данных') + '</span>';
-        return '<div class="warehouse-material-cell warehouse-material-flow is-' + escapeHtml(tone) + '" data-label="' + escapeHtml(label) + '" aria-label="' + escapeHtml(accessibleValue) + '">' +
+        var correctionButton = correction && correction.enabled
+            ? '<button class="warehouse-material-correction-trigger" type="button" data-stock-correction-open data-material-id="' + escapeHtml(correction.materialId) + '" data-move-type="' + escapeHtml(correction.moveType) + '" aria-label="Исправить: ' + escapeHtml(accessibleValue) + '"><i data-lucide="pencil" aria-hidden="true"></i><span>Исправить</span></button>'
+            : '';
+        return '<div class="warehouse-material-cell warehouse-material-flow is-' + escapeHtml(tone) + (correctionButton ? ' is-correctable' : '') + '" data-label="' + escapeHtml(label) + '" aria-label="' + escapeHtml(accessibleValue) + '">' +
             '<span class="warehouse-material-flow-label"><i data-lucide="' + escapeHtml(icon) + '" aria-hidden="true"></i>' + escapeHtml(label) + '</span>' +
             '<strong class="warehouse-material-flow-value' + (hasValue ? '' : ' is-empty') + (isValid ? '' : ' is-invalid') + '">' + visibleValue + '</strong>' +
+            correctionButton +
         '</div>';
     }
 
@@ -286,9 +300,9 @@
         return '<article class="warehouse-material-card is-' + stateLabel[2] + (actionable ? ' is-actionable' : '') + '" data-select-material="' + escapeHtml(item.id) + '" data-position-editor data-position-kind="material" data-position-id="' + escapeHtml(item.id) + '" data-position-project="' + escapeHtml(payload.projectId || '') + '" data-position-title="' + escapeHtml(item.title || '') + '" data-position-unit="' + escapeHtml(item.unit || '') + '" data-position-qty="' + escapeHtml(String(item.plannedQty != null ? item.plannedQty : '')) + '" data-position-section="' + escapeHtml(item.sectionTitle || '') + '" data-stock-state="' + escapeHtml(stateLabel[2]) + '" data-search-text="' + escapeHtml(searchText) + '" title="' + (actionable ? 'Нажмите — открыть операции; правый клик — редактировать' : 'Правый клик — редактировать позицию') + '" style="--warehouse-card-delay:' + Math.min(index * 35, 280) + 'ms">' +
             (actionable ? '<button class="warehouse-material-select" type="button" data-select-material-button="' + escapeHtml(item.id) + '" aria-label="Открыть операции по материалу: ' + escapeHtml(item.title) + '"><span class="warehouse-material-title"><strong>' + escapeHtml(item.title) + '</strong></span></button>' : '<div class="warehouse-material-title"><h4>' + escapeHtml(item.title) + '</h4></div>') +
             '<div class="warehouse-material-cell warehouse-material-plan" data-label="Нужно"><span>Нужно</span><strong>' + escapeHtml(quantity(planned)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
-            materialFlowCell('Заказано', 'shopping-cart', 'purchase', item.purchasedQty, unit, 'Нужно по смете: ' + quantity(planned) + (unit ? ' ' + unit : '')) +
-            materialFlowCell('Привезено', 'package-check', 'receipt', item.receivedQty, unit, '') +
-            materialFlowCell('Потрачено', 'package-minus', 'use', spent, unit, '') +
+            materialFlowCell('Заказано', 'shopping-cart', 'purchase', item.purchasedQty, unit, 'Нужно по смете: ' + quantity(planned) + (unit ? ' ' + unit : ''), { materialId: item.id, moveType: 'purchase', enabled: reversibleMaterialMoves(payload, item.id, 'purchase').length > 0 }) +
+            materialFlowCell('Привезено', 'package-check', 'receipt', item.receivedQty, unit, '', { materialId: item.id, moveType: 'receipt', enabled: reversibleMaterialMoves(payload, item.id, 'receipt').length > 0 }) +
+            materialFlowCell('Потрачено', 'package-minus', 'use', spent, unit, '', { materialId: item.id, moveType: 'use', enabled: reversibleMaterialMoves(payload, item.id, 'use').length > 0 }) +
             '<div class="warehouse-material-cell warehouse-material-balance" data-label="Остаток"><span>Остаток</span><strong class="' + (Number(item.stockBalanceQty || 0) < 0 ? 'is-negative' : '') + '">' + escapeHtml(quantity(item.stockBalanceQty)) + ' <small>' + escapeHtml(unit) + '</small></strong></div>' +
             '<div class="warehouse-material-status"><span class="badge ' + stateLabel[1] + '">' + escapeHtml(stateLabel[0]) + '</span></div>' +
         '</article>';
@@ -409,6 +423,7 @@
             controlDialog('movement', 'Новая операция', 'Заказ, приход или расход материала.', stockMovementForm(payload), false) +
             controlDialog('work-fact', 'Выполненная работа', 'Укажите объём — связанные материалы спишутся автоматически.', factForm(payload), false) +
             controlDialog('norms', 'Нормы списания', 'Свяжите работу с материалом и задайте расход на единицу.', normSetup(payload), true) +
+            controlDialog('correction', 'Исправить количество', 'Отмените ошибочную ручную запись — итог и остаток пересчитаются автоматически.', '<div data-stock-correction-body></div>', false) +
             controlDialog('history', 'История', 'Все движения материалов и выполненные работы.', movementHistory(payload) + factsHistory(payload), true) +
         '</section>';
     }
@@ -463,6 +478,9 @@
         payload.projectId = Number(projectId || payload.projectId || 0);
         cache[projectId] = payload;
         syncProjectMaterials(projectId, payload);
+        if (PMBI.app && typeof PMBI.app.refreshOpenReportPreviewsForProject === 'function') {
+            PMBI.app.refreshOpenReportPreviewsForProject(projectId);
+        }
         var panel = qs('[data-panel="warehouse-control"]');
         if (!panel || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
         removeDialogPortal();
@@ -565,6 +583,56 @@
                     candidate.setAttribute('aria-pressed', active ? 'true' : 'false');
                 });
                 filterInventory();
+            };
+        });
+
+        var correctionBody = qs('[data-stock-correction-body]', panel);
+        qsa('[data-stock-correction-open]', panel).forEach(function (button) {
+            button.onclick = function () {
+                var materialId = Number(button.getAttribute('data-material-id') || 0);
+                var moveType = String(button.getAttribute('data-move-type') || '');
+                var material = materials.find(function (item) { return Number(item.id) === materialId; });
+                var moves = reversibleMaterialMoves(payload, materialId, moveType);
+                if (!material || !moves.length || !correctionBody) {
+                    showAppNotice('Редактируемая ручная запись не найдена. Обновите материалы и попробуйте ещё раз.', 'error');
+                    return;
+                }
+                var labels = {
+                    purchase: ['Заказано', 'заказ'],
+                    receipt: ['Привезено', 'приход'],
+                    use: ['Потрачено', 'расход']
+                };
+                var moveLabel = labels[moveType] || ['Количество', 'запись'];
+                correctionBody.innerHTML = '<div class="warehouse-stock-correction-summary"><span>' + escapeHtml(material.title) + '</span><strong>' + escapeHtml(moveLabel[0]) + ': ' + escapeHtml(quantity(moveType === 'purchase' ? material.purchasedQty : (moveType === 'receipt' ? material.receivedQty : Number(material.factUsedQty || 0) + Number(material.manualUsedQty || 0)))) + ' ' + escapeHtml(material.unit || '') + '</strong><p>Нажмите «Обнулить запись» у ошибочного ввода. История сохранится, а количество пересчитается сразу.</p></div>' +
+                    '<div class="warehouse-movement-list">' + moves.map(function (move) {
+                        return '<article class="warehouse-movement-item is-' + escapeHtml(moveType) + '"><span class="warehouse-movement-icon"><i data-lucide="pencil-line"></i></span><div><header><span class="badge">Ручная запись</span><b>' + escapeHtml(quantity(move.qty)) + ' ' + escapeHtml(move.materialUnit || material.unit || '') + '</b></header>' + (move.comment ? '<p>' + escapeHtml(move.comment) + '</p>' : '') + '<small>' + escapeHtml(dateTime(move.createdAt)) + (move.createdByName ? ' · ' + escapeHtml(move.createdByName) : '') + '</small></div><button class="ghost compact warehouse-movement-reverse" type="button" data-correction-reverse-move="' + escapeHtml(move.id) + '" data-correction-move-type="' + escapeHtml(moveType) + '" data-correction-qty="' + escapeHtml(move.qty) + '"><i data-lucide="rotate-ccw"></i>Обнулить запись</button></article>';
+                    }).join('') + '</div>';
+                refreshLucideIcons(correctionBody);
+                qsa('[data-correction-reverse-move]', correctionBody).forEach(function (reverseButton) {
+                    reverseButton.onclick = function () {
+                        var moveId = Number(reverseButton.getAttribute('data-correction-reverse-move') || 0);
+                        var correctionType = String(reverseButton.getAttribute('data-correction-move-type') || '');
+                        var correctedQty = Number(reverseButton.getAttribute('data-correction-qty') || 0);
+                        var confirmation = correctionType === 'use'
+                            ? 'Обнулить ошибочный расход ' + quantity(correctedQty) + ' ' + (material.unit || '') + '? Материал вернётся в остаток и снова станет доступен в отчёте.'
+                            : 'Обнулить ошибочную запись «' + (labels[correctionType] || labels.purchase)[0] + '» на ' + quantity(correctedQty) + ' ' + (material.unit || '') + '?';
+                        if (!window.confirm(confirmation)) return;
+                        reverseButton.disabled = true;
+                        api('/api/projects/' + projectId + '/stock-moves/' + moveId + '/reverse', {
+                            method: 'POST',
+                            body: JSON.stringify({ reason: 'Исправление количества в реестре материалов' }),
+                            loaderText: 'Исправляем количество...'
+                        }).then(function (next) {
+                            applyPayload(projectId, next);
+                            if (PMBI.app && typeof PMBI.app.refreshReminderBell === 'function') PMBI.app.refreshReminderBell();
+                            showAppNotice(correctionType === 'use' ? 'Ошибочный расход отменён. Материал снова доступен для дневного отчёта.' : 'Ошибочная запись отменена. Количество пересчитано.', 'success');
+                        }).catch(function (error) {
+                            reverseButton.disabled = false;
+                            showAppNotice(errorText(error, 'Не удалось исправить количество.'), 'error');
+                        });
+                    };
+                });
+                openWarehouseDialog('correction', button, true);
             };
         });
 

@@ -246,6 +246,46 @@ class StockMoveReversalTests(unittest.TestCase):
                 3,
             )
 
+    def test_daily_report_use_cannot_be_reversed_as_a_manual_correction(self) -> None:
+        with server.db() as con:
+            report_move_id = int(
+                con.execute(
+                    """
+                    INSERT INTO stock_moves (
+                        project_id, estimate_item_id, move_type, qty, price, comment,
+                        created_by, created_at, source_type, source_id, source_key,
+                        material_title_snapshot, material_unit_snapshot
+                    ) VALUES (?, ?, 'use', 1, 0, 'Расход из отчёта', ?, ?, 'daily_log_action', 9001, 'daily-log-test:9001', 'Мастика', 'кг')
+                    """,
+                    (self.project_id, self.material_id, self.admin_id, server.now_ts() + 2),
+                ).lastrowid
+            )
+            con.commit()
+
+        movement = next(
+            item
+            for item in self.reverse_payload()["movements"]
+            if item["id"] == report_move_id
+        )
+        self.assertEqual(movement["sourceType"], "daily_log_action")
+        self.assertFalse(movement["isReversible"])
+
+        blocked = self.reverse(report_move_id)
+
+        self.assertEqual(blocked.status, HTTPStatus.CONFLICT)
+        self.assertEqual(blocked.response["error"], "stock_move_not_reversible")
+        with server.db() as con:
+            reversal_count = int(
+                con.execute(
+                    """
+                    SELECT COUNT(*) FROM stock_moves
+                    WHERE source_type = 'stock_move_reversal' AND source_id = ?
+                    """,
+                    (report_move_id,),
+                ).fetchone()[0]
+            )
+        self.assertEqual(reversal_count, 0)
+
     def test_central_warehouse_return_is_typed_and_cannot_be_reversed(self) -> None:
         with server.db() as con:
             con.execute(

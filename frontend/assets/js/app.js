@@ -8020,12 +8020,13 @@ function renderLogsDayView(project, logs) {
         if (!manualSelection && !qty && targetQty == null && purchase && !qualitativePartial) qty = purchaseMaxQty;
         if (!manualSelection && !qty && targetQty == null && receipt && !qualitativePartial) qty = receiptMaxQty;
         if (!manualSelection && !qty && targetQty == null && used && !qualitativePartial && reportHasWholeIntent(normalized)) qty = useMaxQty;
+        var permittedQty = used ? Math.min(qty, useMaxQty) : qty;
         return {
             item: item,
             clauseText: clauseText,
             reportUnit: reportUnit,
             ambiguous: false,
-            actionEligible: Number(qty || 0) > 0 && (purchase || receipt || used) && !qualitativePartial,
+            actionEligible: Number(permittedQty || 0) > 0 && (purchase || receipt || used) && !qualitativePartial,
             semanticMatch: purchase || receipt || used,
             purchaseIntent: purchase,
             receiptIntent: receipt,
@@ -8038,7 +8039,7 @@ function renderLogsDayView(project, logs) {
             useMaxQty: useMaxQty,
             purchasedQty: purchase ? Math.min(qty, purchaseMaxQty || qty) : 0,
             receivedQty: receipt ? Math.min(qty, receiptMaxQty || qty) : 0,
-            usedQty: used ? Math.min(qty, useMaxQty || qty) : 0,
+            usedQty: used ? permittedQty : 0,
             selectedManually: true
         };
     }
@@ -8385,6 +8386,11 @@ function renderLogsDayView(project, logs) {
                         draft.workMatches.push(manualWork);
                         return;
                     }
+                    var selectedMaterialId = Number(selected.candidate.item && selected.candidate.item.id || 0);
+                    var currentMaterial = (state.materialsByProject[projectId] || []).find(function (item) {
+                        return Number(item.id || 0) === selectedMaterialId;
+                    });
+                    if (currentMaterial) selected.candidate.item = currentMaterial;
                     var existingMaterial = draft.materialMatches.find(function (entry) { return sameSuggestionEntry(entry, selected); });
                     var manualMaterial = reportManualMaterialEntry(selected.candidate, selectedClause, selected);
                     if (existingMaterial) {
@@ -14367,6 +14373,7 @@ function renderLogsDayView(project, logs) {
     if (typeof saveManualQuantityCheckbox === 'function') PMBI.app.saveManualQuantityCheckbox = saveManualQuantityCheckbox;
     if (typeof rerenderProjectMaterialAndWorkViews === 'function') PMBI.app.rerenderProjectMaterialAndWorkViews = rerenderProjectMaterialAndWorkViews;
     if (typeof refreshSelectedProjectProgressViews === 'function') PMBI.app.refreshSelectedProjectProgressViews = refreshSelectedProjectProgressViews;
+    if (typeof refreshOpenReportPreviewsForProject === 'function') PMBI.app.refreshOpenReportPreviewsForProject = refreshOpenReportPreviewsForProject;
     if (typeof bindProjectChainActions === 'function') PMBI.app.bindProjectChainActions = bindProjectChainActions;
     if (typeof renderProjectCritical === 'function') PMBI.app.renderProjectCritical = renderProjectCritical;
     if (typeof planningStatusClass === 'function') PMBI.app.planningStatusClass = planningStatusClass;
