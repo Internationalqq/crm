@@ -3740,27 +3740,6 @@
         shell.classList.toggle('is-horizontally-scrolled', current > 1);
     }
 
-    function productionPointerOverFrozenColumns(scroller, event) {
-        if (!scroller || !event) return false;
-        var target = event.target;
-        if (target && target.nodeType === 3) target = target.parentElement;
-        var overFrozenColumns = target && target.closest
-            ? target.closest('.production-number-cell, .production-work-title')
-            : null;
-        if (!overFrozenColumns && Number.isFinite(Number(event.clientX))) {
-            var frozenTitle = qs('.production-work-title', scroller);
-            var frozenRect = frozenTitle && frozenTitle.getBoundingClientRect
-                ? frozenTitle.getBoundingClientRect()
-                : null;
-            var scrollerRect = scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : null;
-            var pointerX = Number(event.clientX);
-            overFrozenColumns = frozenRect && scrollerRect
-                && pointerX >= scrollerRect.left
-                && pointerX < Math.min(frozenRect.right, scrollerRect.right);
-        }
-        return !!overFrozenColumns;
-    }
-
     function scrollProductionScheduleVertically(scroller, event) {
         if (!scroller || !event) return false;
         var deltaX = Number(event.deltaX || 0);
@@ -3810,33 +3789,26 @@
         scroller.addEventListener('scroll', function () {
             syncProductionScheduleScroll(scroller);
         }, { passive: true });
-        scroller.addEventListener('pointermove', function (event) {
-            var overFrozenColumns = productionPointerOverFrozenColumns(scroller, event);
-            scroller.classList.toggle('is-wheel-vertical-zone', overFrozenColumns);
-            scroller.classList.toggle('is-wheel-horizontal-zone', !overFrozenColumns);
-        }, { passive: true });
-        scroller.addEventListener('pointerleave', function () {
-            scroller.classList.remove('is-wheel-vertical-zone', 'is-wheel-horizontal-zone');
-        }, { passive: true });
         scroller.addEventListener('wheel', function (event) {
             if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
-            if (productionPointerOverFrozenColumns(scroller, event)) {
+            var deltaX = Number(event.deltaX || 0);
+            var deltaY = Number(event.deltaY || 0);
+            var horizontalIntent = !!event.shiftKey || Math.abs(deltaX) > Math.abs(deltaY);
+            if (!horizontalIntent) {
                 scrollProductionScheduleVertically(scroller, event);
                 return;
             }
 
-            var deltaX = Number(event.deltaX || 0);
-            var deltaY = Number(event.deltaY || 0);
-            var delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+            var delta = event.shiftKey ? (deltaY || deltaX) : deltaX;
             if (event.deltaMode === 1) delta *= 24;
             if (event.deltaMode === 2) delta *= Math.max(1, scroller.clientWidth);
             if (!delta) return;
 
-            event.preventDefault();
             var current = Number(scroller.scrollLeft || 0);
             var maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
             var next = Math.max(0, Math.min(maximum, current + delta));
             if (Math.abs(next - current) < 0.5) return;
+            event.preventDefault();
             scroller.scrollLeft = next;
             syncProductionScheduleScroll(scroller);
         }, { passive: false });
@@ -4328,7 +4300,7 @@
                     (canManageSchedule() ? '<button class="ghost compact" type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
                 '</div></div>' +
             (guestView ? '' : '<div class="production-recalculate-note"><b>Безопасный пересчёт:</b> обновляет автоматический черновик, сохраняя ручные операции, связи и ручную раскладку.</div>') +
-            '<div class="production-scroll-hint" aria-hidden="true">Колесо: над названием — вверх/вниз, над графиком — по дням</div>' +
+            '<div class="production-scroll-hint" aria-hidden="true">Колесо — вверх/вниз · Shift + колесо — по дням</div>' +
             '<div class="production-table-shell" data-production-table-shell>' +
                 '<div class="production-table-scroll" data-production-table-scroll role="region" aria-label="График производства по дням" tabindex="0"><table class="production-schedule-table">' + tableHeader + '<tbody>' + rows.join('') + '</tbody></table></div>' +
             '</div>' +

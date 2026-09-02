@@ -209,12 +209,12 @@ body.cal-modal-open .calendar-modal-overlay {
 
 .production-table-scroll {
     -webkit-overflow-scrolling: touch;
-    cursor: ew-resize;
     max-height: min(64vh, 600px);
     max-width: 100%;
     overflow-x: auto;
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
     scrollbar-color: #aab4bd #eef1f3;
     scrollbar-width: thin;
     touch-action: pan-x pan-y;
@@ -317,20 +317,6 @@ body.cal-modal-open .calendar-modal-overlay {
     text-align: center;
     transform: translateZ(0);
     z-index: 3;
-}
-
-.production-schedule-table .production-number-cell,
-.production-schedule-table .production-work-title {
-    cursor: ns-resize;
-}
-
-.production-schedule-table .production-volume-cell,
-.production-schedule-table .production-people-cell,
-.production-schedule-table .production-shifts-cell,
-.production-schedule-table .production-brigades-cell,
-.production-schedule-table .production-duration-cell,
-.production-schedule-table .production-day-head {
-    cursor: ew-resize;
 }
 
 .production-schedule-table .production-number-cell {
@@ -682,7 +668,7 @@ body.cal-modal-open .calendar-modal-overlay {
 .production-cell-toggle {
     background: #fff;
     border: 0;
-    cursor: ew-resize;
+    cursor: pointer;
     display: block;
     height: auto;
     inset: 0;
