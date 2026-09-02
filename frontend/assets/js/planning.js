@@ -4091,22 +4091,96 @@
         });
     }
 
+    function createProductionSchedulePrintPreview(project) {
+        var existing = qs('[data-production-print-preview]');
+        if (existing) {
+            if (typeof existing._productionPrintClose === 'function') existing._productionPrintClose();
+            else existing.remove();
+        }
+        var returnFocus = document.activeElement;
+        var projectTitle = String(project && (project.name || project.title) || 'Объект');
+        var preview = document.createElement('div');
+        preview.className = 'production-print-preview';
+        preview.setAttribute('data-production-print-preview', '');
+        preview.setAttribute('role', 'dialog');
+        preview.setAttribute('aria-modal', 'true');
+        preview.setAttribute('aria-labelledby', 'production-print-preview-title');
+        preview.innerHTML = '<style>' +
+            'html.production-print-preview-open,html.production-print-preview-open body{overflow:hidden!important}' +
+            '.production-print-preview{align-items:stretch;background:rgba(19,27,35,.78);display:grid;inset:0;padding:14px;position:fixed;z-index:2147483000}' +
+            '.production-print-preview-card{background:#f3f5f7;border:1px solid rgba(255,255,255,.34);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.34);display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0;overflow:hidden}' +
+            '.production-print-preview-head{align-items:center;background:#17212b;color:#fff;display:flex;gap:12px;justify-content:space-between;padding:12px 14px}' +
+            '.production-print-preview-copy{display:grid;gap:2px;min-width:0}.production-print-preview-copy b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.production-print-preview-copy span{color:#bcc7d1;font-size:12px}' +
+            '.production-print-preview-actions{align-items:center;display:flex;gap:8px}.production-print-preview-action,.production-print-preview-close{border:0;cursor:pointer;font:inherit;font-weight:800}' +
+            '.production-print-preview-action{background:#fff;border-radius:9px;color:#17212b;padding:9px 13px}.production-print-preview-action:disabled{cursor:wait;opacity:.55}' +
+            '.production-print-preview-close{background:rgba(255,255,255,.12);border-radius:9px;color:#fff;font-size:20px;height:38px;line-height:1;width:38px}' +
+            '.production-print-preview-frame{background:#e9edf0;border:0;height:100%;min-height:0;width:100%}' +
+            '.production-print-preview-status.is-error{color:#ffb4b4}' +
+            '@media(max-width:720px){.production-print-preview{padding:0}.production-print-preview-card{border:0;border-radius:0}.production-print-preview-head{align-items:flex-start;flex-wrap:wrap}.production-print-preview-actions{width:100%}.production-print-preview-action{flex:1}}' +
+        '</style><section class="production-print-preview-card">' +
+            '<header class="production-print-preview-head"><div class="production-print-preview-copy"><b id="production-print-preview-title">' + escapeHtml(projectTitle) + '</b><span class="production-print-preview-status" data-production-print-status>Обновляем график перед печатью…</span></div>' +
+            '<div class="production-print-preview-actions"><button class="production-print-preview-action" type="button" data-production-print-action disabled>Печать / сохранить PDF</button><button class="production-print-preview-close" type="button" data-production-print-close aria-label="Закрыть предпросмотр">×</button></div></header>' +
+            '<iframe class="production-print-preview-frame" data-production-print-frame title="Предпросмотр графика для печати"></iframe>' +
+        '</section>';
+        document.body.appendChild(preview);
+        document.documentElement.classList.add('production-print-preview-open');
+
+        var onKeyDown = function (event) {
+            if (event.key === 'Escape') closePreview();
+        };
+        var closePreview = function () {
+            document.removeEventListener('keydown', onKeyDown);
+            document.documentElement.classList.remove('production-print-preview-open');
+            if (preview.parentNode) preview.parentNode.removeChild(preview);
+            if (returnFocus && typeof returnFocus.focus === 'function' && document.contains(returnFocus)) returnFocus.focus();
+        };
+        preview._productionPrintClose = closePreview;
+        qsa('[data-production-print-close]', preview).forEach(function (button) {
+            button.addEventListener('click', closePreview);
+        });
+        preview.addEventListener('click', function (event) {
+            if (event.target === preview) closePreview();
+        });
+        document.addEventListener('keydown', onKeyDown);
+        var closeButton = qs('[data-production-print-close]', preview);
+        if (closeButton) closeButton.focus();
+
+        return {
+            root: preview,
+            frame: qs('[data-production-print-frame]', preview),
+            printButton: qs('[data-production-print-action]', preview),
+            status: qs('[data-production-print-status]', preview),
+            close: closePreview
+        };
+    }
+
+    function writeProductionSchedulePrintPreview(preview, html) {
+        var frameWindow = preview && preview.frame && preview.frame.contentWindow;
+        var frameDocument = preview && preview.frame && (preview.frame.contentDocument || (frameWindow && frameWindow.document));
+        if (!frameWindow || !frameDocument) throw new Error('Предпросмотр печати недоступен в этом браузере.');
+        frameDocument.open();
+        frameDocument.write(html);
+        frameDocument.close();
+        var embeddedToolbar = frameDocument.querySelector('.production-print-toolbar');
+        if (embeddedToolbar) embeddedToolbar.style.display = 'none';
+        frameDocument.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && preview && typeof preview.close === 'function') preview.close();
+        });
+        return { window: frameWindow, document: frameDocument };
+    }
+
     function openProductionSchedulePrint(projectId, trigger) {
         var project = state.selectedProject;
         if (!project || Number(project.id) !== Number(projectId)) return Promise.resolve(null);
-        var printWindow = null;
+        var preview = null;
         try {
-            printWindow = window.open('', '_blank', 'popup,width=1280,height=900');
+            preview = createProductionSchedulePrintPreview(project);
+            writeProductionSchedulePrintPreview(preview, productionSchedulePrintStatusDocument(project, 'Обновляем график с сервера перед печатью…', false));
         } catch (error) {
-            printWindow = null;
-        }
-        if (!printWindow) {
-            showAppNotice('Браузер заблокировал окно печати. Разрешите всплывающие окна для этого сайта.', 'error');
+            if (preview && typeof preview.close === 'function') preview.close();
+            showAppNotice(appErrorMessage(error, 'Не удалось открыть предпросмотр печати.'), 'error');
             return Promise.resolve(null);
         }
-        printWindow.document.open();
-        printWindow.document.write(productionSchedulePrintStatusDocument(project, 'Обновляем график с сервера перед печатью…', false));
-        printWindow.document.close();
         if (trigger) {
             trigger.disabled = true;
             trigger.classList.add('is-loading');
@@ -4116,37 +4190,30 @@
             return loadProductionScheduleForPrint(projectId);
         }).then(function (latest) {
             if (!latest || latest.error) throw new Error(latest && latest.error || 'График не загрузился.');
-            printWindow.document.open();
-            printWindow.document.write(productionSchedulePrintDocument(project, latest));
-            printWindow.document.close();
-            try { printWindow.opener = null; } catch (error) {}
-            var printAgain = printWindow.document.querySelector('[data-production-print-now]');
-            var autoPrintTimer = null;
+            if (!preview.root.isConnected) return latest;
+            var printable = writeProductionSchedulePrintPreview(preview, productionSchedulePrintDocument(project, latest));
             var startPrint = function () {
-                if (printWindow.closed) return;
-                if (autoPrintTimer !== null) {
-                    printWindow.clearTimeout(autoPrintTimer);
-                    autoPrintTimer = null;
+                if (!preview.root.isConnected) return;
+                try {
+                    printable.window.focus();
+                    printable.window.print();
+                } catch (error) {
+                    showAppNotice(appErrorMessage(error, 'Не удалось открыть системное окно печати.'), 'error');
                 }
-                printWindow.focus();
-                printWindow.print();
             };
+            var printAgain = printable.document.querySelector('[data-production-print-now]');
             if (printAgain) printAgain.addEventListener('click', startPrint);
-            var ready = printWindow.document.fonts && printWindow.document.fonts.ready
-                ? printWindow.document.fonts.ready.catch(function () {})
-                : Promise.resolve();
-            ready.then(function () {
-                autoPrintTimer = printWindow.setTimeout(function () {
-                    autoPrintTimer = null;
-                    startPrint();
-                }, 240);
-            });
+            preview.printButton.disabled = false;
+            preview.printButton.addEventListener('click', startPrint);
+            preview.status.textContent = 'Готово. Проверьте листы и нажмите кнопку печати.';
             return latest;
         }).catch(function (error) {
-            if (!printWindow.closed) {
-                printWindow.document.open();
-                printWindow.document.write(productionSchedulePrintStatusDocument(project, appErrorMessage(error, 'Не удалось подготовить график к печати.'), true));
-                printWindow.document.close();
+            if (preview.root.isConnected) {
+                try {
+                    writeProductionSchedulePrintPreview(preview, productionSchedulePrintStatusDocument(project, appErrorMessage(error, 'Не удалось подготовить график к печати.'), true));
+                } catch (previewError) {}
+                preview.status.textContent = 'Не удалось подготовить график.';
+                preview.status.classList.add('is-error');
             }
             showAppNotice(appErrorMessage(error, 'Не удалось подготовить график к печати.'), 'error');
             return null;

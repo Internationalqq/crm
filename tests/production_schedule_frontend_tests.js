@@ -45,11 +45,20 @@ assert.match(planningJs, /data-lucide="printer"/);
 assert.match(planningJs, /Распечатать в PDF/);
 assert.match(planningJs, /function productionSchedulePrintDocument/);
 assert.match(planningJs, /function loadProductionScheduleForPrint/);
+assert.match(planningJs, /function createProductionSchedulePrintPreview/);
+assert.match(planningJs, /function writeProductionSchedulePrintPreview/);
 assert.match(planningJs, /function openProductionSchedulePrint/);
 assert.match(planningJs, /loadProductionScheduleForPrint\(projectId\)/);
 assert.match(planningJs, /productionSchedulePendingSavesByProject/);
-assert.match(planningJs, /printWindow\.clearTimeout\(autoPrintTimer\)/);
-assert.match(planningJs, /printWindow\.print\(\)/);
+assert.match(planningJs, /data-production-print-preview/);
+assert.match(planningJs, /data-production-print-frame/);
+assert.match(planningJs, /data-production-print-action/);
+assert.match(planningJs, /printable\.window\.print\(\)/);
+const productionPrintOpenBlock = planningJs.slice(
+  planningJs.indexOf('function openProductionSchedulePrint'),
+  planningJs.indexOf('function renderProductionSchedule'),
+);
+assert.doesNotMatch(productionPrintOpenBlock, /window\.open\(/);
 assert.match(planningJs, /data-production-edit-operation/);
 assert.match(planningJs, /data-production-delete-operation/);
 assert.match(planningJs, /data-production-split-operation/);
@@ -385,8 +394,8 @@ assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sticky-viewport-8/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sticky-viewport-8/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-sticky-viewport-8/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-print-pdf-1/);
-assert.match(routerJs, /planning\.js\?v=[^'\n]*production-print-pdf-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-print-pdf-1/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*production-print-pdf-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-print-pdf-2/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-print-pdf-2/);
 
 console.log('production_schedule_frontend_ok');
