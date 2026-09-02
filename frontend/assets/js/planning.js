@@ -3961,6 +3961,203 @@
             '</aside>';
     }
 
+    function productionSchedulePrintDayCount(schedule) {
+        var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
+        var dayCount = Math.max(1, Number(schedule && schedule.dayCount || 0), Number(schedule && schedule.autoDayCount || 0));
+        var maximumSlot = dayCount * 2;
+        items.forEach(function (item) {
+            ['filledSlots', 'autoFilledSlots', 'overriddenSlots'].forEach(function (field) {
+                var rawSlots = item && item[field];
+                var slots = Array.isArray(rawSlots)
+                    ? rawSlots
+                    : (rawSlots && typeof rawSlots === 'object' ? Object.keys(rawSlots).filter(function (key) { return rawSlots[key]; }) : []);
+                slots.forEach(function (slot) {
+                    var slotNumber = Number(slot);
+                    if (Number.isFinite(slotNumber)) maximumSlot = Math.max(maximumSlot, slotNumber);
+                });
+            });
+        });
+        return Math.max(1, Math.ceil(maximumSlot / 2));
+    }
+
+    function productionSchedulePrintDocument(project, schedule) {
+        var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
+        var dayCount = productionSchedulePrintDayCount(schedule);
+        var daysPerSheet = 12;
+        var sheetCount = Math.max(1, Math.ceil(dayCount / daysPerSheet));
+        var projectTitle = String(project && (project.name || project.title) || 'Объект');
+        var projectAddress = String(project && (project.address || project.location) || '').trim();
+        var printedAt = new Date().toLocaleString('ru-RU');
+        var sheets = [];
+
+        for (var sheetIndex = 0; sheetIndex < sheetCount; sheetIndex += 1) {
+            var firstDay = sheetIndex * daysPerSheet + 1;
+            var lastDay = Math.min(dayCount, firstDay + daysPerSheet - 1);
+            var dayHeaders = '';
+            var halfDayHeaders = '';
+            var dayColumns = '';
+            for (var day = firstDay; day <= lastDay; day += 1) {
+                dayHeaders += '<th class="production-print-day" colspan="2">День ' + String(day) + '</th>';
+                halfDayHeaders += '<th class="production-print-half">1/2</th><th class="production-print-half">2/2</th>';
+                dayColumns += '<col class="production-print-slot-column"><col class="production-print-slot-column">';
+            }
+
+            var previousSection = null;
+            var rows = [];
+            items.forEach(function (item, itemIndex) {
+                var sectionTitle = String(item.sectionTitle || '').trim();
+                if (sectionTitle && sectionTitle !== previousSection) {
+                    rows.push('<tr class="production-print-section"><th colspan="' + String(7 + (lastDay - firstDay + 1) * 2) + '">' + escapeHtml(sectionTitle) + '</th></tr>');
+                    previousSection = sectionTitle;
+                }
+                var filled = productionScheduleDaySet(item.filledSlots);
+                var overridden = productionScheduleDaySet(item.overriddenSlots);
+                var colorKey = productionOperationColorKey(item, itemIndex);
+                var cells = '';
+                for (var cellDay = firstDay; cellDay <= lastDay; cellDay += 1) {
+                    for (var half = 1; half <= 2; half += 1) {
+                        var slotNumber = (cellDay - 1) * 2 + half;
+                        var isFilled = !!filled[String(slotNumber)];
+                        var isOverridden = !!overridden[String(slotNumber)];
+                        cells += '<td class="production-print-slot' + (isFilled ? ' is-filled tone-' + colorKey : '') + (isOverridden ? ' is-overridden' : '') + '"></td>';
+                    }
+                }
+                var volumePlan = quantityPlanInfo(item || {});
+                var hasVolume = item.plannedQty != null || item.planned_qty != null;
+                var volumeUnit = String(volumePlan.unit || '').trim();
+                var volume = hasVolume ? (quantityText(volumePlan.totalQty) + (volumeUnit ? ' ' + volumeUnit : '')) : '—';
+                var people = item.peopleCount != null ? item.peopleCount : (item.crewSize != null ? item.crewSize : 1);
+                var shifts = item.shiftCount != null ? item.shiftCount : 1;
+                var brigades = item.brigadeCount != null ? item.brigadeCount : 1;
+                var duration = Math.max(0.5, Math.round(Number(item.durationDays || 0.5) * 2) / 2);
+                rows.push('<tr class="production-print-work">' +
+                    '<td class="production-print-number">' + String(itemIndex + 1) + '</td>' +
+                    '<th class="production-print-title">' + escapeHtml(item.title || 'Работа') + '</th>' +
+                    '<td>' + escapeHtml(volume) + '</td>' +
+                    '<td>' + escapeHtml(String(people)) + '</td>' +
+                    '<td>' + escapeHtml(String(shifts)) + '</td>' +
+                    '<td>' + escapeHtml(String(brigades)) + '</td>' +
+                    '<td>' + escapeHtml(quantityText(duration)) + '</td>' + cells + '</tr>');
+            });
+            if (!rows.length) {
+                rows.push('<tr class="production-print-empty"><td colspan="' + String(7 + (lastDay - firstDay + 1) * 2) + '">График пока пуст</td></tr>');
+            }
+
+            sheets.push('<section class="production-print-sheet">' +
+                '<header class="production-print-sheet-head"><div><span>График производства работ</span><h1>' + escapeHtml(projectTitle) + '</h1>' + (projectAddress ? '<p>' + escapeHtml(projectAddress) + '</p>' : '') + '</div>' +
+                    '<div class="production-print-range"><b>Дни ' + String(firstDay) + (firstDay === lastDay ? '' : '–' + String(lastDay)) + '</b><span>Часть ' + String(sheetIndex + 1) + ' из ' + String(sheetCount) + '</span></div></header>' +
+                '<table class="production-print-table"><colgroup><col class="production-print-number-column"><col class="production-print-title-column"><col class="production-print-volume-column"><col class="production-print-people-column"><col class="production-print-shifts-column"><col class="production-print-brigades-column"><col class="production-print-duration-column">' + dayColumns + '</colgroup>' +
+                    '<thead><tr><th rowspan="2">№</th><th rowspan="2">Наименование работ</th><th rowspan="2">Объём</th><th rowspan="2">Чел.</th><th rowspan="2">Смен</th><th rowspan="2">Бригад</th><th rowspan="2">Дней</th>' + dayHeaders + '</tr><tr>' + halfDayHeaders + '</tr></thead>' +
+                    '<tbody>' + rows.join('') + '</tbody></table>' +
+                '<footer class="production-print-footer"><span>Каждая половина клетки — 0,5 дня</span><span>Актуально на ' + escapeHtml(printedAt) + '</span></footer>' +
+            '</section>');
+        }
+
+        return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>График производства — ' + escapeHtml(projectTitle) + '</title><style>' +
+            '@page{size:A4 landscape;margin:8mm}' +
+            '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+            'html,body{margin:0;min-height:100%;font-family:Arial,Helvetica,sans-serif;color:#18212a;background:#e9edf0}' +
+            '.production-print-toolbar{align-items:center;background:#17212b;color:#fff;display:flex;gap:12px;justify-content:space-between;padding:12px 18px;position:sticky;top:0;z-index:5}' +
+            '.production-print-toolbar div{display:grid;gap:2px}.production-print-toolbar b{font-size:14px}.production-print-toolbar span{color:#b9c4cf;font-size:11px}' +
+            '.production-print-toolbar button{background:#fff;border:0;border-radius:9px;color:#17212b;cursor:pointer;font-size:13px;font-weight:800;padding:10px 14px}' +
+            '.production-print-document{display:grid;gap:18px;padding:18px}' +
+            '.production-print-sheet{background:#fff;box-shadow:0 12px 30px rgba(20,31,42,.14);margin:0 auto;min-height:210mm;padding:8mm;width:297mm}' +
+            '.production-print-sheet-head{align-items:flex-end;border-bottom:2px solid #18212a;display:flex;gap:10mm;justify-content:space-between;margin-bottom:3mm;padding-bottom:2.5mm}' +
+            '.production-print-sheet-head span{color:#67727d;font-size:7pt;font-weight:800;letter-spacing:.08em;text-transform:uppercase}' +
+            '.production-print-sheet-head h1{font-size:14pt;line-height:1.1;margin:1mm 0 0}.production-print-sheet-head p{color:#5d6872;font-size:7pt;margin:1mm 0 0}' +
+            '.production-print-range{align-items:flex-end;display:grid;gap:.8mm;text-align:right;white-space:nowrap}.production-print-range b{font-size:9pt}.production-print-range span{font-size:6.5pt}' +
+            '.production-print-table{border-collapse:collapse;table-layout:fixed;width:100%}' +
+            '.production-print-table th,.production-print-table td{border:0.25mm solid #39424a;font-size:6.3pt;height:6mm;line-height:1.15;padding:.7mm;text-align:center;vertical-align:middle}' +
+            '.production-print-table thead{display:table-header-group}.production-print-table thead th{background:#e9edf0;font-size:5.7pt;font-weight:800}' +
+            '.production-print-table tr{break-inside:avoid;page-break-inside:avoid}.production-print-table .production-print-title{font-size:6.5pt;text-align:left;word-break:break-word}' +
+            '.production-print-number-column{width:8mm}.production-print-title-column{width:64mm}.production-print-volume-column{width:20mm}.production-print-people-column{width:14mm}.production-print-shifts-column{width:14mm}.production-print-brigades-column{width:16mm}.production-print-duration-column{width:18mm}.production-print-slot-column{width:5mm}' +
+            '.production-print-section th{background:#d9dee3;font-size:6.5pt;height:5mm;padding-left:1.5mm;text-align:left}' +
+            '.production-print-slot{padding:0!important}.production-print-slot.is-filled.tone-slate{background:#7f8992}.production-print-slot.is-filled.tone-blue{background:#7892b0}.production-print-slot.is-filled.tone-teal{background:#719994}.production-print-slot.is-filled.tone-green{background:#7e9a7f}.production-print-slot.is-filled.tone-violet{background:#8b84a1}.production-print-slot.is-filled.tone-rose{background:#a0878e}' +
+            '.production-print-slot.is-overridden{box-shadow:inset 0 0 0 .45mm rgba(24,33,42,.55)}.production-print-empty td{color:#68737d;font-style:italic;padding:5mm}' +
+            '.production-print-footer{color:#68737d;display:flex;font-size:6.3pt;justify-content:space-between;padding-top:2mm}' +
+            '@media print{html,body{background:#fff}.production-print-toolbar{display:none}.production-print-document{display:block;padding:0}.production-print-sheet{box-shadow:none;margin:0;min-height:0;padding:0;width:auto;break-after:page;page-break-after:always}.production-print-sheet:last-child{break-after:auto;page-break-after:auto}}' +
+        '</style></head><body><div class="production-print-toolbar"><div><b>Предпросмотр графика</b><span>Выберите «Сохранить как PDF» или принтер в системном окне.</span></div><button type="button" data-production-print-now>Печать / сохранить PDF</button></div><main class="production-print-document">' + sheets.join('') + '</main></body></html>';
+    }
+
+    function productionSchedulePrintStatusDocument(project, message, isError) {
+        var title = String(project && (project.name || project.title) || 'Объект');
+        return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>body{align-items:center;background:#f4f6f8;color:#1f2933;display:grid;font-family:Arial,sans-serif;margin:0;min-height:100vh;padding:24px;text-align:center}.status{background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(25,35,45,.12);max-width:520px;padding:34px}.status b{display:block;font-size:18px;margin-bottom:8px}.status p{color:' + (isError ? '#a13b3b' : '#65717c') + ';line-height:1.5;margin:0}</style></head><body><div class="status"><b>' + escapeHtml(title) + '</b><p>' + escapeHtml(message) + '</p></div></body></html>';
+    }
+
+    function loadProductionScheduleForPrint(projectId) {
+        return api('/api/projects/' + projectId + '/production-schedule').then(function (schedule) {
+            applyProductionScheduleResponse(projectId, schedule);
+            return state.productionScheduleByProject && state.productionScheduleByProject[projectId];
+        });
+    }
+
+    function openProductionSchedulePrint(projectId, trigger) {
+        var project = state.selectedProject;
+        if (!project || Number(project.id) !== Number(projectId)) return Promise.resolve(null);
+        var printWindow = null;
+        try {
+            printWindow = window.open('', '_blank', 'popup,width=1280,height=900');
+        } catch (error) {
+            printWindow = null;
+        }
+        if (!printWindow) {
+            showAppNotice('Браузер заблокировал окно печати. Разрешите всплывающие окна для этого сайта.', 'error');
+            return Promise.resolve(null);
+        }
+        printWindow.document.open();
+        printWindow.document.write(productionSchedulePrintStatusDocument(project, 'Обновляем график с сервера перед печатью…', false));
+        printWindow.document.close();
+        if (trigger) {
+            trigger.disabled = true;
+            trigger.classList.add('is-loading');
+        }
+        var pendingSave = state.productionSchedulePendingSavesByProject && state.productionSchedulePendingSavesByProject[projectId];
+        return Promise.resolve(pendingSave).catch(function () { return null; }).then(function () {
+            return loadProductionScheduleForPrint(projectId);
+        }).then(function (latest) {
+            if (!latest || latest.error) throw new Error(latest && latest.error || 'График не загрузился.');
+            printWindow.document.open();
+            printWindow.document.write(productionSchedulePrintDocument(project, latest));
+            printWindow.document.close();
+            try { printWindow.opener = null; } catch (error) {}
+            var printAgain = printWindow.document.querySelector('[data-production-print-now]');
+            var autoPrintTimer = null;
+            var startPrint = function () {
+                if (printWindow.closed) return;
+                if (autoPrintTimer !== null) {
+                    printWindow.clearTimeout(autoPrintTimer);
+                    autoPrintTimer = null;
+                }
+                printWindow.focus();
+                printWindow.print();
+            };
+            if (printAgain) printAgain.addEventListener('click', startPrint);
+            var ready = printWindow.document.fonts && printWindow.document.fonts.ready
+                ? printWindow.document.fonts.ready.catch(function () {})
+                : Promise.resolve();
+            ready.then(function () {
+                autoPrintTimer = printWindow.setTimeout(function () {
+                    autoPrintTimer = null;
+                    startPrint();
+                }, 240);
+            });
+            return latest;
+        }).catch(function (error) {
+            if (!printWindow.closed) {
+                printWindow.document.open();
+                printWindow.document.write(productionSchedulePrintStatusDocument(project, appErrorMessage(error, 'Не удалось подготовить график к печати.'), true));
+                printWindow.document.close();
+            }
+            showAppNotice(appErrorMessage(error, 'Не удалось подготовить график к печати.'), 'error');
+            return null;
+        }).finally(function () {
+            if (trigger) {
+                trigger.disabled = false;
+                trigger.classList.remove('is-loading');
+            }
+        });
+    }
+
     function renderProductionSchedule(project, schedule) {
         if (!project) return '';
         if (!schedule) return skeletonMarkup('table', 1);
@@ -4057,6 +4254,7 @@
             '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (guestView ? 'Актуальная последовательность работ по объекту. Каждая половина клетки — 0,5 дня.' : 'Авточерновик строится последовательно. Работы можно добавлять, связывать со сметой и переставлять; каждая половина клетки — 0,5 дня.') + '</p></div>' +
                 '<div class="production-schedule-actions">' +
                     (canEditSchedule ? '<button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Добавить работу</button>' : '') +
+                    '<button class="ghost compact production-print-button" type="button" data-production-print data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="printer" aria-hidden="true"></i><span>Распечатать в PDF</span></button>' +
                     '<button class="ghost compact" type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">+ 7 дней</button>' +
                     (canSaveTemplate ? '<button class="ghost compact" type="button" data-production-save-template data-project-id="' + escapeHtml(project.id) + '">Сохранить шаблон</button>' : '') +
                     (canEditSchedule ? '<button class="ghost compact" type="button" data-production-reset-cells data-project-id="' + escapeHtml(project.id) + '">Вернуть авто-раскладку</button>' : '') +
@@ -4079,6 +4277,7 @@
         var scrollTop = scroll ? scroll.scrollTop : 0;
         safeReplaceChildren(panel, renderProductionSchedule(project, state.productionScheduleByProject[project.id] || null));
         bindProductionScheduleInteractions(project.id);
+        refreshLucideIcons(panel);
         var nextScroll = qs('[data-production-table-scroll]', panel);
         if (nextScroll) {
             nextScroll.scrollLeft = scrollLeft;
@@ -4124,7 +4323,7 @@
 
     function saveProductionScheduleAction(projectId, payload, control) {
         if (control) control.disabled = true;
-        return api('/api/projects/' + projectId + '/production-schedule', {
+        var request = api('/api/projects/' + projectId + '/production-schedule', {
             method: 'POST',
             body: JSON.stringify(payload || {})
         }).then(function (schedule) {
@@ -4135,6 +4334,17 @@
             showAppNotice(appErrorMessage(error, 'Не удалось сохранить график производства.'), 'error');
             throw error;
         });
+        state.productionSchedulePendingSavesByProject = state.productionSchedulePendingSavesByProject || {};
+        var previous = state.productionSchedulePendingSavesByProject[projectId] || Promise.resolve(null);
+        var tracked = Promise.all([
+            Promise.resolve(previous).catch(function () { return null; }),
+            request.catch(function () { return null; })
+        ]).then(function () { return null; });
+        state.productionSchedulePendingSavesByProject[projectId] = tracked;
+        tracked.then(function () {
+            if (state.productionSchedulePendingSavesByProject[projectId] === tracked) delete state.productionSchedulePendingSavesByProject[projectId];
+        });
+        return request;
     }
 
     function saveProductionDurationValue(projectId, input, rawDays) {
@@ -4316,6 +4526,13 @@
         var panel = qs('[data-panel="production-schedule"]');
         if (!panel) return;
         bindProductionScheduleScroll(qs('[data-production-table-scroll]', panel));
+        qsa('[data-production-print]', panel).forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                openProductionSchedulePrint(projectId, button);
+            });
+        });
         qsa('[data-production-cell]', panel).forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -4673,6 +4890,10 @@
         if (typeof isSelectedProjectScheduleTabActive === 'function') PMBI.planning.isSelectedProjectScheduleTabActive = isSelectedProjectScheduleTabActive;
         if (typeof loadSelectedProjectMaterialSchedule === 'function') PMBI.planning.loadSelectedProjectMaterialSchedule = loadSelectedProjectMaterialSchedule;
         if (typeof renderProductionSchedule === 'function') PMBI.planning.renderProductionSchedule = renderProductionSchedule;
+        if (typeof productionSchedulePrintDayCount === 'function') PMBI.planning.productionSchedulePrintDayCount = productionSchedulePrintDayCount;
+        if (typeof productionSchedulePrintDocument === 'function') PMBI.planning.productionSchedulePrintDocument = productionSchedulePrintDocument;
+        if (typeof loadProductionScheduleForPrint === 'function') PMBI.planning.loadProductionScheduleForPrint = loadProductionScheduleForPrint;
+        if (typeof openProductionSchedulePrint === 'function') PMBI.planning.openProductionSchedulePrint = openProductionSchedulePrint;
         if (typeof bindProductionScheduleInteractions === 'function') PMBI.planning.bindProductionScheduleInteractions = bindProductionScheduleInteractions;
         if (typeof loadSelectedProjectProductionSchedule === 'function') PMBI.planning.loadSelectedProjectProductionSchedule = loadSelectedProjectProductionSchedule;
         if (typeof focusProjectMaterialRow === 'function') PMBI.planning.focusProjectMaterialRow = focusProjectMaterialRow;

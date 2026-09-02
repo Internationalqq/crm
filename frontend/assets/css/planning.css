@@ -167,6 +167,26 @@ body.cal-modal-open .calendar-modal-overlay {
     justify-content: flex-end;
 }
 
+.production-print-button {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.production-print-button svg {
+    height: 15px;
+    stroke-width: 2;
+    width: 15px;
+}
+
+.production-print-button.is-loading svg {
+    animation: production-print-pulse .8s ease-in-out infinite alternate;
+}
+
+@keyframes production-print-pulse {
+    to { opacity: .35; transform: translateY(1px); }
+}
+
 .production-scroll-hint {
     align-items: center;
     background: #fbfcfd;

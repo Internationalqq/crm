@@ -40,6 +40,16 @@ for (const action of ['add_operation', 'update_operation', 'delete_operation', '
   assert.match(planningJs, new RegExp(`['"]${action}['"]`));
 }
 assert.match(planningJs, /data-production-add-operation/);
+assert.match(planningJs, /data-production-print data-project-id/);
+assert.match(planningJs, /data-lucide="printer"/);
+assert.match(planningJs, /Распечатать в PDF/);
+assert.match(planningJs, /function productionSchedulePrintDocument/);
+assert.match(planningJs, /function loadProductionScheduleForPrint/);
+assert.match(planningJs, /function openProductionSchedulePrint/);
+assert.match(planningJs, /loadProductionScheduleForPrint\(projectId\)/);
+assert.match(planningJs, /productionSchedulePendingSavesByProject/);
+assert.match(planningJs, /printWindow\.clearTimeout\(autoPrintTimer\)/);
+assert.match(planningJs, /printWindow\.print\(\)/);
 assert.match(planningJs, /data-production-edit-operation/);
 assert.match(planningJs, /data-production-delete-operation/);
 assert.match(planningJs, /data-production-split-operation/);
@@ -265,6 +275,7 @@ assert.match(planningCss, /\.production-schedule-table/);
 assert.match(planningCss, /\.production-duration-stepper/);
 assert.match(planningCss, /\.production-operation-drawer/);
 assert.match(planningCss, /\.production-work-row\.production-phase-blue/);
+assert.match(planningCss, /\.production-print-button/);
 assert.match(planningCss, /\.production-link-label\.is-review/);
 assert.doesNotMatch(planningCss, /production-phase-(?:amber|yellow)/);
 assert.doesNotMatch(planningCss, /\.production-section-row th\s*\{[^}]*#f1e33b/s);
@@ -312,9 +323,70 @@ assert.match(planningCss, /\.production-work-meta\s*\{[^}]*margin: 2px 0 0;/s);
 assert.match(planningCss, /\.production-duration-cell \.production-duration-stepper input\[data-production-duration\]\s*\{[^}]*height: 100% !important;[^}]*line-height: 14px !important;[^}]*min-height: 0 !important;[^}]*padding: 0 2px 8px !important;/s);
 assert.match(planningCss, /\.production-duration-step-button > span\s*\{[^}]*transform: translateY\(-4px\);/s);
 assert.match(planningJs, /var scrollTop = scroll \? scroll\.scrollTop : 0;[\s\S]*?nextScroll\.scrollTop = scrollTop;/s);
+const productionPrintStart = planningJs.indexOf('function productionSchedulePrintDayCount');
+const productionPrintEnd = planningJs.indexOf('\n    function renderProductionSchedule(', productionPrintStart);
+assert.ok(productionPrintStart > -1 && productionPrintEnd > productionPrintStart);
+const productionPrintApi = new Function(
+  'escapeHtml',
+  'quantityPlanInfo',
+  'quantityText',
+  'productionScheduleDaySet',
+  'productionOperationColorKey',
+  `${planningJs.slice(productionPrintStart, productionPrintEnd)}\nreturn { productionSchedulePrintDayCount, productionSchedulePrintDocument };`,
+)(
+  (value) => String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;'),
+  (item) => ({ totalQty: item.plannedQty ?? item.planned_qty ?? 0, unit: item.unit || '' }),
+  (value) => String(value),
+  (slots) => Object.fromEntries((Array.isArray(slots) ? slots : []).map((slot) => [String(slot), true])),
+  (item) => item.colorKey || 'blue',
+);
+const printableSchedule = {
+  dayCount: 13,
+  autoDayCount: 13,
+  items: [{
+    id: 17,
+    sectionTitle: '<Подготовка>',
+    title: 'Гидроизоляция <основная>',
+    plannedQty: 256,
+    unit: 'м²',
+    peopleCount: 4,
+    shiftCount: 2,
+    brigadeCount: 1,
+    durationDays: 13,
+    filledSlots: [1, 2, 24, 25, 26],
+    overriddenSlots: [26],
+    colorKey: 'green',
+  }],
+};
+assert.equal(productionPrintApi.productionSchedulePrintDayCount(printableSchedule), 13);
+assert.equal(productionPrintApi.productionSchedulePrintDayCount({ dayCount: 2, items: [{ filledSlots: [27] }] }), 14);
+const printableHtml = productionPrintApi.productionSchedulePrintDocument(
+  { name: 'ЮУРГУ <корпус>', address: 'ул. Тестовая, 1' },
+  printableSchedule,
+);
+assert.equal((printableHtml.match(/<section class="production-print-sheet">/g) || []).length, 2);
+assert.match(printableHtml, /@page\{size:A4 landscape;margin:8mm\}/);
+assert.match(printableHtml, /print-color-adjust:exact/);
+assert.match(printableHtml, /Дни 1–12/);
+assert.match(printableHtml, /Дни 13/);
+assert.match(printableHtml, /День 13/);
+assert.doesNotMatch(printableHtml, /День 14/);
+assert.match(printableHtml, /production-print-slot is-filled tone-green is-overridden/);
+assert.equal((printableHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 2);
+assert.match(printableHtml, /ЮУРГУ &lt;корпус&gt;/);
+assert.doesNotMatch(printableHtml, /data-production-(?:cell|duration|edit-operation)/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-sticky-viewport-8/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sticky-viewport-8/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sticky-viewport-8/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-sticky-viewport-8/);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*production-print-pdf-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-print-pdf-1/);
+assert.match(baseHtml, /app\.css\?v=[^"\n]*production-print-pdf-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-print-pdf-1/);
 
 console.log('production_schedule_frontend_ok');
