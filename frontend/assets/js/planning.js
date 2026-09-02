@@ -3952,11 +3952,44 @@
         return Math.max(1, Math.ceil(maximumSlot / 2));
     }
 
-    function productionSchedulePrintDocument(project, schedule) {
-        var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
+    var productionSchedulePrintPreferences = {
+        layout: 'fit-one',
+        scalePercentByLayout: { 'fit-one': null, paged: null }
+    };
+
+    function productionSchedulePrintScalePercent(value, fallback) {
+        var parsed = Number(value);
+        if (!Number.isFinite(parsed)) parsed = Number(fallback);
+        if (!Number.isFinite(parsed)) parsed = 100;
+        return Math.max(1, Math.min(100, Math.round(parsed)));
+    }
+
+    function productionSchedulePrintConfig(schedule, options) {
         var dayCount = productionSchedulePrintDayCount(schedule);
-        var daysPerSheet = 12;
-        var sheetCount = Math.max(1, Math.ceil(dayCount / daysPerSheet));
+        var layout = options && options.layout === 'fit-one' ? 'fit-one' : 'paged';
+        var scalePercent = productionSchedulePrintScalePercent(options && options.scalePercent, 100);
+        var daysPerSheet = dayCount;
+        if (layout === 'paged') {
+            var scale = scalePercent / 100;
+            var availableNaturalWidth = 281 / scale;
+            daysPerSheet = Math.floor((availableNaturalWidth - 154) / 10);
+            daysPerSheet = Math.max(1, Math.min(dayCount, daysPerSheet));
+        }
+        return {
+            dayCount: dayCount,
+            daysPerSheet: daysPerSheet,
+            layout: layout,
+            scalePercent: scalePercent,
+            sheetCount: Math.max(1, Math.ceil(dayCount / daysPerSheet))
+        };
+    }
+
+    function productionSchedulePrintDocument(project, schedule, options) {
+        var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
+        var printConfig = productionSchedulePrintConfig(schedule, options);
+        var dayCount = printConfig.dayCount;
+        var daysPerSheet = printConfig.daysPerSheet;
+        var sheetCount = printConfig.sheetCount;
         var projectTitle = String(project && (project.name || project.title) || 'Объект');
         var projectAddress = String(project && (project.address || project.location) || '').trim();
         var printedAt = new Date().toLocaleString('ru-RU');
@@ -4015,25 +4048,28 @@
                 rows.push('<tr class="production-print-empty"><td colspan="' + String(7 + (lastDay - firstDay + 1) * 2) + '">График пока пуст</td></tr>');
             }
 
-            sheets.push('<section class="production-print-sheet">' +
+            var naturalWidth = 154 + (lastDay - firstDay + 1) * 10;
+            sheets.push('<section class="production-print-sheet"><div class="production-print-canvas" data-production-print-canvas style="--production-print-natural-width:' + String(naturalWidth) + 'mm">' +
                 '<header class="production-print-sheet-head"><div><span>График производства работ</span><h1>' + escapeHtml(projectTitle) + '</h1>' + (projectAddress ? '<p>' + escapeHtml(projectAddress) + '</p>' : '') + '</div>' +
                     '<div class="production-print-range"><b>Дни ' + String(firstDay) + (firstDay === lastDay ? '' : '–' + String(lastDay)) + '</b><span>Часть ' + String(sheetIndex + 1) + ' из ' + String(sheetCount) + '</span></div></header>' +
                 '<table class="production-print-table"><colgroup><col class="production-print-number-column"><col class="production-print-title-column"><col class="production-print-volume-column"><col class="production-print-people-column"><col class="production-print-shifts-column"><col class="production-print-brigades-column"><col class="production-print-duration-column">' + dayColumns + '</colgroup>' +
                     '<thead><tr><th rowspan="2">№</th><th rowspan="2">Наименование работ</th><th rowspan="2">Объём</th><th rowspan="2">Чел.</th><th rowspan="2">Смен</th><th rowspan="2">Бригад</th><th rowspan="2">Дней</th>' + dayHeaders + '</tr><tr>' + halfDayHeaders + '</tr></thead>' +
                     '<tbody>' + rows.join('') + '</tbody></table>' +
                 '<footer class="production-print-footer"><span>Каждая половина клетки — 0,5 дня</span><span>Актуально на ' + escapeHtml(printedAt) + '</span></footer>' +
-            '</section>');
+            '</div></section>');
         }
 
         return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>График производства — ' + escapeHtml(projectTitle) + '</title><style>' +
             '@page{size:A4 landscape;margin:8mm}' +
+            ':root{--production-print-scale:' + String(printConfig.scalePercent / 100) + '}' +
             '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
             'html,body{margin:0;min-height:100%;font-family:Arial,Helvetica,sans-serif;color:#18212a;background:#e9edf0}' +
             '.production-print-toolbar{align-items:center;background:#17212b;color:#fff;display:flex;gap:12px;justify-content:space-between;padding:12px 18px;position:sticky;top:0;z-index:5}' +
             '.production-print-toolbar div{display:grid;gap:2px}.production-print-toolbar b{font-size:14px}.production-print-toolbar span{color:#b9c4cf;font-size:11px}' +
             '.production-print-toolbar button{background:#fff;border:0;border-radius:9px;color:#17212b;cursor:pointer;font-size:13px;font-weight:800;padding:10px 14px}' +
             '.production-print-document{display:grid;gap:18px;padding:18px}' +
-            '.production-print-sheet{background:#fff;box-shadow:0 12px 30px rgba(20,31,42,.14);margin:0 auto;min-height:210mm;padding:8mm;width:297mm}' +
+            '.production-print-sheet{background:#fff;box-shadow:0 12px 30px rgba(20,31,42,.14);height:210mm;margin:0 auto;overflow:hidden;padding:8mm;width:297mm}' +
+            '.production-print-canvas{transform:scale(var(--production-print-scale));transform-origin:top left;width:var(--production-print-natural-width)}' +
             '.production-print-sheet-head{align-items:flex-end;border-bottom:2px solid #18212a;display:flex;gap:10mm;justify-content:space-between;margin-bottom:3mm;padding-bottom:2.5mm}' +
             '.production-print-sheet-head span{color:#67727d;font-size:7pt;font-weight:800;letter-spacing:.08em;text-transform:uppercase}' +
             '.production-print-sheet-head h1{font-size:14pt;line-height:1.1;margin:1mm 0 0}.production-print-sheet-head p{color:#5d6872;font-size:7pt;margin:1mm 0 0}' +
@@ -4047,8 +4083,8 @@
             '.production-print-slot{padding:0!important}.production-print-slot.is-filled.tone-slate{background:#7f8992}.production-print-slot.is-filled.tone-blue{background:#7892b0}.production-print-slot.is-filled.tone-teal{background:#719994}.production-print-slot.is-filled.tone-green{background:#7e9a7f}.production-print-slot.is-filled.tone-violet{background:#8b84a1}.production-print-slot.is-filled.tone-rose{background:#a0878e}' +
             '.production-print-slot.is-overridden{box-shadow:inset 0 0 0 .45mm rgba(24,33,42,.55)}.production-print-empty td{color:#68737d;font-style:italic;padding:5mm}' +
             '.production-print-footer{color:#68737d;display:flex;font-size:6.3pt;justify-content:space-between;padding-top:2mm}' +
-            '@media print{html,body{background:#fff}.production-print-toolbar{display:none}.production-print-document{display:block;padding:0}.production-print-sheet{box-shadow:none;margin:0;min-height:0;padding:0;width:auto;break-after:page;page-break-after:always}.production-print-sheet:last-child{break-after:auto;page-break-after:auto}}' +
-        '</style></head><body><div class="production-print-toolbar"><div><b>Предпросмотр графика</b><span>Выберите «Сохранить как PDF» или принтер в системном окне.</span></div><button type="button" data-production-print-now>Печать / сохранить PDF</button></div><main class="production-print-document">' + sheets.join('') + '</main></body></html>';
+            '@media print{html,body{background:#fff}.production-print-toolbar{display:none}.production-print-document{display:block;padding:0}.production-print-sheet{box-shadow:none;height:194mm;margin:0;overflow:hidden;padding:0;width:281mm;break-after:page;page-break-after:always}.production-print-sheet:last-child{break-after:auto;page-break-after:auto}}' +
+        '</style></head><body data-production-print-layout="' + printConfig.layout + '" data-production-print-scale="' + String(printConfig.scalePercent) + '" data-production-print-sheet-count="' + String(sheetCount) + '"><div class="production-print-toolbar"><div><b>Предпросмотр графика</b><span>Выберите «Сохранить как PDF» или принтер в системном окне.</span></div><button type="button" data-production-print-now>Печать / сохранить PDF</button></div><main class="production-print-document">' + sheets.join('') + '</main></body></html>';
     }
 
     function productionSchedulePrintStatusDocument(project, message, isError) {
@@ -4080,18 +4116,28 @@
         preview.innerHTML = '<style>' +
             'html.production-print-preview-open,html.production-print-preview-open body{overflow:hidden!important}' +
             '.production-print-preview{align-items:stretch;background:rgba(19,27,35,.78);display:grid;inset:0;padding:14px;position:fixed;z-index:2147483000}' +
-            '.production-print-preview-card{background:#f3f5f7;border:1px solid rgba(255,255,255,.34);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.34);display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0;overflow:hidden}' +
+            '.production-print-preview-card{background:#f3f5f7;border:1px solid rgba(255,255,255,.34);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.34);display:grid;grid-template-rows:auto auto minmax(0,1fr);min-height:0;overflow:hidden}' +
             '.production-print-preview-head{align-items:center;background:#17212b;color:#fff;display:flex;gap:12px;justify-content:space-between;padding:12px 14px}' +
             '.production-print-preview-copy{display:grid;gap:2px;min-width:0}.production-print-preview-copy b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.production-print-preview-copy span{color:#bcc7d1;font-size:12px}' +
             '.production-print-preview-actions{align-items:center;display:flex;gap:8px}.production-print-preview-action,.production-print-preview-close{border:0;cursor:pointer;font:inherit;font-weight:800}' +
             '.production-print-preview-action{background:#fff;border-radius:9px;color:#17212b;padding:9px 13px}.production-print-preview-action:disabled{cursor:wait;opacity:.55}' +
             '.production-print-preview-close{background:rgba(255,255,255,.12);border-radius:9px;color:#fff;font-size:20px;height:38px;line-height:1;width:38px}' +
+            '.production-print-preview-settings{align-items:center;background:#e7ebee;border-bottom:1px solid #cfd6dc;display:flex;flex-wrap:wrap;gap:9px;padding:10px 14px}' +
+            '.production-print-preview-settings[hidden]{display:none!important}.production-print-layout-switch{background:#d8dee3;border-radius:10px;display:inline-flex;padding:3px}' +
+            '.production-print-layout-switch button,.production-print-preview-auto{border:0;cursor:pointer;font:inherit;font-size:12px;font-weight:800}' +
+            '.production-print-layout-switch button{background:transparent;border-radius:7px;color:#53606b;padding:7px 10px}.production-print-layout-switch button[aria-pressed="true"]{background:#fff;box-shadow:0 2px 7px rgba(25,35,45,.14);color:#17212b}' +
+            '.production-print-preview-scale{align-items:center;color:#394650;display:flex;font-size:12px;font-weight:800;gap:7px}.production-print-preview-scale input{accent-color:#2f6fda;cursor:pointer;width:min(230px,28vw)}.production-print-preview-scale output{font-variant-numeric:tabular-nums;min-width:38px;text-align:right}' +
+            '.production-print-preview-auto{background:#fff;border-radius:8px;color:#22303b;padding:7px 10px}.production-print-preview-auto:disabled,.production-print-preview-scale input:disabled{cursor:wait;opacity:.55}' +
+            '.production-print-preview-pages{color:#53606b;font-size:12px;font-weight:800;margin-left:auto;white-space:nowrap}' +
             '.production-print-preview-frame{background:#e9edf0;border:0;height:100%;min-height:0;width:100%}' +
             '.production-print-preview-status.is-error{color:#ffb4b4}' +
-            '@media(max-width:720px){.production-print-preview{padding:0}.production-print-preview-card{border:0;border-radius:0}.production-print-preview-head{align-items:flex-start;flex-wrap:wrap}.production-print-preview-actions{width:100%}.production-print-preview-action{flex:1}}' +
+            '@media(max-width:720px){.production-print-preview{padding:0}.production-print-preview-card{border:0;border-radius:0}.production-print-preview-head{align-items:flex-start;flex-wrap:wrap}.production-print-preview-actions{width:100%}.production-print-preview-action{flex:1}.production-print-preview-settings{align-items:stretch}.production-print-layout-switch{display:grid;grid-template-columns:1fr 1fr;width:100%}.production-print-preview-scale{flex:1 1 100%}.production-print-preview-scale input{flex:1;width:auto}.production-print-preview-pages{margin-left:0}}' +
         '</style><section class="production-print-preview-card">' +
             '<header class="production-print-preview-head"><div class="production-print-preview-copy"><b id="production-print-preview-title">' + escapeHtml(projectTitle) + '</b><span class="production-print-preview-status" data-production-print-status>Обновляем график перед печатью…</span></div>' +
             '<div class="production-print-preview-actions"><button class="production-print-preview-action" type="button" data-production-print-action disabled>Печать / сохранить PDF</button><button class="production-print-preview-close" type="button" data-production-print-close aria-label="Закрыть предпросмотр">×</button></div></header>' +
+            '<div class="production-print-preview-settings" data-production-print-settings hidden><div class="production-print-layout-switch" role="group" aria-label="Размещение на листах"><button type="button" data-production-print-layout="fit-one" aria-pressed="true">Вместить на 1 лист</button><button type="button" data-production-print-layout="paged" aria-pressed="false">Крупнее по листам</button></div>' +
+            '<label class="production-print-preview-scale" for="production-print-scale">Масштаб <input id="production-print-scale" type="range" min="1" max="100" step="1" value="100" data-production-print-scale disabled><output for="production-print-scale" data-production-print-scale-output>100%</output></label>' +
+            '<button class="production-print-preview-auto" type="button" data-production-print-auto disabled>Авто</button><span class="production-print-preview-pages" data-production-print-pages>Подготовка…</span></div>' +
             '<iframe class="production-print-preview-frame" data-production-print-frame title="Предпросмотр графика для печати"></iframe>' +
         '</section>';
         document.body.appendChild(preview);
@@ -4121,6 +4167,12 @@
             root: preview,
             frame: qs('[data-production-print-frame]', preview),
             printButton: qs('[data-production-print-action]', preview),
+            settings: qs('[data-production-print-settings]', preview),
+            scaleInput: qs('[data-production-print-scale]', preview),
+            scaleOutput: qs('[data-production-print-scale-output]', preview),
+            autoButton: qs('[data-production-print-auto]', preview),
+            pages: qs('[data-production-print-pages]', preview),
+            layoutButtons: qsa('[data-production-print-layout]', preview),
             status: qs('[data-production-print-status]', preview),
             close: closePreview
         };
@@ -4139,6 +4191,45 @@
             if (event.key === 'Escape' && preview && typeof preview.close === 'function') preview.close();
         });
         return { window: frameWindow, document: frameDocument };
+    }
+
+    function productionSchedulePrintMaximumScale(frameDocument) {
+        if (!frameDocument) return 100;
+        var sheets = Array.prototype.slice.call(frameDocument.querySelectorAll('.production-print-sheet'));
+        if (!sheets.length) return 100;
+        var maximumRatio = 1;
+        sheets.forEach(function (sheet) {
+            var canvas = sheet.querySelector('[data-production-print-canvas]');
+            if (!canvas) return;
+            var view = frameDocument.defaultView;
+            var style = view && view.getComputedStyle ? view.getComputedStyle(sheet) : null;
+            var paddingX = style ? (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) : 0;
+            var paddingY = style ? (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0) : 0;
+            var availableWidth = Math.max(1, Number(sheet.clientWidth || 0) - paddingX);
+            var availableHeight = Math.max(1, Number(sheet.clientHeight || 0) - paddingY);
+            var naturalWidth = Math.max(1, Number(canvas.scrollWidth || 0), Number(canvas.offsetWidth || 0));
+            var naturalHeight = Math.max(1, Number(canvas.scrollHeight || 0), Number(canvas.offsetHeight || 0));
+            maximumRatio = Math.min(maximumRatio, availableWidth / naturalWidth, availableHeight / naturalHeight);
+        });
+        return productionSchedulePrintScalePercent(Math.floor(maximumRatio * 100), 100);
+    }
+
+    function productionSchedulePrintApplyScale(frameDocument, scalePercent) {
+        var normalized = productionSchedulePrintScalePercent(scalePercent, 100);
+        if (!frameDocument) return normalized;
+        frameDocument.documentElement.style.setProperty('--production-print-scale', String(normalized / 100));
+        if (frameDocument.body) frameDocument.body.setAttribute('data-production-print-scale', String(normalized));
+        return normalized;
+    }
+
+    function productionSchedulePrintPageLabel(count) {
+        var value = Math.max(1, Math.round(Number(count || 1)));
+        var modulo100 = value % 100;
+        var modulo10 = value % 10;
+        var noun = modulo100 >= 11 && modulo100 <= 14
+            ? 'листов'
+            : (modulo10 === 1 ? 'лист' : (modulo10 >= 2 && modulo10 <= 4 ? 'листа' : 'листов'));
+        return String(value) + ' ' + noun;
     }
 
     function openProductionSchedulePrint(projectId, trigger) {
@@ -4163,21 +4254,94 @@
         }).then(function (latest) {
             if (!latest || latest.error) throw new Error(latest && latest.error || 'График не загрузился.');
             if (!preview.root.isConnected) return latest;
-            var printable = writeProductionSchedulePrintPreview(preview, productionSchedulePrintDocument(project, latest));
+            var initialLayout = productionSchedulePrintPreferences.layout === 'paged' ? 'paged' : 'fit-one';
+            var initialScale = productionSchedulePrintPreferences.scalePercentByLayout[initialLayout];
+            var printState = {
+                layout: initialLayout,
+                manualScale: initialScale != null && Number.isFinite(Number(initialScale)),
+                scalePercent: productionSchedulePrintScalePercent(initialScale, 100),
+                autoScale: 100,
+                printable: null
+            };
             var startPrint = function () {
                 if (!preview.root.isConnected) return;
                 try {
-                    printable.window.focus();
-                    printable.window.print();
+                    if (!printState.printable) return;
+                    printState.printable.window.focus();
+                    printState.printable.window.print();
                 } catch (error) {
                     showAppNotice(appErrorMessage(error, 'Не удалось открыть системное окно печати.'), 'error');
                 }
             };
-            var printAgain = printable.document.querySelector('[data-production-print-now]');
-            if (printAgain) printAgain.addEventListener('click', startPrint);
+
+            var updatePrintControls = function () {
+                var printableDocument = printState.printable && printState.printable.document;
+                var sheetCount = printableDocument
+                    ? Math.max(1, printableDocument.querySelectorAll('.production-print-sheet').length)
+                    : 1;
+                var pageLabel = productionSchedulePrintPageLabel(sheetCount);
+                preview.layoutButtons.forEach(function (button) {
+                    button.setAttribute('aria-pressed', button.dataset.productionPrintLayout === printState.layout ? 'true' : 'false');
+                });
+                preview.scaleInput.disabled = false;
+                preview.scaleInput.max = String(printState.layout === 'fit-one' ? printState.autoScale : 100);
+                preview.scaleInput.value = String(printState.scalePercent);
+                preview.scaleOutput.textContent = String(printState.scalePercent) + '%';
+                preview.autoButton.disabled = false;
+                preview.pages.textContent = pageLabel + ' · ' + String(printState.scalePercent) + '%' + (printState.manualScale ? '' : ' · авто');
+                preview.status.textContent = pageLabel + ' · масштаб ' + String(printState.scalePercent) + '%. Можно печатать.';
+            };
+
+            var renderPrintPreview = function () {
+                if (!preview.root.isConnected) return null;
+                var requestedScale = printState.manualScale ? printState.scalePercent : 100;
+                printState.printable = writeProductionSchedulePrintPreview(preview, productionSchedulePrintDocument(project, latest, {
+                    layout: printState.layout,
+                    scalePercent: requestedScale
+                }));
+                printState.autoScale = productionSchedulePrintMaximumScale(printState.printable.document);
+                printState.scalePercent = productionSchedulePrintApplyScale(
+                    printState.printable.document,
+                    printState.manualScale ? Math.min(requestedScale, printState.autoScale) : printState.autoScale
+                );
+                var printAgain = printState.printable.document.querySelector('[data-production-print-now]');
+                if (printAgain) printAgain.addEventListener('click', startPrint);
+                updatePrintControls();
+                return printState.printable;
+            };
+
+            preview.layoutButtons.forEach(function (button) {
+                button.addEventListener('click', function () {
+                    var layout = button.dataset.productionPrintLayout === 'paged' ? 'paged' : 'fit-one';
+                    if (layout === printState.layout) return;
+                    printState.layout = layout;
+                    productionSchedulePrintPreferences.layout = layout;
+                    var storedScale = productionSchedulePrintPreferences.scalePercentByLayout[layout];
+                    printState.manualScale = storedScale != null && Number.isFinite(Number(storedScale));
+                    printState.scalePercent = productionSchedulePrintScalePercent(storedScale, 100);
+                    renderPrintPreview();
+                });
+            });
+            preview.scaleInput.addEventListener('input', function () {
+                preview.scaleOutput.textContent = String(productionSchedulePrintScalePercent(preview.scaleInput.value, printState.scalePercent)) + '%';
+            });
+            preview.scaleInput.addEventListener('change', function () {
+                printState.manualScale = true;
+                printState.scalePercent = productionSchedulePrintScalePercent(preview.scaleInput.value, printState.scalePercent);
+                productionSchedulePrintPreferences.scalePercentByLayout[printState.layout] = printState.scalePercent;
+                renderPrintPreview();
+            });
+            preview.autoButton.addEventListener('click', function () {
+                printState.manualScale = false;
+                printState.scalePercent = 100;
+                productionSchedulePrintPreferences.scalePercentByLayout[printState.layout] = null;
+                renderPrintPreview();
+            });
+
+            preview.settings.hidden = false;
             preview.printButton.disabled = false;
             preview.printButton.addEventListener('click', startPrint);
-            preview.status.textContent = 'Готово. Проверьте листы и нажмите кнопку печати.';
+            renderPrintPreview();
             return latest;
         }).catch(function (error) {
             if (preview.root.isConnected) {

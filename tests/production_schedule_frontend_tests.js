@@ -47,13 +47,21 @@ assert.match(planningJs, /function productionSchedulePrintDocument/);
 assert.match(planningJs, /function loadProductionScheduleForPrint/);
 assert.match(planningJs, /function createProductionSchedulePrintPreview/);
 assert.match(planningJs, /function writeProductionSchedulePrintPreview/);
+assert.match(planningJs, /function productionSchedulePrintConfig/);
+assert.match(planningJs, /function productionSchedulePrintMaximumScale/);
+assert.match(planningJs, /function productionSchedulePrintApplyScale/);
 assert.match(planningJs, /function openProductionSchedulePrint/);
 assert.match(planningJs, /loadProductionScheduleForPrint\(projectId\)/);
 assert.match(planningJs, /productionSchedulePendingSavesByProject/);
 assert.match(planningJs, /data-production-print-preview/);
 assert.match(planningJs, /data-production-print-frame/);
 assert.match(planningJs, /data-production-print-action/);
-assert.match(planningJs, /printable\.window\.print\(\)/);
+assert.match(planningJs, /data-production-print-layout="fit-one"/);
+assert.match(planningJs, /data-production-print-scale disabled/);
+assert.match(planningJs, /data-production-print-auto disabled/);
+assert.match(planningJs, /data-production-print-pages/);
+assert.match(planningJs, /printState\.printable\.window\.print\(\)/);
+assert.match(planningJs, /preview\.scaleInput\.max = String\(printState\.layout === 'fit-one' \? printState\.autoScale : 100\)/);
 const productionPrintOpenBlock = planningJs.slice(
   planningJs.indexOf('function openProductionSchedulePrint'),
   planningJs.indexOf('function renderProductionSchedule'),
@@ -308,7 +316,7 @@ const productionPrintApi = new Function(
   'quantityText',
   'productionScheduleDaySet',
   'productionOperationColorKey',
-  `${planningJs.slice(productionPrintStart, productionPrintEnd)}\nreturn { productionSchedulePrintDayCount, productionSchedulePrintDocument };`,
+  `${planningJs.slice(productionPrintStart, productionPrintEnd)}\nreturn { productionSchedulePrintDayCount, productionSchedulePrintScalePercent, productionSchedulePrintConfig, productionSchedulePrintDocument, productionSchedulePrintPageLabel };`,
 )(
   (value) => String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -341,6 +349,30 @@ const printableSchedule = {
 };
 assert.equal(productionPrintApi.productionSchedulePrintDayCount(printableSchedule), 13);
 assert.equal(productionPrintApi.productionSchedulePrintDayCount({ dayCount: 2, items: [{ filledSlots: [27] }] }), 14);
+assert.deepEqual(productionPrintApi.productionSchedulePrintConfig(printableSchedule), {
+  dayCount: 13,
+  daysPerSheet: 12,
+  layout: 'paged',
+  scalePercent: 100,
+  sheetCount: 2,
+});
+assert.deepEqual(productionPrintApi.productionSchedulePrintConfig(printableSchedule, { layout: 'fit-one' }), {
+  dayCount: 13,
+  daysPerSheet: 13,
+  layout: 'fit-one',
+  scalePercent: 100,
+  sheetCount: 1,
+});
+assert.equal(productionPrintApi.productionSchedulePrintConfig(printableSchedule, { layout: 'paged', scalePercent: 50 }).sheetCount, 1);
+assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 50 }).sheetCount, 1);
+assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 60 }).sheetCount, 2);
+assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 100 }).sheetCount, 4);
+assert.equal(productionPrintApi.productionSchedulePrintScalePercent(0), 1);
+assert.equal(productionPrintApi.productionSchedulePrintScalePercent(250), 100);
+assert.equal(productionPrintApi.productionSchedulePrintScalePercent('bad', 63), 63);
+assert.equal(productionPrintApi.productionSchedulePrintPageLabel(1), '1 лист');
+assert.equal(productionPrintApi.productionSchedulePrintPageLabel(4), '4 листа');
+assert.equal(productionPrintApi.productionSchedulePrintPageLabel(12), '12 листов');
 const printableHtml = productionPrintApi.productionSchedulePrintDocument(
   { name: 'ЮУРГУ <корпус>', address: 'ул. Тестовая, 1' },
   printableSchedule,
@@ -356,6 +388,28 @@ assert.match(printableHtml, /production-print-slot is-filled tone-green is-overr
 assert.equal((printableHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 2);
 assert.match(printableHtml, /ЮУРГУ &lt;корпус&gt;/);
 assert.doesNotMatch(printableHtml, /data-production-(?:cell|duration|edit-operation)/);
+const fitOneHtml = productionPrintApi.productionSchedulePrintDocument(
+  { name: 'ЮУРГУ <корпус>', address: 'ул. Тестовая, 1' },
+  printableSchedule,
+  { layout: 'fit-one', scalePercent: 100 },
+);
+assert.equal((fitOneHtml.match(/<section class="production-print-sheet">/g) || []).length, 1);
+assert.match(fitOneHtml, /data-production-print-layout="fit-one"/);
+assert.match(fitOneHtml, /data-production-print-sheet-count="1"/);
+assert.match(fitOneHtml, /data-production-print-canvas style="--production-print-natural-width:284mm"/);
+assert.match(fitOneHtml, /Дни 1–13/);
+assert.match(fitOneHtml, /День 13/);
+assert.equal((fitOneHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 1);
+assert.match(fitOneHtml, /height:194mm[^}]*overflow:hidden[^}]*width:281mm/);
+assert.match(fitOneHtml, /transform:scale\(var\(--production-print-scale\)\)/);
+const compactPagedHtml = productionPrintApi.productionSchedulePrintDocument(
+  { name: 'ЮУРГУ' },
+  printableSchedule,
+  { layout: 'paged', scalePercent: 50 },
+);
+assert.equal((compactPagedHtml.match(/<section class="production-print-sheet">/g) || []).length, 1);
+assert.match(compactPagedHtml, /data-production-print-layout="paged"/);
+assert.match(compactPagedHtml, /data-production-print-scale="50"/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-sticky-viewport-8/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sticky-viewport-8/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sticky-viewport-8/);
@@ -368,5 +422,7 @@ assert.match(rootCss, /planning\.css\?v=[^"\n]*production-scroll-wheel-fix-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-scroll-wheel-fix-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-scroll-wheel-fix-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-scroll-wheel-fix-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-print-scale-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-print-scale-1/);
 
 console.log('production_schedule_frontend_ok');
