@@ -1569,3 +1569,6 @@ html.sidebar-pref-collapsed .sidebar-toggle {
         justify-content: flex-start;
     }
 }
+:root {
+    --pmbi-style-shell-ready: 1;
+}

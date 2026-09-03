@@ -60,7 +60,7 @@ for (const legacyDecorativeColor of [
 }
 
 assert.match(appCss, /ui-final\.css\?v=20260821-ui-iteration-4-final/);
-assert.match(baseHtml, /ui-iteration-4-final/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
 assert.match(loginHtml, /ui-iteration-4-final/);
 
 console.log('ui_iteration4_final_frontend_ok');

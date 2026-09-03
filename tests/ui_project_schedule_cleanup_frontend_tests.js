@@ -8,7 +8,6 @@ const planningJs = read('frontend/assets/js/planning.js');
 const projectsCss = read('frontend/assets/css/ui-projects.css');
 const appCss = read('frontend/assets/app.css');
 const baseHtml = read('frontend/templates/base.html');
-const loginHtml = read('frontend/templates/login.html');
 
 assert.match(planningJs, /var heading = mode === 'list' \? 'Работы' : 'Материалы и работы'/);
 assert.match(planningJs, /var marketLabel = 'Анализ рынка'/);
@@ -114,7 +113,6 @@ assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-detail-l
 assert.match(projectsCss, /height: 6px !important/);
 
 assert.match(appCss, /ui-projects\.css\?v=[^"\n]*works-only-1/);
-assert.match(baseHtml, /works-only-1/);
-assert.match(loginHtml, /works-only-1/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
 
 console.log('ui_project_schedule_cleanup_frontend_ok');

@@ -2,7 +2,7 @@ import sqlite3
 import sys
 import unittest
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -13,10 +13,12 @@ from schedule_tasks import (  # noqa: E402
     api_update_production_schedule,
     api_project_section_schedule_forecast,
     api_update_section_schedule_override,
+    build_guest_production_schedule_payload,
     build_production_schedule_payload,
     build_section_schedule_forecast,
     calculate_schedule_work_duration,
     production_replace_links,
+    production_schedule_execution_health,
 )
 import schedule_tasks as schedule_module  # noqa: E402
 
@@ -172,6 +174,97 @@ def seed_chebarkul_estimate(con: sqlite3.Connection, *, project_id: int = 25, fa
 
 
 class ProductionScheduleTests(unittest.TestCase):
+    def test_execution_health_uses_real_progress_and_calendar_dates(self):
+        start = date(2026, 8, 25)
+        future = production_schedule_execution_health(
+            operation_status="linked",
+            actual_summary={"actualProgress": 0, "isCompleted": False, "hasActualData": True},
+            effective_slots={1, 2},
+            fallback_slots=set(),
+            project_start=start,
+            today_date=date(2026, 8, 24),
+        )
+        self.assertEqual(future["healthStatus"], "neutral")
+        self.assertEqual(future["plannedStartDate"], "2026-08-25")
+
+        active = production_schedule_execution_health(
+            operation_status="linked",
+            actual_summary={"actualProgress": 0, "isCompleted": False, "hasActualData": True},
+            effective_slots={1, 2, 3, 4},
+            fallback_slots=set(),
+            project_start=start,
+            today_date=start,
+        )
+        self.assertEqual(active["healthStatus"], "green")
+
+        overdue = production_schedule_execution_health(
+            operation_status="linked",
+            actual_summary={"actualProgress": 50, "isCompleted": False, "hasActualData": True},
+            effective_slots={1, 2},
+            fallback_slots=set(),
+            project_start=start,
+            today_date=start + timedelta(days=1),
+        )
+        self.assertEqual(overdue["healthStatus"], "red")
+
+        question = production_schedule_execution_health(
+            operation_status="needs_review",
+            actual_summary={"actualProgress": None, "isCompleted": False, "hasActualData": False},
+            effective_slots={1, 2},
+            fallback_slots=set(),
+            project_start=start,
+            today_date=start,
+        )
+        self.assertEqual(question["healthStatus"], "yellow")
+
+    def test_payload_day_one_is_project_start_and_uses_estimate_actuals(self):
+        con = production_connection()
+        con.executescript(
+            """
+            ALTER TABLE projects ADD COLUMN started_at TEXT;
+            ALTER TABLE projects ADD COLUMN deadline_at TEXT;
+            ALTER TABLE estimate_items ADD COLUMN actual_qty REAL DEFAULT 0;
+            ALTER TABLE estimate_items ADD COLUMN is_completed INTEGER DEFAULT 0;
+            """
+        )
+        project_start = date.today() - timedelta(days=10)
+        con.execute(
+            "UPDATE projects SET started_at = ?, deadline_at = ? WHERE id = 1",
+            (project_start.isoformat(), (project_start + timedelta(days=30)).isoformat()),
+        )
+        con.execute("UPDATE estimate_items SET actual_qty = .5 WHERE id = 10")
+        con.execute("UPDATE estimate_items SET actual_qty = 1, is_completed = 1 WHERE id = 11")
+
+        payload = build_production_schedule_payload(con, 1)
+        by_estimate = {item["estimateItemId"]: item for item in payload["items"]}
+        self.assertEqual(payload["startDate"], project_start.isoformat())
+        self.assertEqual(payload["startDateSource"], "project")
+        self.assertEqual(payload["today"], date.today().isoformat())
+        self.assertEqual(by_estimate[10]["plannedStartDate"], project_start.isoformat())
+        self.assertEqual(by_estimate[10]["actualQty"], .5)
+        self.assertEqual(by_estimate[10]["actualProgress"], 50.0)
+        self.assertEqual(by_estimate[10]["healthStatus"], "red")
+        self.assertEqual(by_estimate[10]["executionHealth"], "red")
+        self.assertEqual(by_estimate[11]["actualProgress"], 100.0)
+        self.assertTrue(by_estimate[11]["isCompleted"])
+        self.assertEqual(by_estimate[11]["healthStatus"], "green")
+        guest_payload = build_guest_production_schedule_payload(con, 1)
+        guest_by_operation = {item["operationId"]: item for item in guest_payload["items"]}
+        self.assertEqual(guest_payload["startDate"], project_start.isoformat())
+        self.assertEqual(
+            guest_by_operation[by_estimate[11]["operationId"]]["healthStatus"],
+            "green",
+        )
+        self.assertNotIn("links", guest_by_operation[by_estimate[11]["operationId"]])
+        con.close()
+
+    def test_payload_without_project_start_anchors_to_today(self):
+        con = production_connection()
+        payload = build_production_schedule_payload(con, 1)
+        self.assertEqual(payload["startDate"], date.today().isoformat())
+        self.assertEqual(payload["startDateSource"], "today")
+        con.close()
+
     def test_reference_uses_nine_hour_person_day(self):
         samples = [
             (85.69, 5, 2),

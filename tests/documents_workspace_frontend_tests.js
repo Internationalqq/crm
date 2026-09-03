@@ -22,10 +22,10 @@ assert.ok(
   appCss.indexOf('documents.css') > appCss.indexOf('finance-redesign.css'),
   'Document styles must be the final feature layer in the cascade',
 );
-assert.match(baseHtml, /documents-workspace-1/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
 assert.match(appCss, /documents-context-actions-2/);
-assert.match(baseHtml, /documents-context-actions-2/);
 assert.match(routerJs, /documents-context-actions-2/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 
 assert.match(appJs, /function renderDocumentsWorkspace\(projectId, docs, executive\)/);
 assert.match(appJs, /class="documents-hero"/);
@@ -80,6 +80,10 @@ assert.match(documentsWorkspaceJs, /method: 'DELETE'/);
 assert.match(documentsWorkspaceJs, /showAppNotice\('Документ обновлён\.', 'success'\)/);
 assert.match(documentsWorkspaceJs, /showAppNotice\('Документ удалён\.', 'success'\)/);
 assert.match(documentsWorkspaceJs, /refreshProjectOverview\(projectId\)/);
+assert.match(documentsWorkspaceJs, /refreshProcurementEvidenceViews\(projectId\)/);
+assert.match(appJs, /var isProcurementDocument = form\.doc_type && procurementTypes\.indexOf/);
+assert.match(appJs, /if \(!open\) \{\s*form\.reset\(\)/);
+assert.match(appJs, /\['estimate_item_id', 'counterparty_name', 'amount', 'document_number', 'document_date'\]/);
 assert.match(documentsWorkspaceJs, /state\.stagesByProject && state\.stagesByProject\[projectId\]/);
 assert.match(documentsWorkspaceJs, /documentProtectedStatuses\.indexOf\(currentStatus\)/);
 assert.match(documentsWorkspaceJs, /\(canManage\s*\?[^]*data-document-context-action="delete"/);

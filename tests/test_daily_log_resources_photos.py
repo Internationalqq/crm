@@ -165,6 +165,34 @@ class DailyLogResourcePhotoTests(unittest.TestCase):
         )
         return handler
 
+    def test_report_date_must_be_inside_started_project_timeline(self) -> None:
+        with server.db() as con:
+            con.execute(
+                "UPDATE projects SET started_at = ? WHERE id = ?",
+                ("2026-08-25", self.project_id),
+            )
+            con.commit()
+
+        before_start = self.create_log(
+            report_date="2026-08-24",
+            client_request_id="resource-report-before-start",
+        )
+        self.assertEqual(before_start.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(before_start.response["error"], "report_date_before_project_start")
+
+        future = self.create_log(
+            report_date="2999-01-01",
+            client_request_id="resource-report-future",
+        )
+        self.assertEqual(future.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(future.response["error"], "future_report_date")
+
+        with server.db() as con:
+            self.assertEqual(
+                int(con.execute("SELECT COUNT(*) FROM daily_logs WHERE project_id = ?", (self.project_id,)).fetchone()[0]),
+                0,
+            )
+
     def test_repeatable_workforce_and_equipment_are_stored_with_totals(self) -> None:
         created = self.create_log(
             workforce=[

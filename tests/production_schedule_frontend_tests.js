@@ -44,6 +44,15 @@ assert.match(planningJs, /data-production-print data-project-id/);
 assert.match(planningJs, /data-lucide="printer"/);
 assert.match(planningJs, /Распечатать в PDF/);
 assert.match(planningJs, /function productionSchedulePrintDocument/);
+assert.match(planningJs, /function productionScheduleStartDate/);
+assert.match(planningJs, /function productionScheduleMonthGroups/);
+assert.match(planningJs, /function productionScheduleHealth/);
+assert.match(planningJs, /class="production-month-head"/);
+assert.match(planningJs, /class="production-day-head production-date-head/);
+assert.match(planningJs, /class="production-half-day-head"/);
+assert.match(planningJs, /Статусы выполнения графика/);
+assert.match(planningJs, /День 1 —/);
+assert.match(planningJs, /aria-current="date"/);
 assert.match(planningJs, /function loadProductionScheduleForPrint/);
 assert.match(planningJs, /function createProductionSchedulePrintPreview/);
 assert.match(planningJs, /function writeProductionSchedulePrintPreview/);
@@ -258,10 +267,15 @@ assert.equal(productionWheelPrevented, 4, 'Browser zoom and already handled whee
 assert.match(planningCss, /\.production-schedule-table/);
 assert.match(planningCss, /\.production-duration-stepper/);
 assert.match(planningCss, /\.production-operation-drawer/);
-assert.match(planningCss, /\.production-work-row\.production-phase-blue/);
+for (const health of ['neutral', 'green', 'yellow', 'red']) {
+  assert.match(planningCss, new RegExp(`\\.production-work-row\\.production-health-${health}`));
+}
 assert.match(planningCss, /\.production-print-button/);
 assert.match(planningCss, /\.production-link-label\.is-review/);
-assert.doesNotMatch(planningCss, /production-phase-(?:amber|yellow)/);
+assert.doesNotMatch(planningCss, /\.production-work-row\.production-phase-/);
+assert.match(planningCss, /--pmbi-style-planning-ready:\s*1/);
+assert.match(planningCss, /\.production-health-legend/);
+assert.match(planningCss, /\.production-month-head/);
 assert.doesNotMatch(planningCss, /\.production-section-row th\s*\{[^}]*#f1e33b/s);
 assert.match(planningCss, /position: sticky/);
 assert.doesNotMatch(planningJs, /data-production-sticky-header/);
@@ -284,7 +298,9 @@ assert.doesNotMatch(planningJs, /is-wheel-vertical-zone/);
 assert.doesNotMatch(planningJs, /is-wheel-horizontal-zone/);
 assert.match(planningCss, /\.production-schedule-table\s*\{[^}]*--production-number-width: 40px;[^}]*--production-work-width: 340px;/s);
 assert.match(planningCss, /\.production-schedule-table th,\s*\.production-schedule-table td\s*\{[^}]*height: 30px;[^}]*vertical-align: middle;/s);
-assert.match(planningCss, /\.production-schedule-table thead th\s*\{[^}]*height: 58px;[^}]*position: sticky;[^}]*top: 0;/s);
+assert.match(planningCss, /\.production-schedule-table thead th\s*\{[^}]*height: 78px;[^}]*position: sticky;[^}]*top: 0;/s);
+assert.match(planningCss, /\.production-date-head\s*\{[^}]*top: 22px !important;/s);
+assert.match(planningCss, /\.production-half-day-head\s*\{[^}]*top: 58px !important;/s);
 for (const movingMetricClass of ['volume', 'people', 'shifts', 'brigades', 'duration']) {
   assert.doesNotMatch(
     planningCss,
@@ -330,6 +346,8 @@ const productionPrintApi = new Function(
   (item) => item.colorKey || 'blue',
 );
 const printableSchedule = {
+  startDate: '2026-08-25',
+  today: '2026-09-02',
   dayCount: 13,
   autoDayCount: 13,
   items: [{
@@ -344,7 +362,8 @@ const printableSchedule = {
     durationDays: 13,
     filledSlots: [1, 2, 24, 25, 26],
     overriddenSlots: [26],
-    colorKey: 'green',
+    healthStatus: 'green',
+    healthLabel: 'Идёт по графику',
   }],
 };
 assert.equal(productionPrintApi.productionSchedulePrintDayCount(printableSchedule), 13);
@@ -384,6 +403,12 @@ assert.match(printableHtml, /Дни 1–12/);
 assert.match(printableHtml, /Дни 13/);
 assert.match(printableHtml, /День 13/);
 assert.doesNotMatch(printableHtml, /День 14/);
+assert.match(printableHtml, /Август 2026/);
+assert.match(printableHtml, /Сентябрь 2026/);
+assert.match(printableHtml, /25 авг\. · вт/);
+assert.match(printableHtml, /6 сент\. · вс/);
+assert.match(printableHtml, /rowspan="3"/);
+assert.match(printableHtml, /Статусы выполнения графика/);
 assert.match(printableHtml, /production-print-slot is-filled tone-green is-overridden/);
 assert.equal((printableHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 2);
 assert.match(printableHtml, /ЮУРГУ &lt;корпус&gt;/);
@@ -410,12 +435,10 @@ const compactPagedHtml = productionPrintApi.productionSchedulePrintDocument(
 assert.equal((compactPagedHtml.match(/<section class="production-print-sheet">/g) || []).length, 1);
 assert.match(compactPagedHtml, /data-production-print-layout="paged"/);
 assert.match(compactPagedHtml, /data-production-print-scale="50"/);
-assert.match(rootCss, /planning\.css\?v=[^"\n]*production-sticky-viewport-8/);
-assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sticky-viewport-8/);
-assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sticky-viewport-8/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*production-sticky-viewport-8/);
-assert.match(rootCss, /planning\.css\?v=[^"\n]*production-print-pdf-1/);
-assert.match(baseHtml, /app\.css\?v=[^"\n]*production-print-pdf-1/);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*schedule-health-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*schedule-health-1/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-print-pdf-2/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-print-pdf-2/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-scroll-wheel-fix-1/);

@@ -841,6 +841,7 @@
                     loaderText: moveType === 'purchase' ? 'Записываем заказ...' : (moveType === 'receipt' ? 'Добавляем материал на объект...' : 'Списываем материал...')
                 }).then(function () {
                     showAppNotice(moveType === 'purchase' ? 'Заказ записан. Склад изменится только после прихода.' : (moveType === 'receipt' ? 'Приход добавлен. Остаток обновлён.' : 'Материал списан. Остаток обновлён.'), 'success');
+                    if (PMBI.app && typeof PMBI.app.refreshReminderBell === 'function') PMBI.app.refreshReminderBell();
                     return load(projectId, true);
                 }).catch(function (error) {
                     if (errorNode) {
@@ -947,6 +948,7 @@
                     loaderText: 'Возвращаем материал в остаток...'
                 }).then(function (next) {
                     applyPayload(projectId, next);
+                    if (PMBI.app && typeof PMBI.app.refreshReminderBell === 'function') PMBI.app.refreshReminderBell();
                     showAppNotice('Расход отменён, остаток восстановлен.', 'success');
                 }).catch(function (error) {
                     button.disabled = false;

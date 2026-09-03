@@ -474,6 +474,7 @@
                 })
             }).then(function () {
                 form.reset();
+                if (PMBI.app && typeof PMBI.app.refreshReminderBell === 'function') PMBI.app.refreshReminderBell();
                 refreshWarehouse(projectId);
             }).catch(function (err) {
                 if (error) {

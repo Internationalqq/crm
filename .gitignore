@@ -10,3 +10,10 @@ __pycache__/
 reference/legacy-crm/
 deploy/copy/
 tmp/
+/.pytest_cache/
+/.tmp-chrome-*/
+/.tmp-*.err
+/.tmp-*.html
+/.tmp_doc_read/
+/.tmp_hermes_review/
+/*.docx

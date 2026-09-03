@@ -27,7 +27,7 @@ class FakeDailyLogHandler:
     def require_project_access(self, _project_id: int) -> dict:
         return self.user
 
-    def read_json(self) -> dict:
+    def read_json(self, maximum: int | None = None) -> dict:
         return self.payload
 
     def send_json(self, status: int, payload: dict) -> None:

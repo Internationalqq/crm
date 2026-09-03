@@ -7,6 +7,7 @@
     PMBI.login.__loaded = true;
     var connectionSequence = 0;
     var connectionSlowTimer = null;
+    var activeResetToken = '';
 
     function qs(selector) {
         if (typeof PMBI.qs === 'function') return PMBI.qs(selector);
@@ -142,7 +143,7 @@
             }
 
             if (button) button.disabled = true;
-            var connectionToken = beginConnection('Отправляем новый пароль…');
+            var connectionToken = beginConnection('Отправляем ссылку восстановления…');
             PMBI.api('/api/auth/request-password-reset', {
                 method: 'POST',
                 body: JSON.stringify({ email: email })
@@ -150,15 +151,95 @@
                 finishConnection(connectionToken);
                 setMessage(
                     success,
-                    data && data.message || 'Если такой email есть в системе, новый пароль отправлен на почту.'
+                    data && data.message || 'Если такой email есть в системе, ссылка восстановления отправлена на почту.'
                 );
                 form.reset();
             }).catch(function (requestError) {
                 settleConnection(connectionToken, requestError);
                 setMessage(
                     error,
-                    safeErrorMessage(requestError, 'Не удалось отправить новый пароль. Попробуйте позже.')
+                    safeErrorMessage(requestError, 'Не удалось отправить ссылку. Попробуйте позже.')
                 );
+            }).finally(function () {
+                if (button) button.disabled = false;
+            });
+        });
+    }
+
+    function resetTokenFromHash() {
+        var match = String(location.hash || '').match(/^#reset-token=([^&]+)$/);
+        if (!match) return '';
+        try {
+            var token = decodeURIComponent(match[1]);
+            return token.length <= 512 ? token : '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function showPasswordResetConfirmation(token) {
+        if (!token) return false;
+        activeResetToken = token;
+        if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+            history.replaceState(null, document.title || '', String(location.pathname || '/login') + String(location.search || ''));
+        }
+        var loginForm = qs('[data-login-form]');
+        var requestPanel = qs('[data-password-reset-panel]');
+        var confirmation = qs('[data-password-reset-confirm]');
+        var title = qs('[data-login-title]');
+        var lead = qs('[data-login-lead]');
+        if (loginForm) loginForm.hidden = true;
+        if (requestPanel) requestPanel.hidden = true;
+        if (confirmation) confirmation.hidden = false;
+        if (title) title.textContent = 'Новый пароль';
+        if (lead) lead.textContent = 'Ссылка подтверждена. Задайте новый пароль для входа.';
+        return true;
+    }
+
+    function finishPasswordResetMode(message) {
+        activeResetToken = '';
+        var loginForm = qs('[data-login-form]');
+        var requestPanel = qs('[data-password-reset-panel]');
+        var confirmation = qs('[data-password-reset-confirm]');
+        var title = qs('[data-login-title]');
+        var lead = qs('[data-login-lead]');
+        if (confirmation) confirmation.hidden = true;
+        if (loginForm) loginForm.hidden = false;
+        if (requestPanel) requestPanel.hidden = false;
+        if (title) title.textContent = 'Вход';
+        if (lead) lead.textContent = message || 'Пароль обновлён. Войдите с новым паролем.';
+        if (loginForm && loginForm.login && typeof loginForm.login.focus === 'function') loginForm.login.focus();
+    }
+
+    function bindPasswordResetConfirmation() {
+        var form = qs('[data-password-reset-confirm-form]');
+        if (!form || form.dataset.loginResetConfirmBound === '1') return;
+        form.dataset.loginResetConfirmBound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var error = qs('[data-password-reset-confirm-error]');
+            var success = qs('[data-password-reset-confirm-success]');
+            var button = form.querySelector('button[type="submit"]');
+            var password = String(form.newPassword && form.newPassword.value || '');
+            var confirmation = String(form.confirmPassword && form.confirmPassword.value || '');
+            setMessage(error, '', false);
+            setMessage(success, '', false);
+            if (!activeResetToken) return setMessage(error, 'Ссылка восстановления недействительна. Запросите новую.');
+            if (password.length < 12) return setMessage(error, 'Пароль должен быть не короче 12 символов.');
+            if (password !== confirmation) return setMessage(error, 'Пароли не совпадают.');
+            if (button) button.disabled = true;
+            var connectionToken = beginConnection('Обновляем пароль…');
+            PMBI.api('/api/auth/request-password-reset', {
+                method: 'POST',
+                body: JSON.stringify({ resetToken: activeResetToken, newPassword: password })
+            }).then(function (data) {
+                finishConnection(connectionToken);
+                form.reset();
+                setMessage(success, data && data.message || 'Пароль обновлён.');
+                finishPasswordResetMode(data && data.message);
+            }).catch(function (requestError) {
+                settleConnection(connectionToken, requestError);
+                setMessage(error, safeErrorMessage(requestError, 'Не удалось обновить пароль. Запросите новую ссылку.'));
             }).finally(function () {
                 if (button) button.disabled = false;
             });
@@ -302,6 +383,8 @@
 
     function initLogin() {
         bindPasswordResetForm();
+        bindPasswordResetConfirmation();
+        showPasswordResetConfirmation(resetTokenFromHash());
         initClerkLogin();
         return bindLoginForm();
     }

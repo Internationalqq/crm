@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="/assets/css/connection-shell.css?v=20260901-connection-shell-1">
     <script defer src="/assets/js/connection-shell.js?v=20260901-connection-shell-1"></script>
     <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1-loader-cleanup-31"></script>
-    <script defer src="/assets/js/login.js?v=20260901-login-fast-1"></script>
+    <script defer src="/assets/js/login.js?v=20260901-login-fast-1-secure-reset-1"></script>
 </head>
 <body class="login-page" data-page="login">
     <div class="connection-shell" data-connection-shell data-autostart="true" data-state="loading" role="status" aria-live="polite" aria-atomic="true">
@@ -31,14 +31,30 @@
             <h1>Закрытая CRM для строительных объектов</h1>
             <p>Объекты, сметы, склад, график работ, чаты, роли и контроль нехватки материалов — в одной системе.</p>
             <div class="login-points">
-                <span>Backend-авторизация</span>
-                <span>Роли и ограничения доступа</span>
+                <span>Защищённый вход и сессия</span>
+                <span>Доступ по роли сотрудника</span>
                 <span>Смета → закупки → склад → факт</span>
             </div>
         </section>
         <section class="login-form">
-            <h2>Вход</h2>
-            <p>Введите выданный логин и пароль.</p>
+            <h2 data-login-title>Вход</h2>
+            <p data-login-lead>Введите выданный логин и пароль.</p>
+            <section class="password-reset-confirm" data-password-reset-confirm hidden>
+                <form data-password-reset-confirm-form>
+                    <label>
+                        <span>Новый пароль</span>
+                        <input name="newPassword" type="password" autocomplete="new-password" minlength="12" required>
+                    </label>
+                    <label>
+                        <span>Повторите пароль</span>
+                        <input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required>
+                    </label>
+                    <small>Минимум 12 символов.</small>
+                    <div class="form-error" data-password-reset-confirm-error role="alert" aria-atomic="true"></div>
+                    <div class="form-success" data-password-reset-confirm-success role="status" aria-live="polite"></div>
+                    <button type="submit">Сохранить новый пароль</button>
+                </form>
+            </section>
             <form data-login-form>
                 <label>
                     <span>Логин</span>
@@ -64,10 +80,10 @@
                     </label>
                     <div class="form-error" data-password-reset-error role="alert" aria-atomic="true"></div>
                     <div class="form-success" data-password-reset-success></div>
-                    <button type="submit" class="ghost">Отправить новый пароль</button>
+                    <button type="submit" class="ghost">Отправить ссылку</button>
                 </form>
             </details>
-            <small>Первичный пароль после первого запуска лежит в <code>data/INITIAL_ADMIN.txt</code>.</small>
+            <small>Если вам ещё не выдали доступ, обратитесь к администратору PM.bi.</small>
         </section>
     </main>
 </body>

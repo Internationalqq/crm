@@ -1,3 +1,7 @@
+:root {
+    --pmbi-style-reports-ready: 1;
+}
+
 /* Objects / Reports — compact daily control workspace. */
 
 body[data-page="projects"] [data-panel="reports"] .report-workspace {
@@ -1544,6 +1548,11 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 
 .reports-drawer-frame .report-form-main-section {
     border-color: #cfdaea;
+}
+
+.reports-drawer-frame .report-form-main-section .report-form-section-head b {
+    font-size: 16px !important;
+    line-height: 1.3 !important;
 }
 
 .reports-drawer-frame .report-form-section-head {
@@ -7731,5 +7740,258 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
 @media (pointer: coarse) {
     .reports-drawer-frame .report-draft-status [data-report-draft-clear] {
         min-height: 44px !important;
+    }
+}
+
+/* Report clarity, semantic status colors, and stable customer typography. */
+.reports-drawer-frame .report-form-main-section {
+    border-color: rgba(36, 129, 204, .2) !important;
+    background: linear-gradient(145deg, rgba(36, 129, 204, .075), rgba(255, 255, 255, .98) 62%) !important;
+    box-shadow: inset 3px 0 0 rgba(36, 129, 204, .42) !important;
+}
+
+.reports-drawer-frame .report-daily-field-title {
+    display: grid !important;
+    gap: 2px !important;
+    margin: 0 0 8px !important;
+    color: var(--color-text) !important;
+}
+
+.reports-drawer-frame .report-daily-field-title b {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 1.35 !important;
+}
+
+.reports-drawer-frame .report-daily-field-title small {
+    color: var(--report-secondary) !important;
+    font-size: 11px !important;
+    font-weight: 400 !important;
+    line-height: 1.4 !important;
+}
+
+.reports-drawer-frame .report-form-main-section .report-daily-textarea-field textarea,
+.reports-drawer-frame .report-form-main-section .report-voice-field textarea {
+    border-color: rgba(36, 129, 204, .24) !important;
+    background: #ffffff !important;
+    font-size: 16px !important;
+    font-weight: 400 !important;
+    line-height: 1.55 !important;
+}
+
+.reports-drawer-frame .report-form-main-section .report-daily-textarea-field textarea:focus,
+.reports-drawer-frame .report-form-main-section .report-voice-field textarea:focus {
+    border-color: rgba(36, 129, 204, .68) !important;
+    box-shadow: 0 0 0 3px rgba(36, 129, 204, .11) !important;
+}
+
+.report-text-editor-card > label:first-of-type {
+    padding: 14px;
+    border: 1px solid rgba(36, 129, 204, .18);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(36, 129, 204, .075), rgba(255, 255, 255, .98) 70%);
+}
+
+.report-text-editor-card > label:first-of-type textarea {
+    min-height: 176px;
+    background: #ffffff;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.55;
+}
+
+.report-text-editor-card > label:nth-of-type(2) > span {
+    color: var(--color-danger);
+}
+
+.reports-drawer-frame .report-final-message .report-final-full,
+.report-entry-document > .report-final-full {
+    padding: 16px 17px 17px !important;
+    border-color: rgba(36, 129, 204, .16) !important;
+    background: linear-gradient(135deg, rgba(36, 129, 204, .105), rgba(255, 255, 255, .96) 72%) !important;
+}
+
+.reports-drawer-frame .report-final-message .report-final-full > span,
+.report-entry-document > .report-final-full > span,
+.reports-drawer-frame .report-final-text-head > span {
+    color: #286b9f !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: .035em !important;
+}
+
+.reports-drawer-frame .report-final-full textarea[data-report-final-text],
+.reports-drawer-frame .report-final-message .report-final-full output,
+.report-entry-document > .report-final-full .report-entry-full-copy {
+    color: var(--color-text) !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    line-height: 1.6 !important;
+}
+
+.reports-drawer-frame .report-final-full textarea[data-report-final-text] {
+    background: rgba(255, 255, 255, .82) !important;
+}
+
+.reports-drawer-frame .report-final-message .report-final-group.is-blockers,
+.report-entry-document .report-final-group.is-blockers {
+    border-left: 3px solid var(--color-danger-border) !important;
+    background: linear-gradient(90deg, var(--color-danger-soft), rgba(255, 255, 255, .98) 78%) !important;
+}
+
+.reports-drawer-frame .report-final-message .report-final-group.is-blockers .report-final-group-head > span,
+.reports-drawer-frame .report-final-message .report-final-group.is-blockers .report-final-group-head b,
+.report-entry-document .report-final-group.is-blockers .report-final-group-head > span,
+.report-entry-document .report-final-group.is-blockers .report-final-group-head b {
+    color: var(--color-danger) !important;
+}
+
+.report-entry-document,
+.report-shift-board,
+.report-entry-meta {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+}
+
+.report-entry-document .report-final-group-head b,
+.report-shift-board .report-shift-group-head b,
+.report-entry-document .report-final-row-copy b,
+.report-shift-board .report-shift-row strong {
+    font-weight: 600 !important;
+}
+
+.report-entry-document .report-final-group-head small,
+.report-entry-document .report-final-row-copy small,
+.report-shift-board small {
+    font-weight: 400 !important;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-day.is-outside,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-day.is-before-project {
+    min-height: 86px;
+    background: #fafbfc !important;
+    pointer-events: none;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-day.has-report.is-on-track:not(.is-selected) {
+    background: var(--color-success-soft) !important;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-day.has-report.is-attention:not(.is-selected) {
+    background: var(--color-warning-soft) !important;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-day.has-report.is-behind:not(.is-selected),
+body[data-page="projects"] [data-panel="reports"] .report-calendar-day.has-report.is-danger:not(.is-selected) {
+    background: var(--color-danger-soft) !important;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    color: #636366;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state i,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend i {
+    display: block;
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #c7cbd1;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-on-track,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-on-track {
+    color: var(--color-success);
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-on-track i,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-on-track i {
+    background: var(--color-success);
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-attention,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-attention {
+    color: var(--color-warning);
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-attention i,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-attention i {
+    background: var(--color-warning);
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-behind,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-danger,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-behind,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-danger {
+    color: var(--color-danger);
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-behind i,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-state.is-danger i,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-behind i,
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend .is-danger i {
+    background: var(--color-danger);
+}
+
+.reports-drawer-frame .report-project-start-note {
+    display: block;
+    margin-top: 8px;
+    color: var(--color-warning);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-report-total {
+    display: inline-grid;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .72);
+    color: var(--color-text-secondary);
+    font-size: 9px;
+    font-weight: 700;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 14px;
+    margin-top: 10px;
+    padding: 0 2px;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-legend span {
+    font-size: 10px;
+    font-weight: 500;
+}
+
+body[data-page="projects"] [data-panel="reports"] .report-calendar-nav:disabled {
+    cursor: default !important;
+    opacity: .32 !important;
+}
+
+@media (max-width: 520px) {
+    body[data-page="projects"] [data-panel="reports"] .report-calendar-day.is-outside,
+    body[data-page="projects"] [data-panel="reports"] .report-calendar-day.is-before-project {
+        min-height: 48px;
+    }
+
+    body[data-page="projects"] [data-panel="reports"] .report-calendar-state span,
+    body[data-page="projects"] [data-panel="reports"] .report-calendar-report-total {
+        display: none;
+    }
+
+    body[data-page="projects"] [data-panel="reports"] .report-calendar-legend {
+        gap: 6px 10px;
     }
 }

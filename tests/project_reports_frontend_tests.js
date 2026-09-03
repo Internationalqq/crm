@@ -146,6 +146,27 @@ for (const breakpoint of ['1180px', '960px', '720px', '520px']) {
 assert.match(reportsCss, /@media \(prefers-reduced-motion: reduce\)/);
 assert.match(reportsCss, /var\(--color-accent\)/);
 assert.match(reportsCss, /var\(--color-danger\)/);
+assert.match(reportsCss, /--pmbi-style-reports-ready:\s*1/);
+assert.match(reportsCss, /\.reports-drawer-frame \.report-daily-field-title\s*\{/);
+assert.match(
+  reportsCss,
+  /\.reports-drawer-frame \.report-final-message \.report-final-full,[\s\S]*?background:\s*linear-gradient\(135deg,[^}]+!important;/s,
+  'The day description must use a quiet gradient surface',
+);
+assert.match(
+  reportsCss,
+  /\.report-entry-document > \.report-final-full \.report-entry-full-copy\s*\{[^}]*font-size:\s*16px !important;[^}]*font-weight:\s*500 !important;[^}]*line-height:\s*1\.6 !important;/s,
+  'Saved day descriptions must be readable and typographically stable',
+);
+assert.match(
+  reportsCss,
+  /\.report-entry-document \.report-final-group\.is-blockers\s*\{[^}]*border-left:\s*3px solid var\(--color-danger-border\) !important;[^}]*var\(--color-danger-soft\)/s,
+  'Saved blockers must carry a visible danger treatment',
+);
+assert.match(reportsCss, /\.report-calendar-day\.has-report\.is-on-track:not\(\.is-selected\)/);
+assert.match(reportsCss, /\.report-calendar-day\.has-report\.is-attention:not\(\.is-selected\)/);
+assert.match(reportsCss, /\.report-calendar-day\.has-report\.is-behind:not\(\.is-selected\)/);
+assert.match(reportsCss, /\.report-calendar-day\.has-report\.is-danger:not\(\.is-selected\)/);
 assert.match(reportsCss, /\.reports-drawer-frame\[data-open="1"\] \.reports-drawer-panel\s*\{[^}]*translate\(-50%, -50%\)/s);
 assert.match(reportsCss, /\.reports-drawer-frame \.reports-drawer-host\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/s);
 assert.match(reportsCss, /\.reports-drawer-frame \.report-modal-scroll\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
@@ -448,9 +469,16 @@ assert.match(reportModalFormJs, /data-report-final-shift/);
 assert.match(reportModalFormJs, /data-report-final-photos/);
 assert.match(reportModalFormJs, /data-report-final-section="full-text"/);
 assert.match(reportModalFormJs, /Описание дня/);
+assert.match(reportModalFormJs, /class="report-daily-field-title"/);
+assert.match(reportModalFormJs, /Что произошло на объекте\?/);
+assert.match(reportModalFormJs, /projectStartsLater/);
+assert.match(reportModalFormJs, /reportSubmitDisabled/);
+assert.match(reportModalFormJs, /report-project-start-note/);
 assert.match(reportModalFormJs, /<textarea name="work_done"[^>]*data-report-final-text[^>]*data-report-manual="0"/);
 assert.doesNotMatch(reportModalFormJs, /<input type="hidden" name="work_done"/);
 assert.doesNotMatch(reportModalFormJs, /<output data-report-final-text/);
+assert.match(operationsJs, /minimumReportDate[\s\S]*Дата отчёта не может быть раньше старта объекта/);
+assert.match(operationsJs, /selectedDate > todayIso[\s\S]*Нельзя сохранить отчёт за будущую дату/);
 assert.match(reportModalFormJs, /data-report-text-regenerate/);
 assert.match(reportModalFormJs, /data-report-only-submit/);
 assert.match(reportModalFormJs, /class="report-action-staging" data-report-preview><\/div>/, 'Accounting actions must be visible in the review card');
@@ -469,11 +497,11 @@ const reportFinalGroupsIndex = reportModalFormJs.indexOf('data-report-final-grou
 const reportFinalShiftIndex = reportModalFormJs.indexOf('data-report-final-shift');
 const reportFinalPhotosIndex = reportModalFormJs.indexOf('data-report-final-photos');
 assert.ok(
-  reportFinalSummaryIndex < reportFinalDescriptionIndex &&
+  reportFinalSummaryIndex < reportFinalShiftIndex &&
+    reportFinalShiftIndex < reportFinalDescriptionIndex &&
     reportFinalDescriptionIndex < reportFinalGroupsIndex &&
-    reportFinalGroupsIndex < reportFinalShiftIndex &&
-    reportFinalShiftIndex < reportFinalPhotosIndex,
-  'The ready report must show its description before structured details, shift, and photos',
+    reportFinalGroupsIndex < reportFinalPhotosIndex,
+  'The ready report must show shift, description, structured results, and photos in that order',
 );
 const reportFlowOrder = [
   'report-form-meta-section',
@@ -493,14 +521,34 @@ const reportCalendarEnd = operationsJs.indexOf('renderLogsDayView = function', r
 const reportCalendarJs = operationsJs.slice(reportCalendarStart, reportCalendarEnd);
 assert.ok(reportCalendarStart > -1 && reportCalendarEnd > reportCalendarStart, 'The calendar override must exist');
 assert.match(reportCalendarJs, /logs = projectReportFieldLogs\(logs\)/);
+assert.match(reportCalendarJs, /projectReportProjectStartIso\(project\)/);
+assert.match(reportCalendarJs, /is-before-project/);
+assert.match(reportCalendarJs, /report-calendar-legend/);
+assert.match(reportCalendarJs, /is-on-track/);
+assert.match(reportCalendarJs, /is-attention/);
+assert.match(reportCalendarJs, /dayState\.kind === 'behind'/);
+assert.match(reportCalendarJs, /is-danger/);
+assert.match(operationsJs, /return \{ kind: 'danger', label: 'Есть блокер' \}/);
+assert.match(operationsJs, /return \{ kind: 'neutral', label: 'Работы не велись' \}/);
 assert.equal(
   reportCalendarJs.includes('data-lucide'),
   false,
   'Calendar navigation must not depend on externally loaded icons',
 );
+const reportDayFlowStart = operationsJs.indexOf('renderLogsDayView = function', reportCalendarEnd);
+const reportDayFlowEnd = operationsJs.indexOf('renderLogsList = function', reportDayFlowStart);
+const reportDayFlowJs = operationsJs.slice(reportDayFlowStart, reportDayFlowEnd);
+assert.ok(
+  reportDayFlowJs.indexOf('projectReportMetaHtml(log)') < reportDayFlowJs.indexOf('projectReportDetailsHtml(log)') &&
+    reportDayFlowJs.indexOf('projectReportDetailsHtml(log)') < reportDayFlowJs.indexOf('projectReportDocumentHtml(log)') &&
+    reportDayFlowJs.indexOf('projectReportDocumentHtml(log)') < reportDayFlowJs.indexOf('projectReportPhotosHtml(log)'),
+  'Saved reports must show the shift before completed work and photos after the document',
+);
 const reportStatsStart = operationsJs.lastIndexOf('renderLogsStats = function');
 const reportStatsEnd = operationsJs.indexOf('renderLogsAlerts = function', reportStatsStart);
 const reportStatsJs = operationsJs.slice(reportStatsStart, reportStatsEnd);
+assert.match(reportStatsJs, /projectReportProjectStartIso\(state\.selectedProject\)/);
+assert.match(reportStatsJs, /String\(log\.report_date\)\.slice\(0, 10\) >= projectStartIso/);
 assert.ok(reportStatsStart > -1 && reportStatsEnd > reportStatsStart, 'The reports stats override must exist');
 assert.match(reportStatsJs, /logs = projectReportFieldLogs\(logs\)/);
 const reportAlertsStart = operationsJs.lastIndexOf('renderLogsAlerts = function');
@@ -724,7 +772,7 @@ assert.match(appJs, /clauseTexts:\s*\[\]/);
 assert.match(appJs, /function reportHasWorkCompletionIntent\(/);
 assert.match(appJs, /reportWorkResultFromClause = function \(clauseText, candidate\) \{\s*if \(!reportHasWorkCompletionIntent\(clauseText\)\) return null;/);
 assert.match(appJs, /Дополнительно выполнено/);
-assert.match(appJs, /Доп\. работы/);
+assert.match(appJs, /Дополнительные работы/);
 assert.match(backendServer, /api_upload_daily_log_photo/);
 assert.match(communicationsDocs, /workers_json/);
 assert.match(communicationsDocs, /equipment_json/);
@@ -760,15 +808,17 @@ assert.equal(storedReportData.rows.additional.length, 1);
 assert.equal(storedReportData.rows.blockers.length, 1);
 assert.equal(storedReportData.rows.next.length, 1);
 assert.match(storedReportData.rows.materials[0].title, /10\.5 м/);
-assert.match(storedReportData.fullText, /Проблемы и ограничения: Ждём поставку щита/);
-assert.match(storedReportData.fullText, /Следующий шаг: Проверить подключение/);
+assert.equal(storedReportData.fullText, storedReport.work_done);
+assert.doesNotMatch(storedReportData.fullText, /Ждём поставку щита|Проверить подключение/);
 const storedReportHtml = storedReportContext.savedReportHtml(storedReport);
 assert.match(storedReportHtml, /data-report-saved-section="works"/);
 assert.match(storedReportHtml, /data-report-saved-section="materials"/);
 assert.match(storedReportHtml, /data-report-saved-section="additional"/);
 assert.match(storedReportHtml, /data-report-saved-section="blockers"/);
 assert.match(storedReportHtml, /data-report-saved-section="next"/);
-assert.match(storedReportHtml, /Доп\. работы/);
+assert.match(storedReportHtml, /Дополнительные работы/);
+assert.match(storedReportHtml, /Что сделали/);
+assert.match(storedReportHtml, /Материалы и поставки/);
 assert.match(storedReportHtml, /Описание дня/);
 assert.match(storedReportHtml, /data-report-saved-document/);
 assert.ok(
@@ -785,15 +835,17 @@ const storedShortBlocker = storedReportContext.savedReportData({
   work_done: 'Дополнительно зафиксировано: Интернет работает.',
   blockers: 'Нет',
 });
-assert.match(storedShortBlocker.fullText, /Проблемы и ограничения: Нет/, 'Phrase matching must not confuse «нет» with «интернет»');
+assert.deepEqual(
+  Array.from(storedShortBlocker.rows.blockers, (row) => row.title),
+  ['Нет'],
+  'Phrase matching must not confuse «нет» with «интернет»',
+);
 const storedPartialSupplement = storedReportContext.savedReportData({
   work_done: 'Ждём электрика.',
   blockers: 'Ждём электрика. Нет кабеля.',
   next_steps: 'Ждём электрика. Проверить щит.',
 });
-assert.equal((storedPartialSupplement.fullText.match(/Ждём электрика/g) || []).length, 1, 'Saved reports must remove a blocker phrase already present in the report');
-assert.match(storedPartialSupplement.fullText, /Проблемы и ограничения: Нет кабеля\./);
-assert.match(storedPartialSupplement.fullText, /Следующий шаг: Проверить щит\./);
+assert.equal(storedPartialSupplement.fullText, 'Ждём электрика.');
 assert.deepEqual(
   Array.from(storedPartialSupplement.rows.additional, (row) => row.title),
   [],
@@ -805,9 +857,9 @@ const storedSentenceBoundarySupplement = storedReportContext.savedReportData({
   work_done: 'Нет кабеля. Ждём щит.',
   blockers: 'Кабеля, ждём',
 });
-assert.match(
-  storedSentenceBoundarySupplement.fullText,
-  /Проблемы и ограничения: Кабеля, ждём\./,
+assert.deepEqual(
+  Array.from(storedSentenceBoundarySupplement.rows.blockers, (row) => row.title),
+  ['Кабеля, ждём'],
   'Saved-report dedupe must not match words joined across two sentence boundaries',
 );
 
@@ -945,7 +997,7 @@ assert.match(structuredFinalHtml, /data-report-final-section="works"/);
 assert.match(structuredFinalHtml, /data-report-final-section="materials"/);
 assert.doesNotMatch(structuredFinalHtml, /data-report-final-section="blockers"/);
 assert.match(structuredFinalHtml, /data-report-final-section="next"/);
-assert.match(structuredFinalHtml, /Работы/);
+assert.match(structuredFinalHtml, /Что сделали/);
 assert.match(structuredFinalHtml, /Материалы/);
 assert.doesNotMatch(structuredFinalHtml, /Блокеры/);
 assert.match(structuredFinalHtml, /Следующий шаг/);

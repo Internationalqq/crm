@@ -49,6 +49,6 @@ assert.doesNotMatch(setupBlock, /title:\s*['"]Ответственные['"]/);
 assert.doesNotMatch(setupBlock, /complete:\s*hasForeman\s*&&\s*hasBuyer/);
 
 assert.match(routerJs, /app\.js\?v=[^'\n]*project-responsibles-1/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*project-responsibles-1/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 
 console.log('project_responsibles_frontend_ok');

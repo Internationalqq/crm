@@ -7,16 +7,31 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const appJs = read('frontend/assets/js/app.js');
 const operationsJs = read('frontend/assets/js/operations.js');
 const routerJs = read('frontend/assets/js/router.js');
+const planningJs = read('frontend/assets/js/planning.js');
+const procurementJs = read('frontend/assets/js/procurement.js');
+const warehouseControlJs = read('frontend/assets/js/warehouse-control.js');
 const baseHtml = read('frontend/templates/base.html');
 const appCss = read('frontend/assets/app.css');
 const reminderCss = read('frontend/assets/css/reminders.css');
 
 const reminderImport = '@import "./css/reminders.css?v=20260824-reminder-center-2-reminder-object-orders-3-motion-1-reminder-day-focus-4";';
 assert.equal(appCss.trim().split(/\r?\n/).at(-1), reminderImport);
-assert.match(baseHtml, /app\.css\?v=[^"\s]*reminder-day-focus-4/);
-assert.match(baseHtml, /router\.js\?v=[^"\s]*reminder-day-focus-4/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 assert.match(routerJs, /app\.js\?v=[^'\s]*reminder-day-focus-4/);
 assert.match(routerJs, /operations\.js\?v=[^'\s]*reminder-day-focus-4/);
+assert.match(routerJs, /app\.js\?v=[^'\s]*procurement-evidence-1/);
+assert.match(routerJs, /operations\.js\?v=[^'\s]*procurement-evidence-1/);
+assert.match(routerJs, /app\.js\?v=[^'\s]*procurement-evidence-personal-2/);
+assert.match(routerJs, /planning\.js\?v=[^'\s]*procurement-evidence-personal-2/);
+assert.match(routerJs, /procurement\.js\?v=[^'\s]*procurement-evidence-personal-2/);
+assert.match(routerJs, /warehouse-control\.js\?v=[^'\s]*procurement-evidence-personal-2/);
+assert.match(routerJs, /app\.js\?v=[^'\s]*procurement-role-3/);
+assert.match(routerJs, /planning\.js\?v=[^'\s]*procurement-role-3/);
+assert.match(routerJs, /operations\.js\?v=[^'\s]*procurement-role-3/);
+for (const stockMoveUi of [planningJs, procurementJs, warehouseControlJs]) {
+  assert.match(stockMoveUi, /PMBI\.app\.refreshReminderBell\(\)/);
+}
 
 const topbarStart = appJs.indexOf('function renderTopbarTemplate()');
 const topbarEnd = appJs.indexOf('function renderAppTopbar()', topbarStart);
@@ -72,6 +87,13 @@ assert.match(buildBlock, /notifications\.missingDailyReport && notifications\.re
 assert.doesNotMatch(buildBlock, /new Date\(\)\.getHours\(\) >= 17/);
 assert.match(buildBlock, /group: 'reports'/);
 assert.match(buildBlock, /Нет отчёта за сегодня/);
+assert.match(buildBlock, /notifications\.procurementEvidenceAlerts/);
+assert.match(buildBlock, /evidenceKind/);
+assert.match(buildBlock, /String\(alert\.evidenceKind \|\| 'missing_costing'\)/);
+assert.match(buildBlock, /group: 'procurement-evidence'/);
+assert.match(buildBlock, /procurementItemId=/);
+assert.match(buildBlock, /documentType=invoice/);
+assert.match(buildBlock, /reminderProcurementEvidenceLabel\(alert\)/);
 assert.match(buildBlock, /Array\.isArray\(notifications\.scheduleAlerts\)/);
 assert.match(buildBlock, /reminderSchedulePresentation\(stage\)/);
 assert.match(appJs, /timing === 'due_today'[\s\S]*?Завершить сегодня/);
@@ -80,6 +102,78 @@ assert.match(appJs, /alreadyStarted \? 'Сегодня в работе' : 'По 
 assert.match(buildBlock, /sourceId: task\.id \|\| ''/);
 assert.match(buildBlock, /sourceId: log\.id \|\| ''/);
 assert.match(buildBlock, /sourceId: stage\.id \|\| ''/);
+
+const evidenceTextStart = appJs.indexOf('function reminderProcurementEvidenceText');
+const evidenceTextEnd = appJs.indexOf('function reminderTaskText', evidenceTextStart);
+assert.ok(evidenceTextStart >= 0 && evidenceTextEnd > evidenceTextStart, 'procurement evidence text helper must exist');
+const reminderProcurementEvidenceText = new Function(
+  'quantityText',
+  'formatDisplayDate',
+  `${appJs.slice(evidenceTextStart, evidenceTextEnd)}; return reminderProcurementEvidenceText;`,
+)((value) => String(value), (value) => String(value));
+assert.match(
+  reminderProcurementEvidenceText({
+    evidenceKind: 'missing_invoice',
+    isPersonalAction: true,
+    purchasedQty: 2,
+    unit: 'т',
+  }),
+  /^Вы отметили закупку, но не приложили счёт/,
+);
+assert.equal(
+  reminderProcurementEvidenceText({
+    evidenceKind: 'missing_invoice',
+    responsibleUserName: 'Никита Прораб',
+  }),
+  'Никита Прораб отметил закупку, но счёт не приложен',
+);
+assert.equal(
+  reminderProcurementEvidenceText({
+    evidenceKind: 'missing_invoice',
+    isPersonalAction: true,
+    procurementAction: 'receipt',
+    receivedQty: 3,
+    unit: 'т',
+  }),
+  'Вы отметили поступление, но не приложили счёт • принято 3 т',
+);
+assert.match(buildBlock, /isPersonalAction: !!alert\.isPersonalAction/);
+assert.match(buildBlock, /isPersonalResponsibility: !!alert\.isPersonalResponsibility/);
+assert.match(buildBlock, /isSupervisorView: !!alert\.isSupervisorView/);
+assert.match(buildBlock, /needsAssignment: !!alert\.needsAssignment/);
+assert.match(buildBlock, /procurementAction: alert\.procurementAction \|\| ''/);
+assert.match(appJs, /personalInvoiceCount/);
+assert.match(appJs, /snapshot\.personalInvoiceAction === 'receipt' \? 'поступление' : 'закупку'/);
+assert.match(appJs, /item\.isPersonalResponsibility \? 'my-responsibility'/);
+assert.match(appJs, /var leftPersonal = !!left\.isPersonalAction \|\| !!left\.isPersonalResponsibility/);
+
+const responsibilityStart = appJs.indexOf('function reminderProcurementAudience');
+const responsibilityEnd = appJs.indexOf('function reminderTaskText', responsibilityStart);
+const procurementTextStart = appJs.indexOf('function reminderProcurementText');
+const procurementTextEnd = appJs.indexOf('function reminderProcurementSortAt', procurementTextStart);
+assert.ok(responsibilityStart >= 0 && responsibilityEnd > responsibilityStart);
+assert.ok(procurementTextStart >= 0 && procurementTextEnd > procurementTextStart);
+const reminderProcurementText = new Function(
+  'quantityText',
+  'formatDisplayDate',
+  `${appJs.slice(responsibilityStart, responsibilityEnd)}\n${appJs.slice(procurementTextStart, procurementTextEnd)}; return reminderProcurementText;`,
+)((value) => String(value), (value) => String(value));
+assert.equal(
+  reminderProcurementText({ phase: 'order', toOrderQty: 20, unit: 'т', isPersonalResponsibility: true }),
+  'Вам нужно заказать 20 т',
+);
+assert.equal(
+  reminderProcurementText({ phase: 'order', toOrderQty: 20, unit: 'т', isSupervisorView: true, responsibleUserName: 'Никита Прораб' }),
+  'Никита Прораб должен заказать 20 т',
+);
+assert.equal(
+  reminderProcurementText({ phase: 'order', toOrderQty: 20, unit: 'т', isSupervisorView: true, needsAssignment: true }),
+  'Нужно заказать 20 т • ответственный не назначен',
+);
+assert.equal(
+  reminderProcurementText({ phase: 'delivery', toReceiveQty: 8, unit: 'м³', isSupervisorView: true, responsibleUserName: 'Никита Прораб' }),
+  'Никита Прораб должен проконтролировать поставку 8 м³',
+);
 
 const materialGroupsStart = appJs.indexOf('function reminderMaterialProjectGroups');
 const materialGroupsEnd = appJs.indexOf('function reminderMaterialSnapshot', materialGroupsStart);
@@ -109,15 +203,21 @@ const reminderFocusSnapshot = new Function(
   `${appJs.slice(focusSourceStart, focusSourceEnd)}; return reminderFocusSnapshot;`,
 )((kind) => ({ danger: 0, warn: 1, info: 2 }[kind] ?? 9));
 const focusSnapshot = reminderFocusSnapshot(materialFixtures.concat([
+  { group: 'procurement-evidence', projectId: 24, materialId: 801, evidenceKind: 'missing_invoice', focusWhen: 'today', kind: 'danger' },
+  { group: 'procurement-evidence', projectId: 25, materialId: 802, evidenceKind: 'missing_costing', focusWhen: 'soon', kind: 'warn' },
   { group: 'works', projectId: 24, focusWhen: 'today', kind: 'warn' },
   { group: 'works', projectId: 25, focusWhen: 'soon', kind: 'info' },
   { group: 'tasks', projectId: 24, focusWhen: 'today', kind: 'warn' },
   { group: 'reports', projectId: 24, focusWhen: 'evening', kind: 'warn' },
   { group: 'journal', projectId: 25, focusWhen: 'today', kind: 'danger' },
 ]));
-assert.equal(focusSnapshot.actionCount, 7, 'badge must count two procurement projects plus five real actions, not 22 material rows');
-assert.equal(focusSnapshot.todayCount, 5, 'a danger material project belongs to today, not soon');
-assert.equal(focusSnapshot.soonCount, 2);
+assert.equal(focusSnapshot.actionCount, 9, 'badge must count procurement evidence, two material projects, and five other actions');
+assert.equal(focusSnapshot.todayCount, 6, 'critical procurement evidence and a danger material project belong to today');
+assert.equal(focusSnapshot.soonCount, 3);
+assert.equal(focusSnapshot.procurementEvidence, 2);
+assert.equal(focusSnapshot.procurementCritical, 1);
+assert.equal(focusSnapshot.procurementInvoices, 1);
+assert.equal(focusSnapshot.procurementCosting, 1);
 assert.equal(focusSnapshot.materials.orderCount, 22);
 assert.equal(focusSnapshot.materials.todayProjects, 1);
 assert.equal(focusSnapshot.materials.soonProjects, 1);
@@ -131,14 +231,32 @@ assert.equal(deliveryOnlySnapshot.todayCount, 1);
 assert.equal(deliveryOnlySnapshot.soonCount, 0);
 assert.equal(deliveryOnlySnapshot.materials.todayOrderCount, 0);
 assert.equal(deliveryOnlySnapshot.materials.todayDeliveryCount, 1);
+const evidenceOnlySnapshot = reminderFocusSnapshot([
+  { group: 'procurement-evidence', projectId: 40, materialId: 900, evidenceKind: 'missing_invoice', focusWhen: 'today', kind: 'danger' },
+]);
+assert.equal(evidenceOnlySnapshot.actionCount, 1, 'an invoice red flag alone must keep the bell badge visible');
+assert.equal(evidenceOnlySnapshot.todayCount, 1);
+assert.equal(evidenceOnlySnapshot.procurementInvoices, 1);
 const mixedMaterialSnapshot = reminderFocusSnapshot([
   { group: 'materials', projectId: 31, materialId: 701, title: 'Заказ', subject: 'Крепёж', actionKind: 'order', actionQty: 5, unit: 'шт', kind: 'warn', sortAt: '2026-08-31' },
   { group: 'materials', projectId: 32, materialId: 702, title: 'Поставка', subject: 'Бетон', actionKind: 'delivery', actionQty: 8, unit: 'м³', kind: 'danger', sortAt: '2026-08-29' },
 ]);
 assert.equal(mixedMaterialSnapshot.materials.todayOrderCount, 0, 'urgent delivery must not make a normal order urgent');
 assert.equal(mixedMaterialSnapshot.materials.todayDeliveryCount, 1);
+const roleMaterialSnapshot = reminderFocusSnapshot([
+  { group: 'materials', projectId: 41, materialId: 901, title: 'Личный', subject: 'Щебень', actionKind: 'order', actionQty: 20, unit: 'т', kind: 'danger', isPersonalResponsibility: true },
+  { group: 'materials', projectId: 42, materialId: 902, title: 'Контроль', subject: 'Сетка', actionKind: 'order', actionQty: 5, unit: 'шт', kind: 'danger', isSupervisorView: true },
+  { group: 'materials', projectId: 43, materialId: 903, title: 'Без назначения', subject: 'Бетон', actionKind: 'order', actionQty: 3, unit: 'м³', kind: 'danger', isSupervisorView: true, needsAssignment: true },
+]);
+assert.equal(roleMaterialSnapshot.materials.personalOrderCount, 1);
+assert.equal(roleMaterialSnapshot.materials.supervisorOrderCount, 2);
+assert.equal(roleMaterialSnapshot.materials.unassignedOrderCount, 1);
+assert.equal(roleMaterialSnapshot.materials.todayPersonalOrderCount, 1);
+assert.equal(roleMaterialSnapshot.materials.todaySupervisorOrderCount, 2);
+assert.equal(roleMaterialSnapshot.materials.todayUnassignedOrderCount, 1);
 
 assert.match(appJs, /key: 'materials', title: 'Материалы'/);
+assert.match(appJs, /key: 'procurement-evidence'[\s\S]*?title: 'Счета и просчёты'/);
 assert.match(appJs, /key: 'tasks', title: 'Задачи'/);
 assert.match(appJs, /key: 'works', title: 'По графику'/);
 assert.match(appJs, /key: 'reports', title: 'Закрыть день'/);
@@ -169,11 +287,14 @@ assert.match(appJs, /return \{ ok: false, items: \[\], nextRefreshAt: '' \}/);
 assert.doesNotMatch(appJs, /catch\(function \(\) \{ return \[\]; \}\)/);
 assert.match(appJs, /attentionCount > 99 \? '99\+' : String\(attentionCount\)/);
 assert.match(appJs, /var attentionCount = focusSnapshot\.actionCount/);
+assert.match(appJs, /Закупки требуют подтверждения:/);
 assert.match(appJs, /function triggerReminderNotice\(button, items\)/);
 assert.match(appJs, /button\.classList\.add\('is-notifying'\)/);
 assert.match(appJs, /За сегодня нет отчёта: ' \+ snapshot\.reports/);
 assert.match(appJs, /Материалы в пути: ' \+ snapshot\.materials\.deliveryCount/);
-assert.match(appJs, /Срочно заказать ' \+ snapshot\.materials\.todayOrderCount/);
+assert.match(appJs, /Вам срочно заказать/);
+assert.match(appJs, /У ответственных срочно к заказу/);
+assert.match(appJs, /Срочно назначить ответственного и заказать/);
 assert.match(appJs, /Срочно проверить поставку: ' \+ snapshot\.materials\.todayDeliveryCount/);
 assert.match(appJs, /function reminderHasNewAttention\(items\)/);
 assert.match(appJs, /item\.group, item\.projectId, item\.sourceId, item\.materialId/);

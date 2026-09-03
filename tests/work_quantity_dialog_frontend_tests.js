@@ -10,7 +10,6 @@ const objectControlCss = read('frontend/assets/css/object-control.css');
 const appCss = read('frontend/assets/app.css');
 const routerJs = read('frontend/assets/js/router.js');
 const baseHtml = read('frontend/templates/base.html');
-const loginHtml = read('frontend/templates/login.html');
 
 const rowStart = planningJs.indexOf('function renderSectionScheduleRow');
 const rowEnd = planningJs.indexOf('function renderSectionScheduleForecast', rowStart);
@@ -89,7 +88,7 @@ assert.match(objectControlCss, /\.work-quantity-dialog-head > button,[\s\S]*?min
 assert.match(routerJs, /app\.js\?v=[^'\"]*works-quantity-dialog-18/);
 assert.match(routerJs, /planning\.js\?v=[^'\"]*works-quantity-dialog-18/);
 assert.match(appCss, /object-control\.css\?v=[^"\n]*works-quantity-dialog-18/);
-assert.match(baseHtml, /works-quantity-dialog-18/);
-assert.match(loginHtml, /works-quantity-dialog-18/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 
 console.log('work_quantity_dialog_frontend_ok');

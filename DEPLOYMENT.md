@@ -36,6 +36,9 @@ data/INITIAL_ADMIN.txt
 
 После входа и создания реальных пользователей этот файл лучше удалить.
 
+Не храните этот пароль как рабочий: смените его в профиле администратора,
+удалите `data/INITIAL_ADMIN.txt` и задайте отдельный длинный пароль интеграции.
+
 ## Важно про workers.dev
 
 Просто загрузить папку `deploy` на workers.dev теперь недостаточно для настоящего продукта.
@@ -47,11 +50,15 @@ Backend `backend/server.py` должен где-то запускаться.
 
 ```text
 /app/projects
+/app/dashboard
+/app/daily-tasks
 /app/warehouse
 /app/schedule
-/app/chats
+/app/logs
+/app/suppliers
 /app/users
-/app/reports
+/app/companies
+/app/autobot
 ```
 
 Основная архитектура frontend теперь лежит в `frontend/`.
@@ -75,3 +82,10 @@ Backend `backend/server.py` должен где-то запускаться.
 - документы проекта.
 
 Папку `data/` не выгружать публично: там база и первичный пароль.
+
+## Безопасный сетевой доступ
+
+Docker по умолчанию публикует CRM только на `127.0.0.1`. Для внешнего доступа
+ставьте перед приложением HTTPS reverse proxy, задайте HTTPS-адрес в
+`PMBI_PUBLIC_BASE_URL` и включите `PMBI_FORCE_SECURE_COOKIES=1`. Не открывайте
+порт `8080` в интернет без TLS: логины и cookie сессии пойдут открытым текстом.

@@ -221,6 +221,38 @@ class GuestAccessTests(unittest.TestCase):
             row = con.execute("SELECT * FROM users WHERE id = ?", (guest_id,)).fetchone()
         return auth.user_payload(row), handler.payload
 
+    def create_role_user(self, login: str, role_code: str, name: str) -> dict:
+        timestamp = server.now_ts()
+        with server.db() as con:
+            role = con.execute("SELECT id FROM roles WHERE code = ?", (role_code,)).fetchone()
+            user_id = int(
+                con.execute(
+                    """
+                    INSERT INTO users (
+                        login, email, phone, password_hash, role, name, status,
+                        is_active, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)
+                    """,
+                    (
+                        login,
+                        f"{login}@example.test",
+                        "+70000000000",
+                        auth.hash_password("Secure-Test-2026!"),
+                        role_code,
+                        name,
+                        timestamp,
+                        timestamp,
+                    ),
+                ).lastrowid
+            )
+            con.execute(
+                "INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)",
+                (user_id, role["id"], timestamp),
+            )
+            con.commit()
+            row = con.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return auth.user_payload(row)
+
     def test_public_entry_has_login_only_and_creates_no_session(self) -> None:
         for path in ("/", "/index.html", "/?next=/app/projects"):
             with self.subTest(path=path):
@@ -299,6 +331,7 @@ class GuestAccessTests(unittest.TestCase):
         guest_handler = JsonHandler(guest, {"projectId": self.assigned_project_id})
         server.PMBIHandler.api_create_guest_access(guest_handler)
         self.assertEqual(guest_handler.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(guest_handler.payload, {"error": "guest_access_forbidden"})
 
         timestamp = server.now_ts()
         with server.db() as con:
@@ -322,7 +355,47 @@ class GuestAccessTests(unittest.TestCase):
         self.assertEqual(denied.status, HTTPStatus.FORBIDDEN)
         allowed = JsonHandler(restricted, {"projectId": self.assigned_project_id})
         server.PMBIHandler.api_create_guest_access(allowed)
-        self.assertEqual(allowed.status, HTTPStatus.CREATED)
+        self.assertEqual(allowed.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(allowed.payload, {"error": "guest_access_forbidden"})
+
+    def test_customer_cannot_read_team_directory_or_issue_guest_access(self) -> None:
+        customer = self.create_role_user("customer-user", "customer", "Заказчик")
+        self.assertFalse(auth.user_can_open(customer, "/app/users"))
+
+        directory = JsonHandler(customer)
+        server.PMBIHandler.api_users(directory)
+        self.assertEqual(directory.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(directory.payload, {"error": "user_directory_forbidden"})
+
+        guest_access = JsonHandler(customer, {"projectId": self.assigned_project_id})
+        server.PMBIHandler.api_create_guest_access(guest_access)
+        self.assertEqual(guest_access.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(guest_access.payload, {"error": "guest_access_forbidden"})
+
+    def test_internal_directory_hides_other_users_contact_and_permissions(self) -> None:
+        viewer = self.create_role_user("finance-viewer", "financier", "Первый сотрудник")
+        coworker = self.create_role_user("finance-coworker", "financier", "Второй сотрудник")
+        with server.db() as con:
+            con.execute(
+                "INSERT INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                (viewer["id"], self.assigned_project_id),
+            )
+            con.execute(
+                "INSERT INTO user_project_access (user_id, project_id) VALUES (?, ?)",
+                (coworker["id"], self.other_project_id),
+            )
+            con.commit()
+
+        directory = JsonHandler(viewer)
+        server.PMBIHandler.api_users(directory)
+        self.assertEqual(directory.status, HTTPStatus.OK)
+        by_id = {int(item["id"]): item for item in directory.payload["users"]}
+        self.assertEqual(by_id[int(viewer["id"])]["login"], "finance-viewer")
+        self.assertIsNone(by_id[int(coworker["id"])]["login"])
+        self.assertIsNone(by_id[int(coworker["id"])]["email"])
+        self.assertIsNone(by_id[int(coworker["id"])]["phone"])
+        self.assertIsNone(by_id[int(coworker["id"])]["permissions"])
+        self.assertEqual(by_id[int(coworker["id"])]["assignedProjects"], [])
 
     def test_generated_credentials_login_as_real_guest_session(self) -> None:
         guest, response = self.create_guest()

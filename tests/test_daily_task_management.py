@@ -19,12 +19,15 @@ class FakeDailyTaskHandler:
     daily_task_manager = server.PMBIHandler.daily_task_manager
     daily_task_now = server.PMBIHandler.daily_task_now
     daily_task_payload = server.PMBIHandler.daily_task_payload
+    daily_task_rows = server.PMBIHandler.daily_task_rows
+    daily_task_users = server.PMBIHandler.daily_task_users
 
     def __init__(self, user: dict, payload: dict | None = None):
         self.user = user
         self.payload = payload or {}
         self.status: int | None = None
         self.response: dict | None = None
+        self.path = "/api/daily-tasks"
 
     def require_user(self) -> dict:
         return self.user
@@ -110,6 +113,31 @@ class DailyTaskManagementTests(unittest.TestCase):
             return con.execute(
                 "SELECT * FROM daily_tasks WHERE id = ?", (task_id,)
             ).fetchone()
+
+    def list_tasks(self, user: dict, query: str = "") -> FakeDailyTaskHandler:
+        handler = FakeDailyTaskHandler(user)
+        handler.path = "/api/daily-tasks" + query
+        server.PMBIHandler.api_daily_tasks(handler)
+        return handler
+
+    def test_regular_employee_only_sees_own_tasks(self) -> None:
+        response = self.list_tasks(self.user(1, "foreman"))
+
+        self.assertEqual(response.status, HTTPStatus.OK)
+        self.assertFalse(response.response["canSeeAll"])
+        self.assertEqual([item["userId"] for item in response.response["tasks"]], [1])
+        self.assertEqual([item["id"] for item in response.response["users"]], [1])
+
+        denied = self.list_tasks(self.user(1, "foreman"), "?userId=2")
+        self.assertEqual(denied.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(denied.response, {"error": "daily_tasks_forbidden"})
+
+    def test_director_can_see_all_tasks(self) -> None:
+        response = self.list_tasks(self.user(4, "director"))
+
+        self.assertEqual(response.status, HTTPStatus.OK)
+        self.assertTrue(response.response["canSeeAll"])
+        self.assertEqual({item["userId"] for item in response.response["tasks"]}, {1, 2})
 
     def test_regular_employee_cannot_edit_or_delete_someone_elses_task(self) -> None:
         update = self.update(12, self.user(1, "foreman"), {"text": "Чужая правка"})

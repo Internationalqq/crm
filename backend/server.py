@@ -29,6 +29,7 @@ from auth import (
     DEFAULT_AUTH_PATH,
     LOGIN_PATH,
     PUBLIC_STATIC_PATHS,
+    PASSWORD_MIN_LENGTH,
     ROLE_CODES,
     ROLE_DESCRIPTIONS,
     ROLE_LABELS,
@@ -62,6 +63,7 @@ from auth import (
     user_can_manage_roles,
     user_can_manage_schedule,
     user_can_manage_users,
+    user_can_access_autobot,
     user_can_submit_procurement_price,
     user_can_view_project_economics,
     user_can_view_procurement_prices,
@@ -259,6 +261,10 @@ DOCUMENTS_DIR = DATA_DIR / "documents"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
 BOOTSTRAP_PATH = DATA_DIR / "INITIAL_ADMIN.txt"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+DEFAULT_JSON_BYTES = 1024 * 1024
+AUTOBOT_ESTIMATE_IMPORT_MAX_BYTES = 12 * 1024 * 1024
+AUTOBOT_ESTIMATE_IMPORT_MAX_GROUPS = 10
+AUTOBOT_ESTIMATE_IMPORT_MAX_ITEMS = 12000
 
 HOST = os.environ.get("PMBI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PMBI_PORT", os.environ.get("PORT", "8080")))
@@ -583,6 +589,21 @@ def estimate_import_value_issues(items: list) -> list[dict]:
             continue
         issue = estimate_item_value_issue(item, position)
         if issue:
+            source_key = str(
+                item.get("estimate_source_key", item.get("estimateSourceKey", ""))
+            ).strip()
+            estimate_title = str(
+                item.get("estimate_title", item.get("estimateTitle", ""))
+            ).strip()
+            source_item_key_value = str(
+                item.get("source_item_key", item.get("sourceItemKey", ""))
+            ).strip()
+            if source_key:
+                issue["sourceKey"] = source_key
+            if estimate_title:
+                issue["estimateTitle"] = estimate_title
+            if source_item_key_value:
+                issue["sourceItemKey"] = source_item_key_value
             issues.append(issue)
         if len(issues) >= 20:
             break
@@ -856,6 +877,8 @@ def ensure_sqlite_indexes(con: sqlite3.Connection) -> None:
             ON audit_log(entity, entity_id, action);
         CREATE INDEX IF NOT EXISTS idx_documents_project_id
             ON documents(project_id, id);
+        CREATE INDEX IF NOT EXISTS idx_documents_project_estimate_item
+            ON documents(project_id, estimate_item_id, doc_type, id);
         CREATE INDEX IF NOT EXISTS idx_finance_entries_project_status_date
             ON finance_entries(project_id, status, paid_date, planned_date, id);
         CREATE INDEX IF NOT EXISTS idx_project_financial_baselines_project_status_version
@@ -1930,6 +1953,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_item_id INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL,
                 title TEXT NOT NULL,
                 doc_type TEXT NOT NULL DEFAULT 'file',
                 status TEXT NOT NULL DEFAULT 'draft',
@@ -1940,6 +1964,10 @@ def init_db() -> None:
                 file_ext TEXT,
                 size_bytes INTEGER,
                 notes TEXT,
+                counterparty_name TEXT,
+                document_number TEXT,
+                document_date TEXT,
+                amount REAL CHECK(amount IS NULL OR amount >= 0),
                 uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 is_client_visible INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
@@ -4253,6 +4281,7 @@ def init_db() -> None:
             con,
             "documents",
             {
+                "estimate_item_id": "INTEGER REFERENCES estimate_items(id) ON DELETE SET NULL",
                 "original_name": "TEXT",
                 "storage_name": "TEXT",
                 "storage_path": "TEXT",
@@ -4260,6 +4289,10 @@ def init_db() -> None:
                 "file_ext": "TEXT",
                 "size_bytes": "INTEGER",
                 "notes": "TEXT",
+                "counterparty_name": "TEXT",
+                "document_number": "TEXT",
+                "document_date": "TEXT",
+                "amount": "REAL CHECK(amount IS NULL OR amount >= 0)",
                 "uploaded_by": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
                 "stage_id": "INTEGER REFERENCES work_stages(id) ON DELETE SET NULL",
                 "template_code": "TEXT",
@@ -4408,8 +4441,14 @@ def init_db() -> None:
                 continue
             permissions = normalize_permissions(row["permissions"], "")
             modules = list(permissions.get("modules") or [])
+            permissions_changed = False
             if "users" not in modules:
                 modules.append("users")
+                permissions_changed = True
+            if normalize_role(row["code"]) == "foreman" and "autobot" not in modules:
+                modules.append("autobot")
+                permissions_changed = True
+            if permissions_changed:
                 permissions["modules"] = modules
                 con.execute(
                     "UPDATE roles SET permissions = ? WHERE id = ?",
@@ -4519,6 +4558,10 @@ def init_db() -> None:
                 "Delete this file after creating your real users.\n",
                 encoding="utf-8",
             )
+
+        # Expired session hashes have no operational value and should not
+        # accumulate indefinitely in a long-lived installation.
+        con.execute("DELETE FROM sessions WHERE expires_at <= ?", (now_ts(),))
 
         migrate_supplier_offer_tracking(con)
         ensure_legacy_economics_schema(con)
@@ -5336,13 +5379,20 @@ class PMBIHandler(BaseHTTPRequestHandler):
             path = path[:-1]
         return path or "/"
 
-    def read_json(self) -> dict:
-        length = self.request_content_length(1024 * 1024)
-        if length > 1024 * 1024:
+    def read_json(self, maximum: int = DEFAULT_JSON_BYTES) -> dict:
+        maximum = max(1, int(maximum))
+        length = self.request_content_length(maximum)
+        if length > maximum:
             raise ValueError("Payload too large")
         raw = self.rfile.read(length) if length else b"{}"
         try:
-            payload = json.loads(raw.decode("utf-8") or "{}")
+            def reject_nonfinite_number(_value: str) -> None:
+                raise ValueError("invalid_json_number")
+
+            payload = json.loads(
+                raw.decode("utf-8") or "{}",
+                parse_constant=reject_nonfinite_number,
+            )
         except UnicodeDecodeError as error:
             raise ValueError("invalid_json_encoding") from error
         if not isinstance(payload, dict):
@@ -5480,6 +5530,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_me()
             elif method == "GET" and path == "/api/autobot/health":
                 self.api_autobot_health()
+            elif method == "GET" and path == "/api/autobot/projects":
+                self.api_autobot_projects()
+            elif method == "POST" and re.fullmatch(
+                r"/api/autobot/projects/\d+/estimate-import", path
+            ):
+                self.api_autobot_import_estimate(path)
             elif method == "POST" and path == "/api/auth/update-profile":
                 auth_api_update_profile(self)
             elif method == "GET" and path.startswith("/api/auth/avatar/"):
@@ -5867,6 +5923,118 @@ class PMBIHandler(BaseHTTPRequestHandler):
             {"ok": False, "error": "autobot_unavailable"},
         )
 
+    def api_autobot_projects(self) -> None:
+        """Return the minimal project picker available to the current AutoBot user."""
+
+        user = self.require_user()
+        if not user:
+            return
+        if not user_can_access_autobot(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "autobot_forbidden"})
+            return
+
+        with db() as con:
+            if user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"}):
+                rows = con.execute(
+                    """
+                    SELECT id, title, address, city, status
+                    FROM projects
+                    ORDER BY id DESC
+                    """
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    """
+                    SELECT DISTINCT p.id, p.title, p.address, p.city, p.status
+                    FROM projects p
+                    JOIN object_assignments assignment
+                      ON assignment.object_id = p.id
+                     AND assignment.user_id = ?
+                     AND assignment.role_code = 'foreman'
+                    ORDER BY p.id DESC
+                    """,
+                    (int(user["id"]),),
+                ).fetchall()
+
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "projects": [
+                    {
+                        "id": int(row["id"]),
+                        "title": str(row["title"] or ""),
+                        "address": str(row["address"] or ""),
+                        "city": str(row["city"] or ""),
+                        "status": str(row["status"] or ""),
+                    }
+                    for row in rows
+                ]
+            },
+        )
+
+    def require_autobot_project_access(self, project_id: int) -> dict | None:
+        """Authorize an AutoBot import without trusting client-provided role or scope."""
+
+        user = self.require_user()
+        if not user:
+            return None
+        if not user_can_access_autobot(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "autobot_forbidden"})
+            return None
+
+        is_manager = bool(
+            user_is_main_admin(user)
+            or user_has_any_role(user, {"admin", "director"})
+        )
+        with db() as con:
+            if is_manager:
+                allowed = con.execute(
+                    "SELECT 1 FROM projects WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
+            else:
+                allowed = con.execute(
+                    """
+                    SELECT 1
+                    FROM projects p
+                    JOIN object_assignments assignment
+                      ON assignment.object_id = p.id
+                     AND assignment.user_id = ?
+                     AND assignment.role_code = 'foreman'
+                    WHERE p.id = ?
+                    """,
+                    (int(user["id"]), project_id),
+                ).fetchone()
+        if not allowed:
+            if is_manager:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
+            else:
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "project_forbidden"})
+            return None
+        return user
+
+    def api_autobot_import_estimate(self, path: str) -> None:
+        match = re.fullmatch(r"/api/autobot/projects/(\d+)/estimate-import", path)
+        project_id_text = match.group(1) if match else ""
+        project_id = int(project_id_text) if 0 < len(project_id_text) <= 19 else 0
+        if not project_id or project_id > 9_223_372_036_854_775_807:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
+            return
+        user = PMBIHandler.require_autobot_project_access(self, project_id)
+        if not user:
+            return
+        allow_full_replace = bool(
+            user_is_main_admin(user)
+            or user_has_any_role(user, {"admin", "director"})
+        )
+        PMBIHandler._api_import_estimate_for_user(
+            self,
+            project_id,
+            user,
+            allow_full_replace=allow_full_replace,
+        )
+
     def api_login(self) -> None:
         auth_api_login(self)
 
@@ -5964,7 +6132,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         phone = str(payload.get("phone", "")).strip() or None
         if (
             not login
-            or len(password) < 10
+            or len(password) < PASSWORD_MIN_LENGTH
             or not role_codes
             or (clerk_enabled() and not email)
         ):
@@ -6066,6 +6234,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
         viewer = self.require_user()
         if not viewer:
             return
+        if user_is_guest(viewer) or user_has_any_role(viewer, {"customer", "client"}):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "user_directory_forbidden"})
+            return
+        can_manage_directory = bool(
+            user_can_manage_users(viewer)
+            or user_has_any_role(viewer, {"admin", "director"})
+            or user_permissions(viewer).get("manageUsers")
+        )
         with db() as con:
             rows = con.execute(
                 """
@@ -6112,6 +6288,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     "id": project_row["id"],
                     "title": project_row["title"],
                 })
+            if not can_manage_directory:
+                visible_project_ids = {
+                    project_id
+                    for project_id in {
+                        int(project["id"])
+                        for projects in projects_by_user.values()
+                        for project in projects
+                    }
+                    if self.can_access_project(viewer, project_id)
+                }
+                projects_by_user = {
+                    user_id: [
+                        project
+                        for project in projects
+                        if int(project["id"]) in visible_project_ids
+                    ]
+                    for user_id, projects in projects_by_user.items()
+                }
             daily_status_by_user: dict[int, str] = {}
             for daily_row in daily_rows:
                 daily_status_by_user.setdefault(int(daily_row["user_id"]), daily_row["status"])
@@ -6156,9 +6350,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     {
                         "avatarUrl": row["avatar_url"] if "avatar_url" in row.keys() else None,
                         "id": row["id"],
-                        "login": row["login"],
-                        "email": row["email"],
-                        "phone": row["phone"],
+                        "login": row["login"] if can_manage_directory or viewer_is_same_user(row) else None,
+                        "email": row["email"] if can_manage_directory or viewer_is_same_user(row) else None,
+                        "phone": row["phone"] if can_manage_directory or viewer_is_same_user(row) else None,
                         "clerkUserId": row["clerk_user_id"] if user_is_hidden_admin(viewer) else None,
                         "role": "admin" if str(row["login"] or "").strip().lower() == "admin" else normalize_role(row["role"]),
                         "isGuest": normalize_role(row["role"]) == "guest" or any(
@@ -6167,7 +6361,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         ),
                         "roles": user_roles_for_row(row),
                         "roleLabel": user_roles_for_row(row)[0].get("name") if user_roles_for_row(row) else ROLE_LABELS.get(normalize_role(row["role"]), row["role"]),
-                        "permissions": user_permissions_for_row(row),
+                        "permissions": user_permissions_for_row(row) if can_manage_directory or viewer_is_same_user(row) else None,
                         "firstName": row["first_name"] or split_user_name(row["name"])[0],
                         "lastName": row["last_name"] or split_user_name(row["name"])[1],
                         "displayName": display_user_name(row["name"], row["first_name"], row["last_name"], row["login"]),
@@ -6190,8 +6384,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
         actor = self.require_user()
         if not actor:
             return
-        if user_is_guest(actor):
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_forbidden"})
+        can_issue_guest_access = bool(
+            user_can_manage_users(actor)
+            or user_has_any_role(actor, {"admin", "director"})
+            or user_permissions(actor).get("manageUsers")
+        )
+        if user_is_guest(actor) or not can_issue_guest_access:
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_access_forbidden"})
             return
 
         payload = self.read_json()
@@ -6382,7 +6581,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_ids"})
             return
-        if not login or ((not user_id) and len(password) < 10) or (clerk_enabled() and not email):
+        if not login or ((not user_id) and len(password) < PASSWORD_MIN_LENGTH) or (clerk_enabled() and not email):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_user_data"})
             return
         if not valid_user_email(email):
@@ -7025,6 +7224,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         user = self.require_user()
         if not user:
             return
+        can_see_all = bool(self.daily_task_manager(user))
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         archive = str((query.get("archive") or ["0"])[0]).lower() in {"1", "true", "yes"}
         requested_user_id = None
@@ -7039,15 +7239,22 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
                     return
+        if not can_see_all:
+            if requested_user_id is not None and requested_user_id != int(user["id"]):
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "daily_tasks_forbidden"})
+                return
+            requested_user_id = int(user["id"])
         with db() as con:
             rows = self.daily_task_rows(con, user, archive=archive, user_id=requested_user_id)
             users = self.daily_task_users(con, user)
+            if not can_see_all:
+                users = [item for item in users if int(item.get("id") or 0) == int(user["id"])]
         self.send_json(
             HTTPStatus.OK,
             {
                 "tasks": [self.daily_task_payload(row) for row in rows],
                 "users": users,
-                "canSeeAll": True,
+                "canSeeAll": can_see_all,
                 "today": TODAY_ISO,
             },
         )
@@ -7744,13 +7951,49 @@ class PMBIHandler(BaseHTTPRequestHandler):
         user = self.require_project_access(project_id)
         if not user:
             return
+        is_external_user = bool(
+            user_is_guest(user)
+            or user_has_any_role(user, {"customer", "client"})
+        )
+        can_view_procurement_prices = bool(
+            not is_external_user and user_can_view_procurement_prices(user)
+        )
+        can_view_procurement_evidence = not is_external_user
         with db() as con:
-            items = material_summary_rows(con, project_id)
+            items = material_summary_rows(
+                con,
+                project_id,
+                include_procurement_evidence=can_view_procurement_evidence,
+                include_supplier_selection=can_view_procurement_prices,
+                include_procurement_details=can_view_procurement_prices,
+            )
+        can_view_responsible_user = user_is_main_admin(user) or user_has_any_role(
+            user,
+            {"main_admin", "admin", "director"},
+        )
+        if can_view_procurement_evidence and not can_view_responsible_user:
+            current_user_id = int(user["id"] or 0)
+            for item in items:
+                actor_ids = {
+                    int(actor_id)
+                    for actor_id in (item.get("procurementActorIds") or [])
+                    if str(actor_id).strip().isdigit() and int(actor_id) > 0
+                }
+                is_personal_action = bool(
+                    current_user_id and current_user_id in actor_ids
+                )
+                item["procurementActorId"] = (
+                    current_user_id if is_personal_action else None
+                )
+                item["procurementActorName"] = ""
+                item["procurementActorIds"] = (
+                    [current_user_id] if is_personal_action else []
+                )
         self.send_json(
             HTTPStatus.OK,
             {
                 "items": items,
-                "canViewProcurementPrices": user_can_view_procurement_prices(user),
+                "canViewProcurementPrices": can_view_procurement_prices,
             },
         )
 
@@ -8860,9 +9103,36 @@ class PMBIHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
             return
 
-        payload = self.read_json()
+        PMBIHandler._api_import_estimate_for_user(self, project_id, user)
+
+    def _api_import_estimate_for_user(
+        self,
+        project_id: int,
+        user: dict,
+        *,
+        allow_full_replace: bool = True,
+    ) -> None:
+        """Import normalized estimate rows after a route has authorized the actor."""
+
+        payload = self.read_json(AUTOBOT_ESTIMATE_IMPORT_MAX_BYTES)
         items = payload.get("items")
+        estimate_groups = payload.get("estimates")
+        if items is not None and estimate_groups is not None:
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "error": "estimate_import_shape_conflict",
+                    "message": "Передайте либо одну смету, либо пакет смет, но не оба формата сразу.",
+                },
+            )
+            return
         replace = bool(payload.get("replace", False))
+        if replace and not allow_full_replace:
+            self.send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "estimate_full_replace_forbidden"},
+            )
+            return
         replace_source = bool(payload.get("replace_source", payload.get("replaceSource", False)))
         default_estimate_source = payload.get("estimate_source", payload.get("estimateSource", payload.get("source")))
         if not isinstance(default_estimate_source, dict):
@@ -8872,9 +9142,129 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "title": str(payload.get("sourceLabel", payload.get("source_label", "Ручной импорт"))).strip() or "Ручной импорт",
                 "sourceReference": str(payload.get("sourceReference", payload.get("source_reference", ""))).strip(),
             }
-        if not isinstance(items, list) or not items:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "items_required"})
+        grouped_items: list[dict] = []
+        batch_mode = estimate_groups is not None
+        if batch_mode:
+            if not isinstance(estimate_groups, list) or not estimate_groups:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "estimates_required", "message": "Выберите хотя бы одну смету."},
+                )
+                return
+            if len(estimate_groups) > AUTOBOT_ESTIMATE_IMPORT_MAX_GROUPS:
+                self.send_json(
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    {
+                        "error": "too_many_estimates",
+                        "message": f"За один раз можно добавить не больше {AUTOBOT_ESTIMATE_IMPORT_MAX_GROUPS} смет.",
+                    },
+                )
+                return
+            seen_sources: set[tuple[str, str]] = set()
+            bundle_metadata = default_estimate_source.get("metadata")
+            if not isinstance(bundle_metadata, dict):
+                bundle_metadata = {}
+            for group_index, group in enumerate(estimate_groups):
+                if not isinstance(group, dict):
+                    self.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "estimate_group_invalid", "message": "Одна из выбранных смет имеет неверный формат."},
+                    )
+                    return
+                group_items = group.get("items")
+                group_source = group.get("source", group.get("estimateSource", group.get("estimate_source")))
+                if not isinstance(group_source, dict):
+                    self.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "estimate_source_required", "message": "У одной из смет не указан источник."},
+                    )
+                    return
+                raw_source_key = str(
+                    group_source.get("sourceKey", group_source.get("source_key", group_source.get("key", "")))
+                ).strip()
+                if not raw_source_key:
+                    self.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "estimate_source_key_required", "message": "У одной из смет отсутствует постоянный идентификатор."},
+                    )
+                    return
+                merged_source = dict(default_estimate_source)
+                merged_source.update(group_source)
+                group_metadata = group_source.get("metadata")
+                merged_source["metadata"] = {
+                    **bundle_metadata,
+                    **(group_metadata if isinstance(group_metadata, dict) else {}),
+                }
+                descriptor = estimate_source_descriptor(
+                    merged_source,
+                    {"estimate_source_key": raw_source_key},
+                    project_id=project_id,
+                )
+                source_identity = (str(descriptor["source_type"]), str(descriptor["source_key"]))
+                if source_identity in seen_sources:
+                    self.send_json(
+                        HTTPStatus.CONFLICT,
+                        {"error": "duplicate_estimate_source", "message": "Одна и та же смета выбрана в пакет дважды."},
+                    )
+                    return
+                seen_sources.add(source_identity)
+                if not isinstance(group_items, list) or not group_items:
+                    self.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "estimate_group_items_required", "message": "В одной из выбранных смет нет позиций."},
+                    )
+                    return
+                for group_position, item in enumerate(group_items, start=1):
+                    if not isinstance(item, dict):
+                        self.send_json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "estimate_group_item_invalid", "message": "Одна из позиций сметы имеет неверный формат."},
+                        )
+                        return
+                    canonical_item = dict(item)
+                    canonical_item.update(
+                        {
+                            "estimate_source_type": descriptor["source_type"],
+                            "estimate_source_key": descriptor["source_key"],
+                            "source_external_id": descriptor.get("external_id"),
+                            "tender_id": descriptor.get("tender_id"),
+                            "estimate_title": descriptor["title"],
+                            "estimate_file_name": descriptor.get("file_name"),
+                            "source_reference": descriptor.get("source_reference"),
+                        }
+                    )
+                    grouped_items.append(
+                        {
+                            "item": canonical_item,
+                            "source": merged_source,
+                            "group_index": group_index,
+                            "group_position": group_position,
+                        }
+                    )
+        else:
+            if not isinstance(items, list) or not items:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "items_required"})
+                return
+            grouped_items = [
+                {
+                    "item": item,
+                    "source": default_estimate_source,
+                    "group_index": 0,
+                    "group_position": position,
+                }
+                for position, item in enumerate(items, start=1)
+            ]
+
+        if len(grouped_items) > AUTOBOT_ESTIMATE_IMPORT_MAX_ITEMS:
+            self.send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {
+                    "error": "too_many_estimate_items",
+                    "message": f"В пакете больше {AUTOBOT_ESTIMATE_IMPORT_MAX_ITEMS} позиций. Разделите его на две загрузки.",
+                },
+            )
             return
+        items = [entry["item"] for entry in grouped_items]
         estimate_value_issues = estimate_import_value_issues(items)
         if estimate_value_issues:
             self.send_json(
@@ -8888,7 +9278,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
 
         normalized = []
-        for item_index, item in enumerate(items, start=1):
+        valid_groups: set[int] = set()
+        for item_index, grouped_item in enumerate(grouped_items, start=1):
+            item = grouped_item["item"]
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title", "")).strip()
@@ -8896,6 +9288,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             planned_qty, planned_price = normalize_estimate_item_values(item, unit)
             if not title or planned_qty <= 0:
                 continue
+            valid_groups.add(int(grouped_item["group_index"]))
             item_kind = resolved_estimate_item_kind(item)
             section_title = resolved_estimate_section_title(item)
             article = str(item.get("article", item.get("sku", item.get("code", item.get("basis", item.get("basis_code", item.get("basisCode", ""))))))).strip() or None
@@ -8912,6 +9305,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             normalized.append(
                 {
                     "raw": item,
+                    "source": grouped_item["source"],
+                    "group_index": int(grouped_item["group_index"]),
+                    "group_position": int(grouped_item["group_position"]),
                     "position": item_index,
                     "title": title,
                     "unit": unit,
@@ -8928,6 +9324,43 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if not normalized:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "no_valid_items"})
             return
+        if batch_mode and len(valid_groups) != len(estimate_groups):
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "error": "estimate_group_no_valid_items",
+                    "message": "В одной из выбранных смет нет корректных позиций для записи.",
+                },
+            )
+            return
+
+        if batch_mode:
+            seen_item_keys: set[tuple[str, str, str]] = set()
+            for normalized_item in normalized:
+                descriptor = estimate_source_descriptor(
+                    normalized_item["source"],
+                    normalized_item["raw"],
+                    project_id=project_id,
+                )
+                item_key = source_item_key(
+                    normalized_item["raw"],
+                    int(normalized_item["group_position"]),
+                )
+                identity = (
+                    str(descriptor["source_type"]),
+                    str(descriptor["source_key"]),
+                    item_key,
+                )
+                if identity in seen_item_keys:
+                    self.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "duplicate_estimate_item",
+                            "message": "В одной из выбранных смет обнаружены повторяющиеся позиции.",
+                        },
+                    )
+                    return
+                seen_item_keys.add(identity)
 
         with db() as con:
             if replace:
@@ -8957,13 +9390,13 @@ class PMBIHandler(BaseHTTPRequestHandler):
             for normalized_item in normalized:
                 raw_item = normalized_item["raw"]
                 descriptor = estimate_source_descriptor(
-                    default_estimate_source,
+                    normalized_item["source"],
                     raw_item,
                     project_id=project_id,
                 )
                 estimate_source = upsert_project_estimate(con, project_id, descriptor, user["id"])
                 estimate_source_id = int(estimate_source["id"])
-                item_source_key = source_item_key(raw_item, int(normalized_item["position"]))
+                item_source_key = source_item_key(raw_item, int(normalized_item["group_position"]))
                 imported_source_ids.add(estimate_source_id)
                 seen_source_item_keys.setdefault(estimate_source_id, set()).add(item_source_key)
                 existing = con.execute(
@@ -9028,6 +9461,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         """,
                         (now_ts(), project_id, estimate_source_id, *sorted(seen_keys)),
                     )
+            if table_exists(con, "market_analysis_cache"):
+                con.execute("DELETE FROM market_analysis_cache WHERE project_id = ?", (project_id,))
+            if table_exists(con, "material_schedule_snapshots"):
+                con.execute("DELETE FROM material_schedule_snapshots WHERE project_id = ?", (project_id,))
+            mark_project_schedule_draft(con, project_id)
             ai_snapshot, _ = capture_live_snapshot(
                 con,
                 project_id,
@@ -9051,6 +9489,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                             "replace": replace,
                             "replace_source": replace_source,
                             "estimate_sources": len(imported_source_ids),
+                            "estimate_bundle": batch_mode,
                             "ai_snapshot_id": int(ai_snapshot["id"]),
                         },
                         ensure_ascii=False,
@@ -9058,10 +9497,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     now_ts(),
                 ),
             )
-            con.commit()
-
-            summary = material_summary_rows(con, project_id)
+            summary = [] if batch_mode else material_summary_rows(con, project_id)
             estimates = list_project_estimates(con, project_id)
+            con.commit()
         self.send_json(
             HTTPStatus.CREATED,
             {
@@ -9069,6 +9507,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "estimateSources": len(imported_source_ids),
                 "estimates": estimates,
                 "items": summary,
+                "itemsOmitted": batch_mode,
                 "aiSnapshotId": int(ai_snapshot["id"]),
             },
         )
@@ -9579,6 +10018,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
         self.end_headers()
@@ -9745,6 +10185,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
         self.end_headers()

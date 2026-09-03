@@ -137,7 +137,9 @@ SESSION_COOKIE = "pmbi_session"
 SESSION_TTL_SECONDS = 60 * 60 * 12
 REMEMBER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 PASSWORD_ITERATIONS = 220_000
+PASSWORD_MIN_LENGTH = 12
 TEMP_PASSWORD_LENGTH = 12
+PASSWORD_RESET_TOKEN_TTL_SECONDS = 30 * 60
 PASSWORD_RESET_EMAIL_LIMIT = 5
 PASSWORD_RESET_IP_LIMIT = 20
 PASSWORD_RESET_WINDOW_SECONDS = 60 * 60
@@ -163,6 +165,8 @@ PMBI_RESEND_FROM = (os.environ.get("PMBI_RESEND_FROM", "") or PMBI_SMTP_FROM).st
 CLERK_PUBLISHABLE_KEY = (os.environ.get("CLERK_PUBLISHABLE_KEY", "") or "").strip()
 CLERK_SECRET_KEY = (os.environ.get("CLERK_SECRET_KEY", "") or "").strip()
 CLERK_JWT_KEY = (os.environ.get("CLERK_JWT_KEY", "") or "").replace("\\n", "\n").strip()
+CLERK_ISSUER = (os.environ.get("CLERK_ISSUER", "") or "").strip()
+CLERK_AUDIENCE = (os.environ.get("CLERK_AUDIENCE", "") or "").strip()
 CLERK_SIGN_IN_FALLBACK_REDIRECT_URL = (
     os.environ.get("CLERK_SIGN_IN_FALLBACK_REDIRECT_URL", "") or DEFAULT_AUTH_PATH
 ).strip() or DEFAULT_AUTH_PATH
@@ -187,7 +191,7 @@ ROLE_ALLOWED_PREFIXES = {
     "main_admin": ["*"],
     "admin": ["*"],
     "director": ["*"],
-    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers"],
+    "foreman": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/autobot", "/app/schedule", "/app/logs", "/app/warehouse", "/app/suppliers"],
     "buyer": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/logs", "/app/warehouse", "/app/suppliers"],
     "purchaser": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects", "/app/logs", "/app/warehouse", "/app/suppliers"],
     "financier": ["/app", "/app/dashboard", "/app/daily-tasks", "/app/projects"],
@@ -241,13 +245,13 @@ DEFAULT_ROLE_PERMISSIONS = {
     "main_admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
     "admin": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
     "director": {"fullAccess": True, "modules": ALL_MODULES, "projects": "edit", "dailyTasks": "all", "manageUsers": True, "manageRoles": True},
-    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "schedule", "logs", "warehouse", "suppliers", "users"], "projects": "edit", "dailyTasks": "own"},
+    "foreman": {"modules": ["dashboard", "daily_tasks", "projects", "autobot", "schedule", "logs", "warehouse", "suppliers", "users"], "projects": "edit", "dailyTasks": "own"},
     "purchaser": {"modules": ["dashboard", "daily_tasks", "projects", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
     "buyer": {"modules": ["dashboard", "daily_tasks", "projects", "logs", "warehouse", "suppliers", "users"], "projects": "view", "suppliers": "edit", "dailyTasks": "own"},
     "financier": {"modules": ["dashboard", "daily_tasks", "projects", "users"], "projects": "view", "dailyTasks": "own"},
     "accountant": {"modules": ["dashboard", "daily_tasks", "projects", "users"], "projects": "view", "dailyTasks": "own"},
-    "customer": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
-    "client": {"modules": ["dashboard", "projects", "schedule", "logs", "users"], "projects": "view"},
+    "customer": {"modules": ["dashboard", "projects", "schedule", "logs"], "projects": "view"},
+    "client": {"modules": ["dashboard", "projects", "schedule", "logs"], "projects": "view"},
     "guest": {"modules": ["projects"], "projects": "view", "guest": True},
 }
 
@@ -260,6 +264,7 @@ PUBLIC_STATIC_PATHS = {"/", "/index.html", LOGIN_PATH, "/robots.txt"}
 AUTH_RATE_LIMITS: dict[str, list[int]] = {}
 
 PROCUREMENT_PRICE_ROLES = {"main_admin", "admin", "director"}
+AUTOBOT_ACCESS_ROLES = {"main_admin", "admin", "director", "foreman"}
 PROJECT_ECONOMICS_ROLES = {"main_admin", "admin", "director"}
 PROCUREMENT_PRICE_FIELDS = {
     "plannedPrice",
@@ -398,7 +403,7 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def validate_new_password(password: str) -> tuple[bool, str | None]:
-    if len(password) < 8:
+    if len(password) < PASSWORD_MIN_LENGTH:
         return False, "password_too_short"
     if len(password) > 128:
         return False, "password_too_long"
@@ -422,28 +427,35 @@ def mail_configured() -> bool:
     return smtp_configured()
 
 
-def password_reset_email_text(login: str, temporary_password: str) -> str:
+def password_reset_url(reset_token: str) -> str:
+    path = f"{LOGIN_PATH}#reset-token={urllib.parse.quote(reset_token, safe='')}"
+    return f"{PMBI_PUBLIC_BASE_URL}{path}" if PMBI_PUBLIC_BASE_URL else path
+
+
+def password_reset_email_text(login: str, reset_token: str) -> str:
     return "\n".join(
         [
             "Здравствуйте.",
             "",
-            "Для вашей учетной записи PM.bi был выпущен новый временный пароль.",
+            "Для вашей учетной записи PM.bi запросили восстановление пароля.",
             f"Логин: {login}",
-            f"Временный пароль: {temporary_password}",
+            "Чтобы задать новый пароль, откройте ссылку:",
+            password_reset_url(reset_token),
             "",
-            "Войдите с этим паролем и смените его в личном кабинете.",
-            "Если вы не запрашивали восстановление, сообщите администратору.",
+            "Ссылка действует 30 минут и используется только один раз.",
+            "До завершения восстановления текущий пароль и активные сеансы не изменятся.",
+            "Если вы не запрашивали восстановление, просто проигнорируйте это письмо.",
         ]
     )
 
 
-def send_password_reset_email_resend(email: str, login: str, temporary_password: str) -> None:
+def send_password_reset_email_resend(email: str, login: str, reset_token: str) -> None:
     payload = json.dumps(
         {
             "from": PMBI_RESEND_FROM,
             "to": [email],
-            "subject": "PM.bi: новый пароль для входа",
-            "text": password_reset_email_text(login, temporary_password),
+            "subject": "PM.bi: восстановление пароля",
+            "text": password_reset_email_text(login, reset_token),
         },
         ensure_ascii=False,
     ).encode("utf-8")
@@ -466,30 +478,17 @@ def send_password_reset_email_resend(email: str, login: str, temporary_password:
         raise RuntimeError(f"resend_http_{error.code}: {detail}") from error
 
 
-def send_password_reset_email(email: str, login: str, temporary_password: str) -> None:
+def send_password_reset_email(email: str, login: str, reset_token: str) -> None:
     if not mail_configured():
         raise RuntimeError("mail_not_configured")
     if PMBI_MAIL_PROVIDER == "resend":
-        send_password_reset_email_resend(email, login, temporary_password)
+        send_password_reset_email_resend(email, login, reset_token)
         return
     message = EmailMessage()
-    message["Subject"] = "PM.bi: новый пароль для входа"
+    message["Subject"] = "PM.bi: восстановление пароля"
     message["From"] = PMBI_SMTP_FROM
     message["To"] = email
-    message.set_content(
-        "\n".join(
-            [
-                "Здравствуйте.",
-                "",
-                "Для вашей учетной записи PM.bi был выпущен новый временный пароль.",
-                f"Логин: {login}",
-                f"Временный пароль: {temporary_password}",
-                "",
-                "Войдите с этим паролем и смените его в личном кабинете.",
-                "Если вы не запрашивали восстановление, сообщите администратору.",
-            ]
-        )
-    )
+    message.set_content(password_reset_email_text(login, reset_token))
     smtp_class = smtplib.SMTP_SSL if PMBI_SMTP_USE_SSL else smtplib.SMTP
     with smtp_class(PMBI_SMTP_HOST, PMBI_SMTP_PORT, timeout=15) as smtp:
         if PMBI_SMTP_USE_TLS and not PMBI_SMTP_USE_SSL:
@@ -501,6 +500,46 @@ def send_password_reset_email(email: str, login: str, temporary_password: str) -
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def ensure_password_reset_tokens_table(con: sqlite3.Connection) -> None:
+    con.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            used_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user
+            ON password_reset_tokens(user_id, expires_at);
+        """
+    )
+
+
+def create_password_reset_token(con: sqlite3.Connection, user_id: int) -> str:
+    timestamp = now_ts()
+    reset_token = secrets.token_urlsafe(32)
+    ensure_password_reset_tokens_table(con)
+    con.execute(
+        "DELETE FROM password_reset_tokens WHERE expires_at < ? OR used_at IS NOT NULL",
+        (timestamp,),
+    )
+    con.execute(
+        """
+        INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            token_hash(reset_token),
+            timestamp,
+            timestamp + PASSWORD_RESET_TOKEN_TTL_SECONDS,
+        ),
+    )
+    return reset_token
 
 
 def normalize_role(role: str | None) -> str:
@@ -669,8 +708,15 @@ def user_payload(row: sqlite3.Row) -> dict:
         roles = ["admin"]
         permissions = normalize_permissions({"fullAccess": True}, "admin")
     can_view_procurement_prices = bool(set(roles) & PROCUREMENT_PRICE_ROLES)
+    can_access_autobot = bool(set(roles) & AUTOBOT_ACCESS_ROLES)
     permissions["canViewProcurementPrices"] = can_view_procurement_prices
-    if not can_view_procurement_prices:
+    permissions["canAccessAutoBot"] = can_access_autobot
+    if can_access_autobot:
+        modules = list(permissions.get("modules", []))
+        if "autobot" not in modules:
+            modules.append("autobot")
+            permissions["modules"] = modules
+    else:
         permissions["modules"] = [
             module for module in permissions.get("modules", [])
             if module != "autobot"
@@ -720,16 +766,26 @@ def verify_clerk_session_token(token: str) -> dict | None:
     if not clerk_enabled() or not token:
         return None
     try:
+        required_claims = ["sub", "exp", "iat", "nbf"]
+        decode_options = {"require": required_claims, "verify_aud": bool(CLERK_AUDIENCE)}
+        decode_kwargs: dict[str, str] = {}
+        if CLERK_ISSUER:
+            required_claims.append("iss")
+            decode_kwargs["issuer"] = CLERK_ISSUER
+        if CLERK_AUDIENCE:
+            required_claims.append("aud")
+            decode_kwargs["audience"] = CLERK_AUDIENCE
         claims = jwt.decode(
             token,
             CLERK_JWT_KEY,
             algorithms=["RS256"],
-            options={"require": ["sub", "exp", "iat", "nbf"], "verify_aud": False},
+            options=decode_options,
+            **decode_kwargs,
         )
     except Exception:
         return None
     azp = str(claims.get("azp") or "").rstrip("/")
-    if CLERK_AUTHORIZED_PARTIES and azp and azp not in CLERK_AUTHORIZED_PARTIES:
+    if CLERK_AUTHORIZED_PARTIES and azp not in CLERK_AUTHORIZED_PARTIES:
         return None
     return claims
 
@@ -835,6 +891,12 @@ def user_can_view_procurement_prices(user: dict | None) -> bool:
     return user_is_main_admin(user) or user_has_any_role(user, PROCUREMENT_PRICE_ROLES)
 
 
+def user_can_access_autobot(user: dict | None) -> bool:
+    if not user:
+        return False
+    return user_is_main_admin(user) or user_has_any_role(user, AUTOBOT_ACCESS_ROLES)
+
+
 def user_can_view_project_economics(user: dict | None) -> bool:
     if not user:
         return False
@@ -883,12 +945,12 @@ def user_can_open(user: dict, path: str) -> bool:
         return True
     if user_is_guest(user):
         return path == "/app/projects"
-    if path == "/app/autobot" and not user_can_view_procurement_prices(user):
+    if path == "/app/autobot" and not user_can_access_autobot(user):
         return False
     if path == "/app":
         return not user_is_guest(user)
     if path == "/app/users" and not user_is_guest(user):
-        return True
+        return not user_has_any_role(user, {"customer", "client"})
     module_by_path = {
         "/app/dashboard": "dashboard",
         "/app/daily-tasks": "daily_tasks",
@@ -1250,11 +1312,110 @@ def api_login(handler) -> None:
     handler.wfile.write(body)
 
 
+def confirm_password_reset(handler, payload: dict) -> None:
+    reset_token = str(payload.get("resetToken", payload.get("reset_token", "")) or "").strip()
+    new_password = str(payload.get("newPassword", payload.get("new_password", "")) or "")
+    if not reset_token or len(reset_token) > 512 or not new_password:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {
+                "error": "bad_password_reset_confirmation",
+                "message": "Укажите ссылку восстановления и новый пароль.",
+            },
+        )
+        return
+    ok, password_error = validate_new_password(new_password)
+    if not ok:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {
+                "error": password_error,
+                "message": f"Новый пароль должен быть от {PASSWORD_MIN_LENGTH} до 128 символов.",
+            },
+        )
+        return
+    if auth_rate_limited(
+        "password_reset_confirm_ip",
+        handler_client_ip(handler),
+        PASSWORD_RESET_IP_LIMIT,
+        PASSWORD_RESET_WINDOW_SECONDS,
+    ):
+        handler.send_json(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            {
+                "error": "too_many_password_reset_attempts",
+                "message": "Слишком много попыток восстановления. Попробуйте позже.",
+            },
+        )
+        return
+
+    invalid_payload = {
+        "error": "invalid_or_expired_password_reset",
+        "message": "Ссылка восстановления недействительна или устарела.",
+    }
+    timestamp = now_ts()
+    with db() as con:
+        ensure_password_reset_tokens_table(con)
+        row = con.execute(
+            """
+            SELECT password_reset_tokens.id AS reset_id, users.id AS user_id
+            FROM password_reset_tokens
+            JOIN users ON users.id = password_reset_tokens.user_id
+            WHERE password_reset_tokens.token_hash = ?
+              AND password_reset_tokens.used_at IS NULL
+              AND password_reset_tokens.expires_at >= ?
+              AND users.is_active = 1
+              AND COALESCE(users.is_deleted, 0) = 0
+            """,
+            (token_hash(reset_token), timestamp),
+        ).fetchone()
+        if not row:
+            handler.send_json(HTTPStatus.BAD_REQUEST, invalid_payload)
+            return
+        consumed = con.execute(
+            """
+            UPDATE password_reset_tokens
+            SET used_at = ?
+            WHERE id = ? AND used_at IS NULL AND expires_at >= ?
+            """,
+            (timestamp, row["reset_id"], timestamp),
+        )
+        if consumed.rowcount != 1:
+            handler.send_json(HTTPStatus.BAD_REQUEST, invalid_payload)
+            return
+        con.execute(
+            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+            (hash_password(new_password), timestamp, row["user_id"]),
+        )
+        con.execute("DELETE FROM sessions WHERE user_id = ?", (row["user_id"],))
+        con.execute(
+            "UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+            (timestamp, row["user_id"]),
+        )
+        con.execute(
+            """
+            INSERT INTO audit_log (user_id, action, entity, created_at)
+            VALUES (?, 'password_reset_confirmed', 'user', ?)
+            """,
+            (row["user_id"], timestamp),
+        )
+        con.commit()
+    clear_auth_rate_limit("password_reset_confirm_ip", handler_client_ip(handler))
+    handler.send_json(
+        HTTPStatus.OK,
+        {"ok": True, "message": "Пароль обновлен. Войдите с новым паролем."},
+    )
+
+
 def api_request_password_reset(handler) -> None:
     if clerk_enabled():
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "clerk_enabled"})
         return
     payload = handler.read_json()
+    if payload.get("resetToken") or payload.get("reset_token") or payload.get("newPassword") or payload.get("new_password"):
+        confirm_password_reset(handler, payload)
+        return
+
     email = str(payload.get("email", payload.get("login", "")) or "").strip().lower()
     if not email or not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         handler.send_json(
@@ -1288,7 +1449,7 @@ def api_request_password_reset(handler) -> None:
 
     generic_payload = {
         "ok": True,
-        "message": "Если такой email есть в системе, новый пароль отправлен на почту.",
+        "message": "Если такой email есть в системе, ссылка восстановления отправлена на почту.",
     }
     with db() as con:
         row = con.execute(
@@ -1298,34 +1459,28 @@ def api_request_password_reset(handler) -> None:
         if not row:
             handler.send_json(HTTPStatus.OK, generic_payload)
             return
-        temporary_password = generate_temporary_password()
+        reset_token = create_password_reset_token(con, int(row["id"]))
+        reset_token_hash = token_hash(reset_token)
+        con.commit()
         try:
-            send_password_reset_email(str(row["email"]), str(row["login"]), temporary_password)
-        except smtplib.SMTPAuthenticationError:
-            handler.send_json(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                {
-                    "error": "smtp_auth_failed",
-                    "message": "Gmail не принял SMTP-пароль. Укажите в .env пароль приложения Google, а не обычный пароль от почты.",
-                },
-            )
-            return
+            send_password_reset_email(str(row["email"]), str(row["login"]), reset_token)
         except Exception:
-            handler.send_json(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                {
-                    "error": "mail_send_failed",
-                    "message": "Не удалось отправить письмо. Попробуйте позже или обратитесь к администратору.",
-                },
+            con.execute("DELETE FROM password_reset_tokens WHERE token_hash = ?", (reset_token_hash,))
+            con.execute(
+                """
+                INSERT INTO audit_log (user_id, action, entity, created_at)
+                VALUES (?, 'password_reset_delivery_failed', 'user', ?)
+                """,
+                (row["id"], now_ts()),
             )
+            con.commit()
+            handler.send_json(HTTPStatus.OK, generic_payload)
             return
         con.execute(
-            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
-            (hash_password(temporary_password), now_ts(), row["id"]),
-        )
-        con.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
-        con.execute(
-            "INSERT INTO audit_log (user_id, action, entity, created_at) VALUES (?, 'password_reset', 'user', ?)",
+            """
+            INSERT INTO audit_log (user_id, action, entity, created_at)
+            VALUES (?, 'password_reset_requested', 'user', ?)
+            """,
             (row["id"], now_ts()),
         )
         con.commit()
@@ -1351,7 +1506,7 @@ def api_change_password(handler) -> None:
             HTTPStatus.BAD_REQUEST,
             {
                 "error": password_error,
-                "message": "Новый пароль должен быть от 8 до 128 символов.",
+                "message": f"Новый пароль должен быть от {PASSWORD_MIN_LENGTH} до 128 символов.",
             },
         )
         return

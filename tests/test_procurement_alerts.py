@@ -12,7 +12,11 @@ BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from schedule_tasks import build_procurement_alerts, estimate_material_lead_days  # noqa: E402
+from schedule_tasks import (  # noqa: E402
+    build_procurement_alerts,
+    build_procurement_evidence_alerts,
+    estimate_material_lead_days,
+)
 from warehouse import estimate_material_lead_days as warehouse_estimate_material_lead_days  # noqa: E402
 
 
@@ -245,6 +249,176 @@ class ProcurementAlertTests(unittest.TestCase):
 
         self.assertEqual([item["status"] for item in procurement["items"]], ["critical", "soon"])
         self.assertEqual([item["materialId"] for item in procurement["items"]], [108, 107])
+
+    def test_evidence_alert_requests_costing_from_quote_deadline(self) -> None:
+        material = {
+            "id": 301,
+            "title": "Щебень",
+            "unit": "т",
+            "itemKind": "material",
+            "plannedQty": 20,
+            "missingQty": 20,
+            "needByDate": "2026-09-10",
+            "deliveryDays": 7,
+            "selectedSupplierOffer": False,
+            "invoiceAttached": False,
+        }
+
+        before_deadline = build_procurement_evidence_alerts(
+            [material],
+            [],
+            date(2026, 8, 28),
+            costing_buffer_days=5,
+        )
+        at_deadline = build_procurement_evidence_alerts(
+            [material],
+            [],
+            date(2026, 8, 29),
+            costing_buffer_days=5,
+        )
+
+        self.assertEqual(before_deadline["items"], [])
+        self.assertEqual(len(at_deadline["items"]), 1)
+        alert = at_deadline["items"][0]
+        self.assertEqual(alert["evidenceKind"], "missing_costing")
+        self.assertEqual(alert["status"], "soon")
+        self.assertEqual(alert["quoteByDate"], "2026-08-29")
+        self.assertEqual(alert["orderByDate"], "2026-09-03")
+        self.assertEqual(alert["needOnSiteDate"], "2026-09-10")
+        self.assertEqual(at_deadline["summary"]["missingCosting"], 1)
+
+        material["selectedSupplierOffer"] = True
+        material["selectedSupplierOfferHasPrice"] = True
+        cleared_by_price = build_procurement_evidence_alerts(
+            [material],
+            [],
+            date(2026, 8, 29),
+        )
+        self.assertEqual(cleared_by_price["items"], [])
+
+    def test_evidence_alert_requires_invoice_immediately_after_purchase(self) -> None:
+        material = {
+            "id": 302,
+            "title": "Сетка",
+            "unit": "м2",
+            "itemKind": "material",
+            "plannedQty": 100,
+            "missingQty": 0,
+            "purchasedQty": 100,
+            "receivedQty": 100,
+            "needByDate": "2026-10-01",
+            "selectedSupplierOffer": True,
+            "selectedSupplierOfferHasPrice": True,
+            "invoiceAttached": False,
+        }
+
+        procurement = build_procurement_evidence_alerts(
+            [material],
+            [],
+            date(2026, 8, 24),
+        )
+
+        self.assertEqual(len(procurement["items"]), 1)
+        alert = procurement["items"][0]
+        self.assertEqual(alert["evidenceKind"], "missing_invoice")
+        self.assertEqual(alert["status"], "critical")
+        self.assertEqual(alert["purchasedQty"], 100)
+        self.assertEqual(alert["receivedQty"], 100)
+        self.assertEqual(procurement["summary"]["missingInvoice"], 1)
+
+        material["invoiceAttached"] = True
+        material["invoiceCount"] = 1
+        cleared_by_invoice = build_procurement_evidence_alerts(
+            [material],
+            [],
+            date(2026, 8, 24),
+        )
+        self.assertEqual(cleared_by_invoice["items"], [])
+        self.assertEqual(cleared_by_invoice["summary"]["total"], 0)
+
+    def test_evidence_alert_reports_missing_schedule_but_skips_warehouse_invoice(self) -> None:
+        no_schedule = {
+            "id": 303,
+            "title": "Бетон",
+            "itemKind": "material",
+            "plannedQty": 10,
+            "missingQty": 10,
+        }
+        warehouse_material = {
+            "id": 304,
+            "title": "Материал со склада",
+            "itemKind": "material",
+            "plannedQty": 10,
+            "missingQty": 0,
+            "purchasedQty": 10,
+            "needByDate": "2026-08-25",
+            "warehouseSource": "main_warehouse",
+        }
+
+        procurement = build_procurement_evidence_alerts(
+            [no_schedule, warehouse_material],
+            [],
+            date(2026, 8, 24),
+        )
+
+        self.assertEqual(len(procurement["items"]), 1)
+        self.assertEqual(procurement["items"][0]["materialId"], 303)
+        self.assertEqual(
+            procurement["items"][0]["evidenceKind"],
+            "missing_schedule",
+        )
+        self.assertEqual(procurement["items"][0]["status"], "watch")
+
+    def test_inactive_schedule_only_keeps_existing_purchase_invoice_debt(self) -> None:
+        materials = [
+            {
+                "id": 305,
+                "title": "Не заказанный материал",
+                "itemKind": "material",
+                "plannedQty": 10,
+                "missingQty": 10,
+            },
+            {
+                "id": 306,
+                "title": "Закупка без счёта",
+                "itemKind": "material",
+                "plannedQty": 5,
+                "missingQty": 0,
+                "purchasedQty": 5,
+                "invoiceAttached": False,
+            },
+        ]
+
+        procurement = build_procurement_evidence_alerts(
+            materials,
+            [],
+            date(2026, 8, 24),
+            schedule_attention_enabled=False,
+        )
+
+        self.assertEqual(len(procurement["items"]), 1)
+        self.assertEqual(procurement["items"][0]["materialId"], 306)
+        self.assertEqual(procurement["items"][0]["evidenceKind"], "missing_invoice")
+        self.assertEqual(procurement["summary"]["missingSchedule"], 0)
+        self.assertEqual(procurement["summary"]["missingCosting"], 0)
+
+    def test_completed_unpurchased_material_does_not_create_schedule_noise(self) -> None:
+        procurement = build_procurement_evidence_alerts(
+            [
+                {
+                    "id": 307,
+                    "title": "Историческая позиция",
+                    "itemKind": "material",
+                    "plannedQty": 10,
+                    "missingQty": 10,
+                    "isCompleted": True,
+                }
+            ],
+            [],
+            date(2026, 8, 24),
+        )
+
+        self.assertEqual(procurement["items"], [])
 
 
 if __name__ == "__main__":

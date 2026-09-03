@@ -217,6 +217,7 @@
         }
         return fn.apply(null, args);
     }
+    function waitForProjectControl() { return operationsCall('waitForProjectControl', arguments); }
     function loadRoles() { return operationsCall('loadRoles', arguments); }
     function roleOptionLabel() { return operationsCall('roleOptionLabel', arguments); }
     function syncUserRoleOptions() { return operationsCall('syncUserRoleOptions', arguments); }
@@ -782,12 +783,15 @@
 
 
     function loadDashboard(callback) {
-        api('/api/dashboard', { requestGroup: 'dashboard' }).then(function (data) {
+        return api('/api/dashboard', { requestGroup: 'dashboard' }).then(function (data) {
             state.dashboard = data;
-            callback();
-        }).catch(function () {
-            state.dashboard = null;
-            callback();
+            state.dashboardError = null;
+            if (typeof callback === 'function') callback(null, data);
+            return data;
+        }, function (error) {
+            state.dashboardError = error;
+            if (typeof callback === 'function') callback(error, state.dashboard);
+            return state.dashboard;
         });
     }
 
@@ -838,9 +842,85 @@
         if (statsRoot && qs('[data-pmbi-skeleton]', statsRoot)) {
             showSkeleton(statsRoot, 'stats', canViewProjectEconomics() ? 8 : 3);
         }
-        loadDashboard(function () {
-            renderDashboardPage(state.dashboard || {});
+        loadDashboard(function (error, data) {
+            if (error) {
+                if (data) renderDashboardPage(data);
+                else settleDashboardLoadingFailure();
+                renderDashboardLoadError(error, !!data);
+                return;
+            }
+            clearDashboardLoadError();
+            renderDashboardPage(data || {});
         });
+    }
+
+    function dashboardPageRoot() {
+        var statsRoot = qs('[data-dashboard-stats]');
+        return qs('#main-content') || (statsRoot && statsRoot.parentNode);
+    }
+
+    function settleDashboardLoadingFailure() {
+        var unavailable = '<p class="muted">Данные появятся после успешной загрузки.</p>';
+        [
+            '[data-dashboard-stats]',
+            '[data-dashboard-projects]',
+            '[data-dashboard-actions]',
+            '[data-dashboard-activity]',
+            '[data-dashboard-critical]'
+        ].forEach(function (selector) {
+            var root = qs(selector);
+            if (root && qs('[data-pmbi-skeleton]', root)) safeReplaceChildren(root, unavailable);
+        });
+    }
+
+    function clearDashboardLoadError() {
+        var root = dashboardPageRoot();
+        var alert = root ? qs('[data-dashboard-load-error]', root) : null;
+        if (alert && alert.parentNode) alert.parentNode.removeChild(alert);
+    }
+
+    function renderDashboardLoadError(error, hasVisibleData) {
+        var root = dashboardPageRoot();
+        if (!root) return;
+        var alert = qs('[data-dashboard-load-error]', root);
+        if (!alert) {
+            alert = document.createElement('section');
+            alert.className = 'card';
+            alert.setAttribute('data-dashboard-load-error', '');
+            alert.setAttribute('role', 'alert');
+            alert.setAttribute('aria-live', 'assertive');
+            alert.setAttribute('aria-atomic', 'true');
+            var statsRoot = qs('[data-dashboard-stats]', root) || qs('[data-dashboard-stats]');
+            if (statsRoot && statsRoot.parentNode === root) root.insertBefore(alert, statsRoot);
+            else root.insertBefore(alert, root.firstChild);
+        }
+        var detail = appErrorMessage(error, 'Не удалось получить свежие данные панели.');
+        var retention = hasVisibleData
+            ? 'Показываем последние полученные данные — они могут быть неактуальны.'
+            : 'Проверьте соединение и повторите загрузку.';
+        safeReplaceChildren(alert,
+            '<div class="card-head"><div><span class="section-label">Ошибка загрузки</span><h3><i data-lucide="cloud-off" aria-hidden="true"></i><span>Панель не обновилась</span></h3></div></div>' +
+            '<p>' + escapeHtml(detail) + ' ' + escapeHtml(retention) + '</p>' +
+            '<button class="primary" type="button" data-dashboard-retry><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Повторить загрузку</span></button>'
+        );
+        var retry = qs('[data-dashboard-retry]', alert);
+        if (retry) {
+            retry.addEventListener('click', function () {
+                retry.disabled = true;
+                retry.setAttribute('aria-busy', 'true');
+                var retryLabel = qs('span', retry);
+                if (retryLabel) retryLabel.textContent = 'Загружаем…';
+                loadDashboard(function (retryError, data) {
+                    if (retryError) {
+                        renderDashboardLoadError(retryError, !!data);
+                        return;
+                    }
+                    clearDashboardLoadError();
+                    renderDashboardPage(data || {});
+                });
+            });
+        }
+        refreshLucideIcons(alert);
     }
 
     function renderDashboardPage(data) {
@@ -1041,6 +1121,8 @@
             var closeParams = new URLSearchParams(location.search);
             closeParams.delete('openProject');
             closeParams.delete('materialId');
+            closeParams.delete('procurementItemId');
+            closeParams.delete('documentType');
             closeParams.delete('workId');
             closeParams.delete('stageId');
             closeParams.delete('sectionTitle');
@@ -2143,6 +2225,7 @@
             });
             window.addEventListener('resize', closeCounterpartyMenus);
         }
+        if (PMBI.operations && typeof PMBI.operations.bindProjectOverviewActions === 'function') bindProjectOverviewActions();
     }
 
     function loadStages(projectId, callback) {
@@ -3507,6 +3590,16 @@
         '</div>';
     }
 
+    function refreshProcurementEvidenceViews(projectId) {
+        refreshReminderBell();
+        if (state.materialsByProject) delete state.materialsByProject[projectId];
+        loadMaterials(projectId, function () {
+            if (state.selectedProject && Number(state.selectedProject.id) === Number(projectId)) {
+                rerenderProjectMaterialAndWorkViews(projectId);
+            }
+        });
+    }
+
     function bindDocumentUpload(projectId) {
         var form = qs('[data-document-upload-form]');
         if (!form || form.dataset.bound === '1') return;
@@ -3516,6 +3609,23 @@
         var fileMeta = form.querySelector('[data-document-file-meta]');
         var dropzone = form.querySelector('[data-document-dropzone]');
         var submitButton = form.querySelector('[data-document-upload-submit]');
+        var procurementTypes = ['invoice', 'delivery_note', 'upd', 'cash_receipt', 'transport_waybill'];
+
+        function syncProcurementDocumentFields() {
+            var visible = !!(form.doc_type && procurementTypes.indexOf(String(form.doc_type.value || '')) !== -1);
+            Array.prototype.slice.call(form.querySelectorAll('[data-procurement-document-field]')).forEach(function (field) {
+                field.hidden = !visible;
+            });
+            if (!visible) {
+                ['estimate_item_id', 'counterparty_name', 'amount', 'document_number', 'document_date'].forEach(function (name) {
+                    if (form[name]) form[name].value = '';
+                });
+            }
+            if (!visible || !form.estimate_item_id || !form.title || form.title.value.trim()) return;
+            var selected = form.estimate_item_id.options[form.estimate_item_id.selectedIndex];
+            var materialTitle = selected && selected.value ? selected.textContent.split(' · ')[0] : '';
+            if (materialTitle && form.doc_type.value === 'invoice') form.title.value = 'Счёт — ' + materialTitle;
+        }
 
         function syncSelectedFile() {
             var file = fileInput && fileInput.files && fileInput.files[0];
@@ -3530,6 +3640,9 @@
         }
 
         if (fileInput) fileInput.addEventListener('change', syncSelectedFile);
+        if (form.doc_type) form.doc_type.addEventListener('change', syncProcurementDocumentFields);
+        if (form.estimate_item_id) form.estimate_item_id.addEventListener('change', syncProcurementDocumentFields);
+        syncProcurementDocumentFields();
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             var error = form.querySelector('[data-document-upload-error]');
@@ -3555,6 +3668,12 @@
             data.append('status', form.status.value);
             data.append('notes', form.notes.value.trim());
             if (form.stage_id && form.stage_id.value) data.append('stage_id', form.stage_id.value);
+            var isProcurementDocument = form.doc_type && procurementTypes.indexOf(String(form.doc_type.value || '')) !== -1;
+            if (isProcurementDocument && form.estimate_item_id && form.estimate_item_id.value) data.append('estimate_item_id', form.estimate_item_id.value);
+            if (isProcurementDocument && form.counterparty_name && form.counterparty_name.value.trim()) data.append('counterparty_name', form.counterparty_name.value.trim());
+            if (isProcurementDocument && form.amount && form.amount.value) data.append('amount', form.amount.value);
+            if (isProcurementDocument && form.document_number && form.document_number.value.trim()) data.append('document_number', form.document_number.value.trim());
+            if (isProcurementDocument && form.document_date && form.document_date.value) data.append('document_date', form.document_date.value);
             if (form.is_client_visible.checked) data.append('is_client_visible', '1');
             if (submitButton) {
                 submitButton.disabled = true;
@@ -3564,9 +3683,11 @@
             apiFormData('/api/projects/' + projectId + '/documents', data).then(function () {
                 form.reset();
                 syncSelectedFile();
+                syncProcurementDocumentFields();
                 showAppNotice('Документ загружен.', 'success');
                 loadDocuments(projectId);
                 refreshProjectOverview(projectId);
+                refreshProcurementEvidenceViews(projectId);
             }).catch(function (err) {
                 if (error) {
                     var errorCode = err && err.payload && err.payload.error;
@@ -3574,6 +3695,10 @@
                         file_required: 'Нужно выбрать файл.',
                         empty_file: 'Выбранный файл пуст.',
                         upload_too_large: 'Файл больше 25 МБ. Выберите файл меньшего размера.',
+                        bad_estimate_item_id: 'Выберите корректный материал закупки.',
+                        document_material_not_found: 'Материал не относится к этому объекту.',
+                        bad_document_amount: 'Проверьте сумму по документу.',
+                        bad_document_date: 'Проверьте дату документа.',
                         forbidden: 'У вас нет прав на загрузку документов.'
                     }[errorCode] || 'Не удалось загрузить документ. Попробуйте ещё раз.';
                     error.classList.add('active');
@@ -4014,6 +4139,11 @@
         var fileMeta = [doc.original_name || '', doc.size_bytes ? formatBytes(doc.size_bytes) : ''].filter(Boolean).join(' · ');
         var details = [];
         if (doc.stage_title) details.push('<span><i data-lucide="layers-3"></i>' + escapeHtml(doc.stage_title) + '</span>');
+        if (doc.estimate_item_title || doc.material_title) details.push('<span><i data-lucide="package-search"></i>' + escapeHtml(doc.estimate_item_title || doc.material_title) + '</span>');
+        if (doc.counterparty_name) details.push('<span><i data-lucide="building-2"></i>' + escapeHtml(doc.counterparty_name) + '</span>');
+        if (Number(doc.amount || 0) > 0) details.push('<span><i data-lucide="badge-russian-ruble"></i>' + escapeHtml(money(doc.amount)) + '</span>');
+        if (doc.document_number) details.push('<span><i data-lucide="hash"></i>' + escapeHtml(doc.document_number) + '</span>');
+        if (doc.document_date) details.push('<span><i data-lucide="calendar-check-2"></i>' + escapeHtml(formatDisplayDate(doc.document_date)) + '</span>');
         if (doc.uploaded_by_name) details.push('<span><i data-lucide="user-round"></i>' + escapeHtml(doc.uploaded_by_name) + '</span>');
         if (documentDisplayDate(doc)) details.push('<span><i data-lucide="calendar-days"></i>' + escapeHtml(documentDisplayDate(doc)) + '</span>');
         var actions = doc.storage_path
@@ -4048,6 +4178,21 @@
             '</div>' +
             '<div class="document-actions">' + actions + moreAction + '</div>' +
         '</article>';
+    }
+
+    function procurementDocumentMaterials(projectId) {
+        var stored = state.procurementDocumentMaterialsByProject && state.procurementDocumentMaterialsByProject[projectId];
+        var source = Array.isArray(stored) && stored.length ? stored : ((state.materialsByProject && state.materialsByProject[projectId]) || []);
+        return source.filter(function (item) {
+            return String(item.itemKind || item.item_kind || 'material').toLowerCase() !== 'work';
+        });
+    }
+
+    function procurementDocumentMaterialOptions(projectId) {
+        return '<option value="">Без привязки к материалу</option>' + procurementDocumentMaterials(projectId).map(function (item) {
+            var unit = item.unit ? (' · ' + item.unit) : '';
+            return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml((item.title || ('Материал #' + item.id)) + unit) + '</option>';
+        }).join('');
     }
 
     function renderDocumentUpload(projectId) {
@@ -4094,6 +4239,11 @@
                 '<option value="other">Другое</option>' +
                 '</select></label>' +
                 '<label class="document-field"><span>Этап работ</span><select name="stage_id">' + stageOptions + '</select></label>' +
+                '<label class="document-field document-field-wide" data-procurement-document-field hidden><span>Материал закупки</span><select name="estimate_item_id">' + procurementDocumentMaterialOptions(projectId) + '</select><small>Счёт, УПД или кассовый чек снимет красный флаг именно с выбранной позиции.</small></label>' +
+                '<label class="document-field" data-procurement-document-field hidden><span>Поставщик</span><input name="counterparty_name" maxlength="240" placeholder="Например, Бетон-Сервис"></label>' +
+                '<label class="document-field" data-procurement-document-field hidden><span>Сумма по документу</span><input name="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00"></label>' +
+                '<label class="document-field" data-procurement-document-field hidden><span>Номер документа</span><input name="document_number" maxlength="120" placeholder="Если указан"></label>' +
+                '<label class="document-field" data-procurement-document-field hidden><span>Дата документа</span><input name="document_date" type="date"></label>' +
                 '<label class="document-field"><span>Статус</span><select name="status">' +
                 '<option value="draft">Черновик</option>' +
                 '<option value="reviewed">Проверен</option>' +
@@ -4207,6 +4357,10 @@
             doc.original_name,
             doc.notes,
             doc.stage_title,
+            doc.estimate_item_title,
+            doc.material_title,
+            doc.counterparty_name,
+            doc.document_number,
             doc.uploaded_by_name,
             docTypeLabel(doc.doc_type),
             statusLabel(doc.status)
@@ -4231,6 +4385,11 @@
 
         function setUploadOpen(open) {
             if (!form) return;
+            if (!open) {
+                form.reset();
+                if (form.doc_type) form.doc_type.dispatchEvent(new Event('change', { bubbles: true }));
+                if (form.file) form.file.dispatchEvent(new Event('change', { bubbles: true }));
+            }
             form.hidden = !open;
             toggles.forEach(function (button) { button.setAttribute('aria-expanded', open ? 'true' : 'false'); });
             if (open) {
@@ -4435,6 +4594,7 @@
                     showAppNotice('Документ удалён.', 'success');
                 }
                 refreshProjectOverview(projectId);
+                refreshProcurementEvidenceViews(projectId);
                 return loadDocuments(projectId).then(function () { focusDocumentWorkspaceAfterRefresh(null); });
             }).catch(function (error) {
                 showAppNotice(documentActionError(error, 'Не удалось удалить документ.'), 'error');
@@ -4580,6 +4740,7 @@
                     closeDocumentEditor(true);
                     showAppNotice('Документ обновлён.', 'success');
                     refreshProjectOverview(projectId);
+                    refreshProcurementEvidenceViews(projectId);
                     return loadDocuments(projectId).then(function () { focusDocumentWorkspaceAfterRefresh(documentId); });
                 }).catch(function (requestError) {
                     error.textContent = documentActionError(requestError, 'Не удалось сохранить документ.');
@@ -4746,6 +4907,8 @@
             var data = result[0] || {};
             var executive = result[1];
             var docs = Array.isArray(data.documents) ? data.documents : [];
+            state.procurementDocumentMaterialsByProject = state.procurementDocumentMaterialsByProject || {};
+            state.procurementDocumentMaterialsByProject[projectId] = Array.isArray(data.procurementMaterials) ? data.procurementMaterials : [];
             var panel = qs('[data-panel="documents"]');
             if (!panel) return false;
             safeReplaceChildren(panel, renderDocumentsWorkspace(projectId, docs, executive));
@@ -5654,9 +5817,9 @@ function renderLogsDayView(project, logs) {
             '</section>';
         }
 
-        return groupHtml('works', 'hammer', 'Работы', workRows) +
-            groupHtml('materials', 'package-check', 'Материалы', materialRows) +
-            groupHtml('additional', 'sparkles', 'Доп. работы', additionalRows) +
+        return groupHtml('works', 'hammer', 'Что сделали', workRows) +
+            groupHtml('materials', 'package-check', 'Материалы и поставки', materialRows) +
+            groupHtml('additional', 'sparkles', 'Дополнительные работы', additionalRows) +
             groupHtml('blockers', 'octagon-alert', 'Блокеры', blockerRows) +
             groupHtml('next', 'arrow-right', 'Следующий шаг', nextRows);
     }
@@ -6490,6 +6653,24 @@ function renderLogsDayView(project, logs) {
         var reportMark = effectiveItem.reportApplied && Number(effectiveItem.purchasedQty || 0) >= Number(effectiveItem.plannedQty || 0)
             ? '<br><span class="material-report-mark">\u0423\u0447\u0442\u0435\u043d\u043e \u0438\u0437 \u043e\u0442\u0447\u0435\u0442\u0430</span>'
             : '';
+        var procurementFactQty = Math.max(Number(effectiveItem.purchasedQty || 0), Number(effectiveItem.receivedQty || 0));
+        var canSeeProcurementEvidence = canManageDocuments();
+        var invoiceMissing = canSeeProcurementEvidence && procurementFactQty > 0 && !effectiveItem.invoiceAttached && !effectiveItem.warehouseSource;
+        var currentProcurementUserId = Number(((state.currentUser || state.user || {}).id) || 0);
+        var procurementActorIds = Array.isArray(effectiveItem.procurementActorIds) ? effectiveItem.procurementActorIds.map(Number) : [];
+        var invoiceIsPersonal = !!currentProcurementUserId && procurementActorIds.indexOf(currentProcurementUserId) !== -1 && !isDirectorRole() && !isAdminRole();
+        var procurementFactLabel = effectiveItem.procurementActorAction === 'receipt' ? 'поступление' : 'закупку';
+        var invoiceMissingText = invoiceIsPersonal
+            ? ('Вы отметили ' + procurementFactLabel + ', но не приложили счёт')
+            : (effectiveItem.procurementActorName
+                ? (effectiveItem.procurementActorName + ' отметил ' + procurementFactLabel + ', но счёт не приложен')
+                : 'Закупка есть, подтверждающего счёта нет');
+        var invoiceState = invoiceMissing
+            ? '<span class="badge danger" title="' + escapeHtml(invoiceMissingText) + '">Нет счёта</span>'
+            : (canSeeProcurementEvidence && effectiveItem.invoiceAttached ? '<span class="badge success" title="Счёт привязан к материалу">Счёт приложен</span>' : '');
+        var invoiceAction = invoiceMissing && canManageDocuments()
+            ? '<button class="ghost material-link" type="button" data-project-quick-action="document" data-document-type="invoice" data-estimate-item-id="' + escapeHtml(effectiveItem.id || '') + '" data-material-title="' + escapeHtml(effectiveItem.title || '') + '">Приложить счёт</button>'
+            : '';
         return '<div class="material-row work-row estimate-compact-row material-estimate-row' + (isDone ? ' material-row-done work-row-done' : '') + (progress.actual > 0 && !isDone ? ' material-row-partial' : '') + '" data-item-id="' + escapeHtml(effectiveItem.id || '') + '">' +
             '<div class="work-row-main">' +
                 '<label class="section-work-check section-material-check quantity-work-check estimate-compact-check' + (isDone ? ' is-done' : '') + (progress.actual > 0 && !isDone ? ' is-partial' : '') + '">' +
@@ -6499,9 +6680,10 @@ function renderLogsDayView(project, logs) {
                 warehouseBadge +
             '</div>' +
             '<div class="work-row-side estimate-compact-side">' +
+                invoiceState +
                 renderCompactActualQtyEditor('material', projectId, '', effectiveItem, progress) +
                 deliveryField +
-                '<div class="material-chain-actions">' + renderInlineMarketButton(projectId, 'materials') + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a', selected: insight && insight.selectedName ? insight.selectedName : '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a', none: '\u041d\u0435\u0442 \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432' }, 'supplier') + '</div>' +
+                '<div class="material-chain-actions">' + invoiceAction + renderInlineMarketButton(projectId, 'materials') + renderCounterpartyPicker(projectId, effectiveItem, insight, { empty: '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a', selected: insight && insight.selectedName ? insight.selectedName : '\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a', none: '\u041d\u0435\u0442 \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u043e\u0432' }, 'supplier') + '</div>' +
             '</div>' +
         '</div>';
     }
@@ -6516,14 +6698,6 @@ function renderLogsDayView(project, logs) {
         }).map(function (item) {
             return effectiveMaterialFromReports(projectId, item);
         });
-        if (rawMaterials.length !== materials.length && window.console) {
-            console.log('Бэкенд прислал материалов всего:', rawMaterials.length);
-            rawMaterials.forEach(function (item) {
-                if (!item || !String(item.title || '').trim()) console.warn('Материал пропущен: нет названия', item);
-                if (item && (item.is_deleted || item.isDeleted)) console.warn('Материал пропущен: удален', item);
-            });
-            console.log('Физически будет отрисовано материалов:', materials.length);
-        }
         if (!materials.length) return '<p class="muted">\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
         var progress = materialProgress(projectId, materials);
         var visibleMaterials = materials;
@@ -6550,14 +6724,6 @@ function renderLogsDayView(project, logs) {
         var estimateMaterials = (items || []).filter(function (item) {
             return item && !item.is_deleted && !item.isDeleted && String(item.title || '').trim() && String(item.itemKind || 'material').toLowerCase() !== 'work';
         });
-        if (rawEstimateWorks.length !== estimateWorks.length && window.console) {
-            console.log('Бэкенд прислал работ всего:', rawEstimateWorks.length);
-            rawEstimateWorks.forEach(function (item) {
-                if (!item || !String(item.title || '').trim()) console.warn('Работа пропущена: нет названия', item);
-                if (item && (item.is_deleted || item.isDeleted)) console.warn('Работа пропущена: удалена', item);
-            });
-            console.log('Физически будет отрисовано работ:', estimateWorks.length);
-        }
         if (!workStages.length && !estimateWorks.length) return '<p class="muted">\u0420\u0430\u0431\u043e\u0442\u044b \u043f\u043e \u0441\u043c\u0435\u0442\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u044b.</p>';
         var visibleEstimateWorks = estimateWorks;
         var visibleWorkStages = workStages;
@@ -10891,6 +11057,7 @@ function renderLogsDayView(project, logs) {
 
     var positionHighlightTimer = null;
     var materialDeepLinkToken = 0;
+    var procurementDocumentDeepLinkToken = 0;
 
     function highlightPositionRow(row) {
         if (!row) return false;
@@ -10918,6 +11085,8 @@ function renderLogsDayView(project, logs) {
             projectId: Number(params.get('openProject') || 0),
             tab: params.get('tab') || '',
             materialId: Number(params.get('materialId') || 0),
+            procurementItemId: Number(params.get('procurementItemId') || 0),
+            documentType: params.get('documentType') || '',
             workId: Number(params.get('workId') || 0),
             stageId: Number(params.get('stageId') || 0),
             sectionTitle: params.get('sectionTitle') || ''
@@ -10932,6 +11101,10 @@ function renderLogsDayView(project, logs) {
         try {
             var params = new URLSearchParams(location.search);
             if (kind === 'material') params.delete('materialId');
+            if (kind === 'procurementDocument') {
+                params.delete('procurementItemId');
+                params.delete('documentType');
+            }
             if (kind === 'work') params.delete('workId');
             if (kind === 'stage') params.delete('stageId');
             if (kind === 'work' || kind === 'stage') params.delete('sectionTitle');
@@ -10953,6 +11126,40 @@ function renderLogsDayView(project, logs) {
                 if (current.materialId !== target.materialId || current.projectId !== projectId) return;
                 if (PMBI.warehouseControl.focusMaterial(target.materialId, projectId)) consumeProjectDeepLink('material');
             }).catch(function () {});
+            return true;
+        }
+        if (target.procurementItemId && target.tab === 'documents') {
+            var procurementRequestToken = ++procurementDocumentDeepLinkToken;
+            waitForProjectControl('[data-document-upload-toggle], [data-document-empty-add]', function (control) {
+                if (procurementRequestToken !== procurementDocumentDeepLinkToken) return;
+                var current = projectDeepLinkTarget(location.href);
+                if (current.procurementItemId !== target.procurementItemId || current.projectId !== projectId) return;
+                var form = qs('[data-document-upload-form]');
+                if (!form || form.hidden) control.click();
+                form = qs('[data-document-upload-form]');
+                if (!form) return;
+                form.reset();
+                if (form.file) form.file.dispatchEvent(new Event('change', { bubbles: true }));
+                if (form.doc_type) {
+                    form.doc_type.value = target.documentType || 'invoice';
+                    form.doc_type.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                if (form.estimate_item_id) {
+                    var value = String(target.procurementItemId);
+                    var hasOption = Array.prototype.some.call(form.estimate_item_id.options, function (option) {
+                        return option.value === value;
+                    });
+                    if (!hasOption) {
+                        var option = document.createElement('option');
+                        option.value = value;
+                        option.textContent = 'Материал #' + value;
+                        form.estimate_item_id.appendChild(option);
+                    }
+                    form.estimate_item_id.value = value;
+                    form.estimate_item_id.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                consumeProjectDeepLink('procurementDocument');
+            });
             return true;
         }
         if ((target.workId || target.stageId || target.sectionTitle) && PMBI.planning && typeof PMBI.planning.focusProjectScheduleTarget === 'function') {
@@ -11020,6 +11227,106 @@ function renderLogsDayView(project, logs) {
         return reminderScopeText(alert.sectionTitle || 'Материалы', alert.stageTitle || '');
     }
 
+    function reminderProcurementAudience(alert) {
+        alert = alert || {};
+        if (alert.isSupervisorView || alert.notificationAudience === 'supervisor') return 'supervisor';
+        if (alert.isPersonalResponsibility || alert.notificationAudience === 'assignee') return 'assignee';
+        return 'observer';
+    }
+
+    function reminderProcurementOrderSentence(alert, rawQty) {
+        alert = alert || {};
+        var qty = Number(rawQty || 0);
+        var amount = quantityText(qty) + (alert.unit ? (' ' + alert.unit) : '');
+        var audience = reminderProcurementAudience(alert);
+        if (audience === 'assignee') return 'Вам нужно заказать ' + amount;
+        if (audience === 'supervisor' && alert.responsibleUserName) return alert.responsibleUserName + ' должен заказать ' + amount;
+        if (audience === 'supervisor' && alert.needsAssignment) return 'Нужно заказать ' + amount + ' • ответственный не назначен';
+        if (audience === 'supervisor') return 'Нужно проконтролировать заказ ' + amount;
+        return 'Нужно заказать ' + amount;
+    }
+
+    function reminderProcurementDeliverySentence(alert, rawQty) {
+        alert = alert || {};
+        var qty = Number(rawQty || 0);
+        var amount = quantityText(qty) + (alert.unit ? (' ' + alert.unit) : '');
+        var audience = reminderProcurementAudience(alert);
+        if (audience === 'assignee') return 'Вам нужно проверить поставку ' + amount;
+        if (audience === 'supervisor' && alert.responsibleUserName) return alert.responsibleUserName + ' должен проконтролировать поставку ' + amount;
+        if (audience === 'supervisor' && alert.needsAssignment) return 'Нужно проверить поставку ' + amount + ' • ответственный не назначен';
+        if (audience === 'supervisor') return 'Нужно проконтролировать поставку ' + amount;
+        return 'Ожидается поставка ' + amount;
+    }
+
+    function reminderProcurementLabel(alert, kind) {
+        alert = alert || {};
+        var audience = reminderProcurementAudience(alert);
+        var targetDate = alert.phase === 'delivery'
+            ? (alert.needOnSiteDate || alert.startDate || alert.workDate || alert.needByDate || '')
+            : (alert.orderByDate || '');
+        var dateSuffix = targetDate ? (' до ' + formatDisplayDate(targetDate)) : '';
+        if (audience === 'supervisor' && alert.needsAssignment) return 'Назначить ответственного';
+        if (alert.phase === 'delivery') {
+            if (audience === 'assignee') return 'Вам проверить поставку' + dateSuffix;
+            if (audience === 'supervisor') return 'Контроль поставки' + dateSuffix;
+            return 'Поставка' + dateSuffix;
+        }
+        if (audience === 'assignee') return 'Вам заказать' + dateSuffix;
+        if (audience === 'supervisor') return 'Контроль заказа' + dateSuffix;
+        if (targetDate) return 'Нужен заказ' + dateSuffix;
+        return kind === 'danger' ? 'Закупка горит' : (kind === 'warn' ? 'Скоро закупка' : 'Нужно заказать');
+    }
+
+    function reminderProcurementEvidenceLabel(alert) {
+        alert = alert || {};
+        var supervisor = !!alert.isSupervisorView || alert.notificationAudience === 'supervisor';
+        if (supervisor && alert.needsAssignment) return 'Назначить ответственного';
+        if (alert.evidenceKind === 'missing_invoice') return alert.isPersonalAction && !supervisor ? 'Приложить счёт' : (supervisor ? 'Проверить счёт' : 'Нет счёта');
+        if (alert.evidenceKind === 'missing_schedule') return alert.isPersonalResponsibility ? 'Задать срок' : (supervisor ? 'Проверить срок' : 'Нет срока потребности');
+        return alert.isPersonalResponsibility ? 'Добавить просчёт' : (supervisor ? 'Проверить просчёт' : 'Нет просчёта цены');
+    }
+
+    function reminderProcurementOverviewActionLabel(alert) {
+        var audience = reminderProcurementAudience(alert);
+        if (audience === 'assignee') return alert && alert.phase === 'delivery' ? 'Проверить поставку' : 'Заказать';
+        if (audience === 'supervisor' && alert && alert.needsAssignment) return 'Назначить';
+        if (audience === 'supervisor') return alert && alert.phase === 'delivery' ? 'Контроль поставки' : 'Проверить заказ';
+        return 'К материалам';
+    }
+
+    function reminderProcurementEvidenceText(alert) {
+        alert = alert || {};
+        if (alert.evidenceKind === 'missing_invoice') {
+            var procurementFactLabel = alert.procurementAction === 'receipt' ? 'поступление' : 'закупку';
+            var invoiceIsPersonalAction = !!alert.isPersonalAction && !alert.isSupervisorView && alert.notificationAudience !== 'supervisor';
+            var invoicePrefix = invoiceIsPersonalAction
+                ? ('Вы отметили ' + procurementFactLabel + ', но не приложили счёт')
+                : (alert.responsibleUserName
+                    ? (alert.responsibleUserName + ' отметил ' + procurementFactLabel + ', но счёт не приложен')
+                    : 'Закупка уже зафиксирована, но счёт не приложен');
+            var procurementEvidenceQty = procurementFactLabel === 'поступление' ? alert.receivedQty : alert.purchasedQty;
+            var procurementEvidenceQtyLabel = procurementFactLabel === 'поступление' ? 'принято' : 'закуплено';
+            return invoicePrefix + (procurementEvidenceQty ? (' • ' + procurementEvidenceQtyLabel + ' ' + quantityText(procurementEvidenceQty) + (alert.unit ? (' ' + alert.unit) : '')) : '');
+        }
+        if (alert.evidenceKind === 'missing_schedule') {
+            if (alert.isPersonalResponsibility) return 'Задайте дату потребности или свяжите материал с работой';
+            if (alert.isSupervisorView && alert.responsibleUserName) return alert.responsibleUserName + ' должен задать дату потребности или связать материал с работой';
+            if (alert.isSupervisorView && alert.needsAssignment) return 'У материала нет срока • ответственный за закупку не назначен';
+            return 'У материала нет даты потребности и связи с работой';
+        }
+        var costingLead = alert.isPersonalResponsibility
+            ? 'Подтвердите поставщика и цену'
+            : (alert.isSupervisorView && alert.responsibleUserName
+                ? (alert.responsibleUserName + ' должен подтвердить поставщика и цену')
+                : (alert.isSupervisorView && alert.needsAssignment
+                    ? 'Нужно подтвердить поставщика и цену • ответственный не назначен'
+                    : 'Нужно подтвердить поставщика и цену'));
+        var bits = [costingLead];
+        if (alert.quoteByDate) bits.push('просчёт до ' + formatDisplayDate(alert.quoteByDate));
+        if (alert.orderByDate) bits.push('заказать до ' + formatDisplayDate(alert.orderByDate));
+        return bits.join(' • ');
+    }
+
     function reminderTaskText(task, stateText) {
         var bits = [
             task.assignee_name ? ('исполнитель: ' + task.assignee_name) : '',
@@ -11062,13 +11369,13 @@ function renderLogsDayView(project, logs) {
     function reminderProcurementText(alert) {
         var bits = [
             alert.phase === 'order' && Number(alert.toOrderQty || alert.missingQty || 0) > 0
-                ? ('заказать ' + quantityText(alert.toOrderQty || alert.missingQty) + (alert.unit ? (' ' + alert.unit) : ''))
+                ? reminderProcurementOrderSentence(alert, alert.toOrderQty || alert.missingQty)
                 : '',
             alert.phase === 'order' && Number(alert.toReceiveQty || 0) > 0
                 ? ('уже заказано, ждём ' + quantityText(alert.toReceiveQty) + (alert.unit ? (' ' + alert.unit) : ''))
                 : '',
             alert.phase === 'delivery' && Number(alert.toReceiveQty || 0) > 0
-                ? ('ждём ' + quantityText(alert.toReceiveQty) + (alert.unit ? (' ' + alert.unit) : ''))
+                ? reminderProcurementDeliverySentence(alert, alert.toReceiveQty)
                 : (alert.leadDays ? ('срок поставки ' + alert.leadDays + ' дн.') : ''),
             (alert.needOnSiteDate || alert.startDate) ? ('на объект к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate)) : ''
         ];
@@ -11084,7 +11391,7 @@ function renderLogsDayView(project, logs) {
 
     function reminderShortageText(alert) {
         var bits = [
-            'Не хватает ' + quantityText(alert.missingQty) + (alert.unit ? (' ' + alert.unit) : ''),
+            reminderProcurementOrderSentence(alert, alert.missingQty),
             alert.workDate ? ('нужно к работе ' + formatDisplayDate(alert.workDate)) : (alert.needByDate ? ('нужно к ' + formatDisplayDate(alert.needByDate)) : '')
         ];
         return bits.filter(Boolean).join(' • ');
@@ -11111,6 +11418,9 @@ function renderLogsDayView(project, logs) {
             projectId: projectId,
             materialId: alert.materialId || '',
             actionKind: actionKind,
+            actionLabel: actionKind === 'delivery'
+                ? (reminderProcurementAudience(alert) === 'assignee' ? 'вам проверить' : (reminderProcurementAudience(alert) === 'supervisor' ? 'контроль' : 'в пути'))
+                : (reminderProcurementAudience(alert) === 'assignee' ? 'вам заказать' : (reminderProcurementAudience(alert) === 'supervisor' ? (alert.needsAssignment ? 'назначить' : 'к заказу') : 'к заказу')),
             actionQty: actionQty,
             unit: alert.unit || '',
             kind: kind,
@@ -11121,6 +11431,12 @@ function renderLogsDayView(project, logs) {
             scope: reminderProcurementScope(alert),
             text: text,
             materialDetail: reminderMaterialDetailText(alert),
+            isPersonalResponsibility: !!alert.isPersonalResponsibility,
+            isSupervisorView: !!alert.isSupervisorView,
+            needsAssignment: !!alert.needsAssignment,
+            notificationAudience: alert.notificationAudience || '',
+            responsibleUserId: alert.responsibleUserId || '',
+            responsibleUserName: alert.responsibleUserName || '',
             href: '/app/projects?openProject=' + projectId + '&tab=warehouse-control&materialId=' + encodeURIComponent(alert.materialId || '')
         };
     }
@@ -11152,6 +11468,38 @@ function renderLogsDayView(project, logs) {
             var plannedEnd = stage.planned_end || stage.plannedEnd || '';
             items.push({ group: 'works', projectId: projectId, sourceId: stage.id || '', kind: presentation.kind, focusWhen: presentation.focusWhen, sortAt: plannedStart || plannedEnd, label: presentation.label, subject: stage.title || 'Этап работ', title: title, scope: reminderStageScope(stage), text: reminderStageText(stage), href: '/app/projects?openProject=' + projectId + '&tab=schedule&stageId=' + encodeURIComponent(stage.id || '') + '&sectionTitle=' + encodeURIComponent(stage.sectionTitle || stage.title || '') });
         });
+        (Array.isArray(notifications.procurementEvidenceAlerts) ? notifications.procurementEvidenceAlerts : []).forEach(function (alert) {
+            var evidenceKind = String(alert.evidenceKind || 'missing_costing');
+            var kind = alert.status === 'critical' ? 'danger' : (alert.status === 'soon' ? 'warn' : 'info');
+            var label = reminderProcurementEvidenceLabel(alert);
+            var href = evidenceKind === 'missing_schedule'
+                ? ('/app/projects?openProject=' + projectId + '&tab=schedule')
+                : ('/app/projects?openProject=' + projectId + '&tab=documents&procurementItemId=' + encodeURIComponent(alert.materialId || '') + '&documentType=invoice');
+            items.push({
+                group: 'procurement-evidence',
+                projectId: projectId,
+                sourceId: evidenceKind + ':' + String(alert.materialId || ''),
+                materialId: alert.materialId || '',
+                evidenceKind: evidenceKind,
+                isPersonalAction: !!alert.isPersonalAction,
+                isPersonalResponsibility: !!alert.isPersonalResponsibility,
+                isSupervisorView: !!alert.isSupervisorView,
+                needsAssignment: !!alert.needsAssignment,
+                notificationAudience: alert.notificationAudience || '',
+                responsibleUserId: alert.responsibleUserId || '',
+                responsibleUserName: alert.responsibleUserName || '',
+                procurementAction: alert.procurementAction || '',
+                kind: kind,
+                focusWhen: kind === 'danger' ? 'today' : 'soon',
+                sortAt: alert.quoteByDate || alert.orderByDate || alert.needOnSiteDate || '',
+                label: label,
+                subject: alert.title || 'Материал',
+                title: title,
+                scope: reminderProcurementScope(alert),
+                text: reminderProcurementEvidenceText(alert),
+                href: href
+            });
+        });
         if (Array.isArray(notifications.shortageAlerts)) {
             var procurementByMaterialId = {};
             var renderedProcurement = {};
@@ -11168,26 +11516,20 @@ function renderLogsDayView(project, logs) {
                 var kind = urgentShortage ? 'danger' : (procurement.status === 'watch' ? 'info' : 'warn');
                 var merged = Object.assign({}, shortage, procurement);
                 if (!merged.phase) merged.phase = 'order';
-                var label = merged.phase === 'delivery'
-                    ? ('Поставка к ' + formatDisplayDate(merged.needOnSiteDate || merged.startDate || merged.workDate || merged.needByDate))
-                    : (merged.orderByDate ? ('Заказать до ' + formatDisplayDate(merged.orderByDate)) : (merged.status === 'critical' ? 'Закупка горит' : (merged.status === 'soon' ? 'Скоро закупка' : 'Нужно заказать')));
-                var procurementText = procurement.orderByDate ? reminderProcurementText(merged) : reminderShortageText(shortage);
+                var label = reminderProcurementLabel(merged, kind);
+                var procurementText = procurement.orderByDate ? reminderProcurementText(merged) : reminderShortageText(merged);
                 items.push(reminderMaterialItem(projectId, title, merged, kind, label, procurementText));
             });
             (notifications.procurementAlerts || []).forEach(function (alert) {
                 if (renderedProcurement[String(alert.materialId || '')]) return;
                 var kind = alert.status === 'critical' ? 'danger' : (alert.status === 'soon' ? 'warn' : 'info');
-                var label = alert.phase === 'delivery'
-                    ? ('Поставка к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate))
-                    : (alert.orderByDate ? ('Заказать до ' + formatDisplayDate(alert.orderByDate)) : (kind === 'danger' ? 'Закупка горит' : 'Скоро закупка'));
+                var label = reminderProcurementLabel(alert, kind);
                 items.push(reminderMaterialItem(projectId, title, alert, kind, label, reminderProcurementText(alert)));
             });
         } else {
             (notifications.procurementAlerts || []).forEach(function (alert) {
                 var kind = alert.status === 'critical' ? 'danger' : (alert.status === 'soon' ? 'warn' : 'info');
-                var label = alert.phase === 'delivery'
-                    ? ('Поставка к ' + formatDisplayDate(alert.needOnSiteDate || alert.startDate))
-                    : (alert.orderByDate ? ('Заказать до ' + formatDisplayDate(alert.orderByDate)) : (kind === 'danger' ? 'Закупка горит' : 'Скоро закупка'));
+                var label = reminderProcurementLabel(alert, kind);
                 items.push(reminderMaterialItem(projectId, title, alert, kind, label, reminderProcurementText(alert)));
             });
         }
@@ -11215,12 +11557,13 @@ function renderLogsDayView(project, logs) {
 
     function reminderGroupDefinitions() {
         return [
-            { key: 'materials', title: 'Материалы', icon: 'package-search', order: 0 },
-            { key: 'works', title: 'По графику', icon: 'hard-hat', order: 1 },
-            { key: 'tasks', title: 'Задачи', icon: 'list-checks', order: 2 },
-            { key: 'reports', title: 'Закрыть день', icon: 'notebook-pen', order: 3 },
-            { key: 'other', title: 'Прочее', icon: 'bell', order: 4 },
-            { key: 'journal', title: 'Блокеры', icon: 'triangle-alert', order: 5 }
+            { key: 'procurement-evidence', title: 'Счета и просчёты', icon: 'receipt-text', order: 0 },
+            { key: 'materials', title: 'Материалы', icon: 'package-search', order: 1 },
+            { key: 'works', title: 'По графику', icon: 'hard-hat', order: 2 },
+            { key: 'tasks', title: 'Задачи', icon: 'list-checks', order: 3 },
+            { key: 'reports', title: 'Закрыть день', icon: 'notebook-pen', order: 4 },
+            { key: 'other', title: 'Прочее', icon: 'bell', order: 5 },
+            { key: 'journal', title: 'Блокеры', icon: 'triangle-alert', order: 6 }
         ];
     }
 
@@ -11239,6 +11582,9 @@ function renderLogsDayView(project, logs) {
                     seen: {},
                     orderCount: 0,
                     deliveryCount: 0,
+                    personalOrderCount: 0,
+                    supervisorOrderCount: 0,
+                    unassignedOrderCount: 0,
                     rank: 9,
                     sortAt: '9999-12-31'
                 };
@@ -11253,7 +11599,12 @@ function renderLogsDayView(project, logs) {
             group.items.push(item);
             var actionQty = Number(item.actionQty || 0);
             if (item.actionKind === 'delivery') group.deliveryCount += 1;
-            else if (Number.isFinite(actionQty) && actionQty > 0) group.orderCount += 1;
+            else if (Number.isFinite(actionQty) && actionQty > 0) {
+                group.orderCount += 1;
+                if (item.isPersonalResponsibility) group.personalOrderCount += 1;
+                else if (item.isSupervisorView) group.supervisorOrderCount += 1;
+                if (item.needsAssignment) group.unassignedOrderCount += 1;
+            }
             group.rank = Math.min(group.rank, reminderSeverityRank(item.kind));
             var sortAt = String(item.sortAt || '9999-12-31');
             if (sortAt < group.sortAt) group.sortAt = sortAt;
@@ -11261,6 +11612,7 @@ function renderLogsDayView(project, logs) {
         groups.forEach(function (group) {
             delete group.seen;
             group.items.sort(function (left, right) {
+                if (!!left.isPersonalResponsibility !== !!right.isPersonalResponsibility) return left.isPersonalResponsibility ? -1 : 1;
                 var severityDifference = reminderSeverityRank(left.kind) - reminderSeverityRank(right.kind);
                 if (severityDifference) return severityDifference;
                 return String(left.sortAt || '9999-12-31').localeCompare(String(right.sortAt || '9999-12-31'));
@@ -11277,13 +11629,21 @@ function renderLogsDayView(project, logs) {
         return groups.reduce(function (summary, group) {
             summary.orderCount += group.orderCount;
             summary.deliveryCount += group.deliveryCount;
+            summary.personalOrderCount += group.personalOrderCount;
+            summary.supervisorOrderCount += group.supervisorOrderCount;
+            summary.unassignedOrderCount += group.unassignedOrderCount;
             if (group.orderCount > 0) summary.orderProjects += 1;
             var urgentOrderCount = 0;
             var urgentDeliveryCount = 0;
             group.items.forEach(function (item) {
                 if (reminderSeverityRank(item.kind) !== 0) return;
                 if (item.actionKind === 'delivery') urgentDeliveryCount += 1;
-                else if (Number(item.actionQty || 0) > 0) urgentOrderCount += 1;
+                else if (Number(item.actionQty || 0) > 0) {
+                    urgentOrderCount += 1;
+                    if (item.isPersonalResponsibility) summary.todayPersonalOrderCount += 1;
+                    else if (item.isSupervisorView) summary.todaySupervisorOrderCount += 1;
+                    if (item.needsAssignment) summary.todayUnassignedOrderCount += 1;
+                }
             });
             summary.todayOrderCount += urgentOrderCount;
             summary.todayDeliveryCount += urgentDeliveryCount;
@@ -11298,12 +11658,18 @@ function renderLogsDayView(project, logs) {
         }, {
             orderCount: 0,
             deliveryCount: 0,
+            personalOrderCount: 0,
+            supervisorOrderCount: 0,
+            unassignedOrderCount: 0,
             orderProjects: 0,
             totalProjects: 0,
             todayProjects: 0,
             soonProjects: 0,
             todayOrderCount: 0,
             todayOrderProjects: 0,
+            todayPersonalOrderCount: 0,
+            todaySupervisorOrderCount: 0,
+            todayUnassignedOrderCount: 0,
             todayDeliveryCount: 0,
             todayDeliveryProjects: 0
         });
@@ -11311,6 +11677,7 @@ function renderLogsDayView(project, logs) {
 
     function reminderFocusSnapshot(items) {
         var materials = reminderMaterialSnapshot(items);
+        var procurementEvidence = (items || []).filter(function (item) { return item.group === 'procurement-evidence'; });
         var works = (items || []).filter(function (item) { return item.group === 'works'; });
         var tasks = (items || []).filter(function (item) { return item.group === 'tasks'; });
         var reports = (items || []).filter(function (item) { return item.group === 'reports'; });
@@ -11320,10 +11687,29 @@ function renderLogsDayView(project, logs) {
         var worksSoon = works.filter(function (item) { return item.focusWhen === 'soon'; }).length;
         var tasksToday = tasks.filter(function (item) { return item.focusWhen === 'today'; }).length;
         var tasksSoon = tasks.filter(function (item) { return item.focusWhen === 'soon'; }).length;
+        var procurementCritical = procurementEvidence.filter(function (item) { return item.kind === 'danger'; }).length;
+        var procurementInvoices = procurementEvidence.filter(function (item) { return item.evidenceKind === 'missing_invoice'; }).length;
+        var procurementCosting = procurementEvidence.filter(function (item) { return item.evidenceKind === 'missing_costing'; }).length;
+        var procurementSchedule = procurementEvidence.filter(function (item) { return item.evidenceKind === 'missing_schedule'; }).length;
+        var personalInvoices = procurementEvidence.filter(function (item) { return item.evidenceKind === 'missing_invoice' && item.isPersonalAction; });
+        var personalProcurementEvidence = procurementEvidence.filter(function (item) { return item.isPersonalAction || item.isPersonalResponsibility; });
+        var supervisorProcurementEvidence = procurementEvidence.filter(function (item) { return item.isSupervisorView; });
+        var unassignedProcurementEvidence = procurementEvidence.filter(function (item) { return item.needsAssignment; });
         var materialActions = materials.totalProjects;
-        var actionCount = materialActions + works.length + tasks.length + reports.length + blockers.length + otherAttention.length;
+        var actionCount = procurementEvidence.length + materialActions + works.length + tasks.length + reports.length + blockers.length + otherAttention.length;
         return {
             materials: materials,
+            procurementEvidence: procurementEvidence.length,
+            procurementCritical: procurementCritical,
+            procurementInvoices: procurementInvoices,
+            procurementCosting: procurementCosting,
+            procurementSchedule: procurementSchedule,
+            personalInvoiceCount: personalInvoices.length,
+            personalInvoiceSubject: personalInvoices.length ? (personalInvoices[0].subject || 'Материал') : '',
+            personalInvoiceAction: personalInvoices.length ? (personalInvoices[0].procurementAction || 'purchase') : '',
+            personalProcurementEvidence: personalProcurementEvidence.length,
+            supervisorProcurementEvidence: supervisorProcurementEvidence.length,
+            unassignedProcurementEvidence: unassignedProcurementEvidence.length,
             works: works.length,
             worksToday: worksToday,
             worksSoon: worksSoon,
@@ -11333,8 +11719,8 @@ function renderLogsDayView(project, logs) {
             reports: reports.length,
             blockers: blockers.length,
             actionCount: actionCount,
-            todayCount: worksToday + tasksToday + reports.length + blockers.length + otherAttention.length + materials.todayProjects,
-            soonCount: worksSoon + tasksSoon + materials.soonProjects
+            todayCount: procurementCritical + worksToday + tasksToday + reports.length + blockers.length + otherAttention.length + materials.todayProjects,
+            soonCount: Math.max(procurementEvidence.length - procurementCritical, 0) + worksSoon + tasksSoon + materials.soonProjects
         };
     }
 
@@ -11357,6 +11743,15 @@ function renderLogsDayView(project, logs) {
             if (snapshot.worksSoon) workDetail.push('скоро ' + snapshot.worksSoon);
             cards.push(reminderFocusCardMarkup('works', 'hard-hat', 'По графику', snapshot.works, reminderPlural(snapshot.works, 'этап', 'этапа', 'этапов'), workDetail.join(' · ') || 'на контроле'));
         }
+        if (snapshot.procurementEvidence) {
+            var procurementDetail = [];
+            if (snapshot.procurementInvoices) procurementDetail.push('без счёта ' + snapshot.procurementInvoices);
+            if (snapshot.procurementCosting) procurementDetail.push('без просчёта ' + snapshot.procurementCosting);
+            if (snapshot.procurementSchedule) procurementDetail.push('без срока ' + snapshot.procurementSchedule);
+            if (snapshot.unassignedProcurementEvidence) procurementDetail.push('без ответственного ' + snapshot.unassignedProcurementEvidence);
+            var procurementEyebrow = snapshot.personalProcurementEvidence ? 'Мои закупки' : (snapshot.supervisorProcurementEvidence ? 'Контроль закупок' : 'Закупки');
+            cards.push(reminderFocusCardMarkup(snapshot.procurementCritical ? 'danger' : 'order', 'receipt-text', procurementEyebrow, snapshot.procurementEvidence, reminderPlural(snapshot.procurementEvidence, 'сигнал', 'сигнала', 'сигналов'), procurementDetail.join(' · ') || 'требуют проверки'));
+        }
         if (snapshot.materials.orderCount || snapshot.materials.deliveryCount) {
             var hasOrders = snapshot.materials.orderCount > 0;
             var materialCount = hasOrders ? snapshot.materials.orderCount : snapshot.materials.deliveryCount;
@@ -11364,7 +11759,11 @@ function renderLogsDayView(project, logs) {
             var materialDetail = materialProjects + ' ' + reminderPlural(materialProjects, 'объект', 'объекта', 'объектов');
             if (snapshot.materials.todayProjects) materialDetail += ' · срочно ' + snapshot.materials.todayProjects;
             if (hasOrders && snapshot.materials.deliveryCount) materialDetail += ' · в пути ' + snapshot.materials.deliveryCount;
-            cards.push(reminderFocusCardMarkup(hasOrders ? 'order' : 'delivery', hasOrders ? 'shopping-cart' : 'truck', hasOrders ? 'Заказать' : 'В пути', materialCount, reminderPlural(materialCount, 'материал', 'материала', 'материалов'), materialDetail));
+            if (snapshot.materials.unassignedOrderCount) materialDetail += ' · без ответственного ' + snapshot.materials.unassignedOrderCount;
+            var materialsEyebrow = hasOrders
+                ? (snapshot.materials.personalOrderCount ? 'Вам заказать' : (snapshot.materials.supervisorOrderCount ? 'Закупки команды' : 'К заказу'))
+                : 'В пути';
+            cards.push(reminderFocusCardMarkup(hasOrders ? 'order' : 'delivery', hasOrders ? 'shopping-cart' : 'truck', materialsEyebrow, materialCount, reminderPlural(materialCount, 'материал', 'материала', 'материалов'), materialDetail));
         }
         if (snapshot.tasks) {
             var taskDetail = [];
@@ -11404,7 +11803,7 @@ function renderLogsDayView(project, logs) {
         var actionQty = Number(item.actionQty || 0);
         var formattedQty = Number.isFinite(actionQty) && actionQty > 0 ? quantityText(actionQty) : '—';
         var formattedUnit = String(item.unit || '').trim();
-        var actionLabel = actionKind === 'delivery' ? 'в пути' : 'заказать';
+        var actionLabel = item.actionLabel || (actionKind === 'delivery' ? 'в пути' : 'к заказу');
         var detail = [item.label, item.materialDetail].filter(Boolean).join(' · ');
         var accessibleLabel = [reminderSeverityLabel(kind), subject, item.title, item.scope, actionLabel + ' ' + formattedQty + (formattedUnit ? (' ' + formattedUnit) : ''), detail].filter(Boolean).join('. ');
         return '<a class="reminder-item reminder-material-item is-' + escapeHtml(kind) + '" href="' + escapeHtml(item.href || '/app/projects') + '" aria-label="' + escapeHtml(accessibleLabel) + '">' +
@@ -11430,10 +11829,13 @@ function renderLogsDayView(project, logs) {
             '<header class="reminder-group-head"><span class="reminder-group-icon" aria-hidden="true"><i data-lucide="package-search"></i></span><strong id="' + headingId + '">' + groupTitle + '</strong><span class="reminder-group-count">' + groupCount + '</span></header>' +
             '<div class="reminder-projects">' + projects.map(function (project) {
                 var primaryCount = project.orderCount || project.deliveryCount;
-                var primaryLabel = project.orderCount ? 'к заказу' : 'в пути';
+                var primaryLabel = project.orderCount
+                    ? (project.personalOrderCount ? 'вам заказать' : (project.unassignedOrderCount ? 'назначить' : 'к заказу'))
+                    : 'в пути';
                 var projectMeta = project.orderCount
-                    ? (project.orderCount + ' ' + reminderPlural(project.orderCount, 'материал', 'материала', 'материалов') + ' к заказу')
+                    ? (project.orderCount + ' ' + reminderPlural(project.orderCount, 'материал', 'материала', 'материалов') + (project.personalOrderCount ? ' вам к заказу' : ' к заказу'))
                     : (project.deliveryCount + ' ' + reminderPlural(project.deliveryCount, 'материал', 'материала', 'материалов') + ' в пути');
+                if (project.unassignedOrderCount) projectMeta += ' · без ответственного ' + project.unassignedOrderCount;
                 if (project.orderCount && project.deliveryCount) projectMeta += ' · ' + project.deliveryCount + ' в пути';
                 var summaryLabel = project.title + ': ' + projectMeta;
                 return '<details class="reminder-project-card" data-reminder-project="' + escapeHtml(project.projectId || project.key) + '">' +
@@ -11460,6 +11862,9 @@ function renderLogsDayView(project, logs) {
         var groups = definitions.map(function (definition) {
             var group = byKey[definition.key];
             group.items.sort(function (left, right) {
+                var leftPersonal = !!left.isPersonalAction || !!left.isPersonalResponsibility;
+                var rightPersonal = !!right.isPersonalAction || !!right.isPersonalResponsibility;
+                if (leftPersonal !== rightPersonal) return leftPersonal ? -1 : 1;
                 var severityDifference = reminderSeverityRank(left.kind) - reminderSeverityRank(right.kind);
                 if (severityDifference) return severityDifference;
                 return String(left.sortAt || '9999-12-31').localeCompare(String(right.sortAt || '9999-12-31'));
@@ -11508,7 +11913,7 @@ function renderLogsDayView(project, logs) {
     }
 
     function reminderNoticeKey(item) {
-        return [item.group, item.projectId, item.sourceId, item.materialId, item.kind, item.focusWhen, item.actionKind, item.actionQty, item.sortAt, item.subject].join(':');
+        return [item.group, item.projectId, item.sourceId, item.materialId, item.kind, item.focusWhen, item.actionKind, item.actionQty, item.sortAt, item.subject, item.responsibleUserId, item.isPersonalAction ? 'my-action' : (item.isPersonalResponsibility ? 'my-responsibility' : (item.isSupervisorView ? 'supervisor' : 'team')), item.needsAssignment ? 'unassigned' : 'assigned'].join(':');
     }
 
     function reminderNoticeSignature(items) {
@@ -11555,13 +11960,30 @@ function renderLogsDayView(project, logs) {
         var projectIds = {};
         items.forEach(function (item) { if (item.projectId) projectIds[String(item.projectId)] = true; });
         var message;
-        if (snapshot.reports) {
+        if (snapshot.personalInvoiceCount) {
+            message = 'Вы отметили ' + (snapshot.personalInvoiceAction === 'receipt' ? 'поступление' : 'закупку') + ', но не приложили счёт: ' + snapshot.personalInvoiceSubject;
+            if (snapshot.personalInvoiceCount > 1) message += ' и ещё ' + (snapshot.personalInvoiceCount - 1);
+            message += '. Откройте уведомление и загрузите документ.';
+        } else if (snapshot.reports) {
             message = 'За сегодня нет отчёта: ' + snapshot.reports + ' ' + reminderPlural(snapshot.reports, 'объект', 'объекта', 'объектов');
-            if (snapshot.materials.orderCount) message += ' · заказать ' + snapshot.materials.orderCount + ' ' + reminderPlural(snapshot.materials.orderCount, 'материал', 'материала', 'материалов');
+            if (snapshot.materials.orderCount) message += (snapshot.materials.personalOrderCount ? ' · вам заказать ' : ' · к заказу ') + snapshot.materials.orderCount + ' ' + reminderPlural(snapshot.materials.orderCount, 'материал', 'материала', 'материалов');
         } else if (snapshot.blockers) {
             message = 'Блокеры требуют решения: ' + snapshot.blockers;
+        } else if (snapshot.procurementEvidence) {
+            message = snapshot.personalProcurementEvidence
+                ? ('Закройте документы по закупкам: ' + snapshot.procurementEvidence)
+                : (snapshot.supervisorProcurementEvidence
+                    ? ('Проверьте документы по закупкам: ' + snapshot.procurementEvidence)
+                    : ('Закупки требуют подтверждения: ' + snapshot.procurementEvidence));
+            if (snapshot.procurementInvoices) message += ' · без счёта ' + snapshot.procurementInvoices;
+            if (snapshot.procurementCosting) message += ' · без просчёта ' + snapshot.procurementCosting;
+            if (snapshot.unassignedProcurementEvidence) message += ' · без ответственного ' + snapshot.unassignedProcurementEvidence;
         } else if (snapshot.materials.todayOrderCount) {
-            message = 'Срочно заказать ' + snapshot.materials.todayOrderCount + ' ' + reminderPlural(snapshot.materials.todayOrderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.materials.todayOrderProjects + ' ' + reminderPlural(snapshot.materials.todayOrderProjects, 'объект', 'объекта', 'объектов');
+            if (snapshot.materials.todayPersonalOrderCount) message = 'Вам срочно заказать ';
+            else if (snapshot.materials.todayUnassignedOrderCount) message = 'Срочно назначить ответственного и заказать ';
+            else if (snapshot.materials.todaySupervisorOrderCount) message = 'У ответственных срочно к заказу ';
+            else message = 'Срочно требуется заказать ';
+            message += snapshot.materials.todayOrderCount + ' ' + reminderPlural(snapshot.materials.todayOrderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.materials.todayOrderProjects + ' ' + reminderPlural(snapshot.materials.todayOrderProjects, 'объект', 'объекта', 'объектов');
         } else if (snapshot.materials.todayDeliveryCount) {
             message = 'Срочно проверить поставку: ' + snapshot.materials.todayDeliveryCount + ' ' + reminderPlural(snapshot.materials.todayDeliveryCount, 'позиция', 'позиции', 'позиций') + ' · ' + snapshot.materials.todayDeliveryProjects + ' ' + reminderPlural(snapshot.materials.todayDeliveryProjects, 'объект', 'объекта', 'объектов');
         } else if (snapshot.worksToday) {
@@ -11569,7 +11991,11 @@ function renderLogsDayView(project, logs) {
         } else if (snapshot.tasksToday) {
             message = 'Задачи на сегодня: ' + snapshot.tasksToday;
         } else if (snapshot.materials.orderCount) {
-            message = 'Нужно заказать ' + snapshot.materials.orderCount + ' ' + reminderPlural(snapshot.materials.orderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.materials.orderProjects + ' ' + reminderPlural(snapshot.materials.orderProjects, 'объект', 'объекта', 'объектов');
+            if (snapshot.materials.personalOrderCount) message = 'Вам нужно заказать ';
+            else if (snapshot.materials.unassignedOrderCount) message = 'Нужно назначить ответственного и заказать ';
+            else if (snapshot.materials.supervisorOrderCount) message = 'У ответственных к заказу ';
+            else message = 'Требуется заказать ';
+            message += snapshot.materials.orderCount + ' ' + reminderPlural(snapshot.materials.orderCount, 'материал', 'материала', 'материалов') + ' · ' + snapshot.materials.orderProjects + ' ' + reminderPlural(snapshot.materials.orderProjects, 'объект', 'объекта', 'объектов');
         } else if (snapshot.materials.deliveryCount) {
             message = 'Материалы в пути: ' + snapshot.materials.deliveryCount + ' ' + reminderPlural(snapshot.materials.deliveryCount, 'позиция', 'позиции', 'позиций') + ' · ' + snapshot.materials.totalProjects + ' ' + reminderPlural(snapshot.materials.totalProjects, 'объект', 'объекта', 'объектов');
         } else if (snapshot.worksSoon) {
@@ -13847,7 +14273,9 @@ function renderLogsDayView(project, logs) {
         if (item.access) return ' data-project-access-open';
         if (item.quickAction) {
             return ' data-project-quick-action="' + escapeHtml(item.quickAction) + '"' +
-                (item.documentType ? (' data-document-type="' + escapeHtml(item.documentType) + '"') : '');
+                (item.documentType ? (' data-document-type="' + escapeHtml(item.documentType) + '"') : '') +
+                (item.estimateItemId ? (' data-estimate-item-id="' + escapeHtml(item.estimateItemId) + '"') : '') +
+                (item.materialTitle ? (' data-material-title="' + escapeHtml(item.materialTitle) + '"') : '');
         }
         if (item.tab) {
             return ' data-project-tab-target="' + escapeHtml(item.tab) + '"' +
@@ -13901,10 +14329,11 @@ function renderLogsDayView(project, logs) {
         var actions = [];
         if (canManageDocuments()) {
             actions.push(objectControlQuickActionV3('document', 'Фото', 'Результат или проблема', 'camera', 'photo_report'));
+            actions.push(objectControlQuickActionV3('document', 'Счёт закупки', 'Привязать к материалу', 'receipt-text', 'invoice'));
         }
         actions.push(objectControlQuickActionV3('material', 'Материал', 'Приход, расход, возврат', 'package-plus'));
         if (canCreateProjectTask()) actions.push(objectControlQuickActionV3('task', 'Задача', 'Ответственный и срок', 'list-plus'));
-        if (canSeeFinances()) actions.push(objectControlQuickActionV3('invoice', 'Счёт', 'Поставить к оплате', 'receipt-text'));
+        if (canSeeFinances()) actions.push(objectControlQuickActionV3('invoice', 'Оплата', 'Поставить счёт к оплате', 'wallet-cards'));
         if (!actions.length) return '';
         return '<section class="object-quick-capture" aria-label="Быстро добавить событие">' +
             '<div class="object-quick-capture-head"><strong>Записать событие</strong><span>Одна точка входа для ежедневной работы</span></div>' +
@@ -14110,6 +14539,10 @@ function renderLogsDayView(project, logs) {
         var overdueTasks = Array.isArray(notifications.overdueTasks) ? notifications.overdueTasks : activeTasks.filter(function (task) {
             return task.due_at && String(task.due_at).slice(0, 10) < APP_TODAY;
         });
+        var procurementEvidenceAlerts = Array.isArray(notifications.procurementEvidenceAlerts) ? notifications.procurementEvidenceAlerts : [];
+        var missingInvoiceAlerts = procurementEvidenceAlerts.filter(function (item) { return item.evidenceKind === 'missing_invoice'; });
+        var missingCostingAlerts = procurementEvidenceAlerts.filter(function (item) { return item.evidenceKind === 'missing_costing'; });
+        var missingScheduleAlerts = procurementEvidenceAlerts.filter(function (item) { return item.evidenceKind === 'missing_schedule'; });
         var docsWithoutFile = documents.filter(function (doc) { return !doc.storage_path; });
         var docsForReview = documents.filter(function (doc) {
             return !doc.storage_path || readyStatuses.indexOf(String(doc.status || '')) === -1;
@@ -14134,18 +14567,75 @@ function renderLogsDayView(project, logs) {
         if (finance.overdue.length) {
             attention.push({ tone: 'danger', icon: 'badge-russian-ruble', title: 'Просрочены оплаты: ' + finance.overdue.length, text: 'В платёжном календаре просрочено ' + money(finance.overdueTotal) + '.', label: 'Разобрать', tab: 'finance' });
         }
+        if (missingInvoiceAlerts.length) {
+            var firstMissingInvoice = missingInvoiceAlerts.find(function (item) { return item.isPersonalAction; }) || missingInvoiceAlerts[0];
+            var missingInvoiceText = (firstMissingInvoice.title || 'Материал') + '. ' + reminderProcurementEvidenceText(firstMissingInvoice);
+            if (missingInvoiceAlerts.length > 1) missingInvoiceText += ' Ещё без счёта: ' + (missingInvoiceAlerts.length - 1) + '.';
+            attention.push({
+                tone: 'danger',
+                icon: 'receipt-text',
+                title: 'Нет счёта: ' + missingInvoiceAlerts.length,
+                text: missingInvoiceText,
+                label: reminderProcurementEvidenceLabel(firstMissingInvoice),
+                quickAction: 'document',
+                documentType: 'invoice',
+                estimateItemId: firstMissingInvoice.materialId,
+                materialTitle: firstMissingInvoice.title || ''
+            });
+        }
+        if (missingCostingAlerts.length) {
+            var firstMissingCosting = missingCostingAlerts.find(function (item) { return item.isPersonalResponsibility; }) || missingCostingAlerts[0];
+            var costingIsCritical = missingCostingAlerts.some(function (item) { return item.status === 'critical'; });
+            attention.push({
+                tone: costingIsCritical ? 'danger' : 'warning',
+                icon: 'calculator',
+                title: 'Нет просчёта цены: ' + missingCostingAlerts.length,
+                text: (firstMissingCosting.title || 'Материал') + '. ' + reminderProcurementEvidenceText(firstMissingCosting),
+                label: reminderProcurementEvidenceLabel(firstMissingCosting),
+                quickAction: 'document',
+                documentType: 'invoice',
+                estimateItemId: firstMissingCosting.materialId,
+                materialTitle: firstMissingCosting.title || ''
+            });
+        }
+        if (missingScheduleAlerts.length) {
+            var firstMissingSchedule = missingScheduleAlerts.find(function (item) { return item.isPersonalResponsibility; }) || missingScheduleAlerts[0];
+            attention.push({ tone: 'warning', icon: 'calendar-question', title: 'Не задан срок потребности: ' + missingScheduleAlerts.length, text: (firstMissingSchedule.title || 'Материал') + '. ' + reminderProcurementEvidenceText(firstMissingSchedule), label: reminderProcurementEvidenceLabel(firstMissingSchedule), tab: 'schedule' });
+        }
         if (criticalMaterials.length) {
-            attention.push({ tone: 'danger', icon: 'package-x', title: 'Не хватает материалов: ' + criticalMaterials.length, text: 'Потребность уже наступила. Проверьте заказ, поставщика и дату прихода.', label: 'К материалам', tab: 'warehouse-control' });
+            var criticalMaterialIds = {};
+            criticalMaterials.forEach(function (item) { criticalMaterialIds[String(item.id || '')] = true; });
+            var supplyCandidates = (Array.isArray(notifications.procurementAlerts) ? notifications.procurementAlerts : []).filter(function (item) {
+                return item.phase === 'order' && criticalMaterialIds[String(item.materialId || '')];
+            });
+            if (!supplyCandidates.length) {
+                supplyCandidates = (Array.isArray(notifications.shortageAlerts) ? notifications.shortageAlerts : []).filter(function (item) {
+                    return criticalMaterialIds[String(item.materialId || '')];
+                });
+            }
+            var firstSupplyAlert = supplyCandidates.find(function (item) { return item.isPersonalResponsibility; }) || supplyCandidates[0] || null;
+            var criticalSupplyText = firstSupplyAlert
+                ? ((firstSupplyAlert.title || 'Материал') + '. ' + (firstSupplyAlert.phase ? reminderProcurementText(firstSupplyAlert) : reminderShortageText(firstSupplyAlert)))
+                : 'Потребность уже наступила. Проверьте заказ, поставщика и дату прихода.';
+            attention.push({ tone: 'danger', icon: 'package-x', title: 'Не хватает материалов: ' + criticalMaterials.length, text: criticalSupplyText, label: firstSupplyAlert ? reminderProcurementOverviewActionLabel(firstSupplyAlert) : 'К материалам', tab: 'warehouse-control' });
         }
         if (overdueTasks.length) {
             attention.push({ tone: 'danger', icon: 'list-x', title: 'Просрочены задачи: ' + overdueTasks.length, text: 'Обновите срок или зафиксируйте результат — просрочка не должна висеть молча.', label: 'Разобрать', tab: 'tasks' });
         }
         if (notifications.missingDailyReport) {
-            attention.push({ tone: 'warning', icon: 'notebook-pen', title: 'За сегодня нет отчета', text: 'Вечером зафиксируйте объёмы, людей, технику, поставки, фото и блокеры.' });
+            var dailyReportAttention = { tone: 'warning', icon: 'notebook-pen', title: 'За сегодня нет отчета', text: 'Вечером зафиксируйте объёмы, людей, технику, поставки, фото и блокеры.' };
+            if (isForemanRole()) {
+                dailyReportAttention.label = 'Создать отчёт';
+                dailyReportAttention.quickAction = 'report';
+            } else {
+                dailyReportAttention.label = 'Открыть журнал';
+                dailyReportAttention.tab = 'reports';
+            }
+            attention.push(dailyReportAttention);
         }
-        if (!hasRole('customer') && (!hasForeman || !hasBuyer)) {
-            var missingRoles = [!hasForeman ? 'прораб' : '', !hasBuyer ? 'снабженец' : ''].filter(Boolean).join(' и ');
-            attention.push({ tone: 'warning', icon: 'users-round', title: 'Не назначен ' + missingRoles, text: 'У каждого рабочего контура должен быть конкретный ответственный.', label: 'Назначить', access: canManageProjectAccess(), tab: canManageProjectAccess() ? '' : 'tasks' });
+        if (!hasRole('customer') && !hasForeman) {
+            var missingRoles = !hasBuyer ? 'прораб и ответственный за закупку' : 'прораб';
+            attention.push({ tone: 'warning', icon: 'users-round', title: (!hasBuyer ? 'Не назначены ' : 'Не назначен ') + missingRoles, text: 'Закупку может вести отдельный снабженец или назначенный прораб.', label: 'Назначить', access: canManageProjectAccess(), tab: canManageProjectAccess() ? '' : 'tasks' });
         }
         if (onSiteMaterials.length && !hasDeliveryDocument) {
             attention.push({ tone: 'warning', icon: 'package-open', title: 'Приход есть, накладной нет', text: 'Материал уже числится на объекте. Приложите накладную или УПД как основание прихода.', label: 'Приложить', quickAction: 'document', documentType: 'delivery_note' });

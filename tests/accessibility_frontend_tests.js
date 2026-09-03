@@ -107,6 +107,7 @@ assert.match(routerJs, /tabs-a11y-30/);
 assert.match(routerJs, /drawer-a11y-30/);
 assert.match(routerJs, /warehouse-modal-a11y-2/);
 assert.match(routerJs, /safe-supplier-url-3/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*frontend-a11y-31/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 
 console.log('frontend_accessibility_contract_ok');

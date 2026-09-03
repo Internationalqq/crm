@@ -138,6 +138,39 @@ class DocumentManagementTests(unittest.TestCase):
                     (self.other_project_id, timestamp, timestamp),
                 ).lastrowid
             )
+            self.material_id = int(
+                con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price,
+                        item_kind, item_kind_override
+                    ) VALUES (?, 'Crushed stone', 't', 20, 1000, 'material', 'material')
+                    """,
+                    (self.project_id,),
+                ).lastrowid
+            )
+            self.foreign_material_id = int(
+                con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price,
+                        item_kind, item_kind_override
+                    ) VALUES (?, 'Foreign material', 't', 10, 500, 'material', 'material')
+                    """,
+                    (self.other_project_id,),
+                ).lastrowid
+            )
+            self.work_item_id = int(
+                con.execute(
+                    """
+                    INSERT INTO estimate_items (
+                        project_id, title, unit, planned_qty, planned_price,
+                        item_kind, item_kind_override
+                    ) VALUES (?, 'Install mesh', 'job', 1, 2000, 'work', 'work')
+                    """,
+                    (self.project_id,),
+                ).lastrowid
+            )
             con.commit()
         self.admin = {"id": self.admin_id, "role": "admin", "roles": [], "permissions": {"fullAccess": True}}
 
@@ -224,6 +257,42 @@ class DocumentManagementTests(unittest.TestCase):
             f"/api/projects/{self.project_id}/documents",
         )
         return handler
+
+    def _create_test_user(self, login: str, name: str, role: str = "foreman") -> int:
+        timestamp = server.now_ts()
+        with server.db() as con:
+            user_id = int(
+                con.execute(
+                    """
+                    INSERT INTO users (
+                        login, password_hash, role, name, status, is_active,
+                        created_at, updated_at
+                    ) VALUES (?, 'test-hash', ?, ?, 'active', 1, ?, ?)
+                    """,
+                    (login, role, name, timestamp, timestamp),
+                ).lastrowid
+            )
+            con.commit()
+        return user_id
+
+    def _notifications_for(self, user: dict) -> dict:
+        handler = FakeDocumentHandler(user)
+        communications_docs.api_project_notifications(
+            handler,
+            f"/api/projects/{self.project_id}/notifications",
+        )
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        return handler.response
+
+    def _material_notification_alerts(self, response: dict) -> list[dict]:
+        return [
+            next(
+                item
+                for item in response[key]
+                if item["materialId"] == self.material_id
+            )
+            for key in ("procurementAlerts", "shortageAlerts")
+        ]
 
     def test_update_persists_metadata_preserves_file_fields_and_audits(self) -> None:
         document_id, file_path = self._insert_document()
@@ -411,6 +480,20 @@ class DocumentManagementTests(unittest.TestCase):
         self.assertEqual(document_count, 0)
         self.assertEqual([path for path in self.documents_dir.rglob("*") if path.is_file()], [])
 
+    def test_upload_rejects_executable_and_script_files_before_writing(self) -> None:
+        for filename in ("payload.exe", "maintenance.py", "installer.ps1", "macro.js"):
+            with self.subTest(filename=filename):
+                result = self._upload(
+                    file=SimpleNamespace(
+                        file=io.BytesIO(b"untrusted executable content"),
+                        filename=filename,
+                        type="application/octet-stream",
+                    )
+                )
+                self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+                self.assertEqual(result.response["error"], "unsupported_file_type")
+        self.assertEqual([path for path in self.documents_dir.rglob("*") if path.is_file()], [])
+
     def test_uploaded_relative_file_can_be_deleted(self) -> None:
         upload_result = self._upload(stage_id=self.stage_id)
 
@@ -426,6 +509,874 @@ class DocumentManagementTests(unittest.TestCase):
         self.assertEqual(delete_result.status, HTTPStatus.OK)
         self.assertTrue(delete_result.response["file_deleted"])
         self.assertFalse(file_path.exists())
+
+    def test_upload_procurement_invoice_persists_metadata_and_is_always_internal(self) -> None:
+        timestamp = server.now_ts()
+        with server.db() as con:
+            con.execute(
+                """
+                INSERT INTO supplier_offers (
+                    project_id, estimate_item_id, candidate_type, candidate_name,
+                    price, qty, status, created_at, updated_at
+                ) VALUES (?, ?, 'supplier', 'Stone Supplier LLC', 625, 20,
+                          'selected', ?, ?)
+                """,
+                (self.project_id, self.material_id, timestamp, timestamp),
+            )
+            con.commit()
+        result = self._upload(
+            doc_type="invoice",
+            estimate_item_id=str(self.material_id),
+            counterparty_name="Stone Supplier LLC",
+            document_number="INV-42",
+            document_date="2026-08-28",
+            amount="12500.50",
+            is_client_visible="1",
+        )
+
+        self.assertEqual(result.status, HTTPStatus.CREATED)
+        document = result.response["document"]
+        self.assertEqual(document["estimate_item_id"], self.material_id)
+        self.assertEqual(document["estimate_item_title"], "Crushed stone")
+        self.assertEqual(document["counterparty_name"], "Stone Supplier LLC")
+        self.assertEqual(document["document_number"], "INV-42")
+        self.assertEqual(document["document_date"], "2026-08-28")
+        self.assertEqual(document["amount"], 12500.5)
+        self.assertEqual(document["is_client_visible"], 0)
+
+        list_handler = FakeDocumentHandler(self.admin)
+        communications_docs.api_project_documents(
+            list_handler,
+            f"/api/projects/{self.project_id}/documents",
+        )
+
+        self.assertEqual(list_handler.status, HTTPStatus.OK)
+        self.assertEqual(
+            list_handler.response["documents"][0]["estimate_item_title"],
+            "Crushed stone",
+        )
+        self.assertIn(
+            {"id": self.material_id, "title": "Crushed stone", "unit": "t"},
+            list_handler.response["procurementMaterials"],
+        )
+        self.assertNotIn(
+            self.work_item_id,
+            {
+                item["id"]
+                for item in list_handler.response["procurementMaterials"]
+            },
+        )
+        with server.db() as con:
+            material = next(
+                item
+                for item in communications_docs.material_summary_rows(
+                    con,
+                    self.project_id,
+                    include_procurement_evidence=True,
+                    include_supplier_selection=True,
+                    include_procurement_details=True,
+                )
+                if item["id"] == self.material_id
+            )
+        self.assertTrue(material["invoiceAttached"])
+        self.assertEqual(material["invoiceCount"], 1)
+        self.assertEqual(material["latestInvoice"]["documentNumber"], "INV-42")
+        self.assertEqual(material["latestInvoice"]["amount"], 12500.5)
+        self.assertTrue(material["selectedSupplierOffer"])
+        self.assertEqual(
+            material["selectedSupplierOfferName"],
+            "Stone Supplier LLC",
+        )
+        self.assertTrue(material["selectedSupplierOfferHasPrice"])
+
+        visibility_update = self._update(
+            int(document["id"]),
+            {"is_client_visible": True},
+        )
+        self.assertEqual(visibility_update.status, HTTPStatus.OK)
+        self.assertEqual(
+            visibility_update.response["document"]["is_client_visible"],
+            0,
+        )
+        customer = {"id": self.admin_id, "role": "customer", "roles": []}
+        customer_list = FakeDocumentHandler(customer)
+        communications_docs.api_project_documents(
+            customer_list,
+            f"/api/projects/{self.project_id}/documents",
+        )
+        self.assertEqual(customer_list.status, HTTPStatus.OK)
+        self.assertEqual(customer_list.response["documents"], [])
+        self.assertEqual(customer_list.response["procurementMaterials"], [])
+
+    def test_upd_and_cash_receipt_also_close_procurement_evidence(self) -> None:
+        for doc_type in ("upd", "cash_receipt"):
+            result = self._upload(
+                doc_type=doc_type,
+                estimate_item_id=str(self.material_id),
+                counterparty_name="Supplier",
+                amount="1000",
+            )
+            self.assertEqual(result.status, HTTPStatus.CREATED)
+
+        with server.db() as con:
+            material = next(
+                item
+                for item in communications_docs.material_summary_rows(
+                    con,
+                    self.project_id,
+                    include_procurement_evidence=True,
+                )
+                if item["id"] == self.material_id
+            )
+        self.assertTrue(material["invoiceAttached"])
+        self.assertEqual(material["invoiceCount"], 2)
+
+    def test_upload_rejects_cross_project_and_work_estimate_items_before_file_write(self) -> None:
+        foreign = self._upload(
+            doc_type="invoice",
+            estimate_item_id=self.foreign_material_id,
+        )
+        work = self._upload(
+            doc_type="invoice",
+            estimate_item_id=self.work_item_id,
+        )
+
+        self.assertEqual(foreign.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(
+            foreign.response["error"],
+            "document_material_not_found",
+        )
+        self.assertEqual(work.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(
+            work.response["error"],
+            "document_material_not_found",
+        )
+        with server.db() as con:
+            document_count = con.execute(
+                "SELECT COUNT(*) FROM documents WHERE project_id = ?",
+                (self.project_id,),
+            ).fetchone()[0]
+        self.assertEqual(document_count, 0)
+        self.assertEqual(
+            [path for path in self.documents_dir.rglob("*") if path.is_file()],
+            [],
+        )
+
+    def test_upload_rejects_invalid_procurement_metadata(self) -> None:
+        invalid_amount = self._upload(amount="NaN")
+        invalid_date = self._upload(document_date="28.08.2026")
+        long_counterparty = self._upload(counterparty_name="x" * 241)
+        long_number = self._upload(document_number="x" * 121)
+
+        self.assertEqual(invalid_amount.response["error"], "bad_document_amount")
+        self.assertEqual(invalid_date.response["error"], "bad_document_date")
+        self.assertEqual(
+            long_counterparty.response["error"],
+            "document_counterparty_too_long",
+        )
+        self.assertEqual(
+            long_number.response["error"],
+            "document_number_too_long",
+        )
+
+    def test_material_need_date_uses_persisted_production_signal_without_writes(self) -> None:
+        timestamp = server.now_ts()
+        with server.db() as con:
+            con.execute(
+                "UPDATE projects SET started_at = '2026-09-01' WHERE id = ?",
+                (self.project_id,),
+            )
+            con.execute(
+                "UPDATE work_stages SET planned_start = '2026-10-01' WHERE id = ?",
+                (self.stage_id,),
+            )
+            con.execute(
+                "UPDATE estimate_items SET stage_id = ? WHERE id = ?",
+                (self.stage_id, self.material_id),
+            )
+            con.execute(
+                """
+                INSERT INTO production_schedule_operations (
+                    project_id, generation_key, title, auto_duration_days,
+                    position, status, created_at, updated_at
+                ) VALUES (?, 'prep', 'Preparation', 1.5, 1, 'confirmed', ?, ?)
+                """,
+                (self.project_id, timestamp, timestamp),
+            )
+            operation_id = int(
+                con.execute(
+                    """
+                    INSERT INTO production_schedule_operations (
+                        project_id, generation_key, title, auto_duration_days,
+                        position, status, created_at, updated_at
+                    ) VALUES (?, 'material', 'Material operation', 1, 2,
+                              'confirmed', ?, ?)
+                    """,
+                    (self.project_id, timestamp, timestamp),
+                ).lastrowid
+            )
+            con.execute(
+                """
+                INSERT INTO production_schedule_operation_estimate_links (
+                    operation_id, estimate_item_id, link_role, created_at
+                ) VALUES (?, ?, 'material_signal', ?)
+                """,
+                (operation_id, self.material_id, timestamp),
+            )
+            con.commit()
+            before_changes = con.total_changes
+            material = next(
+                item
+                for item in communications_docs.material_summary_rows(
+                    con,
+                    self.project_id,
+                )
+                if item["id"] == self.material_id
+            )
+            after_changes = con.total_changes
+
+            self.assertEqual(before_changes, after_changes)
+            self.assertEqual(material["needByDate"], "2026-09-02")
+            self.assertEqual(material["needDateSource"], "production")
+            self.assertEqual(material["productionNeedByDate"], "2026-09-02")
+
+            con.execute(
+                "UPDATE estimate_items SET need_by_date = '2026-09-15' WHERE id = ?",
+                (self.material_id,),
+            )
+            con.commit()
+            explicit_material = next(
+                item
+                for item in communications_docs.material_summary_rows(
+                    con,
+                    self.project_id,
+                )
+                if item["id"] == self.material_id
+            )
+        self.assertEqual(explicit_material["needByDate"], "2026-09-15")
+        self.assertEqual(explicit_material["needDateSource"], "explicit")
+
+    def test_materials_summary_hides_procurement_details_by_role(self) -> None:
+        upload = self._upload(
+            doc_type="invoice",
+            estimate_item_id=self.material_id,
+            counterparty_name="Private Supplier",
+            amount="9999",
+        )
+        self.assertEqual(upload.status, HTTPStatus.CREATED)
+        timestamp = server.now_ts()
+        with server.db() as con:
+            con.execute(
+                """
+                INSERT INTO supplier_offers (
+                    project_id, estimate_item_id, candidate_type, candidate_name,
+                    price, qty, status, created_at, updated_at
+                ) VALUES (?, ?, 'supplier', 'Private Supplier', 999.9, 10,
+                          'selected', ?, ?)
+                """,
+                (self.project_id, self.material_id, timestamp, timestamp),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at, source_type
+                ) VALUES (?, ?, 'purchase', 1, 999.9, ?, ?, 'manual')
+                """,
+                (self.project_id, self.material_id, self.admin_id, timestamp),
+            )
+            con.commit()
+
+        def summary_for(role: str) -> dict:
+            user = {"id": self.admin_id, "role": role, "roles": [role]}
+            handler = FakeDocumentHandler(user)
+            server.PMBIHandler.api_materials_summary(
+                handler,
+                f"/api/projects/{self.project_id}/materials-summary",
+            )
+            self.assertEqual(handler.status, HTTPStatus.OK)
+            return next(
+                item
+                for item in handler.response["items"]
+                if item["id"] == self.material_id
+            )
+
+        customer_material = summary_for("customer")
+        foreman_material = summary_for("foreman")
+        director_material = summary_for("director")
+
+        for field in (
+            "invoiceAttached",
+            "invoiceCount",
+            "procurementActorId",
+            "procurementActorName",
+            "procurementActorAction",
+            "procurementActorIds",
+            "latestInvoice",
+            "selectedSupplierOffer",
+            "selectedSupplierOfferName",
+            "selectedSupplierOfferHasPrice",
+        ):
+            self.assertNotIn(field, customer_material)
+        self.assertTrue(foreman_material["invoiceAttached"])
+        self.assertEqual(foreman_material["invoiceCount"], 1)
+        self.assertEqual(foreman_material["procurementActorId"], self.admin_id)
+        self.assertEqual(foreman_material["procurementActorIds"], [self.admin_id])
+        self.assertEqual(foreman_material["procurementActorName"], "")
+        self.assertNotIn("latestInvoice", foreman_material)
+        self.assertNotIn("selectedSupplierOffer", foreman_material)
+        self.assertNotIn("selectedSupplierOfferName", foreman_material)
+        self.assertTrue(director_material["invoiceAttached"])
+        self.assertEqual(
+            director_material["latestInvoice"]["counterpartyName"],
+            "Private Supplier",
+        )
+        self.assertEqual(director_material["procurementActorId"], self.admin_id)
+        self.assertTrue(director_material["procurementActorName"])
+        self.assertEqual(director_material["latestInvoice"]["amount"], 9999.0)
+        self.assertTrue(director_material["selectedSupplierOffer"])
+        self.assertEqual(
+            director_material["selectedSupplierOfferName"],
+            "Private Supplier",
+        )
+
+    def test_notifications_require_invoice_after_purchase_and_clear_after_upload(self) -> None:
+        timestamp = server.now_ts()
+        with server.db() as con:
+            purchaser_id = int(
+                con.execute(
+                    """
+                    INSERT INTO users (
+                        login, password_hash, role, name, status, is_active,
+                        created_at, updated_at
+                    ) VALUES ('nikita-purchaser', 'test-hash', 'foreman',
+                              'Никита Прораб', 'active', 1, ?, ?)
+                    """,
+                    (timestamp, timestamp),
+                ).lastrowid
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at
+                ) VALUES (?, ?, 'purchase', 20, 1000, ?, ?)
+                """,
+                (self.project_id, self.material_id, purchaser_id, timestamp),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at
+                ) VALUES (?, ?, 'receipt', 20, 0, ?, ?)
+                """,
+                (self.project_id, self.material_id, self.admin_id, timestamp + 1),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at
+                ) VALUES (?, ?, 'receipt', 1, 0, ?, ?)
+                """,
+                (self.project_id, self.material_id, purchaser_id, timestamp + 2),
+            )
+            con.commit()
+
+        before_upload = FakeDocumentHandler(self.admin)
+        communications_docs.api_project_notifications(
+            before_upload,
+            f"/api/projects/{self.project_id}/notifications",
+        )
+
+        self.assertEqual(before_upload.status, HTTPStatus.OK)
+        missing_invoice = [
+            item
+            for item in before_upload.response["procurementEvidenceAlerts"]
+            if item["evidenceKind"] == "missing_invoice"
+            and item["materialId"] == self.material_id
+        ]
+        self.assertEqual(len(missing_invoice), 1)
+        self.assertEqual(missing_invoice[0]["status"], "critical")
+        self.assertEqual(missing_invoice[0]["responsibleUserId"], purchaser_id)
+        self.assertEqual(missing_invoice[0]["responsibleUserName"], "Никита Прораб")
+        self.assertEqual(missing_invoice[0]["responsibleUserIds"], [purchaser_id])
+        self.assertFalse(missing_invoice[0]["isPersonalAction"])
+        self.assertEqual(
+            before_upload.response["procurementEvidenceSummary"]["missingInvoice"],
+            1,
+        )
+
+        purchaser = {
+            "id": purchaser_id,
+            "role": "foreman",
+            "roles": ["foreman"],
+            "permissions": {},
+        }
+        purchaser_notifications = FakeDocumentHandler(purchaser)
+        communications_docs.api_project_notifications(
+            purchaser_notifications,
+            f"/api/projects/{self.project_id}/notifications",
+        )
+        purchaser_alert = next(
+            item
+            for item in purchaser_notifications.response["procurementEvidenceAlerts"]
+            if item["evidenceKind"] == "missing_invoice"
+            and item["materialId"] == self.material_id
+        )
+        self.assertTrue(purchaser_alert["isPersonalAction"])
+        self.assertEqual(purchaser_alert["responsibleUserId"], purchaser_id)
+        self.assertEqual(purchaser_alert["responsibleUserName"], "")
+        self.assertEqual(purchaser_alert["responsibleUserIds"], [purchaser_id])
+
+        other_foreman_notifications = FakeDocumentHandler(
+            {
+                "id": purchaser_id + 10_000,
+                "role": "foreman",
+                "roles": ["foreman"],
+                "permissions": {},
+            }
+        )
+        communications_docs.api_project_notifications(
+            other_foreman_notifications,
+            f"/api/projects/{self.project_id}/notifications",
+        )
+        other_foreman_alert = next(
+            item
+            for item in other_foreman_notifications.response["procurementEvidenceAlerts"]
+            if item["evidenceKind"] == "missing_invoice"
+            and item["materialId"] == self.material_id
+        )
+        self.assertFalse(other_foreman_alert["isPersonalAction"])
+        self.assertIsNone(other_foreman_alert["responsibleUserId"])
+        self.assertEqual(other_foreman_alert["responsibleUserName"], "")
+        self.assertEqual(other_foreman_alert["responsibleUserIds"], [])
+
+        upload = self._upload(
+            doc_type="invoice",
+            estimate_item_id=self.material_id,
+            counterparty_name="Stone Supplier LLC",
+            amount="20000",
+        )
+        self.assertEqual(upload.status, HTTPStatus.CREATED)
+
+        after_upload = FakeDocumentHandler(self.admin)
+        communications_docs.api_project_notifications(
+            after_upload,
+            f"/api/projects/{self.project_id}/notifications",
+        )
+        self.assertEqual(after_upload.status, HTTPStatus.OK)
+        self.assertFalse(
+            any(
+                item["evidenceKind"] == "missing_invoice"
+                and item["materialId"] == self.material_id
+                for item in after_upload.response["procurementEvidenceAlerts"]
+            )
+        )
+        self.assertEqual(
+            after_upload.response["procurementEvidenceSummary"]["missingInvoice"],
+            0,
+        )
+
+    def test_procurement_notifications_prefer_purchaser_and_redact_by_audience(self) -> None:
+        purchaser_id = self._create_test_user(
+            "assigned-purchaser",
+            "Павел Закупщик",
+        )
+        foreman_id = self._create_test_user(
+            "assigned-foreman-observer",
+            "Никита Прораб",
+        )
+        timestamp = server.now_ts()
+        today = str(communications_docs.build_attention_clock()["today"])
+        with server.db() as con:
+            con.execute(
+                """
+                UPDATE estimate_items
+                SET stage_id = ?, need_by_date = ?, delivery_days = 2
+                WHERE id = ?
+                """,
+                (self.stage_id, today, self.material_id),
+            )
+            con.execute(
+                """
+                INSERT INTO object_assignments (
+                    object_id, user_id, role_code, responsibility, is_primary,
+                    assigned_by, assigned_at
+                ) VALUES (?, ?, 'foreman', 'Производство', 1, ?, ?)
+                """,
+                (self.project_id, foreman_id, self.admin_id, timestamp),
+            )
+            con.execute(
+                """
+                INSERT INTO object_assignments (
+                    object_id, user_id, role_code, responsibility, is_primary,
+                    assigned_by, assigned_at
+                ) VALUES (?, ?, 'purchaser', 'Закупки', 0, ?, ?)
+                """,
+                (self.project_id, purchaser_id, self.admin_id, timestamp + 1),
+            )
+            con.commit()
+
+        director_alerts = self._material_notification_alerts(
+            self._notifications_for(self.admin)
+        )
+        for alert in director_alerts:
+            self.assertEqual(alert["notificationAudience"], "supervisor")
+            self.assertTrue(alert["isSupervisorView"])
+            self.assertFalse(alert["isPersonalResponsibility"])
+            self.assertFalse(alert["isPersonalAction"])
+            self.assertFalse(alert["needsAssignment"])
+            self.assertEqual(alert["responsibleUserId"], purchaser_id)
+            self.assertEqual(alert["responsibleUserName"], "Павел Закупщик")
+            self.assertEqual(alert["responsibleUserIds"], [purchaser_id])
+            self.assertEqual(alert["responsibleRole"], "purchaser")
+            self.assertEqual(alert["responsibilitySource"], "project_purchaser")
+
+        purchaser = {
+            "id": purchaser_id,
+            "role": "foreman",
+            "roles": ["foreman", "purchaser"],
+            "permissions": {},
+        }
+        purchaser_alerts = self._material_notification_alerts(
+            self._notifications_for(purchaser)
+        )
+        for alert in purchaser_alerts:
+            self.assertEqual(alert["notificationAudience"], "assignee")
+            self.assertFalse(alert["isSupervisorView"])
+            self.assertTrue(alert["isPersonalResponsibility"])
+            self.assertFalse(alert["isPersonalAction"])
+            self.assertFalse(alert["needsAssignment"])
+            self.assertEqual(alert["responsibleUserId"], purchaser_id)
+            self.assertEqual(alert["responsibleUserName"], "")
+            self.assertEqual(alert["responsibleUserIds"], [purchaser_id])
+
+        foreman_observer = {
+            "id": foreman_id,
+            "role": "foreman",
+            "roles": ["foreman"],
+            "permissions": {},
+        }
+        observer_alerts = self._material_notification_alerts(
+            self._notifications_for(foreman_observer)
+        )
+        for alert in observer_alerts:
+            self.assertEqual(alert["notificationAudience"], "observer")
+            self.assertFalse(alert["isSupervisorView"])
+            self.assertFalse(alert["isPersonalResponsibility"])
+            self.assertFalse(alert["isPersonalAction"])
+            self.assertFalse(alert["needsAssignment"])
+            self.assertIsNone(alert["responsibleUserId"])
+            self.assertEqual(alert["responsibleUserName"], "")
+            self.assertEqual(alert["responsibleUserIds"], [])
+
+    def test_procurement_notifications_fall_back_to_foreman_then_require_assignment(self) -> None:
+        foreman_id = self._create_test_user(
+            "fallback-foreman",
+            "Никита Прораб",
+        )
+        timestamp = server.now_ts()
+        today = str(communications_docs.build_attention_clock()["today"])
+        with server.db() as con:
+            con.execute(
+                "UPDATE estimate_items SET need_by_date = ? WHERE id = ?",
+                (today, self.material_id),
+            )
+            con.execute(
+                """
+                INSERT INTO object_assignments (
+                    object_id, user_id, role_code, responsibility, is_primary,
+                    assigned_by, assigned_at
+                ) VALUES (?, ?, 'foreman', 'Производство и закупки', 1, ?, ?)
+                """,
+                (self.project_id, foreman_id, self.admin_id, timestamp),
+            )
+            con.commit()
+
+        director_alerts = self._material_notification_alerts(
+            self._notifications_for(self.admin)
+        )
+        for alert in director_alerts:
+            self.assertEqual(alert["notificationAudience"], "supervisor")
+            self.assertEqual(alert["responsibleUserId"], foreman_id)
+            self.assertEqual(alert["responsibleUserName"], "Никита Прораб")
+            self.assertEqual(alert["responsibleRole"], "foreman")
+            self.assertEqual(alert["responsibilitySource"], "project_foreman")
+            self.assertFalse(alert["needsAssignment"])
+
+        foreman = {
+            "id": foreman_id,
+            "role": "foreman",
+            "roles": ["foreman"],
+            "permissions": {},
+        }
+        foreman_alerts = self._material_notification_alerts(
+            self._notifications_for(foreman)
+        )
+        for alert in foreman_alerts:
+            self.assertEqual(alert["notificationAudience"], "assignee")
+            self.assertTrue(alert["isPersonalResponsibility"])
+            self.assertEqual(alert["responsibleUserId"], foreman_id)
+            self.assertEqual(alert["responsibleUserName"], "")
+
+        with server.db() as con:
+            con.execute(
+                "DELETE FROM object_assignments WHERE object_id = ?",
+                (self.project_id,),
+            )
+            con.execute(
+                "UPDATE projects SET buyer_id = NULL, foreman_id = NULL WHERE id = ?",
+                (self.project_id,),
+            )
+            con.commit()
+
+        unassigned_alerts = self._material_notification_alerts(
+            self._notifications_for(self.admin)
+        )
+        for alert in unassigned_alerts:
+            self.assertEqual(alert["notificationAudience"], "supervisor")
+            self.assertTrue(alert["needsAssignment"])
+            self.assertFalse(alert["isPersonalResponsibility"])
+            self.assertIsNone(alert["responsibleUserId"])
+            self.assertEqual(alert["responsibleUserName"], "")
+            self.assertEqual(alert["responsibleUserIds"], [])
+            self.assertEqual(alert["responsibilitySource"], "unassigned")
+
+    def test_missing_invoice_stays_owned_by_purchase_actor_not_project_purchaser(self) -> None:
+        assigned_purchaser_id = self._create_test_user(
+            "project-purchaser",
+            "Павел Закупщик",
+        )
+        purchase_actor_id = self._create_test_user(
+            "purchase-recorder",
+            "Никита Прораб",
+        )
+        timestamp = server.now_ts()
+        with server.db() as con:
+            con.execute(
+                """
+                INSERT INTO object_assignments (
+                    object_id, user_id, role_code, responsibility, is_primary,
+                    assigned_by, assigned_at
+                ) VALUES (?, ?, 'buyer', 'Закупки', 1, ?, ?)
+                """,
+                (
+                    self.project_id,
+                    assigned_purchaser_id,
+                    self.admin_id,
+                    timestamp,
+                ),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at, source_type
+                ) VALUES (?, ?, 'purchase', 20, 1000, ?, ?, 'manual')
+                """,
+                (
+                    self.project_id,
+                    self.material_id,
+                    purchase_actor_id,
+                    timestamp + 1,
+                ),
+            )
+            con.commit()
+
+        director_alert = next(
+            item
+            for item in self._notifications_for(self.admin)["procurementEvidenceAlerts"]
+            if item["evidenceKind"] == "missing_invoice"
+            and item["materialId"] == self.material_id
+        )
+        self.assertEqual(director_alert["notificationAudience"], "supervisor")
+        self.assertEqual(director_alert["responsibleUserId"], purchase_actor_id)
+        self.assertEqual(director_alert["responsibleUserName"], "Никита Прораб")
+        self.assertEqual(director_alert["responsibleRole"], "procurement_actor")
+        self.assertEqual(director_alert["responsibilitySource"], "purchase_actor")
+        self.assertFalse(director_alert["isPersonalAction"])
+        self.assertFalse(director_alert["isPersonalResponsibility"])
+
+        purchase_actor = {
+            "id": purchase_actor_id,
+            "role": "foreman",
+            "roles": ["foreman"],
+            "permissions": {},
+        }
+        actor_alert = next(
+            item
+            for item in self._notifications_for(purchase_actor)["procurementEvidenceAlerts"]
+            if item["evidenceKind"] == "missing_invoice"
+            and item["materialId"] == self.material_id
+        )
+        self.assertEqual(actor_alert["notificationAudience"], "assignee")
+        self.assertTrue(actor_alert["isPersonalAction"])
+        self.assertFalse(actor_alert["isPersonalResponsibility"])
+        self.assertEqual(actor_alert["responsibleUserId"], purchase_actor_id)
+        self.assertEqual(actor_alert["responsibleUserName"], "")
+
+        assigned_purchaser = {
+            "id": assigned_purchaser_id,
+            "role": "foreman",
+            "roles": ["foreman", "purchaser"],
+            "permissions": {},
+        }
+        purchaser_alert = next(
+            item
+            for item in self._notifications_for(assigned_purchaser)["procurementEvidenceAlerts"]
+            if item["evidenceKind"] == "missing_invoice"
+            and item["materialId"] == self.material_id
+        )
+        self.assertEqual(purchaser_alert["notificationAudience"], "observer")
+        self.assertFalse(purchaser_alert["isPersonalAction"])
+        self.assertFalse(purchaser_alert["isPersonalResponsibility"])
+        self.assertIsNone(purchaser_alert["responsibleUserId"])
+        self.assertEqual(purchaser_alert["responsibleUserName"], "")
+        self.assertEqual(purchaser_alert["responsibleUserIds"], [])
+
+    def test_customer_role_suppresses_procurement_identity_even_with_internal_role(self) -> None:
+        purchaser_id = self._create_test_user(
+            "customer-hidden-purchaser",
+            "Скрытый Закупщик",
+        )
+        timestamp = server.now_ts()
+        today = str(communications_docs.build_attention_clock()["today"])
+        with server.db() as con:
+            con.execute(
+                "UPDATE estimate_items SET need_by_date = ? WHERE id = ?",
+                (today, self.material_id),
+            )
+            con.execute(
+                """
+                INSERT INTO object_assignments (
+                    object_id, user_id, role_code, responsibility, is_primary,
+                    assigned_by, assigned_at
+                ) VALUES (?, ?, 'purchaser', 'Закупки', 1, ?, ?)
+                """,
+                (self.project_id, purchaser_id, self.admin_id, timestamp),
+            )
+            con.commit()
+
+        mixed_customer = {
+            "id": self.admin_id,
+            "role": "customer",
+            "roles": ["customer", "director"],
+            "permissions": {"fullAccess": True},
+        }
+        response = self._notifications_for(mixed_customer)
+        self.assertEqual(response["procurementAlerts"], [])
+        self.assertEqual(response["shortageAlerts"], [])
+        self.assertEqual(response["procurementEvidenceAlerts"], [])
+
+    def test_reversed_purchase_actor_is_ignored_and_receipt_actor_is_used(self) -> None:
+        timestamp = server.now_ts()
+        with server.db() as con:
+            recorder_id = int(
+                con.execute(
+                    """
+                    INSERT INTO users (
+                        login, password_hash, role, name, status, is_active,
+                        created_at, updated_at
+                    ) VALUES ('reversed-recorder', 'test-hash', 'foreman',
+                              'Отменённый автор', 'active', 1, ?, ?)
+                    """,
+                    (timestamp, timestamp),
+                ).lastrowid
+            )
+            original_move_id = int(
+                con.execute(
+                    """
+                    INSERT INTO stock_moves (
+                        project_id, estimate_item_id, move_type, qty, price,
+                        created_by, created_at, source_type
+                    ) VALUES (?, ?, 'purchase', 5, 1000, ?, ?, 'manual')
+                    """,
+                    (self.project_id, self.material_id, recorder_id, timestamp),
+                ).lastrowid
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at, source_type, source_id
+                ) VALUES (?, ?, 'purchase', -5, 0, ?, ?,
+                          'stock_move_reversal', ?)
+                """,
+                (
+                    self.project_id,
+                    self.material_id,
+                    self.admin_id,
+                    timestamp + 1,
+                    original_move_id,
+                ),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at, source_type
+                ) VALUES (?, ?, 'receipt', 5, 0, ?, ?, 'manual')
+                """,
+                (self.project_id, self.material_id, self.admin_id, timestamp + 2),
+            )
+            con.execute(
+                """
+                INSERT INTO stock_moves (
+                    project_id, estimate_item_id, move_type, qty, price,
+                    created_by, created_at, source_type, source_id
+                ) VALUES (?, ?, 'receipt', 1, 0, ?, ?,
+                          'legacy_purchase_receipt_backfill', 99)
+                """,
+                (self.project_id, self.material_id, recorder_id, timestamp + 3),
+            )
+            con.commit()
+            material = next(
+                item
+                for item in communications_docs.material_summary_rows(
+                    con,
+                    self.project_id,
+                    include_procurement_evidence=True,
+                )
+                if item["id"] == self.material_id
+            )
+
+        self.assertEqual(material["purchasedQty"], 0)
+        self.assertEqual(material["receivedQty"], 6)
+        self.assertEqual(material["procurementActorId"], self.admin_id)
+        self.assertEqual(material["procurementActorAction"], "receipt")
+        self.assertEqual(material["procurementActorIds"], [self.admin_id])
+
+    def test_material_summary_tolerates_legacy_documents_schema(self) -> None:
+        with server.db() as con:
+            con.execute("PRAGMA foreign_keys = OFF")
+            con.execute("DROP TABLE documents")
+            con.execute(
+                """
+                CREATE TABLE documents (
+                    id INTEGER PRIMARY KEY,
+                    project_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    doc_type TEXT NOT NULL,
+                    storage_path TEXT
+                )
+                """
+            )
+            material = next(
+                item
+                for item in communications_docs.material_summary_rows(
+                    con,
+                    self.project_id,
+                    include_procurement_evidence=True,
+                    include_procurement_details=True,
+                )
+                if item["id"] == self.material_id
+            )
+
+        self.assertFalse(material["invoiceAttached"])
+        self.assertEqual(material["invoiceCount"], 0)
+        self.assertIsNone(material["latestInvoice"])
 
     def test_accepted_status_is_ready_for_executive_checklist(self) -> None:
         self.assertTrue(communications_docs.executive_ready_status("accepted"))

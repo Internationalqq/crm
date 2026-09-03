@@ -157,14 +157,14 @@ class AuthPasswordTests(unittest.TestCase):
         self.create_session(user_id, "other-token")
 
         handler = FakeHandler(
-            {"currentPassword": "old-pass-1", "newPassword": "new-pass-1"},
+            {"currentPassword": "old-pass-1", "newPassword": "new-pass-1234"},
             token="current-token",
         )
         auth.api_change_password(handler)
 
         self.assertEqual(handler.status, HTTPStatus.OK)
         row = self.user_row()
-        self.assertTrue(auth.verify_password("new-pass-1", row["password_hash"]))
+        self.assertTrue(auth.verify_password("new-pass-1234", row["password_hash"]))
         self.assertFalse(auth.verify_password("old-pass-1", row["password_hash"]))
         self.assertEqual(self.session_count(), 1)
 
@@ -173,7 +173,7 @@ class AuthPasswordTests(unittest.TestCase):
         self.create_session(user_id, "current-token")
 
         handler = FakeHandler(
-            {"currentPassword": "wrong-pass", "newPassword": "new-pass-1"},
+            {"currentPassword": "wrong-pass", "newPassword": "new-pass-1234"},
             token="current-token",
         )
         auth.api_change_password(handler)
@@ -182,13 +182,28 @@ class AuthPasswordTests(unittest.TestCase):
         row = self.user_row()
         self.assertTrue(auth.verify_password("old-pass-1", row["password_hash"]))
 
-    def test_password_reset_sends_temporary_password_and_clears_sessions(self) -> None:
+    def test_change_password_rejects_password_shorter_than_twelve_characters(self) -> None:
+        user_id = self.create_user()
+        self.create_session(user_id, "current-token")
+
+        handler = FakeHandler(
+            {"currentPassword": "old-pass-1", "newPassword": "only-ten-1"},
+            token="current-token",
+        )
+        auth.api_change_password(handler)
+
+        self.assertEqual(handler.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(handler.response["error"], "password_too_short")
+        self.assertIn("12", handler.response["message"])
+        self.assertTrue(auth.verify_password("old-pass-1", self.user_row()["password_hash"]))
+
+    def test_password_reset_request_sends_token_without_changing_password_or_sessions(self) -> None:
         user_id = self.create_user()
         self.create_session(user_id, "current-token")
         sent = {}
 
-        def fake_send(email: str, login: str, temporary_password: str) -> None:
-            sent.update({"email": email, "login": login, "password": temporary_password})
+        def fake_send(email: str, login: str, reset_token: str) -> None:
+            sent.update({"email": email, "login": login, "token": reset_token})
 
         auth.PMBI_SMTP_HOST = "smtp.example.com"
         auth.PMBI_SMTP_FROM = "robot@example.com"
@@ -198,12 +213,47 @@ class AuthPasswordTests(unittest.TestCase):
         auth.api_request_password_reset(handler)
 
         self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertIn("Если такой email", handler.response["message"])
         self.assertEqual(sent["email"], "worker@example.com")
         self.assertEqual(sent["login"], "worker")
-        self.assertTrue(auth.verify_password(sent["password"], self.user_row()["password_hash"]))
-        self.assertEqual(self.session_count(), 0)
+        self.assertTrue(auth.verify_password("old-pass-1", self.user_row()["password_hash"]))
+        self.assertEqual(self.session_count(), 1)
+        with auth.db() as con:
+            row = con.execute("SELECT * FROM password_reset_tokens").fetchone()
+        self.assertEqual(row["user_id"], user_id)
+        self.assertEqual(row["token_hash"], auth.token_hash(sent["token"]))
+        self.assertNotEqual(row["token_hash"], sent["token"])
+        self.assertGreater(row["expires_at"], row["created_at"])
+        self.assertIsNone(row["used_at"])
 
-    def test_password_reset_does_not_reveal_unknown_email(self) -> None:
+    def test_password_reset_delivery_failure_is_generic_and_non_destructive(self) -> None:
+        user_id = self.create_user()
+        self.create_session(user_id, "current-token")
+
+        def fake_send(email: str, login: str, reset_token: str) -> None:
+            raise RuntimeError("provider unavailable")
+
+        auth.PMBI_SMTP_HOST = "smtp.example.com"
+        auth.PMBI_SMTP_FROM = "robot@example.com"
+        auth.send_password_reset_email = fake_send
+        handler = FakeHandler({"email": "worker@example.com"})
+
+        auth.api_request_password_reset(handler)
+
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertTrue(handler.response["ok"])
+        self.assertIn("Если такой email", handler.response["message"])
+        self.assertTrue(auth.verify_password("old-pass-1", self.user_row()["password_hash"]))
+        self.assertEqual(self.session_count(), 1)
+        with auth.db() as con:
+            self.assertEqual(
+                con.execute("SELECT COUNT(*) AS count FROM password_reset_tokens").fetchone()["count"],
+                0,
+            )
+
+    def test_password_reset_unknown_email_has_same_response_and_does_not_change_account(self) -> None:
+        user_id = self.create_user()
+        self.create_session(user_id, "current-token")
         auth.PMBI_SMTP_HOST = "smtp.example.com"
         auth.PMBI_SMTP_FROM = "robot@example.com"
         handler = FakeHandler({"email": "unknown@example.com"})
@@ -212,6 +262,67 @@ class AuthPasswordTests(unittest.TestCase):
 
         self.assertEqual(handler.status, HTTPStatus.OK)
         self.assertTrue(handler.response["ok"])
+        self.assertIn("Если такой email", handler.response["message"])
+        self.assertTrue(auth.verify_password("old-pass-1", self.user_row()["password_hash"]))
+        self.assertEqual(self.session_count(), 1)
+
+    def test_password_reset_confirmation_changes_password_and_is_single_use(self) -> None:
+        user_id = self.create_user()
+        self.create_session(user_id, "current-token")
+        sent = {}
+
+        def fake_send(email: str, login: str, reset_token: str) -> None:
+            sent["token"] = reset_token
+
+        auth.PMBI_SMTP_HOST = "smtp.example.com"
+        auth.PMBI_SMTP_FROM = "robot@example.com"
+        auth.send_password_reset_email = fake_send
+        auth.api_request_password_reset(FakeHandler({"email": "worker@example.com"}))
+
+        handler = FakeHandler(
+            {"resetToken": sent["token"], "newPassword": "new-password-123"}
+        )
+        auth.api_request_password_reset(handler)
+
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertTrue(auth.verify_password("new-password-123", self.user_row()["password_hash"]))
+        self.assertFalse(auth.verify_password("old-pass-1", self.user_row()["password_hash"]))
+        self.assertEqual(self.session_count(), 0)
+
+        reused = FakeHandler(
+            {"resetToken": sent["token"], "newPassword": "another-password-123"}
+        )
+        auth.api_request_password_reset(reused)
+
+        self.assertEqual(reused.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(reused.response["error"], "invalid_or_expired_password_reset")
+        self.assertTrue(auth.verify_password("new-password-123", self.user_row()["password_hash"]))
+
+    def test_password_reset_confirmation_rejects_expired_token(self) -> None:
+        user_id = self.create_user()
+        self.create_session(user_id, "current-token")
+        sent = {}
+
+        def fake_send(email: str, login: str, reset_token: str) -> None:
+            sent["token"] = reset_token
+
+        auth.PMBI_SMTP_HOST = "smtp.example.com"
+        auth.PMBI_SMTP_FROM = "robot@example.com"
+        auth.send_password_reset_email = fake_send
+        auth.api_request_password_reset(FakeHandler({"email": "worker@example.com"}))
+        with auth.db() as con:
+            con.execute("UPDATE password_reset_tokens SET expires_at = ?", (auth.now_ts() - 1,))
+            con.commit()
+
+        handler = FakeHandler(
+            {"resetToken": sent["token"], "newPassword": "new-password-123"}
+        )
+        auth.api_request_password_reset(handler)
+
+        self.assertEqual(handler.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(handler.response["error"], "invalid_or_expired_password_reset")
+        self.assertTrue(auth.verify_password("old-pass-1", self.user_row()["password_hash"]))
+        self.assertEqual(self.session_count(), 1)
 
     def test_password_reset_is_rate_limited_by_email(self) -> None:
         auth.PMBI_SMTP_HOST = "smtp.example.com"

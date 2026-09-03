@@ -54,6 +54,10 @@ class HttpStaticDeliveryTests(unittest.TestCase):
         self.assertEqual(head_headers["Cache-Control"], "no-store")
         self.assertEqual(head_headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(head_headers["X-Frame-Options"], "DENY")
+        self.assertEqual(
+            head_headers["Content-Security-Policy"],
+            "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+        )
         self.assertEqual(head_headers["Referrer-Policy"], "no-referrer")
 
     def test_versioned_asset_is_immutable_but_unversioned_asset_revalidates(self) -> None:

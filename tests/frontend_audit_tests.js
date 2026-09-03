@@ -193,7 +193,7 @@ test('Project shortages live in the reminder bell instead of a large projects ca
   assert.doesNotMatch(projectsHtml, /data-project-critical-card/);
   assert.match(communicationsDocsPy, /"shortageAlerts": shortage_alerts/);
   assert.match(appJs, /Array\.isArray\(notifications\.shortageAlerts\)/);
-  assert.match(appJs, /reminderShortageText\(shortage\)/);
+  assert.match(appJs, /reminderShortageText\(merged\)/);
   assert.doesNotMatch(appJs, /if \(!procurement\.materialId\) return/);
   assert.match(appJs, /reminderMaterialProjectGroups\(items\)/);
   assert.doesNotMatch(appJs, /items\.slice\(0, 20\)/);
@@ -251,8 +251,10 @@ test('Production schedule has a project tab, editable cells, and a sticky day ta
   assert.match(planningCss, /\.production-schedule-table/);
   assert.match(planningCss, /\.production-duration-stepper/);
   assert.match(planningCss, /\.production-operation-drawer/);
-  assert.match(planningCss, /\.production-work-row\.production-phase-teal/);
-  assert.doesNotMatch(planningCss, /production-phase-(?:amber|yellow)/);
+  for (const status of ['neutral', 'green', 'yellow', 'red']) {
+    assert.match(planningCss, new RegExp(`\\.production-work-row\\.production-health-${status}`));
+  }
+  assert.doesNotMatch(planningCss, /\.production-work-row\.production-phase-/);
   assert.doesNotMatch(planningCss, /\.production-section-row th\s*\{[^}]*#f1e33b/s);
   assert.match(planningCss, /position: sticky/);
 });

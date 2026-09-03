@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +122,7 @@ class ProcurementPriceAccessTests(unittest.TestCase):
                     role not in blocked_roles,
                 )
 
-    def test_foreman_cannot_open_raw_autobot_module_or_finances(self) -> None:
+    def test_foreman_can_open_autobot_without_finance_access(self) -> None:
         user = {
             "role": "foreman",
             "roles": ["foreman"],
@@ -129,8 +131,71 @@ class ProcurementPriceAccessTests(unittest.TestCase):
                 "projects": "edit",
             },
         }
-        self.assertFalse(auth.user_can_open(user, "/app/autobot"))
+        self.assertTrue(auth.user_can_access_autobot(user))
+        self.assertTrue(auth.user_can_open(user, "/app/autobot"))
         self.assertFalse(auth.user_can_view_finances(user))
+
+    def test_foreman_default_permissions_include_autobot_but_not_price_access(self) -> None:
+        permissions = auth.default_permissions_for_role("foreman")
+
+        self.assertIn("autobot", permissions["modules"])
+        self.assertFalse(auth.user_can_view_procurement_prices({"role": "foreman", "roles": []}))
+
+    def test_existing_foreman_payload_restores_autobot_without_exposing_prices(self) -> None:
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        try:
+            con.executescript(
+                """
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    login TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    email TEXT,
+                    phone TEXT
+                );
+                CREATE TABLE roles (
+                    id INTEGER PRIMARY KEY,
+                    code TEXT NOT NULL,
+                    permissions TEXT
+                );
+                CREATE TABLE user_roles (
+                    user_id INTEGER NOT NULL,
+                    role_id INTEGER NOT NULL
+                );
+                """
+            )
+            con.execute(
+                "INSERT INTO users (id, login, role, name) VALUES (1, 'foreman-old', 'foreman', 'Прораб')"
+            )
+            con.execute(
+                "INSERT INTO roles (id, code, permissions) VALUES (2, 'foreman', ?)",
+                (json.dumps({"modules": ["projects"], "projects": "edit"}),),
+            )
+            con.execute("INSERT INTO user_roles (user_id, role_id) VALUES (1, 2)")
+            con.commit()
+            row = con.execute("SELECT * FROM users WHERE id = 1").fetchone()
+
+            with patch.object(auth, "db", return_value=con):
+                payload = auth.user_payload(row)
+        finally:
+            con.close()
+
+        self.assertIn("autobot", payload["permissions"]["modules"])
+        self.assertTrue(payload["permissions"]["canAccessAutoBot"])
+        self.assertFalse(payload["permissions"]["canViewProcurementPrices"])
+
+    def test_autobot_stays_closed_for_unapproved_roles_even_with_a_stale_module_flag(self) -> None:
+        for role in ("purchaser", "financier", "accountant", "customer", "guest"):
+            with self.subTest(role=role):
+                user = {
+                    "role": role,
+                    "roles": [role],
+                    "permissions": {"modules": ["projects", "autobot"], "projects": "view"},
+                }
+                self.assertFalse(auth.user_can_access_autobot(user))
+                self.assertFalse(auth.user_can_open(user, "/app/autobot"))
 
     def test_json_response_boundary_applies_redaction(self) -> None:
         response = FakeJsonResponse({"role": "foreman", "roles": []})

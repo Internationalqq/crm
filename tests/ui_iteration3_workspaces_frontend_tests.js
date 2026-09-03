@@ -9,7 +9,6 @@ const workspaceCss = read('frontend/assets/css/ui-workspaces.css');
 const warehouseHtml = read('frontend/pages/warehouse.html');
 const procurementJs = read('frontend/assets/js/procurement.js');
 const baseHtml = read('frontend/templates/base.html');
-const loginHtml = read('frontend/templates/login.html');
 
 assert.ok(
   appCss.indexOf('./css/ui-workspaces.css') > appCss.indexOf('./css/ui-projects.css'),
@@ -69,7 +68,7 @@ assert.match(workspaceCss, /Warehouse simplification: physical inventory first/)
 assert.match(procurementJs, /<th>Что на складе<\/th><th>Остаток<\/th><th><\/th>/);
 assert.match(procurementJs, /Сейчас в наличии/);
 assert.match(procurementJs, /Ничего не найдено/);
-assert.match(baseHtml, /ui-project-schedule-cleanup-4/);
-assert.match(loginHtml, /ui-project-schedule-cleanup-4/);
+assert.match(appCss, /ui-projects\.css\?v=[^"\n]*ui-project-schedule-cleanup-4/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
 
 console.log('ui_iteration3_workspaces_frontend_ok');

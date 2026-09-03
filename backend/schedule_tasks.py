@@ -497,7 +497,167 @@ def update_project_schedule_status(
     return con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
 
 
-def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict]:
+def production_material_need_dates(
+    con: sqlite3.Connection,
+    project_id: int,
+    project_start: date | None,
+) -> dict[int, str]:
+    """Resolve material need dates from the persisted production grid, read-only.
+
+    Production schedule reads normally synchronize generated operations.  The
+    notification path must not mutate the schedule, so this helper only uses
+    rows that already exist and applies their persisted slot overrides.
+    """
+
+    if project_start is None:
+        return {}
+    required_tables = {
+        "estimate_items",
+        "production_schedule_operations",
+        "production_schedule_operation_estimate_links",
+    }
+    existing_tables = {
+        str(row["name"])
+        for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if not required_tables.issubset(existing_tables):
+        return {}
+
+    operation_columns = table_columns(con, "production_schedule_operations")
+    link_columns = table_columns(
+        con, "production_schedule_operation_estimate_links"
+    )
+    required_columns = {
+        "id", "project_id", "auto_duration_days", "manual_duration_days",
+        "position", "status",
+    }
+    required_link_columns = {
+        "operation_id", "estimate_item_id", "link_role",
+    }
+    if (
+        not required_columns.issubset(operation_columns)
+        or not required_link_columns.issubset(link_columns)
+    ):
+        return {}
+
+    placement_select = (
+        "placement_mode" if "placement_mode" in operation_columns
+        else "'auto' AS placement_mode"
+    )
+    operations = con.execute(
+        f"""
+        SELECT id, auto_duration_days, manual_duration_days, position, status,
+               {placement_select}
+        FROM production_schedule_operations
+        WHERE project_id = ?
+        ORDER BY position, id
+        """,
+        (project_id,),
+    ).fetchall()
+    if not operations:
+        return {}
+
+    links_by_operation: dict[int, list[int]] = {}
+    link_rows = con.execute(
+        """
+        SELECT link.operation_id, link.estimate_item_id
+        FROM production_schedule_operation_estimate_links link
+        JOIN production_schedule_operations operation ON operation.id = link.operation_id
+        JOIN estimate_items estimate
+          ON estimate.id = link.estimate_item_id
+         AND estimate.project_id = operation.project_id
+        WHERE operation.project_id = ? AND link.link_role = 'material_signal'
+        ORDER BY link.operation_id, link.estimate_item_id
+        """,
+        (project_id,),
+    ).fetchall()
+    for link in link_rows:
+        links_by_operation.setdefault(int(link["operation_id"]), []).append(
+            int(link["estimate_item_id"])
+        )
+
+    slot_overrides: dict[int, dict[int, bool]] = {}
+    slot_override_columns = (
+        table_columns(con, "production_schedule_operation_slot_overrides")
+        if "production_schedule_operation_slot_overrides" in existing_tables
+        else set()
+    )
+    if {
+        "operation_id", "slot_number", "is_filled",
+    }.issubset(slot_override_columns):
+        for row in con.execute(
+            """
+            SELECT slot.operation_id, slot.slot_number, slot.is_filled
+            FROM production_schedule_operation_slot_overrides slot
+            JOIN production_schedule_operations operation ON operation.id = slot.operation_id
+            WHERE operation.project_id = ?
+            ORDER BY slot.operation_id, slot.slot_number
+            """,
+            (project_id,),
+        ).fetchall():
+            slot_overrides.setdefault(int(row["operation_id"]), {})[
+                int(row["slot_number"])
+            ] = bool(row["is_filled"])
+
+    cursor_slot = 1
+    result: dict[int, str] = {}
+    for operation in operations:
+        operation_id = int(operation["id"])
+        manual_duration = positive_schedule_half_days(operation["manual_duration_days"])
+        auto_duration = positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
+        duration_days = manual_duration if manual_duration is not None else auto_duration
+        duration_slots = max(1, int(round(duration_days * 2)))
+        base_slots = set(range(cursor_slot, cursor_slot + duration_slots))
+        cursor_slot += duration_slots
+
+        stored_slots = slot_overrides.get(operation_id, {})
+        if str(operation["placement_mode"] or "auto") == "manual":
+            effective_slots = {
+                slot_number
+                for slot_number, is_filled in stored_slots.items()
+                if is_filled
+            }
+        else:
+            effective_slots = set(base_slots)
+            for slot_number, is_filled in stored_slots.items():
+                if is_filled:
+                    effective_slots.add(slot_number)
+                else:
+                    effective_slots.discard(slot_number)
+
+        if not effective_slots or str(operation["status"] or "") == "completed":
+            continue
+        need_date = project_start + timedelta(days=(min(effective_slots) - 1) // 2)
+        for estimate_item_id in links_by_operation.get(operation_id, []):
+            current = parse_iso_date(result.get(estimate_item_id))
+            if current is None or need_date < current:
+                result[estimate_item_id] = need_date.isoformat()
+    return result
+
+
+def material_summary_rows(
+    con: sqlite3.Connection,
+    project_id: int,
+    *,
+    include_procurement_evidence: bool = False,
+    include_supplier_selection: bool = False,
+    include_procurement_details: bool = False,
+) -> list[dict]:
+    include_procurement_evidence = bool(
+        include_procurement_evidence or include_procurement_details
+    )
+    include_supplier_selection = bool(
+        include_supplier_selection or include_procurement_details
+    )
+
+    def safe_float(value: object, default: float = 0.0) -> float:
+        try:
+            return float(value if value not in (None, "") else default)
+        except (TypeError, ValueError):
+            return default
+
     stage_rows = con.execute(
         """
         SELECT id, title, parent_id, stage_kind, position
@@ -531,6 +691,173 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         str(item["name"])
         for item in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
     }
+    invoice_documents_by_item: dict[int, list[dict]] = {}
+    procurement_actors_by_item: dict[int, list[dict]] = {}
+    document_columns = table_columns(con, "documents") if "documents" in table_names else set()
+    if include_procurement_evidence and {
+        "id", "project_id", "estimate_item_id", "doc_type", "storage_path",
+    }.issubset(document_columns):
+        optional_document_columns = {
+            "title", "status", "original_name", "counterparty_name",
+            "document_number", "document_date", "amount", "uploaded_by",
+            "created_at",
+        }
+
+        def document_column(column: str) -> str:
+            return column if column in document_columns else f"NULL AS {column}"
+
+        invoice_rows = con.execute(
+            f"""
+            SELECT id, estimate_item_id, storage_path,
+                   {', '.join(document_column(column) for column in sorted(optional_document_columns))}
+            FROM documents
+            WHERE project_id = ?
+              AND estimate_item_id IS NOT NULL
+              AND LOWER(TRIM(COALESCE(doc_type, ''))) IN ('invoice', 'upd', 'cash_receipt')
+              AND TRIM(COALESCE(storage_path, '')) != ''
+            ORDER BY estimate_item_id,
+                     COALESCE({document_column('created_at').split(' AS ')[0]}, 0) DESC,
+                     id DESC
+            """,
+            (project_id,),
+        ).fetchall()
+        for document in invoice_rows:
+            estimate_item_id = int(document["estimate_item_id"])
+            invoice_documents_by_item.setdefault(estimate_item_id, []).append(
+                {
+                    "id": int(document["id"]),
+                    "title": document["title"] or "",
+                    "status": document["status"] or "",
+                    "originalName": document["original_name"] or "",
+                    "counterpartyName": document["counterparty_name"] or "",
+                    "documentNumber": document["document_number"] or "",
+                    "documentDate": document["document_date"],
+                    "amount": (
+                        float(document["amount"])
+                        if document["amount"] is not None
+                        else None
+                    ),
+                    "uploadedBy": document["uploaded_by"],
+                    "createdAt": document["created_at"],
+                    "downloadUrl": f"/api/documents/{int(document['id'])}/download",
+                    "viewUrl": f"/api/documents/{int(document['id'])}/view",
+                }
+            )
+
+    stock_move_columns = table_columns(con, "stock_moves") if "stock_moves" in table_names else set()
+    user_columns = table_columns(con, "users") if "users" in table_names else set()
+    if include_procurement_evidence and {
+        "id", "project_id", "estimate_item_id", "move_type", "qty", "created_by",
+    }.issubset(stock_move_columns):
+        actor_name_select = (
+            "COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(u.login), ''), '')"
+            if {"id", "name", "login"}.issubset(user_columns)
+            else "''"
+        )
+        actor_join = "LEFT JOIN users u ON u.id = s.created_by" if "id" in user_columns else ""
+        actor_filters = []
+        if "source_type" in stock_move_columns:
+            actor_filters.append(
+                "AND COALESCE(s.source_type, '') != 'legacy_purchase_receipt_backfill'"
+            )
+        if {"source_type", "source_id"}.issubset(stock_move_columns):
+            actor_filters.append("""
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM stock_moves reversal
+                  WHERE reversal.source_type = 'stock_move_reversal'
+                    AND reversal.source_id = s.id
+              )
+            """)
+        actor_filter_sql = "\n".join(actor_filters)
+        actor_order = (
+            "COALESCE(s.created_at, 0) DESC, s.id DESC"
+            if "created_at" in stock_move_columns
+            else "s.id DESC"
+        )
+        actor_rows = con.execute(
+            f"""
+            SELECT s.estimate_item_id, s.created_by, s.move_type,
+                   {actor_name_select} AS actor_name
+            FROM stock_moves s
+            {actor_join}
+            WHERE s.project_id = ?
+              AND s.estimate_item_id IS NOT NULL
+              AND s.move_type IN ('purchase', 'receipt')
+              AND s.qty > 0
+              {actor_filter_sql}
+            ORDER BY s.estimate_item_id, {actor_order}
+            """,
+            (project_id,),
+        ).fetchall()
+        for actor_row in actor_rows:
+            actor_id = actor_row["created_by"]
+            if actor_id is None:
+                continue
+            material_id = int(actor_row["estimate_item_id"])
+            known_actors = procurement_actors_by_item.setdefault(material_id, [])
+            numeric_actor_id = int(actor_id)
+            actor_action = str(actor_row["move_type"] or "purchase")
+            if any(
+                item["id"] == numeric_actor_id
+                and item["action"] == actor_action
+                for item in known_actors
+            ):
+                continue
+            known_actors.append(
+                {
+                    "id": numeric_actor_id,
+                    "name": str(actor_row["actor_name"] or "").strip(),
+                    "action": actor_action,
+                }
+            )
+
+    selected_supplier_by_item: dict[int, dict] = {}
+    supplier_columns = table_columns(con, "supplier_offers") if "supplier_offers" in table_names else set()
+    if include_supplier_selection and {
+        "id", "project_id", "estimate_item_id", "candidate_name", "price", "status",
+    }.issubset(supplier_columns):
+        supplier_order_columns = [
+            column
+            for column in ("activated_at", "updated_at", "created_at")
+            if column in supplier_columns
+        ]
+        supplier_order = ", ".join(
+            [*(f"{column} DESC" for column in supplier_order_columns), "id DESC"]
+        )
+        selected_offer_rows = con.execute(
+            f"""
+            SELECT estimate_item_id, candidate_name, price
+            FROM supplier_offers
+            WHERE project_id = ?
+              AND estimate_item_id IS NOT NULL
+              AND status = 'selected'
+            ORDER BY {supplier_order}
+            """,
+            (project_id,),
+        ).fetchall()
+        for offer in selected_offer_rows:
+            estimate_item_id = int(offer["estimate_item_id"])
+            if estimate_item_id in selected_supplier_by_item:
+                continue
+            price = safe_float(offer["price"])
+            selected_supplier_by_item[estimate_item_id] = {
+                "name": str(offer["candidate_name"] or "").strip(),
+                "hasPrice": price > 0,
+            }
+
+    project_start = None
+    if "projects" in table_names and "started_at" in table_columns(con, "projects"):
+        project_row = con.execute(
+            "SELECT started_at FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        project_start = parse_iso_date(project_row["started_at"] if project_row else None)
+    production_need_dates = production_material_need_dates(
+        con,
+        project_id,
+        project_start,
+    )
     has_estimate_sources = "estimate_source_id" in estimate_columns and "project_estimates" in table_names
     estimate_source_select = """
             , e.estimate_source_id,
@@ -587,13 +914,8 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
     ).fetchall()
     items = []
 
-    def safe_float(value: object, default: float = 0.0) -> float:
-        try:
-            return float(value if value not in (None, "") else default)
-        except (TypeError, ValueError):
-            return default
-
     for row in rows:
+        material_id = int(row["id"])
         quantity_plan = operational_quantity_plan(row["planned_qty"], row["unit"])
         planned = float(quantity_plan["total_qty"])
         display_unit = str(quantity_plan["unit"])
@@ -618,7 +940,34 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             }
         )
         delivery_days = int(row["delivery_days"]) if row["delivery_days"] is not None else int(estimated_delivery_days)
-        need_by_date = str(row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"] or "")
+        explicit_need_by_date = str(row["need_by_date"] or "").strip() or None
+        production_need_by_date = production_need_dates.get(material_id)
+        stage_need_by_date = str(row["stage_planned_start"] or row["stage_planned_end"] or "").strip() or None
+        need_by_date = explicit_need_by_date or production_need_by_date or stage_need_by_date
+        if explicit_need_by_date:
+            need_date_source = "explicit"
+        elif production_need_by_date:
+            need_date_source = "production"
+        elif stage_need_by_date:
+            need_date_source = "stage"
+        else:
+            need_date_source = None
+        invoice_documents = invoice_documents_by_item.get(material_id, [])
+        procurement_actors = procurement_actors_by_item.get(material_id, [])
+        if purchased > 0:
+            responsible_procurement_actors = [
+                actor for actor in procurement_actors if actor["action"] == "purchase"
+            ]
+        else:
+            responsible_procurement_actors = [
+                actor for actor in procurement_actors if actor["action"] == "receipt"
+            ]
+        latest_procurement_actor = (
+            responsible_procurement_actors[0]
+            if responsible_procurement_actors
+            else None
+        )
+        selected_supplier = selected_supplier_by_item.get(material_id)
         soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
         if missing <= 0:
             if received >= planned:
@@ -636,9 +985,8 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         else:
             supply_status = "planned"
             supply_label = "Нужно запланировать"
-        items.append(
-            {
-                "id": row["id"],
+        item_payload = {
+                "id": material_id,
                 "title": row["title"],
                 "itemKind": resolved_estimate_item_kind(row),
                 "itemKindSource": "manual" if str(row["item_kind_override"] or "") in {"material", "work"} else "auto",
@@ -661,7 +1009,9 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "missingQty": missing,
                 "usageProgress": usage_progress,
                 "purchaseProgress": purchase_progress,
-                "needByDate": row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"],
+                "needByDate": need_by_date,
+                "needDateSource": need_date_source,
+                "productionNeedByDate": production_need_by_date,
                 "stageStartDate": row["stage_planned_start"],
                 "stageEndDate": row["stage_planned_end"],
                 "notes": row["notes"] or "",
@@ -689,7 +1039,52 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
                 "supplyStatus": supply_status,
                 "supplyLabel": (row["procurement_status"] or supply_label) if row["warehouse_source"] else supply_label,
             }
-        )
+        if include_procurement_evidence:
+            item_payload.update(
+                {
+                    "invoiceAttached": bool(invoice_documents),
+                    "invoiceCount": len(invoice_documents),
+                    "procurementActorId": (
+                        latest_procurement_actor["id"]
+                        if latest_procurement_actor
+                        else None
+                    ),
+                    "procurementActorName": (
+                        latest_procurement_actor["name"]
+                        if latest_procurement_actor
+                        else ""
+                    ),
+                    "procurementActorAction": (
+                        latest_procurement_actor["action"]
+                        if latest_procurement_actor
+                        else ""
+                    ),
+                    "procurementActorIds": [
+                        actor["id"] for actor in responsible_procurement_actors
+                    ],
+                }
+            )
+        if include_supplier_selection:
+            item_payload.update(
+                {
+                    "selectedSupplierOffer": selected_supplier is not None,
+                    "selectedSupplierOfferHasPrice": bool(
+                        selected_supplier and selected_supplier["hasPrice"]
+                    ),
+                }
+            )
+        if include_procurement_details:
+            item_payload.update(
+                {
+                    "latestInvoice": (
+                        invoice_documents[0] if invoice_documents else None
+                    ),
+                    "selectedSupplierOfferName": (
+                        selected_supplier["name"] if selected_supplier else ""
+                    ),
+                }
+            )
+        items.append(item_payload)
     return items
 
 
@@ -1052,6 +1447,254 @@ def build_procurement_alerts(
             item["title"],
         )
     )
+    return {"items": alerts, "summary": summary}
+
+
+def build_procurement_evidence_alerts(
+    materials: list[dict],
+    stages: list[sqlite3.Row | dict],
+    today_date: date,
+    section_start_dates: dict[str, str] | None = None,
+    costing_buffer_days: int = 5,
+    schedule_attention_enabled: bool = True,
+) -> dict:
+    """Build red flags for missing procurement proof without touching storage."""
+
+    def number(value: object, default: float = 0.0) -> float:
+        try:
+            return float(value if value not in (None, "") else default)
+        except (TypeError, ValueError):
+            return default
+
+    def stage_identifier(value: object) -> int:
+        try:
+            return int(value) if value not in (None, "", 0, "0") else 0
+        except (TypeError, ValueError):
+            return 0
+
+    stage_map = {
+        int(dict(row)["id"]): dict(row)
+        for row in stages
+        if dict(row).get("id") is not None
+    }
+    section_start_dates = section_start_dates or {}
+    costing_buffer_days = max(0, min(int(costing_buffer_days or 0), 90))
+    schedule_attention_enabled = bool(schedule_attention_enabled)
+    alerts: list[dict] = []
+
+    def append_alert(material: dict, evidence_kind: str, status: str, **extra: object) -> None:
+        planned_qty = number(material.get("plannedQty", material.get("planned_qty")))
+        purchased_qty = number(material.get("purchasedQty", material.get("purchased_qty")))
+        received_qty = number(material.get("receivedQty", material.get("received_qty")))
+        raw_missing_qty = material.get("missingQty", material.get("missing_qty"))
+        missing_qty = (
+            number(raw_missing_qty)
+            if raw_missing_qty not in (None, "")
+            else max(planned_qty - max(purchased_qty, received_qty), 0)
+        )
+        alert = {
+            "evidenceKind": evidence_kind,
+            "alertType": evidence_kind,
+            "status": status,
+            "materialId": int(material.get("id") or 0),
+            "title": str(material.get("title") or ""),
+            "unit": str(material.get("unit") or ""),
+            "plannedQty": planned_qty,
+            "missingQty": missing_qty,
+            "purchasedQty": purchased_qty,
+            "receivedQty": received_qty,
+            "sectionTitle": str(material.get("sectionTitle") or "").strip(),
+            "stageTitle": str(material.get("stageTitle") or "").strip(),
+            "invoiceAttached": bool(
+                material.get("invoiceAttached")
+                or number(material.get("invoiceCount")) > 0
+            ),
+            "invoiceCount": int(number(material.get("invoiceCount"))),
+            "responsibleUserId": material.get("procurementActorId"),
+            "responsibleUserName": str(
+                material.get("procurementActorName") or ""
+            ).strip(),
+            "responsibleUserIds": [
+                int(user_id)
+                for user_id in (material.get("procurementActorIds") or [])
+                if str(user_id).strip().isdigit() and int(user_id) > 0
+            ],
+            "procurementAction": str(
+                material.get("procurementActorAction") or ""
+            ).strip(),
+            "materialUrl": (
+                f"/app/projects?tab=documents&procurementItemId="
+                f"{int(material.get('id') or 0)}&documentType=invoice"
+            ),
+        }
+        alert.update(extra)
+        alerts.append(alert)
+
+    for material in materials:
+        if normalize_estimate_item_kind(
+            material.get("itemKind", material.get("item_kind"))
+        ) == "work":
+            continue
+
+        planned_qty = number(material.get("plannedQty", material.get("planned_qty")))
+        purchased_qty = number(material.get("purchasedQty", material.get("purchased_qty")))
+        received_qty = number(material.get("receivedQty", material.get("received_qty")))
+        raw_missing_qty = material.get("missingQty", material.get("missing_qty"))
+        missing_qty = (
+            number(raw_missing_qty)
+            if raw_missing_qty not in (None, "")
+            else max(planned_qty - max(purchased_qty, received_qty), 0)
+        )
+        if max(planned_qty, purchased_qty, received_qty, missing_qty) <= 0:
+            continue
+
+        stage = stage_map.get(
+            stage_identifier(material.get("stageId", material.get("stage_id")))
+        )
+        section_title = str(material.get("sectionTitle") or "").strip()
+        stage_start = parse_iso_date(
+            str(
+                material.get("stageStartDate")
+                or (stage or {}).get("planned_start")
+                or ""
+            )
+        )
+        if stage_start is None and section_title:
+            stage_start = parse_iso_date(section_start_dates.get(section_title))
+        need_on_site = parse_iso_date(
+            str(material.get("needByDate") or material.get("need_by_date") or "")
+        ) or stage_start
+
+        estimated_lead_days = estimate_material_lead_days(material)
+        raw_lead_days = material.get("deliveryDays", material.get("delivery_days"))
+        try:
+            lead_days = (
+                int(raw_lead_days)
+                if raw_lead_days not in (None, "")
+                else int(estimated_lead_days)
+            )
+        except (TypeError, ValueError):
+            lead_days = int(estimated_lead_days)
+        lead_days = max(0, min(lead_days, 90))
+        order_by = need_on_site - timedelta(days=lead_days) if need_on_site else None
+        quote_by = (
+            order_by - timedelta(days=costing_buffer_days)
+            if order_by
+            else None
+        )
+        date_fields = {
+            "needOnSiteDate": need_on_site.isoformat() if need_on_site else None,
+            "orderByDate": order_by.isoformat() if order_by else None,
+            "quoteByDate": quote_by.isoformat() if quote_by else None,
+            "leadDays": int(lead_days),
+            "costingBufferDays": int(costing_buffer_days),
+            "daysUntilNeed": (
+                int((need_on_site - today_date).days) if need_on_site else None
+            ),
+            "daysUntilOrder": (
+                int((order_by - today_date).days) if order_by else None
+            ),
+            "daysUntilQuote": (
+                int((quote_by - today_date).days) if quote_by else None
+            ),
+        }
+
+        warehouse_source = str(
+            material.get("warehouseSource", material.get("warehouse_source", ""))
+            or ""
+        ).strip()
+        if warehouse_source:
+            continue
+
+        invoice_attached = bool(
+            material.get("invoiceAttached")
+            or number(material.get("invoiceCount")) > 0
+        )
+        if invoice_attached:
+            continue
+
+        if purchased_qty > 0 or received_qty > 0:
+            append_alert(
+                material,
+                "missing_invoice",
+                "critical",
+                requiredQty=max(purchased_qty, received_qty),
+                **date_fields,
+            )
+            continue
+
+        if (
+            not schedule_attention_enabled
+            or bool(material.get("isCompleted", material.get("is_completed", False)))
+            or missing_qty <= 0
+        ):
+            continue
+
+        if need_on_site is None:
+            append_alert(
+                material,
+                "missing_schedule",
+                "watch",
+                **date_fields,
+            )
+            continue
+
+        if quote_by is None or today_date < quote_by:
+            continue
+
+        selected_offer = material.get("selectedSupplierOffer")
+        selected_offer_price = material.get("selectedSupplierOfferPrice")
+        if isinstance(selected_offer, dict):
+            selected_offer_price = selected_offer.get("price", selected_offer_price)
+            selected_offer = True
+        selected_offer_has_price = bool(
+            material.get("selectedSupplierOfferHasPrice")
+            or (selected_offer and number(selected_offer_price) > 0)
+        )
+        if selected_offer_has_price:
+            continue
+        append_alert(
+            material,
+            "missing_costing",
+            "critical" if today_date > quote_by else "soon",
+            requiredQty=missing_qty,
+            **date_fields,
+        )
+
+    status_priority = {"critical": 0, "soon": 1, "watch": 2}
+    evidence_priority = {
+        "missing_invoice": 0,
+        "missing_costing": 1,
+        "missing_schedule": 2,
+    }
+    alerts.sort(
+        key=lambda item: (
+            status_priority.get(str(item.get("status")), 3),
+            str(
+                item.get("quoteByDate")
+                or item.get("orderByDate")
+                or item.get("needOnSiteDate")
+                or "9999-12-31"
+            ),
+            evidence_priority.get(str(item.get("evidenceKind")), 3),
+            str(item.get("title") or ""),
+        )
+    )
+    summary = {
+        "total": len(alerts),
+        "critical": sum(item["status"] == "critical" for item in alerts),
+        "soon": sum(item["status"] == "soon" for item in alerts),
+        "watch": sum(item["status"] == "watch" for item in alerts),
+        "missingCosting": sum(
+            item["evidenceKind"] == "missing_costing" for item in alerts
+        ),
+        "missingInvoice": sum(
+            item["evidenceKind"] == "missing_invoice" for item in alerts
+        ),
+        "missingSchedule": sum(
+            item["evidenceKind"] == "missing_schedule" for item in alerts
+        ),
+    }
     return {"items": alerts, "summary": summary}
 
 
@@ -1457,6 +2100,162 @@ def production_estimate_rows(con: sqlite3.Connection, project_id: int) -> list[s
         f"SELECT e.*{source_columns} FROM estimate_items e {source_join} WHERE e.project_id = ? AND {live_where} ORDER BY e.id",
         (project_id,),
     ).fetchall()
+
+
+def production_project_calendar_row(con: sqlite3.Connection, project_id: int) -> sqlite3.Row | None:
+    """Load the project fields needed to anchor Day 1 without assuming a schema version."""
+
+    project_columns = table_columns(con, "projects")
+    started_at_select = "started_at" if "started_at" in project_columns else "NULL AS started_at"
+    deadline_at_select = "deadline_at" if "deadline_at" in project_columns else "NULL AS deadline_at"
+    return con.execute(
+        f"SELECT id, title, {started_at_select}, {deadline_at_select} FROM projects WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+
+
+def production_operation_actual_summaries(
+    con: sqlite3.Connection,
+    project_id: int,
+) -> dict[int, dict]:
+    """Aggregate real estimate execution for each operation's work-basis links."""
+
+    required_tables = {
+        "estimate_items",
+        "production_schedule_operations",
+        "production_schedule_operation_estimate_links",
+    }
+    if not all(production_table_exists(con, table) for table in required_tables):
+        return {}
+    estimate_columns = table_columns(con, "estimate_items")
+    if not {"id", "project_id", "planned_qty", "unit"}.issubset(estimate_columns):
+        return {}
+    actual_select = "estimate.actual_qty" if "actual_qty" in estimate_columns else "NULL"
+    completed_select = "estimate.is_completed" if "is_completed" in estimate_columns else "NULL"
+    rows = con.execute(
+        f"""
+        SELECT link.operation_id,
+               estimate.planned_qty,
+               estimate.unit,
+               {actual_select} AS actual_qty,
+               {completed_select} AS is_completed
+        FROM production_schedule_operation_estimate_links link
+        JOIN production_schedule_operations operation ON operation.id = link.operation_id
+        JOIN estimate_items estimate
+          ON estimate.id = link.estimate_item_id
+         AND estimate.project_id = operation.project_id
+        WHERE operation.project_id = ? AND link.link_role = 'work_basis'
+        ORDER BY link.operation_id, estimate.id
+        """,
+        (project_id,),
+    ).fetchall()
+    grouped: dict[int, list[sqlite3.Row]] = {}
+    for row in rows:
+        grouped.setdefault(int(row["operation_id"]), []).append(row)
+
+    summaries: dict[int, dict] = {}
+    for operation_id, operation_rows in grouped.items():
+        ratios: list[float] = []
+        units: set[str] = set()
+        actual_total = 0.0
+        planned_total = 0.0
+        actual_known = True
+        all_completed = True
+        for row in operation_rows:
+            planned_qty = max(0.0, float(row["planned_qty"] or 0))
+            actual_raw = row["actual_qty"]
+            completed_raw = row["is_completed"]
+            actual_known = actual_known and (actual_raw is not None or completed_raw is not None)
+            completed = bool(completed_raw) if completed_raw is not None else False
+            all_completed = all_completed and completed
+            actual_qty = max(0.0, float(actual_raw or 0))
+            units.add(str(row["unit"] or "").strip().casefold())
+            planned_total += planned_qty
+            actual_total += max(actual_qty, planned_qty if completed else 0.0)
+            if completed:
+                ratios.append(1.0)
+            elif planned_qty > 0:
+                ratios.append(max(0.0, min(1.0, actual_qty / planned_qty)))
+        progress = None
+        if actual_known and ratios:
+            progress = round(sum(ratios) / len(ratios) * 100, 1)
+        comparable_quantities = len(units) <= 1
+        summaries[operation_id] = {
+            "actualQty": round(actual_total, 4) if actual_known and comparable_quantities else None,
+            "actualPlannedQty": round(planned_total, 4) if comparable_quantities else None,
+            "actualProgress": progress,
+            "isCompleted": bool(operation_rows) and all_completed,
+            "hasActualData": actual_known,
+        }
+    return summaries
+
+
+def production_schedule_execution_health(
+    *,
+    operation_status: str,
+    actual_summary: dict | None,
+    effective_slots: set[int],
+    fallback_slots: set[int],
+    project_start: date,
+    today_date: date,
+) -> dict:
+    """Classify execution independently from estimate-link/review status."""
+
+    scheduled_slots = effective_slots or fallback_slots
+    if not scheduled_slots:
+        return {
+            "healthStatus": "yellow",
+            "executionHealth": "yellow",
+            "healthLabel": "Нужно указать даты",
+            "plannedStartDate": None,
+            "plannedEndDate": None,
+            "expectedProgress": None,
+        }
+    first_day_offset = (min(scheduled_slots) - 1) // 2
+    last_day_offset = (max(scheduled_slots) - 1) // 2
+    planned_start = project_start + timedelta(days=first_day_offset)
+    planned_end = project_start + timedelta(days=last_day_offset)
+    summary = actual_summary or {}
+    actual_progress = summary.get("actualProgress")
+    completed = bool(summary.get("isCompleted")) or str(operation_status or "").strip().lower() == "completed"
+    review_statuses = {
+        "review", "needs_review", "requires_review", "unverified", "stale",
+        "ambiguous", "orphaned", "outside", "outside_estimate", "unlinked",
+    }
+
+    result = {
+        "plannedStartDate": planned_start.isoformat(),
+        "plannedEndDate": planned_end.isoformat(),
+        "expectedProgress": 0.0,
+    }
+    if completed or (actual_progress is not None and float(actual_progress) >= 100):
+        result.update(healthStatus="green", executionHealth="green", healthLabel="Выполнено", expectedProgress=100.0)
+        return result
+    if today_date < planned_start:
+        result.update(healthStatus="neutral", executionHealth="neutral", healthLabel="По плану позже")
+        return result
+    if (
+        today_date > planned_end
+        and summary.get("hasActualData")
+        and actual_progress is not None
+    ):
+        result.update(healthStatus="red", executionHealth="red", healthLabel="Срок прошёл", expectedProgress=100.0)
+        return result
+    if str(operation_status or "").strip().lower() in review_statuses:
+        result.update(healthStatus="yellow", executionHealth="yellow", healthLabel="Нужна проверка")
+        return result
+    if not summary.get("hasActualData") or actual_progress is None:
+        result.update(healthStatus="yellow", executionHealth="yellow", healthLabel="Нет факта выполнения")
+        return result
+    total_days = max(1, (planned_end - planned_start).days + 1)
+    completed_calendar_days = max(0, (today_date - planned_start).days)
+    expected_progress = round(min(100.0, completed_calendar_days / total_days * 100), 1)
+    result["expectedProgress"] = expected_progress
+    if expected_progress - float(actual_progress) >= 15:
+        result.update(healthStatus="red", executionHealth="red", healthLabel="Есть отставание")
+    else:
+        result.update(healthStatus="green", executionHealth="green", healthLabel="Идёт по графику")
+    return result
 
 
 def production_find_estimate(
@@ -2331,7 +3130,7 @@ def migrate_legacy_production_schedule(con: sqlite3.Connection, project_id: int)
 
 
 def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) -> dict:
-    project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project = production_project_calendar_row(con, project_id)
     if not project:
         raise LookupError("project_not_found")
     if not production_table_exists(con, "production_schedule_operations"):
@@ -2339,6 +3138,10 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
     raw_rows = production_estimate_rows(con, project_id)
     generation = sync_production_schedule_operations(con, project, raw_rows)
     migrate_legacy_production_schedule(con, project_id)
+    explicit_project_start = parse_iso_date(project["started_at"])
+    project_start = explicit_project_start or date.today()
+    today_date = date.today()
+    actual_summaries = production_operation_actual_summaries(con, project_id)
 
     live_by_id = {int(row["id"]): row for row in raw_rows}
     links_by_operation: dict[int, list[dict]] = {}
@@ -2437,6 +3240,24 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         if int(operation["source_link_count"] or 0) > len(live_link_ids) or any(link["isStale"] for link in links):
             status = "stale"
         manual_fields = production_manual_fields(operation["manual_fields"])
+        actual_summary = actual_summaries.get(
+            operation_id,
+            {
+                "actualQty": None,
+                "actualPlannedQty": None,
+                "actualProgress": None,
+                "isCompleted": False,
+                "hasActualData": False,
+            },
+        )
+        execution_health = production_schedule_execution_health(
+            operation_status=status,
+            actual_summary=actual_summary,
+            effective_slots=effective_slots,
+            fallback_slots=base_slots if placement_mode != "manual" else set(),
+            project_start=project_start,
+            today_date=today_date,
+        )
         items.append(
             {
                 "id": operation_id,
@@ -2479,6 +3300,8 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "confidence": "template" if operation["origin"] == "template" else ("manual" if operation["origin"] == "manual" else "assumption"),
                 "method": f"production_{operation['origin']}",
                 "sourceLabel": "Шаблон графика производства" if operation["origin"] == "template" else "Операция графика производства",
+                **actual_summary,
+                **execution_health,
             }
         )
 
@@ -2504,6 +3327,10 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
     return {
         "projectId": int(project["id"]),
         "projectTitle": str(project["title"] or ""),
+        "startDate": project_start.isoformat(),
+        "startDateSource": "project" if explicit_project_start else "today",
+        "deadlineDate": parse_iso_date(project["deadline_at"]).isoformat() if parse_iso_date(project["deadline_at"]) else None,
+        "today": today_date.isoformat(),
         "shiftHours": SCHEDULE_SHIFT_HOURS,
         "dayCount": day_count,
         "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
@@ -2519,13 +3346,21 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
 def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id: int) -> dict:
     """Build the read-only public chart without syncing estimates or exposing editor metadata."""
 
-    project = con.execute("SELECT id, title FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project = production_project_calendar_row(con, project_id)
     if not project:
         raise LookupError("project_not_found")
+    explicit_project_start = parse_iso_date(project["started_at"])
+    project_start = explicit_project_start or date.today()
+    today_date = date.today()
+    actual_summaries = production_operation_actual_summaries(con, project_id)
     if not production_table_exists(con, "production_schedule_operations"):
         return {
             "projectId": int(project["id"]),
             "projectTitle": str(project["title"] or ""),
+            "startDate": project_start.isoformat(),
+            "startDateSource": "project" if explicit_project_start else "today",
+            "deadlineDate": parse_iso_date(project["deadline_at"]).isoformat() if parse_iso_date(project["deadline_at"]) else None,
+            "today": today_date.isoformat(),
             "shiftHours": SCHEDULE_SHIFT_HOURS,
             "dayCount": 0,
             "autoDayCount": 0,
@@ -2579,6 +3414,25 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
         if effective_slots:
             day_count = max(day_count, math.ceil(max(effective_slots) / 2))
         day_count = max(day_count, math.ceil(auto_end_slot / 2))
+        status = str(operation["status"] or "needs_review")
+        actual_summary = actual_summaries.get(
+            operation_id,
+            {
+                "actualQty": None,
+                "actualPlannedQty": None,
+                "actualProgress": None,
+                "isCompleted": False,
+                "hasActualData": False,
+            },
+        )
+        execution_health = production_schedule_execution_health(
+            operation_status=status,
+            actual_summary=actual_summary,
+            effective_slots=effective_slots,
+            fallback_slots=base_slots if placement_mode != "manual" else set(),
+            project_start=project_start,
+            today_date=today_date,
+        )
         items.append(
             {
                 "id": operation_id,
@@ -2598,12 +3452,18 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
                 "filledSlots": sorted(effective_slots),
                 "overriddenSlots": sorted(overridden_slots),
                 "color": str(operation["color"] or PRODUCTION_DEFAULT_COLOR),
+                **actual_summary,
+                **execution_health,
             }
         )
 
     return {
         "projectId": int(project["id"]),
         "projectTitle": str(project["title"] or ""),
+        "startDate": project_start.isoformat(),
+        "startDateSource": "project" if explicit_project_start else "today",
+        "deadlineDate": parse_iso_date(project["deadline_at"]).isoformat() if parse_iso_date(project["deadline_at"]) else None,
+        "today": today_date.isoformat(),
         "shiftHours": SCHEDULE_SHIFT_HOURS,
         "dayCount": day_count,
         "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
@@ -3083,7 +3943,7 @@ def _api_project_auto_schedule(handler, path: str) -> None:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_start_date", "message": "start_date must be YYYY-MM-DD"})
                 return
         project_start = parse_iso_date(project["started_at"])
-        start_at = requested_start or project_start or date(2026, 7, 25)
+        start_at = requested_start or project_start or date.today()
         plan = build_auto_schedule_plan(project, stages, materials, start_at)
         con.execute(
             f"""
@@ -3251,7 +4111,7 @@ def api_project_section_schedule_forecast(handler, path: str) -> None:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "works_required"})
         return
     project_start = parse_iso_date(project["started_at"])
-    start_at = requested_start or project_start or date(2026, 7, 27)
+    start_at = requested_start or project_start or date.today()
     forecast = build_section_schedule_forecast(project, work_items, start_at, overrides)
     handler.send_json(HTTPStatus.OK, forecast)
 

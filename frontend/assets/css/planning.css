@@ -1,5 +1,17 @@
 /* Extracted from app.css: planning. Keep app.css as the import entrypoint. */
 
+:root {
+    --pmbi-style-planning-ready: 1;
+    --production-health-neutral: #8b959e;
+    --production-health-neutral-soft: #f0f2f3;
+    --production-health-green: #4d9168;
+    --production-health-green-soft: #eaf4ed;
+    --production-health-yellow: #d4a62d;
+    --production-health-yellow-soft: #faf3dd;
+    --production-health-red: #c94f4f;
+    --production-health-red-soft: #faeaea;
+}
+
 body.cal-modal-open .calendar-modal-overlay {
     opacity: 1;
     pointer-events: auto;
@@ -159,6 +171,38 @@ body.cal-modal-open .calendar-modal-overlay {
     color: #44515d;
 }
 
+.production-health-legend {
+    align-items: center;
+    background: #fbfcfd;
+    border-top: 1px solid #e2e7eb;
+    color: #59656f;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 10px;
+    gap: 6px 14px;
+    line-height: 1.2;
+    padding: 7px 16px;
+}
+
+.production-health-legend span {
+    align-items: center;
+    display: inline-flex;
+    gap: 5px;
+}
+
+.production-health-legend i {
+    border: 1px solid rgba(27, 38, 47, .18);
+    border-radius: 3px;
+    display: inline-block;
+    height: 9px;
+    width: 9px;
+}
+
+.production-health-legend i.is-neutral { background: var(--production-health-neutral); }
+.production-health-legend i.is-green { background: var(--production-health-green); }
+.production-health-legend i.is-yellow { background: var(--production-health-yellow); }
+.production-health-legend i.is-red { background: var(--production-health-red); }
+
 .production-schedule-actions {
     align-items: center;
     display: flex;
@@ -301,7 +345,7 @@ body.cal-modal-open .calendar-modal-overlay {
     border-top: 0;
     font-size: 10px;
     font-weight: 800;
-    height: 58px;
+    height: 78px;
     line-height: 1.2;
     position: sticky;
     text-align: center;
@@ -471,9 +515,19 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-link-label.is-review {
-    background: #f4e9ec;
-    color: #895c68 !important;
+    background: var(--production-health-yellow-soft);
+    color: #806112 !important;
 }
+
+.production-health-label {
+    border: 1px solid currentColor;
+    font-weight: 800 !important;
+}
+
+.production-health-label.is-neutral { background: var(--production-health-neutral-soft); color: #66717a !important; }
+.production-health-label.is-green { background: var(--production-health-green-soft); color: #34714d !important; }
+.production-health-label.is-yellow { background: var(--production-health-yellow-soft); color: #806112 !important; }
+.production-health-label.is-red { background: var(--production-health-red-soft); color: #a53d3d !important; }
 
 .production-confirm-operation {
     background: transparent;
@@ -654,6 +708,71 @@ body.cal-modal-open .calendar-modal-overlay {
     width: 30px;
 }
 
+.production-schedule-table thead .production-number-cell,
+.production-schedule-table thead .production-work-title,
+.production-schedule-table thead .production-volume-cell,
+.production-schedule-table thead .production-people-cell,
+.production-schedule-table thead .production-shifts-cell,
+.production-schedule-table thead .production-brigades-cell,
+.production-schedule-table thead .production-duration-cell {
+    background: #f7f7f6;
+    top: 0;
+    z-index: 8;
+}
+
+.production-month-head {
+    background: #e5eaed !important;
+    color: #3f4b55;
+    font-size: 9px !important;
+    height: 22px !important;
+    letter-spacing: .035em;
+    min-width: 30px;
+    text-transform: uppercase;
+    top: 0 !important;
+}
+
+.production-date-head {
+    height: 36px !important;
+    top: 22px !important;
+}
+
+.production-date-head span,
+.production-date-head small {
+    display: block;
+}
+
+.production-date-head span {
+    font-size: 11px;
+    line-height: 1;
+}
+
+.production-date-head small {
+    color: #68737c;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    margin-top: 3px;
+    text-transform: uppercase;
+}
+
+.production-date-head.is-weekend {
+    background: #f0f1f1 !important;
+}
+
+.production-date-head.is-today {
+    box-shadow: inset 0 -3px #2f6fda;
+    color: #245b9a;
+}
+
+.production-half-day-head {
+    color: #737d85;
+    font-size: 7px !important;
+    height: 20px !important;
+    min-width: 15px;
+    top: 58px !important;
+    width: 15px;
+}
+
 .production-day-half-cell {
     min-width: 15px;
     position: relative;
@@ -663,6 +782,14 @@ body.cal-modal-open .calendar-modal-overlay {
 .production-day-half-cell.is-first-half {
     border-right-color: #bfc2c4;
     border-right-style: dashed;
+}
+
+.production-day-half-cell.is-weekend .production-cell-toggle:not(.is-filled) {
+    background: #fafafa;
+}
+
+.production-day-half-cell.is-today {
+    box-shadow: inset 1px 0 rgba(47, 111, 218, .45), inset -1px 0 rgba(47, 111, 218, .45);
 }
 
 .production-cell-toggle {
@@ -679,11 +806,11 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-cell-toggle.is-filled {
-    background: var(--production-phase, #8a939b);
+    background: var(--production-health-color, var(--production-health-neutral));
 }
 
 .production-cell-toggle.is-filled.is-overridden {
-    background: var(--production-phase, #727c85);
+    background: var(--production-health-color, var(--production-health-neutral));
     box-shadow: inset 0 0 0 2px rgba(29, 42, 52, .48);
 }
 
@@ -696,12 +823,10 @@ body.cal-modal-open .calendar-modal-overlay {
     box-shadow: inset 0 0 0 2px #1d6adf;
 }
 
-.production-work-row.production-phase-slate { --production-phase: #7f8992; --production-phase-soft: #edf0f2; }
-.production-work-row.production-phase-blue { --production-phase: #7892b0; --production-phase-soft: #e9eef4; }
-.production-work-row.production-phase-teal { --production-phase: #719994; --production-phase-soft: #e8f0ef; }
-.production-work-row.production-phase-green { --production-phase: #7e9a7f; --production-phase-soft: #ebf0eb; }
-.production-work-row.production-phase-violet { --production-phase: #8b84a1; --production-phase-soft: #eeecf2; }
-.production-work-row.production-phase-rose { --production-phase: #a0878e; --production-phase-soft: #f2ebed; }
+.production-work-row.production-health-neutral { --production-health-color: var(--production-health-neutral); --production-health-soft: var(--production-health-neutral-soft); }
+.production-work-row.production-health-green { --production-health-color: var(--production-health-green); --production-health-soft: var(--production-health-green-soft); }
+.production-work-row.production-health-yellow { --production-health-color: var(--production-health-yellow); --production-health-soft: var(--production-health-yellow-soft); }
+.production-work-row.production-health-red { --production-health-color: var(--production-health-red); --production-health-soft: var(--production-health-red-soft); }
 
 .production-work-row:hover .production-work-title,
 .production-work-row:hover .production-number-cell,
@@ -710,7 +835,7 @@ body.cal-modal-open .calendar-modal-overlay {
 .production-work-row:hover .production-shifts-cell,
 .production-work-row:hover .production-brigades-cell,
 .production-work-row:hover .production-duration-cell {
-    background: var(--production-phase-soft, #f3f5f6);
+    background: var(--production-health-soft, #f3f5f6);
 }
 
 .production-work-row.is-dragging {

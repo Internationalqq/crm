@@ -126,7 +126,7 @@ assert.match(shellCss, /body\.sidebar-collapsed \.brand,[\s\S]*?visibility: hidd
 
 assert.match(appCss, /shell\.css\?v=[^"\n]*sidebar-motion-2/);
 assert.match(appCss, /overrides\.css\?v=[^"\n]*sidebar-motion-2/);
-assert.match(baseHtml, /app\.css\?v=[^"\n]*sidebar-motion-2/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
 assert.match(baseHtml, /core\.js\?v=[^"\n]*sidebar-motion-2/);
 assert.match(baseHtml, /matchMedia\('\(min-width: 901px\)'\)\.matches/);
 

@@ -2,6 +2,7 @@
 
 :root {
     color-scheme: light;
+    --pmbi-style-tokens-ready: 1;
 
     /* Typography */
     --font-sans: Inter, "Segoe UI", Arial, sans-serif;

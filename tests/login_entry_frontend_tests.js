@@ -8,7 +8,7 @@ const loginPath = path.join(root, 'frontend/assets/js/login.js');
 const loginJs = fs.readFileSync(loginPath, 'utf8');
 const coreJs = fs.readFileSync(path.join(root, 'frontend/assets/js/core.js'), 'utf8');
 
-assert.ok(Buffer.byteLength(loginJs, 'utf8') < 16 * 1024, 'login entry must stay small');
+assert.ok(Buffer.byteLength(loginJs, 'utf8') < 20 * 1024, 'login entry must stay small');
 assert.match(loginJs, /PMBI\.api\('\/api\/auth\/login'/);
 assert.match(loginJs, /PMBI\.api\('\/api\/auth\/request-password-reset'/);
 assert.match(loginJs, /PMBI\.loadCurrentUser\(\{ silentLoader: true, force: true \}\)/);
@@ -86,6 +86,13 @@ function createHarness(options = {}) {
     resetForm.reset = () => { resetForm.resetCount += 1; resetForm.email.value = ''; };
     resetForm.querySelector = (selector) => selector.startsWith('button') ? resetButton : null;
 
+    const confirmForm = element();
+    const confirmButton = element();
+    confirmForm.newPassword = { value: '' };
+    confirmForm.confirmPassword = { value: '' };
+    confirmForm.reset = () => { confirmForm.newPassword.value = ''; confirmForm.confirmPassword.value = ''; };
+    confirmForm.querySelector = (selector) => selector.startsWith('button') ? confirmButton : null;
+
     const connectionText = element();
     const connectionShell = element();
     connectionShell.querySelector = (selector) => selector === '[data-connection-shell-text]' ? connectionText : null;
@@ -98,6 +105,12 @@ function createHarness(options = {}) {
         '[data-password-reset-error]': element(),
         '[data-password-reset-success]': element(),
         '[data-password-reset-panel]': element(),
+        '[data-password-reset-confirm]': element(),
+        '[data-password-reset-confirm-form]': confirmForm,
+        '[data-password-reset-confirm-error]': element(),
+        '[data-password-reset-confirm-success]': element(),
+        '[data-login-title]': element(),
+        '[data-login-lead]': element(),
         '[data-login-clerk-root]': element(),
         '[data-connection-shell-text]': connectionText,
     };
@@ -105,6 +118,7 @@ function createHarness(options = {}) {
     const calls = {
         api: [],
         redirects: [],
+        history: [],
         remember: [],
         clearAuto: 0,
         markAuto: 0,
@@ -157,7 +171,12 @@ function createHarness(options = {}) {
     };
     const location = {
         search: '',
+        hash: options.hash || '',
+        pathname: '/login',
         replace(target) { calls.redirects.push(target); },
+    };
+    const history = {
+        replaceState(_state, _title, target) { calls.history.push(target); location.hash = ''; },
     };
     const window = { PMBI };
     window.addEventListener = () => {};
@@ -169,6 +188,7 @@ function createHarness(options = {}) {
         window,
         document,
         location,
+        history,
         Promise,
         console,
         navigator: { onLine: options.online !== false },
@@ -183,6 +203,8 @@ function createHarness(options = {}) {
         loginButton,
         resetForm,
         resetButton,
+        confirmForm,
+        confirmButton,
         connectionShell,
         connectionText,
         calls,
@@ -246,6 +268,26 @@ const settle = async () => {
     assert.equal(reset.nodes['[data-password-reset-success]'].textContent, 'Письмо отправлено');
     assert.equal(reset.resetForm.resetCount, 1);
     assert.equal(reset.resetButton.disabled, false);
+
+    const confirmation = createHarness({ hash: '#reset-token=secure-token' });
+    assert.equal(confirmation.loginForm.hidden, true);
+    assert.equal(confirmation.nodes['[data-password-reset-confirm]'].hidden, false);
+    assert.deepEqual(confirmation.calls.history, ['/login']);
+    confirmation.confirmForm.newPassword.value = 'new-password-123';
+    confirmation.confirmForm.confirmPassword.value = 'different-password';
+    confirmation.confirmForm.dispatch('submit');
+    assert.equal(confirmation.calls.api.some((call) => call.path === '/api/auth/request-password-reset'), false);
+    assert.match(confirmation.nodes['[data-password-reset-confirm-error]'].textContent, /не совпадают/i);
+    confirmation.confirmForm.confirmPassword.value = 'new-password-123';
+    confirmation.confirmForm.dispatch('submit');
+    await settle();
+    const confirmationCall = confirmation.calls.api.find((call) => call.path === '/api/auth/request-password-reset');
+    assert.deepEqual(JSON.parse(confirmationCall.options.body), {
+        resetToken: 'secure-token',
+        newPassword: 'new-password-123',
+    });
+    assert.equal(confirmation.loginForm.hidden, false);
+    assert.equal(confirmation.nodes['[data-password-reset-confirm]'].hidden, true);
 
     const rememberedGuest = createHarness({ remembered: true, currentUser: { role: 'guest' } });
     await settle();

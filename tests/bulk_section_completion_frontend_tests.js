@@ -47,7 +47,6 @@ assert.match(routerJs, /app\.js\?v=[^']*bulk-section-completion-1/);
 assert.match(routerJs, /planning\.js\?v=[^']*bulk-section-completion-1/);
 assert.match(routerJs, /app\.js\?v=[^']*works-bulk-right-1/);
 assert.match(routerJs, /planning\.js\?v=[^']*works-bulk-right-1/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*works-only-1/);
-assert.match(baseHtml, /router\.js\?v=[^"\n]*works-bulk-right-1/);
+assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
 
 console.log('bulk_section_completion_frontend_ok');

@@ -1032,7 +1032,7 @@
             '<label><span>\u0412\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u0438\u0439 \u043b\u043e\u0433\u0438\u043d</span><input name="login" required></label>' +
             '<label><span>Email \u0434\u043b\u044f \u0432\u0445\u043e\u0434\u0430</span><input name="email" type="email" required></label>' +
             '<label><span>\u0422\u0435\u043b\u0435\u0444\u043e\u043d</span><input name="phone" required></label>' +
-            '<label><span>\u0421\u0442\u0430\u0440\u0442\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c Clerk</span><input name="password" type="password" minlength="10" required></label>' +
+            '<label><span>\u0421\u0442\u0430\u0440\u0442\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c</span><input name="password" type="password" minlength="12" required></label>' +
             '<div class="team-role-row"><label><span>\u0420\u043e\u043b\u044c</span><select name="role" required data-user-role-select><option value="foreman">\u041f\u0440\u043e\u0440\u0430\u0431</option></select></label><button class="ghost compact" type="button" data-role-create-open>+ \u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0440\u043e\u043b\u044c</button></div>' +
             '<fieldset class="role-checks">' +
                 '<legend>\u0414\u043e\u0441\u0442\u0443\u043f \u043f\u0440\u043e\u0440\u0430\u0431\u0430 \u043a \u043e\u0431\u044a\u0435\u043a\u0442\u0430\u043c</legend>' +
@@ -1971,6 +1971,7 @@
 
     function runProjectQuickAction(button) {
         var action = button.dataset.projectQuickAction || '';
+        var actionProjectId = Number(state.selectedProject && state.selectedProject.id || 0);
         var menu = button.closest('details');
         if (menu) menu.open = false;
         if (!projectQuickActionAllowed(action)) {
@@ -2022,13 +2023,34 @@
         if (!config) return;
         activateProjectTab(config.tab);
         waitForProjectControl(config.selector, function (control) {
-            control.click();
+            if (!state.selectedProject || Number(state.selectedProject.id || 0) !== actionProjectId) return;
+            var openDocumentForm = action === 'document' ? qs('[data-document-upload-form]') : null;
+            if (action !== 'document' || !openDocumentForm || openDocumentForm.hidden) control.click();
             if (action !== 'document') return;
             var documentType = button.dataset.documentType || '';
             var form = qs('[data-document-upload-form]');
+            if (form) {
+                form.reset();
+                if (form.file) form.file.dispatchEvent(new Event('change', { bubbles: true }));
+            }
             if (form && form.doc_type && documentType) {
                 form.doc_type.value = documentType;
                 form.doc_type.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            var estimateItemId = button.dataset.estimateItemId || '';
+            if (form && form.estimate_item_id) form.estimate_item_id.value = '';
+            if (form && form.estimate_item_id && estimateItemId) {
+                var hasOption = Array.prototype.some.call(form.estimate_item_id.options, function (option) {
+                    return option.value === String(estimateItemId);
+                });
+                if (!hasOption) {
+                    var materialOption = document.createElement('option');
+                    materialOption.value = String(estimateItemId);
+                    materialOption.textContent = button.dataset.materialTitle || ('Материал #' + estimateItemId);
+                    form.estimate_item_id.appendChild(materialOption);
+                }
+                form.estimate_item_id.value = String(estimateItemId);
+                form.estimate_item_id.dispatchEvent(new Event('change', { bubbles: true }));
             }
         });
     }
@@ -2160,6 +2182,15 @@
         window.addEventListener('message', function (event) {
             var data = event && event.data;
             if (!data || data.type !== 'pmbi:navigate') return;
+            var frame = qs('[data-autobot-frame]');
+            var stage = qs('[data-autobot-url]');
+            if (!frame || !stage || event.source !== frame.contentWindow) return;
+            try {
+                var expectedOrigin = new URL(stage.getAttribute('data-autobot-url') || '', location.href).origin;
+                if (!expectedOrigin || event.origin !== expectedOrigin) return;
+            } catch (originError) {
+                return;
+            }
             var href = String(data.href || '').trim();
             if (!href) return;
             try {
@@ -2546,8 +2577,11 @@
 
     function scheduleProcurementBadge(alert) {
         if (!alert) return 'Подготовка';
-        if (Number(alert.daysUntilOrder) < 0) return 'Просрочено';
-        if (Number(alert.daysUntilOrder) === 0) return 'Заказать сегодня';
+        var supervisor = !!alert.isSupervisorView || alert.notificationAudience === 'supervisor';
+        var personal = !supervisor && (!!alert.isPersonalResponsibility || alert.notificationAudience === 'assignee');
+        if (supervisor && alert.needsAssignment) return 'Нет ответственного';
+        if (Number(alert.daysUntilOrder) < 0) return personal ? 'Вам: просрочено' : 'Заказ просрочен';
+        if (Number(alert.daysUntilOrder) === 0) return personal ? 'Вам заказать сегодня' : 'Заказ сегодня';
         if (Number(alert.daysUntilOrder) <= 3) return 'Срочно';
         if (Number(alert.daysUntilOrder) <= 10) return 'Скоро заказ';
         return 'Подготовка';
@@ -2713,8 +2747,8 @@
             '</div>' +
             '<form class="profile-password-form" data-profile-password-form>' +
                 '<label><span>Текущий пароль</span><input name="currentPassword" type="password" autocomplete="current-password"></label>' +
-                '<label><span>Новый пароль</span><input name="newPassword" type="password" autocomplete="new-password" minlength="8"></label>' +
-                '<label><span>Повторите новый пароль</span><input name="confirmPassword" type="password" autocomplete="new-password" minlength="8"></label>' +
+                '<label><span>Новый пароль</span><input name="newPassword" type="password" autocomplete="new-password" minlength="12"></label>' +
+                '<label><span>Повторите новый пароль</span><input name="confirmPassword" type="password" autocomplete="new-password" minlength="12"></label>' +
                 '<div class="form-error" data-profile-password-error></div>' +
                 '<div class="form-success" data-profile-password-success></div>' +
                 '<button class="primary profile-password-button" type="submit">Обновить пароль</button>' +
@@ -2823,8 +2857,8 @@
                 showPasswordError('Введите текущий пароль.');
                 return;
             }
-            if (newPassword.length < 8) {
-                showPasswordError('Новый пароль должен быть не короче 8 символов.');
+            if (newPassword.length < 12) {
+                showPasswordError('Новый пароль должен быть не короче 12 символов.');
                 return;
             }
             if (newPassword !== confirmPassword) {
@@ -5297,6 +5331,19 @@
                     showLogFormError(form, error, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0438\u0442\u044c \u043e\u0431\u044a\u0435\u043a\u0442. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435.', projectControl);
                     return;
                 }
+                var minimumReportDate = dateControl ? String((dateControl.getAttribute && dateControl.getAttribute('min')) || dateControl.min || '') : '';
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+                    showLogFormError(form, error, 'Укажите корректную дату отчёта.', dateControl);
+                    return;
+                }
+                if (minimumReportDate && selectedDate < minimumReportDate) {
+                    showLogFormError(form, error, 'Дата отчёта не может быть раньше старта объекта.', dateControl);
+                    return;
+                }
+                if (selectedDate > todayIso) {
+                    showLogFormError(form, error, 'Нельзя сохранить отчёт за будущую дату.', dateControl);
+                    return;
+                }
                 if (!reportText) {
                     showLogFormError(form, error, '\u041e\u043f\u0438\u0448\u0438\u0442\u0435, \u0447\u0442\u043e \u043f\u0440\u043e\u0438\u0437\u043e\u0448\u043b\u043e \u043d\u0430 \u043e\u0431\u044a\u0435\u043a\u0442\u0435.', rawInputControl || workDoneControl);
                     return;
@@ -5719,7 +5766,7 @@
         if (log.equipment && !(Array.isArray(log.equipment_entries) && log.equipment_entries.length)) {
             rows.push('<div class="report-fact-row"><i data-lucide="truck"></i><div><span>Техника и поставки</span><strong>' + escapeHtml(log.equipment) + '</strong></div></div>');
         }
-        return projectReportShiftHtml(log) + (rows.length ? '<div class="report-fact-list">' + rows.join('') + '</div>' : '') + projectReportPhotosHtml(log);
+        return projectReportShiftHtml(log) + (rows.length ? '<div class="report-fact-list">' + rows.join('') + '</div>' : '');
     }
 
     function projectReportMetaHtml(log) {
@@ -5837,12 +5884,7 @@
             });
         });
 
-        var fullParts = workDone ? [workDone] : [];
-        supplementalEntries.forEach(function (entry) {
-            if (!entry.phrases.length) return;
-            fullParts.push(entry.label + ': ' + entry.phrases.join('. ') + '.');
-        });
-        return { rows: rows, fullText: fullParts.join('\n\n') || 'Текст отчёта не указан' };
+        return { rows: rows, fullText: workDone || 'Текст отчёта не указан' };
     }
 
     function projectReportDocumentHtml(log) {
@@ -5860,9 +5902,9 @@
         return '<section class="report-entry-document" data-report-saved-document aria-label="Содержание отчёта">' +
             '<section class="report-final-full" aria-label="Описание дня"><span><i data-lucide="align-left" aria-hidden="true"></i>Описание дня</span><p class="report-entry-full-copy">' + escapeHtml(documentData.fullText) + '</p></section>' +
             '<div class="report-final-groups">' +
-                group('works', 'hammer', 'Работы') +
-                group('materials', 'package-check', 'Материалы') +
-                group('additional', 'sparkles', 'Доп. работы') +
+                group('works', 'hammer', 'Что сделали') +
+                group('materials', 'package-check', 'Материалы и поставки') +
+                group('additional', 'sparkles', 'Дополнительные работы') +
                 group('blockers', 'octagon-alert', 'Блокеры') +
                 group('next', 'arrow-right', 'Следующий шаг') +
             '</div>' +
@@ -5944,11 +5986,45 @@
         return title ? title.charAt(0).toUpperCase() + title.slice(1) : '';
     }
 
+    function projectReportProjectStartIso(project) {
+        var raw = String(project && (project.started_at || project.startedAt) || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+        var parsed = new Date(raw + 'T00:00:00Z');
+        return isNaN(parsed.getTime()) ? '' : raw;
+    }
+
+    function projectReportCalendarDayState(dayLogs) {
+        dayLogs = Array.isArray(dayLogs) ? dayLogs : [];
+        if (!dayLogs.length) return { kind: 'neutral', label: '' };
+        var text = dayLogs.map(function (log) {
+            return [log && log.title, log && log.work_done, log && log.raw_input, log && log.blockers, log && log.next_steps].join(' ');
+        }).join(' ');
+        if (/(не\s*успева|отстав|просроч|срыв(?:а|у|ом)?\s+график|выбил(?:ись|ся)?\s+из\s+график|задержк[аи].*срок)/i.test(text)) {
+            return { kind: 'behind', label: 'Отставание' };
+        }
+        if (dayLogs.some(function (log) { return String(log && log.blockers || '').trim(); })) {
+            return { kind: 'danger', label: 'Есть блокер' };
+        }
+        if (/(не\s+работали|работы\s+не\s+велись|без\s+работ|выходн(?:ой|ые)|простой)/i.test(text)) {
+            return { kind: 'neutral', label: 'Работы не велись' };
+        }
+        if (/(вопрос|уточнен|согласован|ожидаем|жд[её]м|проблем)/i.test(text)) {
+            return { kind: 'attention', label: 'Есть вопросы' };
+        }
+        return { kind: 'on-track', label: 'По плану' };
+    }
+
     renderLogsStats = function (logs, notifications) {
         if (!projectReportsSurfaceRoot()) {
             return baseRenderLogsStatsForProjectReports(logs, notifications);
         }
         logs = projectReportFieldLogs(logs);
+        var projectStartIso = projectReportProjectStartIso(state.selectedProject);
+        if (projectStartIso) {
+            logs = logs.filter(function (log) {
+                return !log.report_date || String(log.report_date).slice(0, 10) >= projectStartIso;
+            });
+        }
         var root = qs('[data-panel="reports"] [data-logs-stats]');
         if (!root) return;
         var uniqueDates = {};
@@ -6056,7 +6132,18 @@
 
     renderProjectReportForm = function (project) {
         if (!canCreateProjectReport()) return '';
-        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || currentLocalDateIso();
+        var todayIso = currentLocalDateIso();
+        var selectedDate = state.logsSelectedDateByProject[Number(project.id)] || todayIso;
+        var projectStartIso = projectReportProjectStartIso(project);
+        var projectStartsLater = !!(projectStartIso && projectStartIso > todayIso);
+        if (projectStartsLater) selectedDate = projectStartIso;
+        else {
+            if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+            if (selectedDate > todayIso) selectedDate = todayIso;
+        }
+        var reportDateBounds = (projectStartIso ? ' min="' + escapeHtml(projectStartIso) + '"' : '') + ' max="' + escapeHtml(projectStartsLater ? projectStartIso : todayIso) + '"' + (projectStartsLater ? ' disabled aria-disabled="true"' : '');
+        var reportSubmitDisabled = projectStartsLater ? ' disabled aria-disabled="true" title="Отчёт станет доступен после старта объекта"' : '';
+        var projectStartNotice = projectStartsLater ? '<small class="report-project-start-note" role="status">Отчёт можно сохранить с даты старта объекта: ' + escapeHtml(formatRuDate(projectStartIso)) + '.</small>' : '';
         return '<section class="subsection report-intake-card report-chat-intake report-daily-form-card reports-drawer">' +
             '<header class="card-head report-form-head report-modal-header">' +
                 '<div class="report-modal-heading">' +
@@ -6081,13 +6168,14 @@
                 '<section class="report-form-section report-form-meta-section">' +
                     '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="calendar-days"></i></span><div><b>Дата и доступ</b><small>Укажите день и выберите, кто увидит отчет</small></div></div>' +
                     '<div class="report-chat-header report-chat-header-compact">' +
-                        '<label><span class="report-compact-field-label"><i data-lucide="calendar-days" aria-hidden="true"></i>Дата отчета</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '" required></label>' +
+                        '<label><span class="report-compact-field-label"><i data-lucide="calendar-days" aria-hidden="true"></i>Дата отчета</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '"' + reportDateBounds + ' required></label>' +
                         '<label><span class="report-compact-field-label"><i data-lucide="eye" aria-hidden="true"></i>Кому доступен</span><select name="is_client_visible"><option value="1">Заказчику и команде</option><option value="0">Только команде</option></select></label>' +
-                    '</div>' +
+                    '</div>' + projectStartNotice +
                 '</section>' +
                 '<section class="report-form-section report-form-main-section">' +
-                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></span><div><b>Расскажите, что произошло</b><small>Работы, заказы, поставки и проблемы — одной фразой</small></div><span class="report-section-required">Обязательно</span></div>' +
+                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></span><div><b>Описание дня</b><small>Начните здесь: коротко опишите работы, поставки и важные события</small></div><span class="report-section-required">Обязательно</span></div>' +
                     '<label class="report-chat-inputbox report-daily-textarea-field">' +
+                        '<span class="report-daily-field-title"><b>Что произошло на объекте?</b><small>Можно написать свободным текстом или надиктовать</small></span>' +
                         '<textarea name="raw_input" rows="6" required aria-label="Опишите, что произошло" placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
                         '<small class="report-field-hint">Нажмите «Диктовать» или пишите свободно. Пример: «Заказал дверные ручки, привезли кабель 40 м»</small>' +
                     '</label>' +
@@ -6129,20 +6217,20 @@
                     '<section class="report-final-message" data-report-final-document aria-labelledby="report-final-message-title">' +
                         '<div class="report-final-message-head"><span class="report-final-message-label" id="report-final-message-title"><i data-lucide="file-check-2" aria-hidden="true"></i>Готовый отчёт</span><small>Обновляется по мере заполнения</small></div>' +
                         '<div class="report-final-summary" data-report-final-summary></div>' +
+                        '<div class="report-final-shift" data-report-final-shift></div>' +
                         '<section class="report-final-full" data-report-final-section="full-text" aria-label="Описание дня">' +
                             '<div class="report-final-text-head"><span><i data-lucide="align-left" aria-hidden="true"></i>Описание дня</span><button type="button" data-report-text-regenerate><i data-lucide="rotate-ccw" aria-hidden="true"></i>Вернуть исходный текст</button></div>' +
                             '<textarea name="work_done" rows="5" required data-report-final-text data-report-manual="0" aria-label="Описание дня"></textarea>' +
                             '<small class="report-final-text-hint">Это ваш текст. Работы, материалы и количества ниже не будут его переписывать.</small>' +
                         '</section>' +
                         '<div class="report-final-groups" data-report-final-groups></div>' +
-                        '<div class="report-final-shift" data-report-final-shift></div>' +
                         '<div class="report-final-photos" data-report-final-photos></div>' +
                     '</section>' +
                 '</section>' +
                 '<div class="form-error" data-log-error role="alert" aria-atomic="true"></div>' +
                 '<div class="report-intake-actions">' +
                     '<small>Работы и материалы будут учтены при сохранении отчёта.</small>' +
-                    '<span class="report-submit-group"><button class="ghost report-only-button" type="submit" data-report-only-submit><span>Только отчёт</span></button><button class="primary report-submit-button" type="submit"><span>Сохранить и учесть</span></button></span>' +
+                    '<span class="report-submit-group"><button class="ghost report-only-button" type="submit" data-report-only-submit' + reportSubmitDisabled + '><span>Только отчёт</span></button><button class="primary report-submit-button" type="submit"' + reportSubmitDisabled + '><span>Сохранить и учесть</span></button></span>' +
                 '</div>' +
             '</form>' +
             '<div class="report-clear-dialog" data-report-clear-dialog role="presentation" aria-hidden="true" hidden>' +
@@ -6189,6 +6277,8 @@
         var todayButton = qs('[data-report-calendar-today]', scope);
         if (todayButton && todayButton.dataset.bound !== '1') {
             todayButton.dataset.bound = '1';
+            var projectStartIso = projectReportProjectStartIso(project);
+            if (projectStartIso && projectStartIso > currentLocalDateIso()) todayButton.disabled = true;
             todayButton.addEventListener('click', function () {
                 var todayIso = currentLocalDateIso();
                 state.logsSelectedDateByProject[projectId] = todayIso;
@@ -6227,34 +6317,50 @@
         logs = projectReportFieldLogs(logs);
         var projectId = Number(project.id);
         var todayIso = currentLocalDateIso();
-        var selectedDate = state.logsSelectedDateByProject[projectId] || projectReportDefaultSelectedDate(logs, project.started_at || todayIso);
+        var projectStartIso = projectReportProjectStartIso(project);
+        var visibleLogs = projectStartIso ? logs.filter(function (log) {
+            return !log.report_date || String(log.report_date).slice(0, 10) >= projectStartIso;
+        }) : logs;
+        var selectedDate = state.logsSelectedDateByProject[projectId] || projectReportDefaultSelectedDate(visibleLogs, projectStartIso || todayIso);
+        if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+        state.logsSelectedDateByProject[projectId] = selectedDate;
         if (!state.logsCalendarMonthByProject[projectId]) state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
         var monthIso = state.logsCalendarMonthByProject[projectId];
+        var firstProjectMonthIso = projectStartIso ? logsMonthStartIso(projectStartIso) : '';
+        if (firstProjectMonthIso && monthIso < firstProjectMonthIso) {
+            monthIso = firstProjectMonthIso;
+            state.logsCalendarMonthByProject[projectId] = monthIso;
+        }
         var monthDate = new Date(monthIso + 'T00:00:00Z');
         var monthIndex = monthDate.getUTCMonth();
         var firstWeekday = (monthDate.getUTCDay() + 6) % 7;
         var cursor = new Date(monthDate.getTime());
         cursor.setUTCDate(cursor.getUTCDate() - firstWeekday);
         var byDate = {};
-        logs.forEach(function (log) {
+        visibleLogs.forEach(function (log) {
             if (!log.report_date) return;
             byDate[log.report_date] = byDate[log.report_date] || [];
             byDate[log.report_date].push(log);
         });
         var monthKey = monthIso.slice(0, 7);
-        var monthLogs = logs.filter(function (log) { return String(log.report_date || '').slice(0, 7) === monthKey; });
+        var monthLogs = visibleLogs.filter(function (log) { return String(log.report_date || '').slice(0, 7) === monthKey; });
         var monthReportDates = {};
-        var monthRiskDates = {};
+        var monthAttentionDates = {};
+        var monthBehindDates = {};
         monthLogs.forEach(function (log) {
             monthReportDates[log.report_date] = true;
-            if (String(log.blockers || '').trim()) monthRiskDates[log.report_date] = true;
+            var dayState = projectReportCalendarDayState(byDate[log.report_date] || []);
+            if (dayState.kind === 'attention') monthAttentionDates[log.report_date] = true;
+            if (dayState.kind === 'behind' || dayState.kind === 'danger') monthBehindDates[log.report_date] = true;
         });
         var reportDaysCount = Object.keys(monthReportDates).length;
-        var riskDaysCount = Object.keys(monthRiskDates).length;
+        var attentionDaysCount = Object.keys(monthAttentionDates).length;
+        var behindDaysCount = Object.keys(monthBehindDates).length;
         var monthSummary = monthLogs.length
             ? projectReportCalendarCountLabel(monthLogs.length) + ' за ' + projectReportCalendarDayLabel(reportDaysCount)
             : 'В этом месяце отчетов нет';
-        if (riskDaysCount) monthSummary += ' · ' + projectReportCalendarDayLabel(riskDaysCount) + ' с блокером';
+        if (attentionDaysCount) monthSummary += ' · вопросов: ' + attentionDaysCount;
+        if (behindDaysCount) monthSummary += ' · блокеры/отставание: ' + behindDaysCount;
         var dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
         var cells = [];
         for (var index = 0; index < 42; index += 1) {
@@ -6262,19 +6368,26 @@
             var dayLogs = byDate[isoDate] || [];
             var hasRisk = dayLogs.some(function (log) { return String(log.blockers || '').trim(); });
             var isOutside = cursor.getUTCMonth() !== monthIndex;
+            var isBeforeProject = !!(projectStartIso && isoDate < projectStartIso);
+            if (isOutside || isBeforeProject) {
+                cells.push('<span class="report-calendar-day ' + (isOutside ? 'is-outside' : 'is-before-project') + '" aria-hidden="true"></span>');
+                cursor.setUTCDate(cursor.getUTCDate() + 1);
+                continue;
+            }
+            var dayState = projectReportCalendarDayState(dayLogs);
             var classes = ['report-calendar-day'];
-            if (isOutside) classes.push('is-outside');
             if (index % 7 >= 5) classes.push('is-weekend');
             if (isoDate === todayIso) classes.push('is-today');
             if (dayLogs.length) classes.push('has-report');
             if (hasRisk) classes.push('has-risk');
+            if (dayState.kind !== 'neutral') classes.push('is-' + dayState.kind);
             if (selectedDate === isoDate) classes.push('is-selected');
             var reportCountLabel = projectReportCalendarCountLabel(dayLogs.length);
-            var label = formatRuDate(isoDate) + (dayLogs.length ? (', ' + reportCountLabel) : ', отчетов нет') + (hasRisk ? ', есть блокер' : '');
+            var label = formatRuDate(isoDate) + (dayLogs.length ? (', ' + reportCountLabel + ', ' + dayState.label) : ', отчетов нет');
             var statusHtml = dayLogs.length
-                ? '<span class="report-calendar-report-count"><i aria-hidden="true"></i><span>' + escapeHtml(reportCountLabel) + '</span></span>'
+                ? '<span class="report-calendar-state is-' + escapeHtml(dayState.kind) + '"><i aria-hidden="true"></i><span>' + escapeHtml(dayState.label) + '</span></span>'
                 : '';
-            if (hasRisk) statusHtml += '<span class="report-calendar-risk"><i aria-hidden="true"></i><span>Блокер</span></span>';
+            if (dayLogs.length > 1) statusHtml += '<span class="report-calendar-report-total" aria-hidden="true">' + dayLogs.length + '</span>';
             cells.push('<button class="' + classes.join(' ') + '" type="button" data-log-date="' + isoDate + '" aria-label="' + escapeHtml(label) + '" aria-pressed="' + (selectedDate === isoDate ? 'true' : 'false') + '"' + (isoDate === todayIso ? ' aria-current="date"' : '') + '>' +
                 '<span class="report-calendar-day-top"><strong>' + cursor.getUTCDate() + '</strong></span>' +
                 '<span class="report-calendar-day-status">' + statusHtml + '</span>' +
@@ -6285,16 +6398,17 @@
             '<div class="report-calendar-toolbar">' +
                 '<div class="report-calendar-month-copy" aria-live="polite"><strong>' + escapeHtml(projectReportCalendarMonthTitle(monthIso)) + '</strong><span>' + escapeHtml(monthSummary) + '</span></div>' +
                 '<div class="report-calendar-controls" aria-label="Навигация по календарю">' +
-                    '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="-1" aria-label="Предыдущий месяц"><span class="report-calendar-nav-mark" aria-hidden="true">‹</span></button>' +
+                    '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="-1" aria-label="Предыдущий месяц"' + (firstProjectMonthIso && monthIso <= firstProjectMonthIso ? ' disabled' : '') + '><span class="report-calendar-nav-mark" aria-hidden="true">‹</span></button>' +
                     '<button class="ghost compact report-calendar-today" type="button" data-report-calendar-today>Сегодня</button>' +
                     '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="1" aria-label="Следующий месяц"><span class="report-calendar-nav-mark" aria-hidden="true">›</span></button>' +
                 '</div>' +
             '</div>' +
             '<div class="report-calendar-grid report-calendar-weekdays" aria-hidden="true">' + dayLabels.map(function (dayLabel, dayIndex) { return '<span' + (dayIndex >= 5 ? ' class="is-weekend"' : '') + '>' + dayLabel + '</span>'; }).join('') + '</div>' +
             '<div class="report-calendar-grid report-calendar-days">' + cells.join('') + '</div>' +
+            '<div class="report-calendar-legend" aria-label="Обозначения статусов"><span class="is-on-track"><i aria-hidden="true"></i>По плану</span><span class="is-attention"><i aria-hidden="true"></i>Есть вопросы</span><span class="is-danger"><i aria-hidden="true"></i>Блокер / отставание</span><span class="is-neutral"><i aria-hidden="true"></i>Нет отчёта / не работали</span></div>' +
         '</div>';
-        renderLogsDayView(project, logs);
-        bindProjectReportsCalendar(project, logs);
+        renderLogsDayView(project, visibleLogs);
+        bindProjectReportsCalendar(project, visibleLogs);
     };
 
     renderLogsDayView = function (project, logs) {
@@ -6322,8 +6436,8 @@
             var entryKind = projectReportEntryKind(log);
             return '<article class="report-day-entry is-' + entryKind + (status.kind === 'danger' ? ' is-danger' : '') + '" data-report-entry-kind="' + entryKind + '">' +
                 '<div class="report-day-entry-head"><div class="report-author-block"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions">' + projectReportEntryTypeHtml(log) + projectReportStatusHtml(log, status) + renderProjectReportEditButton(projectId, log, true) + renderProjectReportDeleteButton(projectId, log, true) + '</div></div>' +
-                projectReportDocumentHtml(log) +
-                projectReportMetaHtml(log) + projectReportDetailsHtml(log) + projectReportSourceHtml(log) +
+                projectReportMetaHtml(log) + projectReportDetailsHtml(log) +
+                projectReportDocumentHtml(log) + projectReportPhotosHtml(log) + projectReportSourceHtml(log) +
             '</article>';
         }).join('') + '</div>';
         bindProjectReportDeleteActions();
@@ -6365,8 +6479,8 @@
                     '<div class="report-history-date"><strong>' + escapeHtml(dateParts.day) + '</strong><span>' + escapeHtml(dateParts.month) + '</span><small>' + escapeHtml(dateParts.year) + '</small></div>' +
                     '<div class="report-history-content">' +
                         '<div class="report-history-entry-head"><div class="report-author-inline"><span class="report-author-avatar">' + escapeHtml(reportAuthorInitials(authorName)) + '</span><div><strong>' + escapeHtml(authorName) + '</strong><small>' + escapeHtml(reportCreatedDateTime(log)) + '</small></div></div><div class="report-entry-actions">' + projectReportEntryTypeHtml(log) + projectReportStatusHtml(log, status) + renderProjectReportEditButton(project && project.id, log, true) + renderProjectReportDeleteButton(project && project.id, log, true) + '</div></div>' +
-                        projectReportDocumentHtml(log) +
-                        projectReportMetaHtml(log) + projectReportDetailsHtml(log) + projectReportSourceHtml(log) +
+                        projectReportMetaHtml(log) + projectReportDetailsHtml(log) +
+                        projectReportDocumentHtml(log) + projectReportPhotosHtml(log) + projectReportSourceHtml(log) +
                     '</div>' +
                 '</article>';
             }).join('') + '</div></section>';
@@ -6377,6 +6491,7 @@
     };
 
     PMBI.operations = PMBI.operations || {};
+        if (typeof waitForProjectControl === 'function') PMBI.operations.waitForProjectControl = waitForProjectControl;
         if (typeof loadRoles === 'function') PMBI.operations.loadRoles = loadRoles;
         if (typeof roleOptionLabel === 'function') PMBI.operations.roleOptionLabel = roleOptionLabel;
         if (typeof syncUserRoleOptions === 'function') PMBI.operations.syncUserRoleOptions = syncUserRoleOptions;

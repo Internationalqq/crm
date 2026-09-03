@@ -9,6 +9,7 @@ const page = read('frontend/pages/autobot.html');
 const script = read('frontend/assets/js/autobot.js');
 const router = read('frontend/assets/js/router.js');
 const app = read('frontend/assets/js/app.js');
+const operations = read('frontend/assets/js/operations.js');
 const css = read('frontend/assets/css/autobot.css');
 
 assert(page.includes('data-autobot-root'), 'AutoBot page must expose a stable workspace root');
@@ -16,6 +17,8 @@ assert(page.includes('data-autobot-loading'), 'AutoBot page must show a dedicate
 assert(page.includes('data-autobot-offline'), 'AutoBot page must provide an offline recovery state');
 assert(page.includes('data-autobot-retry') && page.includes('data-autobot-reload'), 'AutoBot page must expose retry and reload actions');
 assert(page.includes('target="_blank"') && page.includes('rel="noopener noreferrer"'), 'external AutoBot link must open safely');
+assert(page.includes('src="{{autobot_url}}/estimates"'), 'AutoBot workspace must open estimates first');
+assert(page.includes('href="{{autobot_url}}/estimates"'), 'standalone AutoBot actions must open estimates first');
 assert(/body\[data-page="autobot"\] \.autobot-offline\s*\{[^}]*display:\s*grid;[^}]*grid-auto-flow:\s*row;/s.test(css), 'AutoBot offline state must stack icon, message, and actions vertically');
 
 assert(router.includes("autobot: '/assets/js/autobot.js"), 'router must load the AutoBot workspace module');
@@ -29,7 +32,7 @@ assert(script.includes('12000'), 'AutoBot module must expose an offline state af
 assert(script.includes("searchParams.set('_pmbi_reload'"), 'reload must bypass a stale iframe response');
 assert(script.includes("return '/api/autobot/health'"), 'iframe readiness must use the same-origin CRM health proxy');
 assert(script.includes("fetch(autobotHealthUrl(),"), 'AutoBot health checks must not depend on the cross-origin iframe URL');
-assert(router.includes('autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1'), 'router must invalidate the cached AutoBot module after health and message-boundary fixes');
+assert(router.includes('autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1-foreman-crm-bridge-2-multi-estimate-bundle-1'), 'router must invalidate the cached AutoBot module after multi-estimate bridge support');
 assert(script.includes('checkAutobotHealth(root)'), 'a frame load alone must not be treated as a healthy AutoBot');
 assert(script.includes('scheduleRetry(root, frame)'), 'AutoBot must retry automatically after a deploy-time outage');
 assert(script.includes('Math.min(10000'), 'automatic retries must use bounded backoff');
@@ -37,6 +40,16 @@ assert(script.includes('automaticRetryLimit = 5'), 'automatic iframe reloads mus
 assert(script.includes('retryAttempt >= automaticRetryLimit'), 'an unavailable AutoBot must not cause an endless reload storm');
 assert(script.includes("event.origin !== expectedFrameOrigin"), 'iframe messages must be accepted only from the configured AutoBot origin');
 assert(script.includes("event.source !== frame.contentWindow"), 'iframe messages must also come from the active AutoBot frame window');
+assert(script.includes("event.data.type === 'autobot:crm-projects-request'"), 'AutoBot must request its project picker through the authenticated CRM parent');
+assert(script.includes("event.data.type === 'autobot:crm-estimate-import'"), 'AutoBot must route estimate imports through the authenticated CRM parent');
+assert(script.includes("'/api/autobot/projects'"), 'the bridge must use the scoped same-origin project endpoint');
+assert(script.includes("'/estimate-import'"), 'the bridge must use the scoped same-origin estimate import endpoint');
+assert(script.includes("credentials: 'same-origin'"), 'the CRM bridge must act through the current browser session');
+assert(script.includes('crmImportInFlight'), 'duplicate estimate imports must be locked while one request is running');
+assert(script.includes('payload.estimates') && script.includes('hasEstimateBundle'), 'the CRM bridge must accept a validated multi-estimate package');
+assert(script.includes('crmEstimateImportMessage') && script.includes('Проверьте:'), 'estimate import errors must identify the failing estimate or row');
+assert(script.includes('не подтвердила результат'), 'network uncertainty must tell the user to verify the object before retrying');
+assert(operations.includes('event.source !== frame.contentWindow') && operations.includes('event.origin !== expectedOrigin'), 'legacy AutoBot navigation messages must enforce the same frame boundary');
 
 assert(css.includes('grid-template-rows: auto minmax(0, 1fr)'), 'workspace must reserve the remaining viewport for AutoBot');
 assert(css.includes('position: static !important'), 'CRM topbar must not stay pinned over AutoBot');

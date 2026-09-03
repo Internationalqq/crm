@@ -21,6 +21,7 @@ from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from schedule_tasks import (
     build_procurement_alerts,
+    build_procurement_evidence_alerts,
     build_section_schedule_forecast,
     classify_scope,
     material_summary_rows,
@@ -75,6 +76,12 @@ DOCUMENT_INLINE_CONTENT_TYPES = {
     ".md": "text/plain; charset=utf-8",
     ".csv": "text/plain; charset=utf-8",
 }
+BLOCKED_DOCUMENT_EXTENSIONS = frozenset({
+    ".apk", ".app", ".bat", ".bash", ".cgi", ".cmd", ".com", ".dll", ".dmg",
+    ".exe", ".hta", ".jar", ".js", ".jse", ".msi", ".php", ".pl", ".ps1",
+    ".psm1", ".py", ".pyw", ".rb", ".scr", ".sh", ".vbe", ".vbs", ".wsf",
+    ".wsh", ".zsh",
+})
 LOGGER = logging.getLogger(__name__)
 
 DAILY_LOG_MATERIAL_ACTION_TYPES = {
@@ -890,6 +897,151 @@ def executive_ready_status(status: str | None) -> bool:
     return str(status or "").strip() in {"reviewed", "approved", "signed", "ready", "accepted"}
 
 
+PROCUREMENT_SUPERVISOR_ROLES = {"main_admin", "admin", "director"}
+
+
+def project_procurement_responsibility(con: sqlite3.Connection, project: sqlite3.Row | dict | None) -> dict:
+    """Resolve who must handle future procurement for an object.
+
+    An explicitly assigned purchaser wins.  If an object has no purchaser, its
+    assigned foreman owns the action.  The legacy project columns are kept as a
+    compatibility fallback for databases created before object assignments.
+    """
+
+    project_data = dict(project) if project else {}
+    project_id = int(project_data.get("id") or 0)
+    rows = con.execute(
+        """
+        SELECT oa.user_id, LOWER(TRIM(COALESCE(oa.role_code, ''))) AS role_code,
+               COALESCE(oa.is_primary, 0) AS is_primary,
+               COALESCE(
+                   NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''),
+                   NULLIF(TRIM(COALESCE(u.name, '')), ''),
+                   NULLIF(TRIM(COALESCE(u.login, '')), ''),
+                   'Сотрудник'
+               ) AS user_name
+        FROM object_assignments oa
+        JOIN users u ON u.id = oa.user_id
+        WHERE oa.object_id = ?
+          AND LOWER(TRIM(COALESCE(oa.role_code, ''))) IN ('purchaser', 'buyer', 'foreman')
+          AND COALESCE(u.is_active, 1) = 1
+        ORDER BY COALESCE(oa.is_primary, 0) DESC, oa.assigned_at DESC, oa.id DESC
+        """,
+        (project_id,),
+    ).fetchall() if project_id else []
+
+    purchasers = [row for row in rows if str(row["role_code"]) in {"purchaser", "buyer"}]
+    foremen = [row for row in rows if str(row["role_code"]) == "foreman"]
+    selected = purchasers or foremen
+    role_code = "purchaser" if purchasers else ("foreman" if foremen else "")
+    source = "project_purchaser" if purchasers else ("project_foreman" if foremen else "unassigned")
+
+    if not selected:
+        legacy_user_id = project_data.get("buyer_id")
+        role_code = "purchaser" if legacy_user_id else ""
+        source = "legacy_purchaser" if legacy_user_id else "unassigned"
+        if not legacy_user_id:
+            legacy_user_id = project_data.get("foreman_id")
+            role_code = "foreman" if legacy_user_id else ""
+            source = "legacy_foreman" if legacy_user_id else "unassigned"
+        if legacy_user_id:
+            legacy_row = con.execute(
+                """
+                SELECT id AS user_id, 1 AS is_primary,
+                       COALESCE(
+                           NULLIF(TRIM(COALESCE(last_name, '') || ' ' || COALESCE(first_name, '')), ''),
+                           NULLIF(TRIM(COALESCE(name, '')), ''),
+                           NULLIF(TRIM(COALESCE(login, '')), ''),
+                           'Сотрудник'
+                       ) AS user_name
+                FROM users
+                WHERE id = ? AND COALESCE(is_active, 1) = 1
+                """,
+                (int(legacy_user_id),),
+            ).fetchone()
+            selected = [legacy_row] if legacy_row else []
+
+    responsible_users: list[dict] = []
+    seen_user_ids: set[int] = set()
+    for row in selected:
+        user_id = int(row["user_id"] or 0)
+        if user_id <= 0 or user_id in seen_user_ids:
+            continue
+        seen_user_ids.add(user_id)
+        responsible_users.append(
+            {
+                "id": user_id,
+                "name": str(row["user_name"] or "").strip(),
+            }
+        )
+
+    primary = responsible_users[0] if responsible_users else {}
+    return {
+        "responsibleUserId": primary.get("id"),
+        "responsibleUserName": primary.get("name", ""),
+        "responsibleUserIds": [item["id"] for item in responsible_users],
+        "responsibleRole": role_code,
+        "responsibilitySource": source if responsible_users else "unassigned",
+    }
+
+
+def personalize_procurement_alert(
+    alert: dict,
+    responsibility: dict,
+    user: dict,
+    *,
+    action_owner: bool = False,
+) -> dict:
+    """Attach a privacy-safe, viewer-relative procurement responsibility."""
+
+    responsible_user_ids: list[int] = []
+    seen_user_ids: set[int] = set()
+    for raw_user_id in responsibility.get("responsibleUserIds") or []:
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            continue
+        if user_id > 0 and user_id not in seen_user_ids:
+            seen_user_ids.add(user_id)
+            responsible_user_ids.append(user_id)
+    raw_primary_id = responsibility.get("responsibleUserId")
+    try:
+        primary_id = int(raw_primary_id) if raw_primary_id not in (None, "") else None
+    except (TypeError, ValueError):
+        primary_id = None
+    if primary_id and primary_id not in seen_user_ids:
+        responsible_user_ids.insert(0, primary_id)
+        seen_user_ids.add(primary_id)
+    if primary_id is None and responsible_user_ids:
+        primary_id = responsible_user_ids[0]
+
+    current_user_id = int(user.get("id") or 0)
+    is_supervisor = user_has_any_role(user, PROCUREMENT_SUPERVISOR_ROLES)
+    is_assignee = bool(
+        not is_supervisor
+        and current_user_id
+        and current_user_id in seen_user_ids
+    )
+    audience = "supervisor" if is_supervisor else ("assignee" if is_assignee else "observer")
+
+    alert["responsibleUserId"] = primary_id
+    alert["responsibleUserName"] = str(responsibility.get("responsibleUserName") or "").strip()
+    alert["responsibleUserIds"] = responsible_user_ids
+    alert["responsibleRole"] = str(responsibility.get("responsibleRole") or "").strip()
+    alert["responsibilitySource"] = str(responsibility.get("responsibilitySource") or "unassigned").strip()
+    alert["notificationAudience"] = audience
+    alert["isSupervisorView"] = is_supervisor
+    alert["needsAssignment"] = not responsible_user_ids
+    alert["isPersonalAction"] = bool(is_assignee and action_owner)
+    alert["isPersonalResponsibility"] = bool(is_assignee and not action_owner)
+
+    if not is_supervisor:
+        alert["responsibleUserId"] = current_user_id if is_assignee else None
+        alert["responsibleUserName"] = ""
+        alert["responsibleUserIds"] = [current_user_id] if is_assignee else []
+    return alert
+
+
 def api_project_notifications(handler, path: str) -> None:
     project_id = parse_path_int(path, 2)
     if not project_id:
@@ -902,8 +1054,10 @@ def api_project_notifications(handler, path: str) -> None:
     today = str(attention_clock["today"])
     today_date = parse_iso_date(today) or date.today()
     soon_limit = (today_date + timedelta(days=2)).isoformat()
+    external_viewer = user_is_guest(user) or user_has_any_role(user, {"customer"})
     with db() as con:
         project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        procurement_responsibility = project_procurement_responsibility(con, project)
         open_tasks = con.execute(
             """
             SELECT t.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS assignee_name
@@ -951,7 +1105,7 @@ def api_project_notifications(handler, path: str) -> None:
         ).fetchall()
         materials = []
         section_start_dates: dict[str, str] = {}
-        if user["role"] == "customer":
+        if external_viewer:
             stage_rows = con.execute(
                 """
                 SELECT id, title, parent_id, stage_kind, status_code, planned_start, planned_end, progress, responsible
@@ -971,7 +1125,12 @@ def api_project_notifications(handler, path: str) -> None:
                 """,
                 (project_id,),
             ).fetchall()
-            materials = material_summary_rows(con, project_id)
+            materials = material_summary_rows(
+                con,
+                project_id,
+                include_procurement_evidence=True,
+                include_supplier_selection=True,
+            )
             work_rows = con.execute(
                 """
                 SELECT id, title, unit, planned_qty, item_kind, section_title
@@ -1042,7 +1201,49 @@ def api_project_notifications(handler, path: str) -> None:
         if status_code == "blocked" or (planned_end and planned_end < today and progress < 100):
             problem_stages.append(item)
     schedule_alerts = build_schedule_alerts(stage_items, today_date) if project_allows_schedule_attention(project) else []
-    procurement = build_procurement_alerts(materials, stage_rows, today_date, section_start_dates) if user["role"] != "customer" else {"items": [], "summary": {"critical": 0, "soon": 0, "watch": 0}}
+    procurement = build_procurement_alerts(materials, stage_rows, today_date, section_start_dates) if not external_viewer else {"items": [], "summary": {"critical": 0, "soon": 0, "watch": 0}}
+    procurement_evidence = build_procurement_evidence_alerts(
+        materials,
+        stage_rows,
+        today_date,
+        section_start_dates,
+        schedule_attention_enabled=project_allows_schedule_attention(project),
+    ) if not external_viewer else {
+        "items": [],
+        "summary": {
+            "total": 0,
+            "critical": 0,
+            "soon": 0,
+            "watch": 0,
+            "missingCosting": 0,
+            "missingInvoice": 0,
+            "missingSchedule": 0,
+        },
+    }
+    for alert in procurement["items"]:
+        personalize_procurement_alert(alert, procurement_responsibility, user)
+    for alert in procurement_evidence["items"]:
+        evidence_kind = str(alert.get("evidenceKind") or "")
+        evidence_responsibility = procurement_responsibility
+        action_owner = evidence_kind == "missing_invoice"
+        if action_owner:
+            actor_user_ids = list(alert.get("responsibleUserIds") or [])
+            if alert.get("responsibleUserId") not in (None, ""):
+                actor_user_ids.insert(0, alert.get("responsibleUserId"))
+            if actor_user_ids:
+                evidence_responsibility = {
+                    "responsibleUserId": alert.get("responsibleUserId"),
+                    "responsibleUserName": alert.get("responsibleUserName", ""),
+                    "responsibleUserIds": actor_user_ids,
+                    "responsibleRole": "procurement_actor",
+                    "responsibilitySource": "purchase_actor",
+                }
+        personalize_procurement_alert(
+            alert,
+            evidence_responsibility,
+            user,
+            action_owner=action_owner,
+        )
     shortage_alerts = []
     for material in materials:
         if normalize_estimate_item_kind(material.get("itemKind")) == "work":
@@ -1077,6 +1278,8 @@ def api_project_notifications(handler, path: str) -> None:
             item["title"],
         )
     )
+    for alert in shortage_alerts:
+        personalize_procurement_alert(alert, procurement_responsibility, user)
     daily_report_required = project_requires_daily_report(project, user, today_date)
     missing_daily_report = daily_report_required and not has_daily_field_report(today_logs)
     data = {
@@ -1094,6 +1297,8 @@ def api_project_notifications(handler, path: str) -> None:
         "shortageAlerts": shortage_alerts,
         "procurementAlerts": procurement["items"],
         "procurementSummary": procurement["summary"],
+        "procurementEvidenceAlerts": procurement_evidence["items"],
+        "procurementEvidenceSummary": procurement_evidence["summary"],
     }
     handler.send_json(HTTPStatus.OK, data)
 
@@ -1110,31 +1315,57 @@ def api_project_documents(handler, path: str) -> None:
         if user["role"] == "customer":
             rows = con.execute(
                 """
-                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
+                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name,
+                       s.title AS stage_title, e.title AS estimate_item_title,
+                       e.unit AS estimate_item_unit
                 FROM documents d
                 LEFT JOIN users u ON u.id = d.uploaded_by
                 LEFT JOIN work_stages s ON s.id = d.stage_id
-                WHERE d.project_id = ? AND d.is_client_visible = 1
+                LEFT JOIN estimate_items e
+                  ON e.id = d.estimate_item_id AND e.project_id = d.project_id
+                WHERE d.project_id = ?
+                  AND d.is_client_visible = 1
+                  AND d.estimate_item_id IS NULL
                 ORDER BY d.id DESC
                 """,
                 (project_id,),
             ).fetchall()
+            procurement_materials = []
         else:
             rows = con.execute(
                 """
-                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
+                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name,
+                       s.title AS stage_title, e.title AS estimate_item_title,
+                       e.unit AS estimate_item_unit
                 FROM documents d
                 LEFT JOIN users u ON u.id = d.uploaded_by
                 LEFT JOIN work_stages s ON s.id = d.stage_id
+                LEFT JOIN estimate_items e
+                  ON e.id = d.estimate_item_id AND e.project_id = d.project_id
                 WHERE d.project_id = ?
                 ORDER BY d.id DESC
                 """,
                 (project_id,),
             ).fetchall()
+            procurement_materials = [
+                {
+                    "id": int(item["id"]),
+                    "title": str(item.get("title") or ""),
+                    "unit": str(item.get("unit") or ""),
+                }
+                for item in material_summary_rows(con, project_id)
+                if normalize_estimate_item_kind(item.get("itemKind")) != "work"
+            ]
     documents = []
     for row in rows:
         documents.append(document_payload(row))
-    handler.send_json(HTTPStatus.OK, {"documents": documents})
+    handler.send_json(
+        HTTPStatus.OK,
+        {
+            "documents": documents,
+            "procurementMaterials": procurement_materials,
+        },
+    )
 
 
 def api_project_executive_docs(handler, path: str) -> None:
@@ -1353,6 +1584,10 @@ def api_upload_project_document(handler, path: str) -> None:
         return
 
     original_name = sanitize_filename(upload.filename)
+    file_ext = document_extension(original_name)
+    if file_ext in BLOCKED_DOCUMENT_EXTENSIONS:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "unsupported_file_type"})
+        return
     raw = upload.file.read()
     if not raw:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_file"})
@@ -1387,8 +1622,74 @@ def api_upload_project_document(handler, path: str) -> None:
     if stage_id is not None and stage_id < 0:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stage_id"})
         return
+    raw_estimate_item_id = form.getfirst("estimate_item_id", None)
+    if raw_estimate_item_id in (None, ""):
+        raw_estimate_item_id = form.getfirst("estimateItemId", "")
+    try:
+        estimate_item_id = int(str(raw_estimate_item_id or "0").strip()) or None
+    except ValueError:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
+        return
+    if estimate_item_id is not None and estimate_item_id < 0:
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
+        return
+
+    counterparty_name = str(
+        form.getfirst(
+            "counterparty_name",
+            form.getfirst("counterpartyName", ""),
+        )
+        or ""
+    ).strip() or None
+    document_number = str(
+        form.getfirst(
+            "document_number",
+            form.getfirst("documentNumber", ""),
+        )
+        or ""
+    ).strip() or None
+    raw_document_date = str(
+        form.getfirst(
+            "document_date",
+            form.getfirst("documentDate", ""),
+        )
+        or ""
+    ).strip()
+    if counterparty_name and len(counterparty_name) > 240:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "document_counterparty_too_long"},
+        )
+        return
+    if document_number and len(document_number) > 120:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "document_number_too_long"},
+        )
+        return
+    parsed_document_date = parse_iso_date(raw_document_date)
+    if raw_document_date and (
+        len(raw_document_date) != 10
+        or parsed_document_date is None
+        or parsed_document_date.isoformat() != raw_document_date
+    ):
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_date"})
+        return
+    document_date = parsed_document_date.isoformat() if parsed_document_date else None
+
+    raw_amount = form.getfirst("amount", "")
+    if str(raw_amount or "").strip():
+        try:
+            amount = float(str(raw_amount).strip().replace(",", "."))
+        except ValueError:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_amount"})
+            return
+        if not math.isfinite(amount) or amount < 0:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_document_amount"})
+            return
+    else:
+        amount = None
     template_code = str(form.getfirst("template_code", "")).strip() or None
-    file_ext = document_extension(original_name)
     mime_type = upload.type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
     storage_name = f"{now_ts()}_{secrets.token_hex(8)}{file_ext}"
     file_path = project_documents_dir(project_id) / storage_name
@@ -1405,6 +1706,28 @@ def api_upload_project_document(handler, path: str) -> None:
                 con.rollback()
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "document_stage_not_found"})
                 return
+        estimate_item = None
+        if estimate_item_id is not None:
+            estimate_item = con.execute(
+                "SELECT * FROM estimate_items WHERE id = ? AND project_id = ?",
+                (estimate_item_id, project_id),
+            ).fetchone()
+            if not estimate_item:
+                con.rollback()
+                handler.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "document_material_not_found"},
+                )
+                return
+            if resolved_estimate_item_kind(estimate_item) != "material":
+                con.rollback()
+                handler.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "document_material_not_found"},
+                )
+                return
+            # Procurement proof can contain supplier prices and is always internal.
+            is_client_visible = 0
         if template_code:
             template = EXECUTIVE_TEMPLATE_RULES.get(template_code)
             allowed_template_codes = {
@@ -1425,14 +1748,16 @@ def api_upload_project_document(handler, path: str) -> None:
             cur = con.execute(
                 """
                 INSERT INTO documents (
-                    project_id, title, doc_type, status, original_name, storage_name, storage_path,
+                    project_id, estimate_item_id, title, doc_type, status, original_name, storage_name, storage_path,
                     mime_type, file_ext, size_bytes, notes, uploaded_by, is_client_visible, created_at, updated_at,
-                    stage_id, template_code, generated_by_system
+                    stage_id, template_code, generated_by_system, counterparty_name,
+                    document_number, document_date, amount
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
+                    estimate_item_id,
                     title,
                     doc_type,
                     status,
@@ -1449,6 +1774,10 @@ def api_upload_project_document(handler, path: str) -> None:
                     now_ts(),
                     stage_id,
                     template_code,
+                    counterparty_name,
+                    document_number,
+                    document_date,
+                    amount,
                 ),
             )
             create_audit(
@@ -1457,14 +1786,27 @@ def api_upload_project_document(handler, path: str) -> None:
                 "upload_document",
                 "document",
                 cur.lastrowid,
-                {"project_id": project_id, "title": title, "doc_type": doc_type},
+                {
+                    "project_id": project_id,
+                    "title": title,
+                    "doc_type": doc_type,
+                    "estimate_item_id": estimate_item_id,
+                    "counterparty_name": counterparty_name,
+                    "document_number": document_number,
+                    "document_date": document_date,
+                    "amount": amount,
+                },
             )
             row = con.execute(
                 """
-                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
+                SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name,
+                       s.title AS stage_title, e.title AS estimate_item_title,
+                       e.unit AS estimate_item_unit
                 FROM documents d
                 LEFT JOIN users u ON u.id = d.uploaded_by
                 LEFT JOIN work_stages s ON s.id = d.stage_id
+                LEFT JOIN estimate_items e
+                  ON e.id = d.estimate_item_id AND e.project_id = d.project_id
                 WHERE d.id = ?
                 """,
                 (cur.lastrowid,),
@@ -1502,6 +1844,9 @@ def api_update_document(handler, path: str) -> None:
         "storage_path", "storagePath", "mime_type", "mimeType", "file_ext",
         "fileExt", "size_bytes", "sizeBytes", "template_code", "templateCode",
         "generated_by_system", "generatedBySystem", "created_at", "createdAt",
+        "estimate_item_id", "estimateItemId", "counterparty_name",
+        "counterpartyName", "document_number", "documentNumber",
+        "document_date", "documentDate", "amount",
     }
     if any(field in payload for field in immutable_fields):
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "immutable_document_field"})
@@ -1571,6 +1916,8 @@ def api_update_document(handler, path: str) -> None:
             is_client_visible = 1 if visibility_value else 0
         else:
             is_client_visible = int(row["is_client_visible"] or 0)
+        if row["estimate_item_id"] is not None:
+            is_client_visible = 0
 
         stage_key = "stage_id" if "stage_id" in payload else "stageId"
         if stage_key in payload:
@@ -1646,10 +1993,14 @@ def api_update_document(handler, path: str) -> None:
         )
         updated = con.execute(
             """
-            SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name, s.title AS stage_title
+            SELECT d.*, COALESCE(NULLIF(TRIM(COALESCE(u.last_name, '') || ' ' || COALESCE(u.first_name, '')), ''), u.name) AS uploaded_by_name,
+                   s.title AS stage_title, e.title AS estimate_item_title,
+                   e.unit AS estimate_item_unit
             FROM documents d
             LEFT JOIN users u ON u.id = d.uploaded_by
             LEFT JOIN work_stages s ON s.id = d.stage_id
+            LEFT JOIN estimate_items e
+              ON e.id = d.estimate_item_id AND e.project_id = d.project_id
             WHERE d.id = ?
             """,
             (document_id,),
@@ -2206,6 +2557,33 @@ def api_create_daily_log(handler, path: str) -> None:
     parsed_report_date = parse_iso_date(report_date)
     if not parsed_report_date or parsed_report_date.isoformat() != report_date:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_report_date"})
+        return
+    today_date = parse_iso_date(str(build_attention_clock()["today"])) or date.today()
+    if parsed_report_date > today_date:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {
+                "error": "future_report_date",
+                "message": "Нельзя сохранить отчёт за будущую дату.",
+            },
+        )
+        return
+    with db() as con:
+        project_timeline = con.execute(
+            "SELECT started_at FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+    project_start_date = parse_iso_date(
+        str(project_timeline["started_at"] or "") if project_timeline else ""
+    )
+    if project_start_date and parsed_report_date < project_start_date:
+        handler.send_json(
+            HTTPStatus.BAD_REQUEST,
+            {
+                "error": "report_date_before_project_start",
+                "message": "Дата отчёта не может быть раньше старта объекта.",
+            },
+        )
         return
     try:
         workers_count = max(0, int(payload.get("workers_count", 0) or 0))

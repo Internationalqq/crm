@@ -58,6 +58,8 @@ class AuthSecurityHardeningTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_trust_proxy_headers = auth.PMBI_TRUST_PROXY_HEADERS
         self.original_authorized_parties = auth.CLERK_AUTHORIZED_PARTIES
+        self.original_clerk_issuer = auth.CLERK_ISSUER
+        self.original_clerk_audience = auth.CLERK_AUDIENCE
         self.original_clerk_enabled = auth.clerk_enabled
         self.original_jwt_decode = auth.jwt.decode
         self.original_db = auth.db
@@ -67,19 +69,21 @@ class AuthSecurityHardeningTests(unittest.TestCase):
     def tearDown(self) -> None:
         auth.PMBI_TRUST_PROXY_HEADERS = self.original_trust_proxy_headers
         auth.CLERK_AUTHORIZED_PARTIES = self.original_authorized_parties
+        auth.CLERK_ISSUER = self.original_clerk_issuer
+        auth.CLERK_AUDIENCE = self.original_clerk_audience
         auth.clerk_enabled = self.original_clerk_enabled
         auth.jwt.decode = self.original_jwt_decode
         auth.db = self.original_db
         auth.AVATARS_DIR = self.original_avatars_dir
         auth.AUTH_RATE_LIMITS.clear()
 
-    def test_clerk_authorized_party_allows_missing_and_rejects_foreign_azp(self) -> None:
+    def test_clerk_authorized_party_requires_matching_azp(self) -> None:
         auth.CLERK_AUTHORIZED_PARTIES = {"https://crm.example"}
         auth.clerk_enabled = lambda: True
 
         claims = {"sub": "user_1"}
         auth.jwt.decode = lambda *_args, **_kwargs: claims
-        self.assertIs(auth.verify_clerk_session_token("token"), claims)
+        self.assertIsNone(auth.verify_clerk_session_token("token"))
 
         claims = {"sub": "user_1", "azp": "https://evil.example"}
         auth.jwt.decode = lambda *_args, **_kwargs: claims
@@ -88,6 +92,26 @@ class AuthSecurityHardeningTests(unittest.TestCase):
         claims = {"sub": "user_1", "azp": "https://crm.example/"}
         auth.jwt.decode = lambda *_args, **_kwargs: claims
         self.assertIs(auth.verify_clerk_session_token("token"), claims)
+
+    def test_clerk_verification_uses_configured_issuer_and_audience(self) -> None:
+        auth.CLERK_AUTHORIZED_PARTIES = {"https://crm.example"}
+        auth.CLERK_ISSUER = "https://issuer.example"
+        auth.CLERK_AUDIENCE = "crm-audience"
+        auth.clerk_enabled = lambda: True
+        captured = {}
+        claims = {"sub": "user_1", "azp": "https://crm.example"}
+
+        def decode(*_args, **kwargs):
+            captured.update(kwargs)
+            return claims
+
+        auth.jwt.decode = decode
+        self.assertIs(auth.verify_clerk_session_token("token"), claims)
+        self.assertEqual(captured["issuer"], "https://issuer.example")
+        self.assertEqual(captured["audience"], "crm-audience")
+        self.assertTrue(captured["options"]["verify_aud"])
+        self.assertIn("iss", captured["options"]["require"])
+        self.assertIn("aud", captured["options"]["require"])
 
     def test_forwarded_client_ip_is_only_used_when_proxy_headers_are_trusted(self) -> None:
         handler = FakeHandler(headers={"X-Forwarded-For": "203.0.113.8, 10.0.0.2"})

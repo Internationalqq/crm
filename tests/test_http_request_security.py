@@ -227,6 +227,14 @@ class HttpRequestSecurityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Payload too large"):
             server.PMBIHandler.read_json(too_large)
 
+        for invalid_number in (b'{"amount": NaN}', b'{"amount": Infinity}', b'{"amount": -Infinity}'):
+            with self.subTest(invalid_number=invalid_number):
+                number_handler = RequestBodyHandler(
+                    {"Content-Length": str(len(invalid_number))}, invalid_number
+                )
+                with self.assertRaisesRegex(ValueError, "invalid_json_number"):
+                    server.PMBIHandler.read_json(number_handler)
+
 
 if __name__ == "__main__":
     unittest.main()

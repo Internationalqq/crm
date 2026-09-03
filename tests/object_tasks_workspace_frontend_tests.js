@@ -33,7 +33,7 @@ assert.doesNotMatch(taskRowBlock, /dailyTaskTime\(/);
 
 assert.ok(appCss.includes('./css/tasks.css?v=20260823-object-tasks-workspace-1'));
 assert.ok(appCss.indexOf('./css/tasks.css') > appCss.indexOf('./css/components.css'), 'Task workspace CSS must follow legacy component styles');
-assert.match(baseHtml, /app\.css\?v=[^"\s]*object-tasks-workspace-1/);
+assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
 assert.match(routerJs, /app\.js\?v=[^'\s]*object-tasks-workspace-1/);
 assert.match(routerJs, /app\.js\?v=[^'\s]*report-browser-qa-39/);
 assert.match(routerJs, /app\.js\?v=[^'\s]*report-touch-qa-40/);
