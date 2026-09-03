@@ -306,7 +306,31 @@ def project_list_serialization_metadata(
         }
         for project_id in project_ids
     }
-    if not project_ids or user_is_guest(user):
+    if not project_ids or (user_is_guest(user) and not user_is_public_viewer(user)):
+        return metadata
+
+    if user_is_public_viewer(user):
+        for offset in range(0, len(project_ids), 500):
+            chunk = project_ids[offset : offset + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            photo_rows = con.execute(
+                f"""
+                SELECT photo.project_id, document.id, document.title
+                FROM daily_log_photos photo
+                JOIN documents document ON document.id = photo.document_id
+                WHERE photo.project_id IN ({placeholders})
+                  AND document.is_client_visible = 1
+                  AND document.storage_path IS NOT NULL
+                  AND TRIM(document.storage_path) <> ''
+                  AND document.mime_type LIKE 'image/%'
+                ORDER BY photo.project_id, photo.id DESC
+                """,
+                chunk,
+            ).fetchall()
+            for photo in photo_rows:
+                project_metadata = metadata[int(photo["project_id"])]
+                if project_metadata["cover_photo"] is None:
+                    project_metadata["cover_photo"] = photo
         return metadata
 
     own_company_ids = sorted(
@@ -378,6 +402,16 @@ def serialize_project(
     user: dict,
     serialization_metadata: dict[str, object] | None = None,
 ) -> dict:
+    if user_is_public_viewer(user):
+        cover_photo = (serialization_metadata or {}).get("cover_photo")
+        return {
+            "id": int(row["id"]),
+            "title": str(row["title"] or ""),
+            "status": str(row["status"] or ""),
+            "progress": int(row["progress"] or 0),
+            "cover_photo_url": f"/api/documents/{cover_photo['id']}/view" if cover_photo else None,
+            "cover_photo_title": cover_photo["title"] if cover_photo else None,
+        }
     if user_is_guest(user):
         return {
             "id": int(row["id"]),

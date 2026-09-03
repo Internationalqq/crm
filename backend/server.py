@@ -5513,6 +5513,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         try:
             public_read = method == "GET" and (
                 path in {"/api/auth/me", "/api/projects"}
+                or bool(re.fullmatch(r"/api/documents/\d+/view", path))
                 or bool(re.fullmatch(r"/api/projects/\\d+", path))
                 or bool(re.fullmatch(r"/api/projects/\\d+/(?:daily-logs|production-schedule)", path))
             )
