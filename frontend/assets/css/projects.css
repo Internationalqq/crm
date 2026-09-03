@@ -3566,8 +3566,60 @@ body.role-guest[data-page="projects"] .projects-card-grid .guest-project-card:ho
 
 body.role-guest[data-page="projects"] .projects-card-grid .guest-project-card .project-card-shell {
     display: grid;
-    gap: 24px !important;
-    padding: 30px !important;
+    gap: 22px !important;
+    padding: 0 30px 30px !important;
+    overflow: hidden;
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover {
+    position: relative;
+    width: calc(100% + 60px);
+    height: clamp(210px, 29vw, 330px);
+    margin-left: -30px;
+    border-radius: 19px 19px 0 0;
+    background: #dce6f2;
+    overflow: hidden;
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover .project-card-cover-media,
+body.role-guest[data-page="projects"] .guest-project-cover .project-card-cover-media img {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover .project-card-cover-media img {
+    object-fit: cover;
+    transition: transform .35s ease;
+}
+
+body.role-guest[data-page="projects"] .guest-project-card:hover .guest-project-cover img {
+    transform: scale(1.018);
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover::after {
+    content: '';
+    position: absolute;
+    inset: 45% 0 0;
+    background: linear-gradient(to bottom, transparent, rgba(13, 31, 54, .48));
+    pointer-events: none;
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover .project-card-cover-label,
+body.role-guest[data-page="projects"] .guest-project-cover-status {
+    position: absolute;
+    z-index: 1;
+    top: 16px;
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover .project-card-cover-label {
+    left: 16px;
+}
+
+body.role-guest[data-page="projects"] .guest-project-cover-status {
+    right: 16px;
+    background: rgba(255, 255, 255, .93);
+    backdrop-filter: blur(8px);
 }
 
 body.role-guest[data-page="projects"] .guest-project-card .project-card-headline {
@@ -3755,7 +3807,13 @@ body.role-guest[data-page="projects"] .project-detail-nav .tab {
 @media (max-width: 600px) {
     body.role-guest[data-page="projects"] .projects-card-grid .guest-project-card .project-card-shell {
         gap: 20px !important;
-        padding: 20px !important;
+        padding: 0 20px 20px !important;
+    }
+
+    body.role-guest[data-page="projects"] .guest-project-cover {
+        width: calc(100% + 40px);
+        height: 210px;
+        margin-left: -20px;
     }
 
     body.role-guest[data-page="projects"] .guest-project-card .project-card-headline {

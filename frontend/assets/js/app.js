@@ -6404,19 +6404,24 @@ function renderLogsDayView(project, logs) {
                 var completed = isCompletedProject(project);
                 var statusMeta = projectStatusMeta(project, completed);
                 if (isGuestRole()) {
+                    var guestCoverVisual = projectCoverVisual(project);
                     return '<article class="project-card guest-project-card ' + (completed ? 'project-completed ' : '') + '" data-project-id="' + escapeHtml(project.id || '') + '">' +
                         '<div class="project-card-shell">' +
+                            '<div class="project-card-cover guest-project-cover">' +
+                                projectCoverMedia(project, 'project-card-cover-media', 'lazy') +
+                                '<span class="project-card-cover-label"><i data-lucide="' + (guestCoverVisual.uploaded ? 'camera' : 'image') + '"></i>' + (guestCoverVisual.uploaded ? 'Фото с объекта' : 'Объект') + '</span>' +
+                                '<span class="guest-project-cover-status project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>' +
+                            '</div>' +
                             '<div class="project-card-headline">' +
                                 '<div class="project-card-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>' +
-                                '<div class="project-card-heading"><span class="guest-project-kicker">Объект в гостевом доступе</span><h3>' + escapeHtml(project.title || 'Объект') + '</h3><p>Актуальные отчёты и план производства работ</p></div>' +
-                                '<span class="project-status-badge is-' + escapeHtml(statusMeta.tone) + '">' + escapeHtml(statusMeta.label) + '</span>' +
+                                '<div class="project-card-heading"><span class="guest-project-kicker">Ход строительства</span><h3>' + escapeHtml(project.title || 'Объект') + '</h3><p>Фотографии, выполненные работы и актуальный план</p></div>' +
                             '</div>' +
                             '<div class="project-card-progress">' +
                                 '<div class="project-progress-label"><span>Готовность объекта</span><strong>' + escapeHtml(String(progress)) + '%</strong></div>' +
                                 '<div class="project-progress-track" aria-hidden="true"><span class="project-progress-bar" style="width:' + progress + '%"></span></div>' +
                             '</div>' +
                             '<div class="guest-project-actions">' +
-                                '<button class="guest-project-action" type="button" data-project-quick-tab="reports" data-project-id="' + escapeHtml(project.id || '') + '"><span class="guest-project-action-icon"><i data-lucide="notebook-tabs"></i></span><span class="guest-project-action-copy"><strong>Отчёты</strong><small>Ход работ и события</small></span><i class="guest-project-action-arrow" data-lucide="arrow-right"></i></button>' +
+                                '<button class="guest-project-action" type="button" data-project-quick-tab="reports" data-project-id="' + escapeHtml(project.id || '') + '"><span class="guest-project-action-icon"><i data-lucide="notebook-tabs"></i></span><span class="guest-project-action-copy"><strong>Отчёты</strong><small>Что сделано и фотографии</small></span><i class="guest-project-action-arrow" data-lucide="arrow-right"></i></button>' +
                                 '<button class="guest-project-action is-production" type="button" data-project-quick-tab="production-schedule" data-project-id="' + escapeHtml(project.id || '') + '"><span class="guest-project-action-icon"><i data-lucide="calendar-range"></i></span><span class="guest-project-action-copy"><strong>График производства</strong><small>План работ по дням</small></span><i class="guest-project-action-arrow" data-lucide="arrow-right"></i></button>' +
                             '</div>' +
                         '</div>' +
