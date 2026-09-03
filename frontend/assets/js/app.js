@@ -13910,15 +13910,15 @@ function renderLogsDayView(project, logs) {
 
     function renderTopbarTemplate() {
         if (isGuestRole() || document.body.classList.contains('role-guest')) {
+            var publicViewer = Boolean((state.currentUser || state.user || {}).isPublic);
             return '' +
                 '<div class="topbar-left">' +
                     '<a class="guest-topbar-brand" href="/app/projects" aria-label="PM.bi — объекты"><img src="/assets/logo.png?v=20260728-textfix2" alt=""><span>PM.bi</span></a>' +
                 '</div>' +
                 '<div class="topbar-actions">' +
-                    '<button class="topbar-logout-action" type="button" data-logout>' +
-                        '<i data-lucide="log-out" aria-hidden="true"></i>' +
-                        '<span>Выйти</span>' +
-                    '</button>' +
+                    (publicViewer
+                        ? '<a class="topbar-login-action" href="/login"><i data-lucide="log-in" aria-hidden="true"></i><span>Войти</span></a>'
+                        : '<button class="topbar-logout-action" type="button" data-logout><i data-lucide="log-out" aria-hidden="true"></i><span>Выйти</span></button>') +
                 '</div>';
         }
         return '' +

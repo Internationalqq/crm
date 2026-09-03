@@ -70,6 +70,7 @@ from auth import (
     user_has_any_role,
     user_is_hidden_admin,
     user_is_guest,
+    public_viewer,
     user_is_main_admin,
     user_is_main_admin_account,
     user_permissions,
@@ -5340,7 +5341,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if user:
                 self.redirect(user_default_path(user))
             else:
-                self.serve_public_entry()
+                self.redirect("/app/projects")
             return
         if path.startswith("/api/"):
             self.handle_api("GET", path)
@@ -5501,6 +5502,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
         return auth_current_user(self)
 
     def require_user(self) -> dict | None:
+        if getattr(self, "_public_viewer_request", False):
+            return public_viewer()
         return auth_require_user(self)
 
     def require_role(self, roles: set[str]) -> dict | None:
@@ -5508,11 +5511,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def handle_api(self, method: str, path: str) -> None:
         try:
+            public_read = method == "GET" and (
+                path in {"/api/auth/me", "/api/projects"}
+                or bool(re.fullmatch(r"/api/projects/\\d+", path))
+                or bool(re.fullmatch(r"/api/projects/\\d+/(?:daily-logs|production-schedule)", path))
+            )
             if hasattr(self, "headers") and request_is_cross_site_mutation(method, self.headers):
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_forbidden"})
                 return
             if hasattr(self, "headers"):
                 viewer = self.current_user()
+                self._public_viewer_request = not viewer and public_read
                 if user_is_guest(viewer) and not guest_api_allowed(method, path):
                     self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_forbidden"})
                     return
@@ -6042,6 +6051,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
         auth_api_logout(self)
 
     def api_me(self) -> None:
+        if getattr(self, "_public_viewer_request", False):
+            self.send_json(HTTPStatus.OK, {"user": public_viewer()})
+            return
         auth_api_me(self)
 
     def api_roles(self) -> None:
@@ -9916,7 +9928,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def project_cards_fallback_html(self, user: dict) -> str:
         with db() as con:
-            if user_is_guest(user):
+            if bool(user.get("isPublic")):
+                rows = con.execute(
+                    "SELECT id, title, status, progress FROM projects ORDER BY id DESC"
+                ).fetchall()
+            elif user_is_guest(user):
                 rows = con.execute(
                     """
                     SELECT p.id, p.title, p.status, p.progress
@@ -10038,6 +10054,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
             return
 
         user = self.current_user()
+        if not user and path in {"/app/projects", "/app/logs", "/app/schedule"}:
+            user = public_viewer()
         if not user:
             next_path = urllib.parse.quote(path, safe="/")
             self.redirect(f"/?next={next_path}")

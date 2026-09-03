@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest
+from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest, user_is_public_viewer
 from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from schedule_tasks import (
@@ -2217,7 +2217,24 @@ def api_project_daily_logs(handler, path: str) -> None:
     if not user:
         return
     with db() as con:
-        if user_is_guest(user):
+        if user_is_public_viewer(user):
+            rows = con.execute(
+                """
+                SELECT l.id, l.project_id, l.report_date, l.title, l.work_done,
+                       l.workers_count, l.equipment, l.blockers, l.next_steps,
+                       l.progress_percent, l.raw_input, l.is_client_visible,
+                       l.workers_json, l.equipment_json,
+                       l.created_at, l.updated_at,
+                       'Команда объекта' AS author_name,
+                       0 AS has_applied_actions,
+                       1 AS _is_authored_report
+                FROM daily_logs l
+                WHERE l.project_id = ?
+                ORDER BY l.report_date DESC, l.id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        elif user_is_guest(user):
             rows = con.execute(
                 """
                 SELECT l.id, l.project_id, l.report_date, l.title, l.work_done,

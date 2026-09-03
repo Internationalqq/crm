@@ -858,6 +858,24 @@ def user_is_guest(user: dict | None) -> bool:
     return bool(user) and (bool(user.get("isGuest")) or user_has_any_role(user, {"guest"}))
 
 
+def public_viewer() -> dict:
+    """Read-only virtual account used only on explicitly public portfolio routes."""
+    return {
+        "id": 0,
+        "login": "public",
+        "name": "Публичный просмотр",
+        "role": "guest",
+        "roles": ["guest"],
+        "isGuest": True,
+        "isPublic": True,
+        "permissions": {"modules": ["projects"], "projects": "view", "guest": True},
+    }
+
+
+def user_is_public_viewer(user: dict | None) -> bool:
+    return bool(user) and bool(user.get("isPublic"))
+
+
 def user_default_path(user: dict | None) -> str:
     return "/app/projects" if user_is_guest(user) else DEFAULT_AUTH_PATH
 

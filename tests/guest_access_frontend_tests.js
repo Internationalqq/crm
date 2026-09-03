@@ -37,7 +37,7 @@ assert.match(uiFinalCss, /body\.role-guest \.topbar-profile-wrap/);
 assert.match(uiFinalCss, /body\.role-guest \.sidebar[\s\S]*?display:\s*none\s*!important/);
 assert.match(uiFinalCss, /body\.role-guest \.main[\s\S]*?margin-left:\s*0\s*!important/);
 assert.match(baseHtml, /class="guest-topbar-brand" href="\/app\/projects"/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assert.match(baseHtml, /router\.js\?v=20260903-[^"]*public-portfolio-1/);
 assert.match(routerJs, /app: '[^'\s]*credential-guest-22[^'\s]*'/);
 assert.match(routerJs, /operations: '[^'\s]*credential-guest-22[^'\s]*'/);
 assert.doesNotMatch(loginHtml, /\/assets\/(?:app\.css|js\/app\.js)(?:\?|["'])/);
@@ -66,7 +66,7 @@ assert.match(logoutBlock, /var publicLandingPath = '\/'/);
 assert.match(logoutBlock, /location\.replace\(publicLandingPath\)/);
 assert.doesNotMatch(logoutBlock, /\/login|\.finally\(/);
 
-assert.match(usersHtml, /data-guest-access-container/);
+assert.doesNotMatch(usersHtml, /data-guest-access-container/);
 assert.match(usersHtml, /data-user-create-container/);
 assert.match(operationsJs, /function setupGuestAccessManagement\(\)/);
 assert.match(operationsJs, /Добавить гостевой доступ/);

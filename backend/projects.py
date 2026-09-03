@@ -15,6 +15,7 @@ from auth import (
     user_is_hidden_admin,
     user_is_guest,
     user_is_main_admin,
+    user_is_public_viewer,
     user_permissions,
 )
 from sqlite_config import connect_database
@@ -589,7 +590,15 @@ def api_projects(handler) -> None:
         return
     portfolio_companies: list[dict] = []
     with db() as con:
-        if user_is_guest(user):
+        if user_is_public_viewer(user):
+            rows = con.execute(
+                """
+                SELECT p.id, p.title, p.status, p.progress
+                FROM projects p
+                ORDER BY p.id DESC
+                """
+            ).fetchall()
+        elif user_is_guest(user):
             rows = con.execute(
                 """
                 SELECT p.id, p.title, p.status, p.progress
@@ -1039,6 +1048,9 @@ def api_delete_project(handler, path: str) -> None:
 
 
 def can_access_project(handler, user: dict, project_id: int) -> bool:
+    if user_is_public_viewer(user):
+        with db() as con:
+            return bool(con.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone())
     if user_is_guest(user):
         with db() as con:
             row = con.execute(

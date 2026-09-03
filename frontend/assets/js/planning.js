@@ -4158,7 +4158,7 @@
             '.production-print-toolbar button{background:#fff;border:0;border-radius:9px;color:#17212b;cursor:pointer;font-size:13px;font-weight:800;padding:10px 14px}' +
             '.production-print-document{display:grid;gap:18px;padding:18px}' +
             '.production-print-sheet{background:#fff;box-shadow:0 12px 30px rgba(20,31,42,.14);height:210mm;margin:0 auto;overflow:hidden;padding:8mm;width:297mm}' +
-            '.production-print-canvas{transform:scale(var(--production-print-scale));transform-origin:top left;width:var(--production-print-natural-width)}' +
+            '.production-print-canvas{transform:scale(var(--production-print-scale));transform-origin:top left;width:var(--production-print-natural-width)}.production-print-scale-note{color:#5d6872;font-size:6pt;margin:0 0 2mm}' +
             '.production-print-sheet-head{align-items:flex-end;border-bottom:2px solid #18212a;display:flex;gap:10mm;justify-content:space-between;margin-bottom:3mm;padding-bottom:2.5mm}' +
             '.production-print-sheet-head span{color:#67727d;font-size:7pt;font-weight:800;letter-spacing:.08em;text-transform:uppercase}' +
             '.production-print-sheet-head h1{font-size:14pt;line-height:1.1;margin:1mm 0 0}.production-print-sheet-head p{color:#5d6872;font-size:7pt;margin:1mm 0 0}' +
@@ -4421,13 +4421,12 @@
             };
             preview.scaleInput.addEventListener('input', function () {
                 setManualScaleFromControl();
-                if (printState.layout === 'fit-one' && printState.printable) {
-                    printState.scalePercent = productionSchedulePrintApplyScale(
+                if (printState.printable) {
+                    productionSchedulePrintApplyScale(
                         printState.printable.document,
                         Math.min(printState.scalePercent, printState.autoScale)
                     );
                     updatePrintControls();
-                    return;
                 }
                 if (scaleRenderTimer) window.clearTimeout(scaleRenderTimer);
                 scaleRenderTimer = window.setTimeout(function () {
