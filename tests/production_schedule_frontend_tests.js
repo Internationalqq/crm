@@ -150,19 +150,9 @@ const productionShell = {
     },
   },
 };
-let productionCardTop = 108;
-const productionScheduleCard = {
-  getBoundingClientRect() {
-    return { top: productionCardTop };
-  },
-};
 const productionPageScrolls = [];
 const productionWindow = {
   innerHeight: 800,
-  getComputedStyle(target) {
-    assert.equal(target, productionScheduleCard);
-    return { top: '8px' };
-  },
   scrollBy(x, y) {
     productionPageScrolls.push([x, y]);
   },
@@ -177,7 +167,6 @@ const productionScroller = {
   scrollTop: 0,
   closest(selector) {
     if (selector === '[data-production-table-shell]') return productionShell;
-    if (selector === '[data-production-schedule-card]') return productionScheduleCard;
     throw new Error(`Unexpected closest selector: ${selector}`);
   },
   addEventListener(type, handler, options) {
@@ -213,16 +202,14 @@ const productionWheelEvent = (overrides = {}) => ({
 });
 productionScrollHandlers.wheel(productionWheelEvent());
 assert.equal(productionScroller.scrollLeft, 100, 'A normal wheel over the timeline must remain vertical');
-assert.equal(productionScroller.scrollTop, 0);
-assert.deepEqual(productionPageScrolls, [[0, 90]], 'The page must move until the production card reaches the viewport');
+assert.equal(productionScroller.scrollTop, 90, 'A normal wheel must always enter the table first');
+assert.deepEqual(productionPageScrolls, []);
 assert.equal(productionWheelPrevented, 1);
-productionCardTop = 38;
 productionScrollHandlers.wheel(productionWheelEvent());
 assert.equal(productionScroller.scrollLeft, 100);
-assert.equal(productionScroller.scrollTop, 60, 'The remaining wheel delta must continue inside the table');
-assert.deepEqual(productionPageScrolls.at(-1), [0, 30]);
+assert.equal(productionScroller.scrollTop, 180, 'The table must keep scrolling even when its card is not sticky');
+assert.deepEqual(productionPageScrolls, []);
 assert.equal(productionWheelPrevented, 2);
-productionCardTop = 8;
 productionScroller.scrollTop = 30;
 productionScrollHandlers.wheel(productionWheelEvent({ deltaY: -90 }));
 assert.equal(productionScroller.scrollTop, 0);
@@ -286,7 +273,10 @@ assert.match(planningCss, /@media \(min-width: 721px\)[\s\S]*?\[data-panel="prod
 assert.match(planningCss, /\[data-panel="production-schedule"\]\.active \.production-table-shell\s*\{[^}]*flex: 1 1 auto;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
 assert.match(planningCss, /\[data-panel="production-schedule"\]\.active \.production-table-scroll\s*\{[^}]*height: 100%;[^}]*max-height: none;/s);
 assert.match(planningJs, /function scrollProductionScheduleVertically/);
-assert.match(planningJs, /window\.scrollBy\(0, pageStep\)/);
+assert.match(planningJs, /window\.scrollBy\(0, pageRemainder\)/);
+assert.doesNotMatch(planningJs, /cardTop < stickyTop/);
+assert.match(planningJs, /preview\.scaleInput\.addEventListener\('input'[\s\S]*?productionSchedulePrintApplyScale/);
+assert.match(planningJs, /scaleRenderTimer = window\.setTimeout/);
 assert.doesNotMatch(planningCss, /\.production-table-sticky-header/);
 assert.match(planningCss, /\.production-cell-toggle\s*\{[^}]*inset: 0;[^}]*position: absolute;/s);
 assert.match(planningCss, /\.production-day-half-cell\s*\{[^}]*position: relative;/s);
@@ -447,5 +437,7 @@ assert.match(baseHtml, /app\.css\?v=[^"\n]*production-scroll-wheel-fix-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-scroll-wheel-fix-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-print-scale-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-print-scale-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-scroll-scale-live-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-scroll-scale-live-1/);
 
 console.log('production_schedule_frontend_ok');
