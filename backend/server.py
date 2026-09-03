@@ -5514,8 +5514,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
             public_read = method == "GET" and (
                 path in {"/api/auth/me", "/api/projects"}
                 or bool(re.fullmatch(r"/api/documents/\d+/view", path))
-                or bool(re.fullmatch(r"/api/projects/\\d+", path))
-                or bool(re.fullmatch(r"/api/projects/\\d+/(?:daily-logs|production-schedule)", path))
+                or bool(re.fullmatch(r"/api/projects/\d+", path))
+                or bool(re.fullmatch(r"/api/projects/\d+/(?:daily-logs|production-schedule)", path))
             )
             if hasattr(self, "headers") and request_is_cross_site_mutation(method, self.headers):
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_forbidden"})
