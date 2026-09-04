@@ -3614,6 +3614,15 @@ body.role-guest[data-page="projects"] .guest-project-cover-status {
 
 body.role-guest[data-page="projects"] .guest-project-cover .project-card-cover-label {
     left: 16px;
+    right: auto;
+    bottom: auto;
+    width: auto;
+    height: auto;
+    min-width: 0;
+    max-width: calc(100% - 150px);
+    margin: 0;
+    border-radius: 999px;
+    white-space: nowrap;
 }
 
 body.role-guest[data-page="projects"] .guest-project-cover-status {

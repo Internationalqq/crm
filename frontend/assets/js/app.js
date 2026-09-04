@@ -6587,7 +6587,7 @@ function renderLogsDayView(project, logs) {
                 var guestPageHead = qs('.page-head[data-project-overview-section]');
                 var guestEyebrow = guestPageHead && qs('.eyebrow', guestPageHead);
                 var guestDescription = guestPageHead && qs('div > p:last-child', guestPageHead);
-                if (guestEyebrow) guestEyebrow.textContent = 'Гостевой доступ';
+                if (guestEyebrow) guestEyebrow.hidden = true;
                 if (guestDescription) guestDescription.textContent = 'Выберите объект, чтобы посмотреть опубликованные отчёты и график производства.';
             }
             ensureProjectEditCard();

@@ -9985,7 +9985,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     '<div class="project-card-shell">'
                     '<div class="project-card-headline">'
                     '<div class="project-card-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>'
-                    f'<div class="project-card-heading"><span class="guest-project-kicker">Объект в гостевом доступе</span><h3>{esc(row["title"])}</h3><p>Актуальные отчёты и план производства работ</p></div>'
+                    f'<div class="project-card-heading"><h3>{esc(row["title"])}</h3><p>Актуальные отчёты и план производства работ</p></div>'
                     '</div>'
                     '<div class="project-card-progress">'
                     f'<div class="project-progress-label"><span>Готовность объекта</span><strong>{progress}%</strong></div>'

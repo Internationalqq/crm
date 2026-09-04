@@ -14,7 +14,7 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        app: '/assets/js/app.js?v=20260904-public-project-covers-2-credential-guest-22',
+        app: '/assets/js/app.js?v=20260904-public-project-covers-3-credential-guest-22',
         autobot: '/assets/js/autobot.js?v=20260824-autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1-foreman-crm-bridge-2-multi-estimate-bundle-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260817-standup-inline-1',
         planning: '/assets/js/planning.js?v=20260903-public-portfolio-1-production-print-scale-live-2-schedule-health-1-production-scroll-wheel-fix-1-production-print-pdf-2-production-print-scale-1',
