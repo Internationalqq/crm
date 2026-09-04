@@ -3574,7 +3574,7 @@ body.role-guest[data-page="projects"] .projects-card-grid .guest-project-card .p
 body.role-guest[data-page="projects"] .guest-project-cover {
     position: relative;
     width: calc(100% + 60px);
-    height: clamp(210px, 29vw, 330px);
+    height: clamp(205px, 24vw, 245px);
     margin-left: -30px;
     border-radius: 19px 19px 0 0;
     background: #dce6f2;
@@ -3638,17 +3638,6 @@ body.role-guest[data-page="projects"] .guest-project-card .project-card-icon {
 body.role-guest[data-page="projects"] .guest-project-card .project-card-icon svg {
     width: 24px;
     height: 24px;
-}
-
-.guest-project-kicker {
-    display: block;
-    margin-bottom: 4px;
-    color: #2f6fed;
-    font-size: 11px;
-    font-weight: 850;
-    line-height: 1.2;
-    letter-spacing: .08em;
-    text-transform: uppercase;
 }
 
 body.role-guest[data-page="projects"] .guest-project-card .project-card-heading h3 {

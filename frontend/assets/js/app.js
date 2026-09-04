@@ -6414,7 +6414,7 @@ function renderLogsDayView(project, logs) {
                             '</div>' +
                             '<div class="project-card-headline">' +
                                 '<div class="project-card-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>' +
-                                '<div class="project-card-heading"><span class="guest-project-kicker">Ход строительства</span><h3>' + escapeHtml(project.title || 'Объект') + '</h3><p>Фотографии, выполненные работы и актуальный план</p></div>' +
+                                '<div class="project-card-heading"><h3>' + escapeHtml(project.title || 'Объект') + '</h3><p>Фотографии, выполненные работы и актуальный план</p></div>' +
                             '</div>' +
                             '<div class="project-card-progress">' +
                                 '<div class="project-progress-label"><span>Готовность объекта</span><strong>' + escapeHtml(String(progress)) + '%</strong></div>' +

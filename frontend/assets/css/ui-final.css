@@ -782,16 +782,31 @@ body.login-page[data-page="login"] .login-form form {
 }
 
 body.login-page[data-page="login"] .login-form label:not(.remember-me) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
     color: var(--color-text-secondary);
     font-size: var(--text-sm);
     font-weight: 700;
 }
 
 body.login-page[data-page="login"] .login-form input:not([type="checkbox"]) {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 0 14px;
     min-height: 42px !important;
     border-color: var(--color-border-strong) !important;
     border-radius: var(--radius-md) !important;
     background: var(--color-surface) !important;
+}
+
+body.login-page[data-page="login"] .login-form label:not(.remember-me) > span {
+    display: block;
+    line-height: 1.35;
 }
 
 body.login-page[data-page="login"] .login-form button[type="submit"] {
