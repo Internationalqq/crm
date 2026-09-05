@@ -184,6 +184,9 @@ const guestScheduleHtml = planningContext.window.PMBI.planning.renderProductionS
             id: 1,
             operationId: 1,
             title: 'Монтаж',
+            estimateSourceId: 7,
+            estimateTitle: 'Смета благоустройства',
+            sectionTitle: 'Подготовительные работы',
             unit: 'м²',
             plannedQty: 12,
             crewSize: 3,
@@ -200,7 +203,12 @@ const guestScheduleHtml = planningContext.window.PMBI.planning.renderProductionS
     },
 );
 assert.match(guestScheduleHtml, /production-schedule-card/);
+assert.match(guestScheduleHtml, /Смета благоустройства/);
+assert.match(guestScheduleHtml, /Подготовительные работы/);
+assert.match(guestScheduleHtml, /production-section-summary-row/);
+assert.match(guestScheduleHtml, /data-production-view="sections"[^>]*aria-pressed="true"/);
 assert.match(guestScheduleHtml, /data-production-cell[^>]* disabled/);
 assert.doesNotMatch(guestScheduleHtml, /data-production-operation-form/);
+assert.doesNotMatch(guestScheduleHtml, /data-production-rename-(?:estimate|section)/);
 
 console.log('guest_access_frontend_ok');

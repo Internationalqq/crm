@@ -241,6 +241,7 @@ class ProductionScheduleTests(unittest.TestCase):
         self.assertEqual(payload["startDateSource"], "project")
         self.assertEqual(payload["today"], date.today().isoformat())
         self.assertEqual(by_estimate[10]["plannedStartDate"], project_start.isoformat())
+        self.assertEqual(by_estimate[10]["sectionTitle"], "Раздел")
         self.assertEqual(by_estimate[10]["actualQty"], .5)
         self.assertEqual(by_estimate[10]["actualProgress"], 50.0)
         self.assertEqual(by_estimate[10]["healthStatus"], "red")
@@ -251,6 +252,10 @@ class ProductionScheduleTests(unittest.TestCase):
         guest_payload = build_guest_production_schedule_payload(con, 1)
         guest_by_operation = {item["operationId"]: item for item in guest_payload["items"]}
         self.assertEqual(guest_payload["startDate"], project_start.isoformat())
+        self.assertEqual(
+            guest_by_operation[by_estimate[10]["operationId"]]["sectionTitle"],
+            "Раздел",
+        )
         self.assertEqual(
             guest_by_operation[by_estimate[11]["operationId"]]["healthStatus"],
             "green",

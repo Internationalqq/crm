@@ -51,6 +51,7 @@
         productionScheduleByProject: {},
         productionScheduleLoadingByProject: {},
         productionScheduleVisibleDaysByProject: {},
+        productionScheduleViewByProject: {},
         projectEconomicsByProject: {},
         projectEconomicsPromisesByProject: {},
         scheduleQuickActions: {},

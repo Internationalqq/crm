@@ -4022,6 +4022,158 @@
         };
     }
 
+    function productionScheduleViewMode(projectId) {
+        state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
+        return state.productionScheduleViewByProject[projectId] === 'works' ? 'works' : 'sections';
+    }
+
+    function productionScheduleGroupInfo(item) {
+        var links = Array.isArray(item && item.links) ? item.links : [];
+        var primary = links.find(function (link) { return String(link && link.role || '') === 'work_basis'; }) || links[0] || {};
+        var sourceId = item && item.estimateSourceId != null ? item.estimateSourceId : primary.estimateSourceId;
+        var sourceKey = String(item && item.estimateSourceKey || primary.estimateSourceKey || '').trim();
+        var estimateTitle = String(item && item.estimateTitle || primary.estimateTitle || '').trim();
+        var sectionTitle = String(item && item.sectionTitle || primary.sectionTitle || '').trim();
+        var estimateKey = sourceId != null && String(sourceId) !== ''
+            ? 'source:' + String(sourceId)
+            : (sourceKey ? 'key:' + sourceKey : (estimateTitle ? 'title:' + estimateTitle.toLowerCase() : 'outside'));
+        return {
+            estimateKey: estimateKey,
+            estimateSourceId: sourceId == null || String(sourceId) === '' ? null : sourceId,
+            estimateTitle: estimateTitle || 'Работы вне сметы',
+            sectionKey: sectionTitle ? sectionTitle.toLowerCase() : '__without_section__',
+            sectionTitle: sectionTitle,
+            sectionDisplayTitle: sectionTitle || 'Без раздела'
+        };
+    }
+
+    function productionScheduleGroups(items) {
+        var estimates = [];
+        var estimateByKey = {};
+        (Array.isArray(items) ? items : []).forEach(function (item) {
+            var info = productionScheduleGroupInfo(item);
+            var estimate = estimateByKey[info.estimateKey];
+            if (!estimate) {
+                estimate = {
+                    key: info.estimateKey,
+                    sourceId: info.estimateSourceId,
+                    title: info.estimateTitle,
+                    sections: [],
+                    sectionByKey: {}
+                };
+                estimateByKey[info.estimateKey] = estimate;
+                estimates.push(estimate);
+            }
+            var section = estimate.sectionByKey[info.sectionKey];
+            if (!section) {
+                section = {
+                    key: info.sectionKey,
+                    rawTitle: info.sectionTitle,
+                    title: info.sectionDisplayTitle,
+                    items: []
+                };
+                estimate.sectionByKey[info.sectionKey] = section;
+                estimate.sections.push(section);
+            }
+            section.items.push(item);
+        });
+        return estimates;
+    }
+
+    function productionScheduleSectionVolume(items) {
+        var totals = {};
+        var order = [];
+        (Array.isArray(items) ? items : []).forEach(function (item) {
+            var rawQty = item && (item.plannedQty != null ? item.plannedQty : item.planned_qty);
+            var qty = Number(rawQty);
+            if (!Number.isFinite(qty)) return;
+            var unit = String(item && item.unit || 'ед.').trim() || 'ед.';
+            if (!Object.prototype.hasOwnProperty.call(totals, unit)) {
+                totals[unit] = 0;
+                order.push(unit);
+            }
+            totals[unit] += qty;
+        });
+        var values = order.slice(0, 2).map(function (unit) {
+            return quantityText(totals[unit]) + ' ' + unit;
+        });
+        if (order.length > 2) values.push('ещё ' + String(order.length - 2) + ' ед. изм.');
+        return values.length ? values.join(' · ') : String((items || []).length) + ' работ';
+    }
+
+    function productionScheduleSectionSummary(estimate, section, index) {
+        var filled = {};
+        var automatic = {};
+        var overridden = {};
+        var healthRank = { neutral: 0, green: 1, yellow: 2, red: 3 };
+        var worstHealth = { key: 'neutral', label: 'Ещё не началось' };
+        var durationTotal = 0;
+        var effectiveTotal = 0;
+        (section.items || []).forEach(function (item) {
+            durationTotal += Math.max(0, Number(item && item.durationDays || 0));
+            effectiveTotal += Math.max(0, Number(item && item.effectiveDays || 0));
+            [
+                [item && item.filledSlots, filled],
+                [item && item.autoFilledSlots, automatic],
+                [item && item.overriddenSlots, overridden]
+            ].forEach(function (entry) {
+                var slotSet = productionScheduleDaySet(entry[0]);
+                Object.keys(slotSet).forEach(function (slot) {
+                    if (slotSet[slot]) entry[1][slot] = true;
+                });
+            });
+            var health = productionScheduleHealth(item);
+            if ((healthRank[health.key] || 0) > (healthRank[worstHealth.key] || 0)) worstHealth = health;
+        });
+        var filledSlots = Object.keys(filled).map(Number).filter(Number.isFinite).sort(function (a, b) { return a - b; });
+        var automaticSlots = Object.keys(automatic).map(Number).filter(Number.isFinite).sort(function (a, b) { return a - b; });
+        var overriddenSlots = Object.keys(overridden).map(Number).filter(Number.isFinite).sort(function (a, b) { return a - b; });
+        var calculatedDays = filledSlots.length ? filledSlots.length / 2 : durationTotal;
+        return {
+            id: 'section-' + String(index),
+            title: section.title,
+            sectionTitle: section.rawTitle,
+            estimateTitle: estimate.title,
+            estimateSourceId: estimate.sourceId,
+            plannedQty: null,
+            unit: '',
+            volumeLabel: productionScheduleSectionVolume(section.items),
+            operationCount: section.items.length,
+            durationDays: calculatedDays,
+            effectiveDays: filledSlots.length ? filledSlots.length / 2 : effectiveTotal,
+            autoDays: automaticSlots.length ? automaticSlots.length / 2 : durationTotal,
+            filledSlots: filledSlots,
+            autoFilledSlots: automaticSlots,
+            overriddenSlots: overriddenSlots,
+            healthStatus: worstHealth.key,
+            healthLabel: worstHealth.label,
+            isSectionSummary: true
+        };
+    }
+
+    function productionSchedulePrintItems(schedule, viewMode) {
+        var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
+        if (viewMode === 'works') {
+            return items.map(function (item) {
+                var info = productionScheduleGroupInfo(item);
+                return Object.assign({}, item, {
+                    sectionTitle: info.estimateTitle + ' · ' + info.sectionDisplayTitle
+                });
+            });
+        }
+        if (viewMode !== 'sections') return items;
+        var result = [];
+        var summaryIndex = 0;
+        productionScheduleGroups(items).forEach(function (estimate) {
+            estimate.sections.forEach(function (section) {
+                var summary = productionScheduleSectionSummary(estimate, section, summaryIndex += 1);
+                summary.sectionTitle = estimate.title;
+                result.push(summary);
+            });
+        });
+        return result;
+    }
+
     function productionScheduleLegendMarkup(className) {
         var prefix = String(className || 'production-health-legend');
         return '<div class="' + prefix + '" aria-label="Статусы выполнения графика">' +
@@ -4065,7 +4217,7 @@
     }
 
     function productionSchedulePrintDocument(project, schedule, options) {
-        var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
+        var items = productionSchedulePrintItems(schedule, options && options.viewMode);
         var printConfig = productionSchedulePrintConfig(schedule, options);
         var dayCount = printConfig.dayCount;
         var daysPerSheet = printConfig.daysPerSheet;
@@ -4116,10 +4268,10 @@
                 var volumePlan = quantityPlanInfo(item || {});
                 var hasVolume = item.plannedQty != null || item.planned_qty != null;
                 var volumeUnit = String(volumePlan.unit || '').trim();
-                var volume = hasVolume ? (quantityText(volumePlan.totalQty) + (volumeUnit ? ' ' + volumeUnit : '')) : '—';
-                var people = item.peopleCount != null ? item.peopleCount : (item.crewSize != null ? item.crewSize : 1);
-                var shifts = item.shiftCount != null ? item.shiftCount : 1;
-                var brigades = item.brigadeCount != null ? item.brigadeCount : 1;
+                var volume = item.volumeLabel || (hasVolume ? (quantityText(volumePlan.totalQty) + (volumeUnit ? ' ' + volumeUnit : '')) : '—');
+                var people = item.isSectionSummary ? '—' : (item.peopleCount != null ? item.peopleCount : (item.crewSize != null ? item.crewSize : 1));
+                var shifts = item.isSectionSummary ? '—' : (item.shiftCount != null ? item.shiftCount : 1);
+                var brigades = item.isSectionSummary ? '—' : (item.brigadeCount != null ? item.brigadeCount : 1);
                 var duration = Math.max(0.5, Math.round(Number(item.durationDays || 0.5) * 2) / 2);
                 rows.push('<tr class="production-print-work">' +
                     '<td class="production-print-number">' + String(itemIndex + 1) + '</td>' +
@@ -4388,7 +4540,8 @@
                 var requestedScale = printState.manualScale ? printState.scalePercent : 100;
                 printState.printable = writeProductionSchedulePrintPreview(preview, productionSchedulePrintDocument(project, latest, {
                     layout: printState.layout,
-                    scalePercent: requestedScale
+                    scalePercent: requestedScale,
+                    viewMode: productionScheduleViewMode(projectId)
                 }));
                 printState.autoScale = productionSchedulePrintMaximumScale(printState.printable.document);
                 printState.scalePercent = productionSchedulePrintApplyScale(
@@ -4477,6 +4630,8 @@
         if (!schedule) return skeletonMarkup('table', 1);
         if (schedule.error) return '<section class="card production-schedule-card"><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
         var items = Array.isArray(schedule.items) ? schedule.items : [];
+        var viewMode = productionScheduleViewMode(project.id);
+        var scheduleGroups = productionScheduleGroups(items);
         var visibleDays = productionScheduleVisibleDays(project.id, schedule);
         var canEditSchedule = canManageSchedule();
         var guestView = hasRole('guest');
@@ -4495,23 +4650,58 @@
             halfDayHeaders += '<th class="production-half-day-head" aria-label="Первая половина дня">1/2</th><th class="production-half-day-head" aria-label="Вторая половина дня">2/2</th>';
         }
         var tableHeader = '<thead><tr>' +
-            '<th class="production-number-cell" rowspan="3">№<br>п/п</th><th class="production-work-title" rowspan="3">Наименование работ</th><th class="production-volume-cell" rowspan="3">Объём работ</th><th class="production-people-cell" rowspan="3">Кол-во<br>чел.</th><th class="production-shifts-cell" rowspan="3">Кол-во<br>смен</th><th class="production-brigades-cell" rowspan="3">Кол-во<br>бригад</th><th class="production-duration-cell" rowspan="3">Продолжи-<br>тельность,<br>дн</th>' + monthHeaders +
+            '<th class="production-number-cell" rowspan="3">№<br>п/п</th><th class="production-work-title" rowspan="3">' + (viewMode === 'sections' ? 'Раздел сметы' : 'Наименование работ') + '</th><th class="production-volume-cell" rowspan="3">Объём работ</th><th class="production-people-cell" rowspan="3">Кол-во<br>чел.</th><th class="production-shifts-cell" rowspan="3">Кол-во<br>смен</th><th class="production-brigades-cell" rowspan="3">Кол-во<br>бригад</th><th class="production-duration-cell" rowspan="3">Продолжи-<br>тельность,<br>дн</th>' + monthHeaders +
         '</tr><tr>' + dayHeaders + '</tr><tr>' + halfDayHeaders + '</tr></thead>';
         var rows = [];
-        var previousSection = null;
-        items.forEach(function (item, itemIndex) {
-            var operationId = productionOperationId(item);
-            var sectionTitle = String(item.sectionTitle || '').trim();
-            if (sectionTitle && sectionTitle !== previousSection) {
-                rows.push('<tr class="production-section-row"><th colspan="' + String(7 + visibleDays * 2) + '">' + escapeHtml(sectionTitle) + '</th></tr>');
-                previousSection = sectionTitle;
+        var displayEntries = [];
+        var summaryIndex = 0;
+        scheduleGroups.forEach(function (estimate) {
+            displayEntries.push({ type: 'estimate', estimate: estimate });
+            estimate.sections.forEach(function (section) {
+                if (viewMode === 'sections') {
+                    displayEntries.push({
+                        type: 'item',
+                        estimate: estimate,
+                        section: section,
+                        item: productionScheduleSectionSummary(estimate, section, summaryIndex += 1)
+                    });
+                } else {
+                    displayEntries.push({ type: 'section', estimate: estimate, section: section });
+                    section.items.forEach(function (item) {
+                        displayEntries.push({ type: 'item', estimate: estimate, section: section, item: item });
+                    });
+                }
+            });
+        });
+        var renderedItemIndex = 0;
+        displayEntries.forEach(function (entry) {
+            if (entry.type === 'estimate') {
+                var estimateEdit = canEditSchedule && entry.estimate.sourceId != null
+                    ? '<button type="button" class="production-group-edit" data-production-rename-estimate data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.estimate.title) + '" title="Переименовать смету" aria-label="Переименовать смету">✎</button>'
+                    : '';
+                rows.push('<tr class="production-estimate-row"><th colspan="' + String(7 + visibleDays * 2) + '"><span><small>Смета</small><b>' + escapeHtml(entry.estimate.title) + '</b></span>' + estimateEdit + '</th></tr>');
+                return;
             }
+            if (entry.type === 'section') {
+                var sectionEdit = canEditSchedule && entry.estimate.sourceId != null
+                    ? '<button type="button" class="production-group-edit" data-production-rename-section data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" title="Переименовать раздел" aria-label="Переименовать раздел">✎</button>'
+                    : '';
+                rows.push('<tr class="production-section-row"><th colspan="' + String(7 + visibleDays * 2) + '"><span>' + escapeHtml(entry.section.title) + '</span>' + sectionEdit + '</th></tr>');
+                return;
+            }
+            var item = entry.item;
+            var itemIndex = renderedItemIndex;
+            renderedItemIndex += 1;
+            var isSectionSummary = !!item.isSectionSummary;
+            var operationId = productionOperationId(item);
             var health = productionScheduleHealth(item);
-            var operationMeta = guestView
+            var operationMeta = isSectionSummary
+                ? { originLabel: String(item.operationCount || 0) + ' работ', linkLabel: 'Сводно по разделу', linkKind: 'linked' }
+                : guestView
                 ? { originLabel: 'График производства', linkLabel: 'Только просмотр', linkKind: 'linked' }
                 : productionOperationMeta(item);
             var rawOperationStatus = String(item.status || item.linkStatus || '').trim().toLowerCase();
-            var canConfirmOperation = canEditSchedule && ['review', 'needs_review', 'requires_review', 'unverified'].indexOf(rawOperationStatus) >= 0;
+            var canConfirmOperation = !isSectionSummary && canEditSchedule && ['review', 'needs_review', 'requires_review', 'unverified'].indexOf(rawOperationStatus) >= 0;
             var confirmOperation = canConfirmOperation
                 ? '<button type="button" class="production-confirm-operation" data-production-confirm-operation data-operation-id="' + escapeHtml(operationId) + '">Подтвердить</button>'
                 : '';
@@ -4527,56 +4717,63 @@
                     var isAutomatic = !!automatic[String(slotNumber)];
                     var isOverridden = !!overridden[String(slotNumber)];
                     var halfLabel = half === 1 ? 'первая половина' : 'вторая половина';
-                    cells += '<td class="production-day-half-cell' + (half === 1 ? ' is-first-half' : ' is-second-half') + (cellDateMeta.isWeekend ? ' is-weekend' : '') + (cellDateMeta.isToday ? ' is-today' : '') + '"><button type="button" class="production-cell-toggle' + (isFilled ? ' is-filled' : '') + (isAutomatic ? ' is-auto' : '') + (isOverridden ? ' is-overridden' : '') + '" data-production-cell data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" data-slot-number="' + slotNumber + '" aria-pressed="' + (isFilled ? 'true' : 'false') + '" aria-label="' + escapeHtml((item.title || 'Работа') + ', ' + cellDateMeta.shortLabel + ', день ' + cellDay + ', ' + halfLabel + '. Статус: ' + health.label) + '"' + (canEditSchedule ? '' : ' disabled') + '></button></td>';
+                    cells += '<td class="production-day-half-cell' + (half === 1 ? ' is-first-half' : ' is-second-half') + (cellDateMeta.isWeekend ? ' is-weekend' : '') + (cellDateMeta.isToday ? ' is-today' : '') + '"><button type="button" class="production-cell-toggle' + (isFilled ? ' is-filled' : '') + (isAutomatic ? ' is-auto' : '') + (isOverridden ? ' is-overridden' : '') + '" data-production-cell' + (isSectionSummary ? ' data-production-summary-cell' : ' data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" data-slot-number="' + slotNumber + '"') + ' aria-pressed="' + (isFilled ? 'true' : 'false') + '" aria-label="' + escapeHtml((item.title || 'Работа') + ', ' + cellDateMeta.shortLabel + ', день ' + cellDay + ', ' + halfLabel + '. Статус: ' + health.label) + '"' + (canEditSchedule && !isSectionSummary ? '' : ' disabled') + '></button></td>';
                 }
             }
-            var effectiveLabel = Number(item.effectiveDays || 0) !== Number(item.durationDays || 0)
+            var effectiveLabel = !isSectionSummary && Number(item.effectiveDays || 0) !== Number(item.durationDays || 0)
                 ? '<small>закрашено: ' + escapeHtml(String(item.effectiveDays || 0)) + '</small>'
                 : '';
             var volumePlan = quantityPlanInfo(item || {});
             var hasVolume = item.plannedQty != null || item.planned_qty != null;
-            var volume = (hasVolume ? quantityText(volumePlan.totalQty) : '—') + ' ' + (volumePlan.unit || 'ед.');
+            var volume = item.volumeLabel || ((hasVolume ? quantityText(volumePlan.totalQty) : '—') + ' ' + (volumePlan.unit || 'ед.'));
             var durationDays = Math.max(0.5, Math.min(3650, Math.round(Number(item.durationDays || 0.5) * 2) / 2));
             var durationInputId = 'production-duration-' + String(project.id) + '-' + String(item.id);
             var durationEditDisabled = canEditSchedule ? '' : ' disabled';
             var durationMinusDisabled = (!canEditSchedule || durationDays <= 0.5) ? ' disabled' : '';
             var durationPlusDisabled = (!canEditSchedule || durationDays >= 3650) ? ' disabled' : '';
             var autoDurationDays = Math.max(0.5, Math.round(Number(item.autoDays || durationDays) * 2) / 2);
-            var durationReset = item.isDurationOverridden && canEditSchedule
+            var durationReset = !isSectionSummary && item.isDurationOverridden && canEditSchedule
                 ? '<button type="button" class="production-duration-reset" data-production-duration-reset data-operation-id="' + escapeHtml(operationId) + '" title="Вернуть автоматический расчёт длительности">Авто: ' + escapeHtml(quantityText(autoDurationDays)) + ' дн.</button>'
                 : '';
             var placementIsManual = String(item.placementMode || item.placement_mode || '').toLowerCase() === 'manual';
             var splitAttributes = durationDays < 1
                 ? ' disabled title="Для разделения нужна длительность не меньше 1 дня"'
                 : (placementIsManual ? ' disabled title="Сначала верните автоматическую раскладку этой работы"' : ' title="Разделить на две работы"');
-            var rowActions = canEditSchedule ? '<span class="production-row-actions">' +
+            var rowActions = canEditSchedule && !isSectionSummary ? '<span class="production-row-actions">' +
                 '<button type="button" data-production-edit-operation data-operation-id="' + escapeHtml(operationId) + '" title="Редактировать" aria-label="Редактировать работу">✎</button>' +
                 '<button type="button" data-production-split-operation data-operation-id="' + escapeHtml(operationId) + '"' + splitAttributes + ' aria-label="Разделить работу">⑂</button>' +
                 '<button type="button" class="is-danger" data-production-delete-operation data-operation-id="' + escapeHtml(operationId) + '" title="Удалить" aria-label="Удалить работу">×</button>' +
             '</span>' : '';
-            var dragHandle = canEditSchedule
+            var dragHandle = canEditSchedule && !isSectionSummary
                 ? '<span class="production-drag-handle" data-production-drag-handle title="Перетащить работу" aria-label="Перетащить работу" tabindex="0">⋮⋮</span>'
                 : '';
-            rows.push('<tr class="production-work-row production-health-' + health.key + '" data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '" aria-label="' + escapeHtml((item.title || 'Работа') + '. Статус: ' + health.label) + '">' +
-                '<td class="production-number-cell">' + dragHandle + '<span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
-                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
-                '<td class="production-volume-cell">' + escapeHtml(volume) + '</td>' +
-                '<td class="production-people-cell">' + escapeHtml(String(item.peopleCount || item.crewSize || 1)) + '</td>' +
-                '<td class="production-shifts-cell">' + escapeHtml(String(item.shiftCount || 1)) + '</td>' +
-                '<td class="production-brigades-cell">' + escapeHtml(String(item.brigadeCount || 1)) + '</td>' +
-                '<td class="production-duration-cell"><div class="production-duration-stepper" role="group" aria-label="' + escapeHtml('Продолжительность: ' + (item.title || 'Работа')) + '">' +
+            var summarySectionEdit = isSectionSummary && canEditSchedule && entry.estimate.sourceId != null
+                ? '<button type="button" class="production-group-edit" data-production-rename-section data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" title="Переименовать раздел" aria-label="Переименовать раздел">✎</button>'
+                : '';
+            var durationMarkup = isSectionSummary
+                ? '<strong class="production-section-duration">' + escapeHtml(quantityText(durationDays)) + '</strong><small>рассчитано по работам</small>'
+                : '<div class="production-duration-stepper" role="group" aria-label="' + escapeHtml('Продолжительность: ' + (item.title || 'Работа')) + '">' +
                     '<button type="button" class="production-duration-step-button" data-production-duration-step="-0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Уменьшить длительность на 0,5 дня"' + durationMinusDisabled + '><span aria-hidden="true">−</span></button>' +
                     '<input id="' + escapeHtml(durationInputId) + '" type="number" inputmode="decimal" min="0.5" max="3650" step="0.5" value="' + escapeHtml(String(durationDays)) + '" data-production-duration data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" aria-label="Длительность в днях"' + durationEditDisabled + '>' +
                     '<button type="button" class="production-duration-step-button" data-production-duration-step="0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Увеличить длительность на 0,5 дня"' + durationPlusDisabled + '><span aria-hidden="true">+</span></button>' +
-                '</div>' + durationReset + effectiveLabel + '</td>' +
+                '</div>' + durationReset + effectiveLabel;
+            rows.push('<tr class="production-work-row' + (isSectionSummary ? ' production-section-summary-row' : '') + ' production-health-' + health.key + '"' + (isSectionSummary ? '' : ' data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '"') + ' aria-label="' + escapeHtml((item.title || 'Работа') + '. Статус: ' + health.label) + '">' +
+                '<td class="production-number-cell">' + dragHandle + '<span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
+                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + summarySectionEdit + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
+                '<td class="production-volume-cell">' + escapeHtml(volume) + '</td>' +
+                '<td class="production-people-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.peopleCount || item.crewSize || 1))) + '</td>' +
+                '<td class="production-shifts-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.shiftCount || 1))) + '</td>' +
+                '<td class="production-brigades-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.brigadeCount || 1))) + '</td>' +
+                '<td class="production-duration-cell">' + durationMarkup + '</td>' +
                 cells + '</tr>');
         });
         if (!rows.length) {
             rows.push('<tr class="production-empty-row"><td colspan="' + String(7 + visibleDays * 2) + '"><b>График пока пуст</b><span>' + (guestView ? 'Опубликованные работы пока не добавлены.' : 'Добавьте первую работу вручную или пересчитайте черновик по смете.') + '</span></td></tr>');
         }
         return '<section class="card production-schedule-card" data-production-schedule-card data-project-id="' + escapeHtml(project.id) + '">' +
-            '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (guestView ? 'Актуальная последовательность работ по объекту. Каждая половина клетки — 0,5 дня.' : 'Авточерновик строится последовательно. Работы можно добавлять, связывать со сметой и переставлять; каждая половина клетки — 0,5 дня.') + ' День 1 — ' + escapeHtml(dayOneMeta.shortLabel + ' (' + dayOneMeta.weekday + ')') + '.</p></div>' +
+            '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (viewMode === 'sections' ? 'Сводный план по сметам и разделам. Продолжительность раздела рассчитана по входящим в него работам.' : (guestView ? 'Подробная последовательность всех работ по объекту.' : 'Подробный план: работы сгруппированы по сметам и разделам и доступны для редактирования.')) + ' Каждая половина клетки — 0,5 дня. День 1 — ' + escapeHtml(dayOneMeta.shortLabel + ' (' + dayOneMeta.weekday + ')') + '.</p></div>' +
                 '<div class="production-schedule-actions">' +
+                    '<div class="production-view-switch" role="group" aria-label="Детализация графика"><button type="button" data-production-view="sections" aria-pressed="' + (viewMode === 'sections' ? 'true' : 'false') + '"><i data-lucide="layout-list" aria-hidden="true"></i><span>По разделам</span></button><button type="button" data-production-view="works" aria-pressed="' + (viewMode === 'works' ? 'true' : 'false') + '"><i data-lucide="list-tree" aria-hidden="true"></i><span>Все работы</span></button></div>' +
                     (canEditSchedule ? '<button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Добавить работу</button>' : '') +
                     '<button class="ghost compact production-print-button" type="button" data-production-print data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="printer" aria-hidden="true"></i><span>Распечатать в PDF</span></button>' +
                     '<button class="ghost compact" type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">+ 7 дней</button>' +
@@ -4851,6 +5048,51 @@
         var panel = qs('[data-panel="production-schedule"]');
         if (!panel) return;
         bindProductionScheduleScroll(qs('[data-production-table-scroll]', panel));
+        qsa('[data-production-view]', panel).forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var nextMode = button.dataset.productionView === 'works' ? 'works' : 'sections';
+                state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
+                if (productionScheduleViewMode(projectId) === nextMode) return;
+                state.productionScheduleViewByProject[projectId] = nextMode;
+                renderSelectedProjectProductionSchedule();
+            });
+        });
+        qsa('[data-production-rename-estimate]', panel).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var currentTitle = String(button.dataset.currentTitle || '').trim();
+                var nextTitle = window.prompt('Новое название сметы', currentTitle);
+                if (nextTitle == null) return;
+                nextTitle = String(nextTitle).trim();
+                if (!nextTitle || nextTitle === currentTitle) return;
+                saveProductionScheduleAction(projectId, {
+                    action: 'rename_estimate',
+                    estimate_source_id: productionPayloadId(button.dataset.estimateSourceId),
+                    title: nextTitle
+                }, button).then(function () {
+                    showAppNotice('Название сметы обновлено.', 'success');
+                }).catch(function () {});
+            });
+        });
+        qsa('[data-production-rename-section]', panel).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var currentTitle = String(button.dataset.currentTitle || '').trim();
+                var displayTitle = String(button.dataset.displayTitle || currentTitle || 'Без раздела').trim();
+                var nextTitle = window.prompt('Новое название раздела', displayTitle);
+                if (nextTitle == null) return;
+                nextTitle = String(nextTitle).trim();
+                if (!nextTitle || nextTitle === displayTitle) return;
+                saveProductionScheduleAction(projectId, {
+                    action: 'rename_section',
+                    estimate_source_id: productionPayloadId(button.dataset.estimateSourceId),
+                    old_title: currentTitle,
+                    title: nextTitle
+                }, button).then(function () {
+                    showAppNotice('Название раздела обновлено.', 'success');
+                }).catch(function () {});
+            });
+        });
         qsa('[data-production-print]', panel).forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';

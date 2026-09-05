@@ -2088,8 +2088,13 @@ def production_estimate_rows(con: sqlite3.Connection, project_id: int) -> list[s
     estimate_columns = table_columns(con, "estimate_items")
     has_sources = "estimate_source_id" in estimate_columns and production_table_exists(con, "project_estimates")
     live_where = live_estimate_items_where(con, "e")
+    source_table_columns = table_columns(con, "project_estimates") if has_sources else set()
     source_columns = (
-        ", source.source_type AS estimate_source_type, source.source_key AS estimate_source_key"
+        ", source.source_type AS estimate_source_type, source.source_key AS estimate_source_key, "
+        + ("source.title" if "title" in source_table_columns else "NULL")
+        + " AS estimate_title, "
+        + ("source.file_name" if "file_name" in source_table_columns else "NULL")
+        + " AS estimate_file_name"
         if has_sources else ""
     )
     source_join = (
@@ -3179,6 +3184,12 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "estimateSourceType": str(
                     schedule_item_value(estimate, "estimate_source_type", "estimateSourceType", default="") or ""
                 ) if estimate else "",
+                "estimateTitle": str(
+                    schedule_item_value(estimate, "estimate_title", "estimateTitle", default="") or ""
+                ) if estimate else "",
+                "estimateFileName": str(
+                    schedule_item_value(estimate, "estimate_file_name", "estimateFileName", default="") or ""
+                ) if estimate else "",
                 "sourceItemKey": str(
                     schedule_item_value(estimate, "source_item_key", "sourceItemKey", default="") or ""
                 ) if estimate else "",
@@ -3267,7 +3278,11 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "title": str(operation["title"] or ""),
                 "unit": str(operation["unit"] or ""),
                 "plannedQty": None if operation["planned_qty"] is None else float(operation["planned_qty"]),
-                "sectionTitle": "",
+                "sectionTitle": str(work_basis["sectionTitle"] or "") if work_basis else "",
+                "estimateSourceId": work_basis["estimateSourceId"] if work_basis else None,
+                "estimateSourceKey": str(work_basis["estimateSourceKey"] or "") if work_basis else "",
+                "estimateTitle": str(work_basis["estimateTitle"] or "") if work_basis else "",
+                "estimateFileName": str(work_basis["estimateFileName"] or "") if work_basis else "",
                 "crewSize": int(operation["people_count"] or 1),
                 "peopleCount": int(operation["people_count"] or 1),
                 "shiftCount": int(operation["shift_count"] or 1),
@@ -3367,6 +3382,42 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
             "items": [],
         }
 
+    # Public users receive only the harmless grouping labels required to render
+    # the same estimate -> section hierarchy. Editor links and source metadata
+    # stay omitted from the guest payload.
+    guest_grouping: dict[int, dict] = {}
+    live_estimates = {int(row["id"]): row for row in production_estimate_rows(con, project_id)}
+    if production_table_exists(con, "production_schedule_operation_estimate_links"):
+        for link in con.execute(
+            """
+            SELECT link.operation_id, link.estimate_item_id, link.link_role
+            FROM production_schedule_operation_estimate_links link
+            JOIN production_schedule_operations operation ON operation.id = link.operation_id
+            WHERE operation.project_id = ?
+            ORDER BY link.operation_id,
+                     CASE link.link_role WHEN 'work_basis' THEN 0 ELSE 1 END,
+                     link.estimate_item_id
+            """,
+            (project_id,),
+        ).fetchall():
+            operation_id = int(link["operation_id"])
+            if operation_id in guest_grouping:
+                continue
+            estimate = live_estimates.get(int(link["estimate_item_id"]))
+            if not estimate:
+                continue
+            guest_grouping[operation_id] = {
+                "sectionTitle": str(
+                    schedule_item_value(estimate, "section_title", "sectionTitle", default="") or ""
+                ),
+                "estimateSourceId": schedule_item_value(
+                    estimate, "estimate_source_id", "estimateSourceId", default=None
+                ),
+                "estimateTitle": str(
+                    schedule_item_value(estimate, "estimate_title", "estimateTitle", default="") or ""
+                ),
+            }
+
     slot_overrides: dict[int, dict[int, bool]] = {}
     if production_table_exists(con, "production_schedule_operation_slot_overrides"):
         for row in con.execute(
@@ -3390,6 +3441,7 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
     ).fetchall()
     for operation in operation_rows:
         operation_id = int(operation["id"])
+        grouping = guest_grouping.get(operation_id, {})
         manual_duration = positive_schedule_half_days(operation["manual_duration_days"])
         auto_duration = positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
         duration_days = manual_duration if manual_duration is not None else auto_duration
@@ -3440,7 +3492,9 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
                 "title": str(operation["title"] or ""),
                 "unit": str(operation["unit"] or ""),
                 "plannedQty": None if operation["planned_qty"] is None else float(operation["planned_qty"]),
-                "sectionTitle": "",
+                "sectionTitle": str(grouping.get("sectionTitle") or ""),
+                "estimateSourceId": grouping.get("estimateSourceId"),
+                "estimateTitle": str(grouping.get("estimateTitle") or ""),
                 "crewSize": int(operation["people_count"] or 1),
                 "peopleCount": int(operation["people_count"] or 1),
                 "shiftCount": int(operation["shift_count"] or 1),
@@ -4854,6 +4908,92 @@ def api_update_production_schedule(handler, path: str) -> None:
                     (position, user["id"], timestamp, operation_id, project_id),
                 )
             audit_payload.update({"operation_ids": operation_ids})
+
+        elif action == "rename_estimate":
+            try:
+                estimate_source_id = int(
+                    production_payload_value(payload, "estimate_source_id", "estimateSourceId")
+                )
+            except (TypeError, ValueError):
+                estimate_source_id = 0
+            title = re.sub(
+                r"\s+",
+                " ",
+                str(production_payload_value(payload, "title", default="") or "").strip(),
+            )
+            if not estimate_source_id:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_source_id"})
+                return
+            if not title or len(title) > 500:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_title"})
+                return
+            if not production_table_exists(con, "project_estimates"):
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "estimate_sources_unavailable"})
+                return
+            source = con.execute(
+                "SELECT id FROM project_estimates WHERE id = ? AND project_id = ?",
+                (estimate_source_id, project_id),
+            ).fetchone()
+            if not source:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_not_found"})
+                return
+            con.execute(
+                "UPDATE project_estimates SET title = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                (title, timestamp, estimate_source_id, project_id),
+            )
+            audit_payload.update({"estimate_source_id": estimate_source_id, "title": title})
+
+        elif action == "rename_section":
+            try:
+                estimate_source_id = int(
+                    production_payload_value(payload, "estimate_source_id", "estimateSourceId")
+                )
+            except (TypeError, ValueError):
+                estimate_source_id = 0
+            old_title = str(
+                production_payload_value(payload, "old_title", "oldTitle", default="") or ""
+            ).strip()
+            title = re.sub(
+                r"\s+",
+                " ",
+                str(production_payload_value(payload, "title", default="") or "").strip(),
+            )
+            if not estimate_source_id:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_source_id"})
+                return
+            if not title or len(title) > 500:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_title"})
+                return
+            if not production_table_exists(con, "project_estimates") or "estimate_source_id" not in table_columns(con, "estimate_items"):
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "estimate_sources_unavailable"})
+                return
+            source = con.execute(
+                "SELECT id FROM project_estimates WHERE id = ? AND project_id = ?",
+                (estimate_source_id, project_id),
+            ).fetchone()
+            if not source:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_not_found"})
+                return
+            updated = con.execute(
+                """
+                UPDATE estimate_items
+                SET section_title = ?
+                WHERE project_id = ? AND estimate_source_id = ?
+                  AND COALESCE(trim(section_title), '') = ?
+                """,
+                (title, project_id, estimate_source_id, old_title),
+            )
+            if not updated.rowcount:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_not_found"})
+                return
+            audit_payload.update(
+                {
+                    "estimate_source_id": estimate_source_id,
+                    "old_title": old_title,
+                    "title": title,
+                    "updated_items": int(updated.rowcount),
+                }
+            )
 
         elif action == "recalculate":
             # Synchronisation is intentionally non-destructive: manual operations,
