@@ -1499,6 +1499,30 @@ body.production-group-editor-open .production-group-editor {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.production-form-columns-schedule {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.production-start-placement-help {
+    align-items: center;
+    background: #f3f7fd;
+    border: 1px solid #d8e5f4;
+    border-radius: 10px;
+    color: #5d6d7d;
+    display: flex;
+    font-size: 11px;
+    gap: 10px;
+    justify-content: space-between;
+    line-height: 1.4;
+    padding: 9px 10px;
+}
+
+.production-start-placement-help .ghost {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 5px 9px;
+}
+
 .production-estimate-links {
     border: 1px solid #e0e5e8;
     border-radius: 12px;
@@ -1601,6 +1625,15 @@ body.production-group-editor-open .production-group-editor {
 
     .production-form-columns-state {
         grid-template-columns: 1fr;
+    }
+
+    .production-form-columns-schedule {
+        grid-template-columns: 1fr;
+    }
+
+    .production-start-placement-help {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .production-group-editor-form .production-operation-form-actions {

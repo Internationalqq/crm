@@ -867,6 +867,7 @@ class ProductionScheduleTests(unittest.TestCase):
                     "planned_qty": None,
                     "unit": "шт",
                     "duration_days": 1.5,
+                    "start_date": "2026-09-06",
                     "links": [{"estimate_item_id": 10, "role": "manual_reference"}],
                     "color": "blue",
                 },
@@ -876,6 +877,33 @@ class ProductionScheduleTests(unittest.TestCase):
             self.assertEqual(added.status, 200)
             manual = next(item for item in added.response["items"] if item["origin"] == "manual")
             self.assertIsNone(manual["plannedQty"])
+            self.assertEqual(manual["placementMode"], "manual")
+            self.assertEqual(manual["plannedStartDate"], "2026-09-06")
+            self.assertEqual(manual["filledSlots"], [3, 4, 5])
+
+            moved = Handler(
+                {
+                    "action": "update_operation",
+                    "operation_id": manual["id"],
+                    "start_date": "2026-09-07",
+                }
+            )
+            api_update_production_schedule(moved, "/api/projects/1/production-schedule")
+            self.assertEqual(moved.status, 200)
+            manual = next(item for item in moved.response["items"] if item["id"] == manual["id"])
+            self.assertEqual(manual["plannedStartDate"], "2026-09-07")
+            self.assertEqual(manual["filledSlots"], [5, 6, 7])
+
+            invalid_start = Handler(
+                {
+                    "action": "update_operation",
+                    "operation_id": manual["id"],
+                    "start_date": "2026-09-04",
+                }
+            )
+            api_update_production_schedule(invalid_start, "/api/projects/1/production-schedule")
+            self.assertEqual(invalid_start.status, 400)
+            self.assertEqual(invalid_start.response["error"], "operation_start_before_schedule")
 
             generated = next(item for item in added.response["items"] if item["origin"] == "auto")
             split = Handler({"action": "split_operation", "operation_id": generated["id"]})
@@ -987,6 +1015,7 @@ class ProductionScheduleTests(unittest.TestCase):
                     "estimate_source_id": 31,
                     "old_title": "Раздел",
                     "duration_days": 6,
+                    "start_date": "2026-09-06",
                 },
                 role="purchaser",
             )
@@ -998,6 +1027,10 @@ class ProductionScheduleTests(unittest.TestCase):
             ]
             self.assertEqual(sum(item["durationDays"] for item in section_items), 6)
             self.assertTrue(all(item["isDurationOverridden"] for item in section_items))
+            self.assertTrue(all(item["placementMode"] == "manual" for item in section_items))
+            section_slots = sorted({slot for item in section_items for slot in item["filledSlots"]})
+            self.assertEqual(section_slots, list(range(3, 15)))
+            self.assertEqual(min(item["plannedStartDate"] for item in section_items), "2026-09-06")
 
             deleted_section = Handler(
                 {

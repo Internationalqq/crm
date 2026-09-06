@@ -2139,6 +2139,39 @@ def production_schedule_calendar_settings(
     return project_start, "project" if has_explicit_project_start else "today"
 
 
+def production_schedule_start_date(con: sqlite3.Connection, project_id: int) -> date:
+    project = production_project_calendar_row(con, project_id)
+    if not project:
+        raise LookupError("project_not_found")
+    explicit_start = parse_iso_date(project["started_at"])
+    project_start = explicit_start or date.today()
+    return production_schedule_calendar_settings(
+        con,
+        project_id,
+        project_start,
+        explicit_start is not None,
+    )[0]
+
+
+def production_start_date_slot(raw_value: object, schedule_start: date) -> tuple[date, int]:
+    raw_date = str(raw_value or "").strip()
+    start_date = parse_iso_date(raw_date)
+    if (
+        not start_date
+        or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date)
+        or start_date.year < 1900
+        or start_date.year > 2200
+    ):
+        raise ValueError("bad_operation_start_date")
+    day_offset = (start_date - schedule_start).days
+    if day_offset < 0:
+        raise ValueError("operation_start_before_schedule")
+    start_slot = day_offset * 2 + 1
+    if start_slot > 7300:
+        raise ValueError("bad_operation_start_date")
+    return start_date, start_slot
+
+
 def production_schedule_section_overrides(con: sqlite3.Connection, project_id: int) -> list[dict]:
     """Return manual section summary volumes used by both private and guest schedules."""
 
@@ -3182,6 +3215,71 @@ def production_resize_manual_slot_snapshot(
     )
 
 
+def production_place_operation_slots(
+    con: sqlite3.Connection,
+    project_id: int,
+    operation_id: int,
+    start_slot: int,
+    duration_slots: int,
+    updated_by: int | None,
+    timestamp: int,
+) -> None:
+    """Place one operation as a continuous, explicitly scheduled span."""
+
+    if start_slot < 1 or duration_slots < 1 or start_slot + duration_slots - 1 > 7300:
+        raise ValueError("bad_operation_start_date")
+    if not production_operation_row(con, project_id, operation_id):
+        raise LookupError("operation_not_found")
+    con.execute(
+        "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ?",
+        (operation_id,),
+    )
+    con.executemany(
+        """
+        INSERT INTO production_schedule_operation_slot_overrides (
+            operation_id, slot_number, is_filled, updated_by, created_at, updated_at
+        ) VALUES (?, ?, 1, ?, ?, ?)
+        """,
+        [
+            (operation_id, slot_number, updated_by, timestamp, timestamp)
+            for slot_number in range(start_slot, start_slot + duration_slots)
+        ],
+    )
+    con.execute(
+        """
+        UPDATE production_schedule_operations
+        SET placement_mode = 'manual', updated_by = ?, updated_at = ?
+        WHERE id = ? AND project_id = ?
+        """,
+        (updated_by, timestamp, operation_id, project_id),
+    )
+    production_set_manual_fields(con, project_id, operation_id, {"start_date"})
+
+
+def production_reset_operation_placement(
+    con: sqlite3.Connection,
+    project_id: int,
+    operation_id: int,
+    updated_by: int | None,
+    timestamp: int,
+) -> None:
+    """Return one operation to its sequential automatic placement."""
+
+    con.execute(
+        "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ?",
+        (operation_id,),
+    )
+    con.execute(
+        """
+        UPDATE production_schedule_operations
+        SET placement_mode = 'auto', updated_by = ?, updated_at = ?
+        WHERE id = ? AND project_id = ?
+        """,
+        (updated_by, timestamp, operation_id, project_id),
+    )
+    production_set_manual_fields(con, project_id, operation_id, set(), {"start_date"})
+
+
 def migrate_legacy_production_schedule(con: sqlite3.Connection, project_id: int) -> None:
     if con.execute("SELECT 1 FROM production_schedule_migration_state WHERE project_id = ?", (project_id,)).fetchone():
         return
@@ -3449,10 +3547,12 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "autoEndDay": math.ceil(auto_end_slot / 2),
                 "autoStartSlot": auto_start_slot,
                 "autoEndSlot": auto_end_slot,
+                "autoStartDate": (schedule_start + timedelta(days=(auto_start_slot - 1) // 2)).isoformat(),
                 "autoFilledSlots": sorted(base_slots),
                 "filledSlots": sorted(effective_slots),
                 "overriddenSlots": sorted(overridden_slots),
                 "isDurationOverridden": manual_duration is not None,
+                "isStartOverridden": placement_mode == "manual",
                 "isCrewOverridden": "people_count" in manual_fields,
                 "origin": str(operation["origin"] or "auto"),
                 "status": status,
@@ -4811,6 +4911,18 @@ def api_update_production_schedule(handler, path: str) -> None:
             color_raw = production_payload_value(payload, "color", default=PRODUCTION_DEFAULT_COLOR)
             color = production_valid_color(color_raw)
             status = production_valid_status(production_payload_value(payload, "status", default="needs_review"))
+            start_date_was_supplied = "start_date" in payload or "startDate" in payload
+            operation_start_date = None
+            operation_start_slot = None
+            if start_date_was_supplied:
+                try:
+                    operation_start_date, operation_start_slot = production_start_date_slot(
+                        production_payload_value(payload, "start_date", "startDate"),
+                        production_schedule_start_date(con, project_id),
+                    )
+                except ValueError as exc:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                    return
             if planned_qty is not None and (not math.isfinite(planned_qty) or planned_qty < 0):
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_planned_qty"})
                 return
@@ -4857,7 +4969,23 @@ def api_update_production_schedule(handler, path: str) -> None:
             )
             operation_id = int(cursor.lastrowid)
             production_replace_links(con, project_id, operation_id, links)
-            audit_payload.update({"operation_id": operation_id, "title": title})
+            if operation_start_slot is not None:
+                production_place_operation_slots(
+                    con,
+                    project_id,
+                    operation_id,
+                    operation_start_slot,
+                    max(1, int(round(duration_days * 2))),
+                    user["id"],
+                    timestamp,
+                )
+            audit_payload.update(
+                {
+                    "operation_id": operation_id,
+                    "title": title,
+                    "start_date": operation_start_date.isoformat() if operation_start_date else None,
+                }
+            )
 
         elif action == "update_operation":
             operation_id = resolve_production_operation_id(con, project_id, payload)
@@ -4867,6 +4995,21 @@ def api_update_production_schedule(handler, path: str) -> None:
                 return
             updates: dict[str, object] = {}
             manual_fields: set[str] = set()
+            reset_start_date = bool(
+                production_payload_value(payload, "reset_start_date", "resetStartDate", default=False)
+            )
+            start_date_was_supplied = "start_date" in payload or "startDate" in payload
+            operation_start_date = None
+            operation_start_slot = None
+            if start_date_was_supplied and not reset_start_date:
+                try:
+                    operation_start_date, operation_start_slot = production_start_date_slot(
+                        production_payload_value(payload, "start_date", "startDate"),
+                        production_schedule_start_date(con, project_id),
+                    )
+                except ValueError as exc:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                    return
             if "title" in payload:
                 title = str(payload.get("title") or "").strip()
                 if not title or len(title) > 500:
@@ -4981,7 +5124,34 @@ def api_update_production_schedule(handler, path: str) -> None:
                     timestamp,
                 )
             production_set_manual_fields(con, project_id, operation_id, manual_fields)
-            audit_payload.update({"operation_id": operation_id, "fields": sorted(manual_fields)})
+            if reset_start_date:
+                production_reset_operation_placement(
+                    con, project_id, operation_id, user["id"], timestamp
+                )
+            elif operation_start_slot is not None:
+                placed_operation = production_operation_row(con, project_id, operation_id)
+                placed_duration = (
+                    positive_schedule_half_days(placed_operation["manual_duration_days"])
+                    or positive_schedule_half_days(placed_operation["auto_duration_days"])
+                    or 1.0
+                )
+                production_place_operation_slots(
+                    con,
+                    project_id,
+                    operation_id,
+                    operation_start_slot,
+                    max(1, int(round(placed_duration * 2))),
+                    user["id"],
+                    timestamp,
+                )
+            audit_payload.update(
+                {
+                    "operation_id": operation_id,
+                    "fields": sorted(manual_fields | ({"start_date"} if operation_start_slot is not None else set())),
+                    "start_date": operation_start_date.isoformat() if operation_start_date else None,
+                    "start_date_reset": reset_start_date,
+                }
+            )
 
         elif action == "delete_operation":
             operation_id = resolve_production_operation_id(con, project_id, payload)
@@ -5329,9 +5499,33 @@ def api_update_production_schedule(handler, path: str) -> None:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_not_found"})
                 return
             duration_was_supplied = "duration_days" in payload or "durationDays" in payload
+            reset_start_date = bool(
+                production_payload_value(payload, "reset_start_date", "resetStartDate", default=False)
+            )
+            start_date_was_supplied = "start_date" in payload or "startDate" in payload
+            section_start_date = None
+            section_start_slot = None
+            if start_date_was_supplied and not reset_start_date:
+                try:
+                    section_start_date, section_start_slot = production_start_date_slot(
+                        production_payload_value(payload, "start_date", "startDate"),
+                        production_schedule_start_date(con, project_id),
+                    )
+                except ValueError as exc:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                    return
             section_duration = None
             section_operations: list[dict] = []
             allocated_duration_slots: list[int] = []
+            if duration_was_supplied or start_date_was_supplied or reset_start_date:
+                section_operations = production_schedule_section_items(
+                    build_production_schedule_payload(con, project_id),
+                    estimate_source_id,
+                    old_title,
+                )
+                if not section_operations:
+                    handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_operations_not_found"})
+                    return
             if duration_was_supplied:
                 section_duration = positive_schedule_half_days(
                     production_payload_value(payload, "duration_days", "durationDays")
@@ -5339,11 +5533,6 @@ def api_update_production_schedule(handler, path: str) -> None:
                 if section_duration is None or section_duration > 3650:
                     handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_section_duration"})
                     return
-                section_operations = production_schedule_section_items(
-                    build_production_schedule_payload(con, project_id),
-                    estimate_source_id,
-                    old_title,
-                )
                 try:
                     allocated_duration_slots = production_allocate_section_duration_slots(
                         section_operations,
@@ -5439,6 +5628,33 @@ def api_update_production_schedule(handler, path: str) -> None:
                         user["id"],
                         timestamp,
                     )
+            if reset_start_date:
+                for operation_item in section_operations:
+                    production_reset_operation_placement(
+                        con,
+                        project_id,
+                        int(operation_item["id"]),
+                        user["id"],
+                        timestamp,
+                    )
+            elif section_start_slot is not None:
+                next_slot = section_start_slot
+                for operation_index, operation_item in enumerate(section_operations):
+                    operation_slots = (
+                        allocated_duration_slots[operation_index]
+                        if duration_was_supplied
+                        else max(1, int(round(float(operation_item.get("durationDays") or 0.5) * 2)))
+                    )
+                    production_place_operation_slots(
+                        con,
+                        project_id,
+                        int(operation_item["id"]),
+                        next_slot,
+                        operation_slots,
+                        user["id"],
+                        timestamp,
+                    )
+                    next_slot += operation_slots
             audit_payload.update(
                 {
                     "estimate_source_id": estimate_source_id,
@@ -5449,6 +5665,9 @@ def api_update_production_schedule(handler, path: str) -> None:
                     "volume_reset": reset_volume,
                     "duration_days": section_duration,
                     "duration_updated": duration_was_supplied,
+                    "start_date": section_start_date.isoformat() if section_start_date else None,
+                    "start_date_updated": start_date_was_supplied,
+                    "start_date_reset": reset_start_date,
                 }
             )
 
@@ -5517,6 +5736,18 @@ def api_update_production_schedule(handler, path: str) -> None:
                 "UPDATE production_schedule_operations SET placement_mode = 'auto', updated_at = ? WHERE project_id = ?",
                 (timestamp, project_id),
             )
+            for operation in con.execute(
+                "SELECT id, manual_fields FROM production_schedule_operations WHERE project_id = ?",
+                (project_id,),
+            ).fetchall():
+                fields = production_manual_fields(operation["manual_fields"])
+                if "start_date" not in fields:
+                    continue
+                fields.discard("start_date")
+                con.execute(
+                    "UPDATE production_schedule_operations SET manual_fields = ? WHERE id = ? AND project_id = ?",
+                    (production_encode_manual_fields(fields), int(operation["id"]), project_id),
+                )
             if action == "reset_all":
                 con.execute(
                     "UPDATE production_schedule_operations SET manual_duration_days = NULL, updated_at = ? WHERE project_id = ? AND origin != 'manual'",
