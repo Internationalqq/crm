@@ -745,13 +745,14 @@ class ProductionScheduleTests(unittest.TestCase):
                 return False
 
         class Handler:
-            def __init__(self, payload):
+            def __init__(self, payload, role="admin"):
                 self.payload = payload
+                self.role = role
                 self.status = None
                 self.response = None
 
             def require_project_access(self, project_id):
-                return {"id": 7, "login": "admin", "role": "admin", "roles": []}
+                return {"id": 7, "login": self.role, "role": self.role, "roles": []}
 
             def read_json(self):
                 return self.payload
@@ -763,6 +764,10 @@ class ProductionScheduleTests(unittest.TestCase):
         original_db = schedule_module.db
         schedule_module.db = lambda: SharedConnection()
         try:
+            guest_denied = Handler({"action": "add_operation", "title": "Нельзя"}, role="guest")
+            api_update_production_schedule(guest_denied, "/api/projects/1/production-schedule")
+            self.assertEqual(guest_denied.status, 403)
+
             added = Handler(
                 {
                     "action": "add_operation",
@@ -772,7 +777,8 @@ class ProductionScheduleTests(unittest.TestCase):
                     "duration_days": 1.5,
                     "links": [{"estimate_item_id": 10, "role": "manual_reference"}],
                     "color": "blue",
-                }
+                },
+                role="purchaser",
             )
             api_update_production_schedule(added, "/api/projects/1/production-schedule")
             self.assertEqual(added.status, 200)
@@ -802,7 +808,12 @@ class ProductionScheduleTests(unittest.TestCase):
                     "action": "update_operation",
                     "operation_id": manual["id"],
                     "title": "Ручная операция 2",
+                    "planned_qty": 37.5,
+                    "unit": "м³",
                     "people_count": 2,
+                    "shift_count": 2,
+                    "brigade_count": 2,
+                    "color": "rose",
                     "linked_estimate_item_ids": [10],
                 }
             )
@@ -810,7 +821,12 @@ class ProductionScheduleTests(unittest.TestCase):
             self.assertEqual(updated.status, 200)
             changed = next(item for item in updated.response["items"] if item["id"] == manual["id"])
             self.assertEqual(changed["title"], "Ручная операция 2")
+            self.assertEqual(changed["plannedQty"], 37.5)
+            self.assertEqual(changed["unit"], "м³")
             self.assertEqual(changed["peopleCount"], 2)
+            self.assertEqual(changed["shiftCount"], 2)
+            self.assertEqual(changed["brigadeCount"], 2)
+            self.assertEqual(changed["color"], "rose")
             self.assertEqual(changed["status"], "needs_review")
             self.assertEqual(changed["links"][0]["role"], "manual_reference")
 

@@ -31,6 +31,11 @@
     var canViewProcurementPrices = PMBI.canViewProcurementPrices;
     var isMainAdminRole = PMBI.isMainAdminRole;
 
+    function canEditProductionSchedule() {
+        var user = state && (state.currentUser || state.user);
+        return !!user && !user.isGuest && !user.isPublic && !hasRole('guest');
+    }
+
     function appCall(name, args) {
         var fn = PMBI.app && PMBI.app[name];
         if (typeof fn !== 'function') {
@@ -3899,6 +3904,10 @@
                         '<label><span>Бригад</span><input name="brigade_count" type="number" min="1" max="99" step="1" value="1"></label>' +
                     '</div>' +
                     '<label class="production-form-wide"><span>Продолжительность, дней</span><input name="duration_days" type="number" min="0.5" max="3650" step="0.5" value="0.5"></label>' +
+                    '<div class="production-form-columns production-form-columns-state">' +
+                        '<label><span>Состояние</span><select name="status"><option value="draft">Черновик</option><option value="needs_review">Нужна проверка</option><option value="confirmed">Подтверждено</option><option value="in_progress">В работе</option><option value="completed">Завершено</option><option value="on_hold">На паузе</option><option value="linked">Связано со сметой</option><option value="outside_estimate">Вне сметы</option><option value="stale">Связи устарели</option></select></label>' +
+                        '<label><span>Цвет на графике</span><select name="color"><option value="slate">Серый</option><option value="blue">Синий</option><option value="teal">Бирюзовый</option><option value="green">Зелёный</option><option value="violet">Фиолетовый</option><option value="rose">Красный</option></select></label>' +
+                    '</div>' +
                     '<fieldset class="production-estimate-links"><legend>Связи со сметой</legend><p>Выберите всё, на основании чего появилась операция. Эти связи используются только в графике и не меняют смету.</p>' +
                         '<input class="production-estimate-search" type="search" data-production-link-filter placeholder="Найти работу или материал…" aria-label="Поиск по смете">' +
                         '<div class="production-estimate-options" data-production-estimate-options>' + optionRows + '</div>' +
@@ -4633,7 +4642,7 @@
         var viewMode = productionScheduleViewMode(project.id);
         var scheduleGroups = productionScheduleGroups(items);
         var visibleDays = productionScheduleVisibleDays(project.id, schedule);
-        var canEditSchedule = canManageSchedule();
+        var canEditSchedule = canEditProductionSchedule();
         var guestView = hasRole('guest');
         var canSaveTemplate = isMainAdminRole() || hasRole('admin') || hasRole('director');
         var startDate = productionScheduleStartDate(project, schedule);
@@ -4726,6 +4735,7 @@
             var volumePlan = quantityPlanInfo(item || {});
             var hasVolume = item.plannedQty != null || item.planned_qty != null;
             var volume = item.volumeLabel || ((hasVolume ? quantityText(volumePlan.totalQty) : '—') + ' ' + (volumePlan.unit || 'ед.'));
+            var rawVolume = item.plannedQty != null ? item.plannedQty : item.planned_qty;
             var durationDays = Math.max(0.5, Math.min(3650, Math.round(Number(item.durationDays || 0.5) * 2) / 2));
             var durationInputId = 'production-duration-' + String(project.id) + '-' + String(item.id);
             var durationEditDisabled = canEditSchedule ? '' : ' disabled';
@@ -4740,7 +4750,7 @@
                 ? ' disabled title="Для разделения нужна длительность не меньше 1 дня"'
                 : (placementIsManual ? ' disabled title="Сначала верните автоматическую раскладку этой работы"' : ' title="Разделить на две работы"');
             var rowActions = canEditSchedule && !isSectionSummary ? '<span class="production-row-actions">' +
-                '<button type="button" data-production-edit-operation data-operation-id="' + escapeHtml(operationId) + '" title="Редактировать" aria-label="Редактировать работу">✎</button>' +
+                '<button type="button" class="production-edit-operation-button" data-production-edit-operation data-operation-id="' + escapeHtml(operationId) + '" title="Изменить работу, объём и параметры" aria-label="Изменить работу, объём и параметры"><span aria-hidden="true">✎</span><span>Изменить</span></button>' +
                 '<button type="button" data-production-split-operation data-operation-id="' + escapeHtml(operationId) + '"' + splitAttributes + ' aria-label="Разделить работу">⑂</button>' +
                 '<button type="button" class="is-danger" data-production-delete-operation data-operation-id="' + escapeHtml(operationId) + '" title="Удалить" aria-label="Удалить работу">×</button>' +
             '</span>' : '';
@@ -4757,10 +4767,13 @@
                     '<input id="' + escapeHtml(durationInputId) + '" type="number" inputmode="decimal" min="0.5" max="3650" step="0.5" value="' + escapeHtml(String(durationDays)) + '" data-production-duration data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" aria-label="Длительность в днях"' + durationEditDisabled + '>' +
                     '<button type="button" class="production-duration-step-button" data-production-duration-step="0.5" aria-controls="' + escapeHtml(durationInputId) + '" aria-label="Увеличить длительность на 0,5 дня"' + durationPlusDisabled + '><span aria-hidden="true">+</span></button>' +
                 '</div>' + durationReset + effectiveLabel;
+            var volumeMarkup = isSectionSummary || !canEditSchedule
+                ? escapeHtml(volume)
+                : '<label class="production-volume-editor"><span class="sr-only">Объём работы</span><input type="text" inputmode="decimal" value="' + escapeHtml(rawVolume == null ? '' : String(rawVolume)) + '" placeholder="—" data-production-volume data-operation-id="' + escapeHtml(operationId) + '" aria-label="' + escapeHtml('Объём работы: ' + (item.title || 'Работа')) + '"><small>' + escapeHtml(volumePlan.unit || item.unit || 'ед.') + '</small></label>';
             rows.push('<tr class="production-work-row' + (isSectionSummary ? ' production-section-summary-row' : '') + ' production-health-' + health.key + '"' + (isSectionSummary ? '' : ' data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '"') + ' aria-label="' + escapeHtml((item.title || 'Работа') + '. Статус: ' + health.label) + '">' +
                 '<td class="production-number-cell">' + dragHandle + '<span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
                 '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + summarySectionEdit + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
-                '<td class="production-volume-cell">' + escapeHtml(volume) + '</td>' +
+                '<td class="production-volume-cell">' + volumeMarkup + '</td>' +
                 '<td class="production-people-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.peopleCount || item.crewSize || 1))) + '</td>' +
                 '<td class="production-shifts-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.shiftCount || 1))) + '</td>' +
                 '<td class="production-brigades-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.brigadeCount || 1))) + '</td>' +
@@ -4774,14 +4787,15 @@
             '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (viewMode === 'sections' ? 'Сводный план по сметам и разделам. Продолжительность раздела рассчитана по входящим в него работам.' : (guestView ? 'Подробная последовательность всех работ по объекту.' : 'Подробный план: работы сгруппированы по сметам и разделам и доступны для редактирования.')) + ' Каждая половина клетки — 0,5 дня. День 1 — ' + escapeHtml(dayOneMeta.shortLabel + ' (' + dayOneMeta.weekday + ')') + '.</p></div>' +
                 '<div class="production-schedule-actions">' +
                     '<div class="production-view-switch" role="group" aria-label="Детализация графика"><button type="button" data-production-view="sections" aria-pressed="' + (viewMode === 'sections' ? 'true' : 'false') + '"><i data-lucide="layout-list" aria-hidden="true"></i><span>По разделам</span></button><button type="button" data-production-view="works" aria-pressed="' + (viewMode === 'works' ? 'true' : 'false') + '"><i data-lucide="list-tree" aria-hidden="true"></i><span>Все работы</span></button></div>' +
+                    (canEditSchedule && viewMode === 'sections' ? '<button class="primary compact production-edit-schedule-button" type="button" data-production-edit-schedule><i data-lucide="pencil" aria-hidden="true"></i><span>Редактировать график</span></button>' : '') +
                     (canEditSchedule ? '<button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Добавить работу</button>' : '') +
                     '<button class="ghost compact production-print-button" type="button" data-production-print data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="printer" aria-hidden="true"></i><span>Распечатать в PDF</span></button>' +
                     '<button class="ghost compact" type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">+ 7 дней</button>' +
                     (canSaveTemplate ? '<button class="ghost compact" type="button" data-production-save-template data-project-id="' + escapeHtml(project.id) + '">Сохранить шаблон</button>' : '') +
                     (canEditSchedule ? '<button class="ghost compact" type="button" data-production-reset-cells data-project-id="' + escapeHtml(project.id) + '">Вернуть авто-раскладку</button>' : '') +
-                    (canManageSchedule() ? '<button class="ghost compact" type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
+                    (canEditSchedule ? '<button class="ghost compact" type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
                 '</div></div>' +
-            (guestView ? '' : '<div class="production-recalculate-note"><b>Безопасный пересчёт:</b> обновляет автоматический черновик, сохраняя ручные операции, связи и ручную раскладку.</div>') +
+            (guestView ? '' : '<div class="production-recalculate-note">' + (canEditSchedule && viewMode === 'sections' ? '<b>Редактирование:</b> откройте «Все работы», чтобы менять объём, название, состав бригады, сроки, состояние и связи со сметой.' : '<b>Редактирование:</b> объём и длительность меняются прямо в таблице; остальные параметры — кнопкой «Изменить». Пересчёт сохраняет ручные правки.') + '</div>') +
             productionScheduleLegendMarkup('production-health-legend') +
             '<div class="production-scroll-hint" aria-hidden="true">Колесо — вверх/вниз · Shift + колесо — по дням</div>' +
             '<div class="production-table-shell" data-production-table-shell>' +
@@ -4895,6 +4909,35 @@
         });
     }
 
+    function saveProductionVolumeValue(projectId, input) {
+        var rawValue = String(input.value == null ? '' : input.value).trim();
+        var normalized = rawValue.replace(',', '.');
+        var plannedQty = rawValue === '' ? null : Number(normalized);
+        var previousValue = input.dataset.initialValue == null ? '' : input.dataset.initialValue;
+        if (plannedQty !== null && (!Number.isFinite(plannedQty) || plannedQty < 0)) {
+            input.value = previousValue;
+            showAppNotice('Объём должен быть числом не меньше нуля.', 'error');
+            return Promise.resolve(null);
+        }
+        var comparable = plannedQty == null ? '' : String(plannedQty);
+        var previousComparable = String(previousValue || '').replace(',', '.');
+        if (comparable === previousComparable) return Promise.resolve(null);
+        input.value = comparable;
+        input.disabled = true;
+        return saveProductionScheduleAction(projectId, {
+            action: 'update_operation',
+            operation_id: productionPayloadId(input.dataset.operationId),
+            planned_qty: plannedQty
+        }, null).then(function (schedule) {
+            showAppNotice('Объём работы сохранён.', 'success');
+            return schedule;
+        }).catch(function (error) {
+            input.value = previousValue;
+            input.disabled = false;
+            throw error;
+        });
+    }
+
     function productionScheduleItemById(projectId, operationId) {
         var schedule = state.productionScheduleByProject && state.productionScheduleByProject[projectId];
         var items = Array.isArray(schedule && schedule.items) ? schedule.items : [];
@@ -4930,6 +4973,8 @@
             shiftCount: productionFormNumber(form.elements.shift_count.value, 1, 1, 'integer'),
             brigadeCount: productionFormNumber(form.elements.brigade_count.value, 1, 1, 'integer'),
             durationDays: productionFormNumber(form.elements.duration_days.value, 0.5, 0.5, 'half'),
+            status: String(form.elements.status.value || 'needs_review').trim(),
+            color: String(form.elements.color.value || 'slate').trim(),
             linkedIds: productionSortedLinkIds(qsa('input[name="linked_estimate_item_ids"]:checked', form).map(function (input) { return input.value; }))
         };
     }
@@ -4944,6 +4989,8 @@
             shiftCount: productionFormNumber(item && item.shiftCount, 1, 1, 'integer'),
             brigadeCount: productionFormNumber(item && item.brigadeCount, 1, 1, 'integer'),
             durationDays: productionFormNumber(item && item.durationDays, 0.5, 0.5, 'half'),
+            status: String(item && item.status || 'needs_review').trim(),
+            color: String(item && (item.colorKey || item.color) || 'slate').trim(),
             linkedIds: productionSortedLinkIds(selectedLinkIds)
         };
     }
@@ -4974,6 +5021,8 @@
         setValue('shift_count', item ? (item.shiftCount || 1) : 1);
         setValue('brigade_count', item ? (item.brigadeCount || 1) : 1);
         setValue('duration_days', item ? (item.durationDays || 0.5) : 0.5);
+        setValue('status', item ? (item.status || 'needs_review') : 'needs_review');
+        setValue('color', item ? (item.colorKey || item.color || 'slate') : 'slate');
         var selectedLinks = productionScheduleDaySet(item ? productionLinkedEstimateIds(item) : []);
         qsa('input[name="linked_estimate_item_ids"]', form).forEach(function (input) {
             input.checked = !!selectedLinks[String(input.value)];
@@ -5008,6 +5057,8 @@
                 shift_count: values.shiftCount,
                 brigade_count: values.brigadeCount,
                 duration_days: values.durationDays,
+                status: values.status,
+                color: values.color,
                 linked_estimate_item_ids: values.linkedIds.map(productionPayloadId)
             };
         }
@@ -5020,6 +5071,8 @@
         if (values.shiftCount !== initial.shiftCount) payload.shift_count = values.shiftCount;
         if (values.brigadeCount !== initial.brigadeCount) payload.brigade_count = values.brigadeCount;
         if (values.durationDays !== initial.durationDays) payload.duration_days = values.durationDays;
+        if (values.status !== initial.status) payload.status = values.status;
+        if (values.color !== initial.color) payload.color = values.color;
         if (values.linkedIds.join('|') !== productionSortedLinkIds(initial.linkedIds).join('|')) {
             payload.linked_estimate_item_ids = values.linkedIds.map(productionPayloadId);
         }
@@ -5056,6 +5109,15 @@
                 state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
                 if (productionScheduleViewMode(projectId) === nextMode) return;
                 state.productionScheduleViewByProject[projectId] = nextMode;
+                renderSelectedProjectProductionSchedule();
+            });
+        });
+        qsa('[data-production-edit-schedule]', panel).forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
+                state.productionScheduleViewByProject[projectId] = 'works';
                 renderSelectedProjectProductionSchedule();
             });
         });
@@ -5119,6 +5181,19 @@
             input.dataset.initialValue = input.value;
             input.addEventListener('change', function () {
                 saveProductionDurationValue(projectId, input, input.value).catch(function () {});
+            });
+        });
+        qsa('[data-production-volume]', panel).forEach(function (input) {
+            if (input.dataset.bound === '1') return;
+            input.dataset.bound = '1';
+            input.dataset.initialValue = input.value;
+            input.addEventListener('change', function () {
+                saveProductionVolumeValue(projectId, input).catch(function () {});
+            });
+            input.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                input.blur();
             });
         });
         qsa('[data-production-duration-step]', panel).forEach(function (button) {

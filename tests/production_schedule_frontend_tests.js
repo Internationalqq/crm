@@ -28,6 +28,12 @@ assert.match(planningJs, /data-production-duration-step="0\.5"/);
 assert.match(planningJs, /Уменьшить длительность на 0,5 дня/);
 assert.match(planningJs, /Увеличить длительность на 0,5 дня/);
 assert.match(planningJs, /function saveProductionDurationValue/);
+assert.match(planningJs, /function saveProductionVolumeValue/);
+assert.match(planningJs, /data-production-volume data-operation-id/);
+assert.match(planningJs, /planned_qty: plannedQty/);
+assert.match(planningJs, /data-production-edit-schedule/);
+assert.match(planningJs, /Редактировать график/);
+assert.match(planningJs, /function canEditProductionSchedule\(\)[\s\S]*?!user\.isGuest[\s\S]*?!user\.isPublic[\s\S]*?!hasRole\('guest'\)/);
 assert.match(planningJs, /Объём работ/);
 assert.match(planningJs, /Кол-во<br>смен/);
 assert.match(planningJs, /Кол-во<br>бригад/);
@@ -89,6 +95,8 @@ assert.match(planningJs, /data-production-delete-operation/);
 assert.match(planningJs, /data-production-split-operation/);
 assert.match(planningJs, /data-production-operation-row/);
 assert.match(planningJs, /linked_estimate_item_ids/);
+assert.match(planningJs, /select name="status"/);
+assert.match(planningJs, /select name="color"/);
 const operationPayloadBuilder = planningJs.slice(
   planningJs.indexOf('function productionOperationFormPayload'),
   planningJs.indexOf('function productionOperationOrder')
@@ -98,6 +106,8 @@ assert.match(operationPayloadBuilder, /planned_qty: values\.plannedQty/);
 assert.match(operationPayloadBuilder, /if \(values\.plannedQty !== initial\.plannedQty\) payload\.planned_qty = values\.plannedQty/);
 assert.doesNotMatch(operationPayloadBuilder, /values\.plannedQty == null \? 0/);
 assert.match(operationPayloadBuilder, /if \(values\.durationDays !== initial\.durationDays\) payload\.duration_days/);
+assert.match(operationPayloadBuilder, /if \(values\.status !== initial\.status\) payload\.status/);
+assert.match(operationPayloadBuilder, /if \(values\.color !== initial\.color\) payload\.color/);
 assert.match(operationPayloadBuilder, /if \(values\.linkedIds\.join\('\|'\) !== productionSortedLinkIds\(initial\.linkedIds\)\.join\('\|'\)\)/);
 assert.doesNotMatch(operationPayloadBuilder, /var payload = \{[\s\S]*duration_days:[\s\S]*action: 'update_operation'/);
 assert.match(planningJs, /data-production-duration data-project-id/);

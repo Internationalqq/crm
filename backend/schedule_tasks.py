@@ -4449,7 +4449,9 @@ def api_update_production_schedule(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if not user_can_manage_schedule(user):
+    # The production graph is an operational workspace for every authenticated
+    # project participant. Public and credential-based guests remain read-only.
+    if user_is_guest(user):
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
