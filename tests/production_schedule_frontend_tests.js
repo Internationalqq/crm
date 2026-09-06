@@ -70,6 +70,16 @@ assert.match(planningJs, /action: 'set_start_date'/);
 assert.match(planningJs, /data-production-start-date/);
 assert.match(planningJs, /data-production-start-shift="-1"/);
 assert.match(planningJs, /data-production-start-shift="1"/);
+assert.match(planningJs, /data-production-column-header="people"/);
+assert.match(planningJs, /data-production-column-header="shifts"/);
+assert.match(planningJs, /data-production-column-header="brigades"/);
+assert.match(planningJs, /data-production-column-settings/);
+assert.match(planningJs, /data-production-column-context-menu/);
+assert.match(planningJs, /action: 'update_display_settings'/);
+assert.match(planningJs, /data-production-estimate-label-field/);
+assert.match(planningJs, /show_estimate_label/);
+assert.match(planningJs, /name="section_duration_days"/);
+assert.match(planningJs, /payload\.duration_days = nextDuration/);
 assert.match(planningJs, /class="production-month-head"/);
 assert.match(planningJs, /class="production-day-head production-date-head/);
 assert.match(planningJs, /class="production-half-day-head"/);
@@ -289,6 +299,8 @@ assert.match(planningCss, /\.production-schedule-table/);
 assert.match(planningCss, /\.production-duration-stepper/);
 assert.match(planningCss, /\.production-operation-drawer/);
 assert.match(planningCss, /\.production-group-editor/);
+assert.match(planningCss, /\.production-column-settings/);
+assert.match(planningCss, /\.production-column-context-menu/);
 assert.match(planningCss, /tr\[data-production-context-kind\]/);
 for (const health of ['neutral', 'green', 'yellow', 'red']) {
   assert.match(planningCss, new RegExp(`\\.production-work-row\\.production-health-${health}`));
@@ -461,6 +473,17 @@ const compactPagedHtml = productionPrintApi.productionSchedulePrintDocument(
 assert.equal((compactPagedHtml.match(/<section class="production-print-sheet">/g) || []).length, 1);
 assert.match(compactPagedHtml, /data-production-print-layout="paged"/);
 assert.match(compactPagedHtml, /data-production-print-scale="50"/);
+const hiddenColumnsPrintHtml = productionPrintApi.productionSchedulePrintDocument(
+  { name: 'ЮУРГУ' },
+  { ...printableSchedule, hiddenColumns: ['people', 'shifts', 'brigades'] },
+  { layout: 'fit-one' },
+);
+const hiddenColumnsPrintTable = hiddenColumnsPrintHtml.slice(
+  hiddenColumnsPrintHtml.indexOf('<table'),
+  hiddenColumnsPrintHtml.indexOf('</table>') + '</table>'.length,
+);
+assert.doesNotMatch(hiddenColumnsPrintTable, /<th rowspan="3">(?:Чел\.|Смен|Бригад)<\/th>/);
+assert.doesNotMatch(hiddenColumnsPrintTable, /production-print-(?:people|shifts|brigades)-column/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*schedule-health-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*schedule-health-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*report-ux-r1/);
@@ -483,6 +506,10 @@ assert.match(rootCss, /planning\.css\?v=[^"\n]*production-delete-section-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-delete-section-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-delete-section-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-delete-section-1/);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*production-column-controls-duration-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-column-controls-duration-1/);
+assert.match(baseHtml, /app\.css\?v=[^"\n]*production-column-controls-duration-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-column-controls-duration-1/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-sections-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sections-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sections-1/);

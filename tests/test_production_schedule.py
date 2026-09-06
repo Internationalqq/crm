@@ -71,6 +71,14 @@ def production_connection() -> sqlite3.Connection:
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
+        CREATE TABLE production_schedule_display_settings (
+            project_id INTEGER PRIMARY KEY,
+            hidden_columns TEXT NOT NULL DEFAULT '[]',
+            show_estimate_label INTEGER NOT NULL DEFAULT 1,
+            updated_by INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         CREATE TABLE production_schedule_section_overrides (
             project_id INTEGER NOT NULL,
             estimate_source_id INTEGER NOT NULL,
@@ -822,9 +830,35 @@ class ProductionScheduleTests(unittest.TestCase):
                 section_volume.response["sectionOverrides"],
                 [{"estimateSourceId": 31, "sectionTitle": "Раздел", "plannedQty": 250.5, "unit": "м²"}],
             )
+            display_settings = Handler(
+                {
+                    "action": "update_display_settings",
+                    "hidden_columns": ["people", "shifts", "brigades"],
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(display_settings, "/api/projects/1/production-schedule")
+            self.assertEqual(display_settings.status, 200)
+            self.assertEqual(display_settings.response["hiddenColumns"], ["brigades", "people", "shifts"])
+
+            estimate_label = Handler(
+                {
+                    "action": "rename_estimate",
+                    "estimate_source_id": 31,
+                    "title": "Смета 31",
+                    "show_estimate_label": False,
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(estimate_label, "/api/projects/1/production-schedule")
+            self.assertEqual(estimate_label.status, 200)
+            self.assertFalse(estimate_label.response["showEstimateLabel"])
+
             guest_schedule = build_guest_production_schedule_payload(con, 1)
             self.assertEqual(guest_schedule["startDate"], "2026-09-05")
             self.assertEqual(guest_schedule["sectionOverrides"], section_volume.response["sectionOverrides"])
+            self.assertEqual(guest_schedule["hiddenColumns"], ["brigades", "people", "shifts"])
+            self.assertFalse(guest_schedule["showEstimateLabel"])
 
             added = Handler(
                 {
@@ -946,6 +980,24 @@ class ProductionScheduleTests(unittest.TestCase):
             api_update_production_schedule(deleted, "/api/projects/1/production-schedule")
             self.assertEqual(deleted.status, 200)
             self.assertNotIn(manual["id"], {item["id"] for item in deleted.response["items"]})
+
+            resized_section = Handler(
+                {
+                    "action": "update_section",
+                    "estimate_source_id": 31,
+                    "old_title": "Раздел",
+                    "duration_days": 6,
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(resized_section, "/api/projects/1/production-schedule")
+            self.assertEqual(resized_section.status, 200)
+            section_items = [
+                item for item in resized_section.response["items"]
+                if item["estimateSourceId"] == 31 and item["sectionTitle"] == "Раздел"
+            ]
+            self.assertEqual(sum(item["durationDays"] for item in section_items), 6)
+            self.assertTrue(all(item["isDurationOverridden"] for item in section_items))
 
             deleted_section = Handler(
                 {

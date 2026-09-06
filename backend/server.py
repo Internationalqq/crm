@@ -1779,6 +1779,15 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS production_schedule_display_settings (
+                project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+                hidden_columns TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(hidden_columns)),
+                show_estimate_label INTEGER NOT NULL DEFAULT 1 CHECK(show_estimate_label IN (0, 1)),
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS production_schedule_section_overrides (
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 estimate_source_id INTEGER NOT NULL REFERENCES project_estimates(id) ON DELETE CASCADE,

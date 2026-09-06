@@ -2038,6 +2038,7 @@ PRODUCTION_OTMOSTKA_TEMPLATE_KEY = "otmostka-chebarkul-v1"
 PRODUCTION_DEFAULT_COLOR = "slate"
 PRODUCTION_COLOR_TOKENS = {"slate", "blue", "teal", "green", "violet", "rose"}
 PRODUCTION_ALLOWED_LINK_ROLES = {"work_basis", "material_signal", "manual_reference"}
+PRODUCTION_OPTIONAL_COLUMNS = {"people", "shifts", "brigades"}
 
 
 def production_table_exists(con: sqlite3.Connection, table: str) -> bool:
@@ -2160,6 +2161,110 @@ def production_schedule_section_overrides(con: sqlite3.Connection, project_id: i
             (project_id,),
         ).fetchall()
     ]
+
+
+def production_schedule_display_settings(con: sqlite3.Connection, project_id: int) -> dict:
+    defaults = {"hiddenColumns": [], "showEstimateLabel": True}
+    if not production_table_exists(con, "production_schedule_display_settings"):
+        return defaults
+    row = con.execute(
+        "SELECT hidden_columns, show_estimate_label FROM production_schedule_display_settings WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()
+    if not row:
+        return defaults
+    hidden_columns = sorted(
+        {
+            str(value)
+            for value in production_json_array(row["hidden_columns"])
+            if str(value) in PRODUCTION_OPTIONAL_COLUMNS
+        }
+    )
+    return {
+        "hiddenColumns": hidden_columns,
+        "showEstimateLabel": bool(row["show_estimate_label"]),
+    }
+
+
+def production_save_display_settings(
+    con: sqlite3.Connection,
+    project_id: int,
+    user_id: int | None,
+    timestamp: int,
+    *,
+    hidden_columns: list[str] | None = None,
+    show_estimate_label: bool | None = None,
+) -> dict:
+    if not production_table_exists(con, "production_schedule_display_settings"):
+        raise RuntimeError("production_schedule_schema_missing")
+    current = production_schedule_display_settings(con, project_id)
+    next_hidden = current["hiddenColumns"] if hidden_columns is None else sorted(set(hidden_columns))
+    next_show_label = current["showEstimateLabel"] if show_estimate_label is None else bool(show_estimate_label)
+    con.execute(
+        """
+        INSERT INTO production_schedule_display_settings (
+            project_id, hidden_columns, show_estimate_label, updated_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET
+            hidden_columns = excluded.hidden_columns,
+            show_estimate_label = excluded.show_estimate_label,
+            updated_by = excluded.updated_by,
+            updated_at = excluded.updated_at
+        """,
+        (
+            project_id,
+            json.dumps(next_hidden, ensure_ascii=False),
+            1 if next_show_label else 0,
+            user_id,
+            timestamp,
+            timestamp,
+        ),
+    )
+    return {"hiddenColumns": next_hidden, "showEstimateLabel": next_show_label}
+
+
+def production_schedule_section_items(schedule: dict, estimate_source_id: int, section_title: str) -> list[dict]:
+    matches: list[dict] = []
+    for item in schedule.get("items", []):
+        links = item.get("links") if isinstance(item.get("links"), list) else []
+        primary_link = next(
+            (link for link in links if str(link.get("role") or "") == "work_basis"),
+            links[0] if links else {},
+        )
+        item_source_id = item.get("estimateSourceId")
+        if item_source_id is None:
+            item_source_id = primary_link.get("estimateSourceId")
+        item_section_title = str(item.get("sectionTitle") or primary_link.get("sectionTitle") or "").strip()
+        try:
+            matches_source = int(item_source_id) == int(estimate_source_id)
+        except (TypeError, ValueError):
+            matches_source = False
+        if matches_source and item_section_title == str(section_title or "").strip():
+            matches.append(item)
+    return matches
+
+
+def production_allocate_section_duration_slots(items: list[dict], target_slots: int) -> list[int]:
+    """Spread a section duration across its work rows, preserving their proportions."""
+
+    if not items or target_slots < len(items):
+        raise ValueError("bad_section_duration")
+    weights = [max(1, int(round(float(item.get("durationDays") or 0.5) * 2))) for item in items]
+    remaining = target_slots - len(items)
+    if not remaining:
+        return [1] * len(items)
+    weight_total = sum(weights) or len(weights)
+    exact_additions = [remaining * weight / weight_total for weight in weights]
+    additions = [int(math.floor(value)) for value in exact_additions]
+    undistributed = remaining - sum(additions)
+    remainder_order = sorted(
+        range(len(items)),
+        key=lambda index: (exact_additions[index] - additions[index], weights[index], -index),
+        reverse=True,
+    )
+    for index in remainder_order[:undistributed]:
+        additions[index] += 1
+    return [1 + additions[index] for index in range(len(items))]
 
 
 def production_operation_actual_summaries(
@@ -3403,6 +3508,7 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         "operations": items,
         "estimateOptions": estimate_options,
         "sectionOverrides": production_schedule_section_overrides(con, project_id),
+        **production_schedule_display_settings(con, project_id),
         "generation": generation,
         "template": {"key": generation.get("templateKey"), "matched": generation.get("mode") == "template"},
     }
@@ -3437,6 +3543,7 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
             "autoDayCount": 0,
             "items": [],
             "sectionOverrides": production_schedule_section_overrides(con, project_id),
+            **production_schedule_display_settings(con, project_id),
         }
 
     # Public users receive only the harmless grouping labels required to render
@@ -3580,6 +3687,7 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
         "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
         "items": items,
         "sectionOverrides": production_schedule_section_overrides(con, project_id),
+        **production_schedule_display_settings(con, project_id),
     }
 
 
@@ -4525,7 +4633,39 @@ def api_update_production_schedule(handler, path: str) -> None:
         audit_payload: dict = {"project_id": project_id, "action": action}
         timestamp = now_ts()
 
-        if action == "set_start_date":
+        if action == "update_display_settings":
+            hidden_columns = None
+            if "hidden_columns" in payload or "hiddenColumns" in payload:
+                raw_hidden_columns = production_payload_value(payload, "hidden_columns", "hiddenColumns")
+                if not isinstance(raw_hidden_columns, list):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_hidden_columns"})
+                    return
+                hidden_columns = [str(value).strip() for value in raw_hidden_columns]
+                if any(value not in PRODUCTION_OPTIONAL_COLUMNS for value in hidden_columns):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_hidden_columns"})
+                    return
+            show_estimate_label = None
+            if "show_estimate_label" in payload or "showEstimateLabel" in payload:
+                raw_show_estimate_label = production_payload_value(payload, "show_estimate_label", "showEstimateLabel")
+                if not isinstance(raw_show_estimate_label, bool):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_show_estimate_label"})
+                    return
+                show_estimate_label = raw_show_estimate_label
+            try:
+                settings = production_save_display_settings(
+                    con,
+                    project_id,
+                    user["id"],
+                    timestamp,
+                    hidden_columns=hidden_columns,
+                    show_estimate_label=show_estimate_label,
+                )
+            except RuntimeError:
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "production_schedule_schema_missing"})
+                return
+            audit_payload.update(settings)
+
+        elif action == "set_start_date":
             if not production_table_exists(con, "production_schedule_settings"):
                 handler.send_json(HTTPStatus.CONFLICT, {"error": "production_schedule_schema_missing"})
                 return
@@ -4885,23 +5025,10 @@ def api_update_production_schedule(handler, path: str) -> None:
                     return
 
             current_schedule = build_production_schedule_payload(con, project_id)
-            operation_ids: list[int] = []
-            for item in current_schedule.get("items", []):
-                links = item.get("links") if isinstance(item.get("links"), list) else []
-                primary_link = next(
-                    (link for link in links if str(link.get("role") or "") == "work_basis"),
-                    links[0] if links else {},
-                )
-                item_source_id = item.get("estimateSourceId")
-                if item_source_id is None:
-                    item_source_id = primary_link.get("estimateSourceId")
-                item_section_title = str(item.get("sectionTitle") or primary_link.get("sectionTitle") or "").strip()
-                try:
-                    matches_source = int(item_source_id) == estimate_source_id
-                except (TypeError, ValueError):
-                    matches_source = False
-                if matches_source and item_section_title == section_title:
-                    operation_ids.append(int(item["id"]))
+            operation_ids = [
+                int(item["id"])
+                for item in production_schedule_section_items(current_schedule, estimate_source_id, section_title)
+            ]
             if not operation_ids:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_not_found"})
                 return
@@ -5115,10 +5242,28 @@ def api_update_production_schedule(handler, path: str) -> None:
             if not source:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_not_found"})
                 return
+            show_estimate_label = None
+            if "show_estimate_label" in payload or "showEstimateLabel" in payload:
+                raw_show_estimate_label = production_payload_value(payload, "show_estimate_label", "showEstimateLabel")
+                if not isinstance(raw_show_estimate_label, bool):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_show_estimate_label"})
+                    return
+                show_estimate_label = raw_show_estimate_label
+                if not production_table_exists(con, "production_schedule_display_settings"):
+                    handler.send_json(HTTPStatus.CONFLICT, {"error": "production_schedule_schema_missing"})
+                    return
             con.execute(
                 "UPDATE project_estimates SET title = ?, updated_at = ? WHERE id = ? AND project_id = ?",
                 (title, timestamp, estimate_source_id, project_id),
             )
+            if show_estimate_label is not None:
+                production_save_display_settings(
+                    con,
+                    project_id,
+                    user["id"],
+                    timestamp,
+                    show_estimate_label=show_estimate_label,
+                )
             audit_payload.update({"estimate_source_id": estimate_source_id, "title": title})
 
         elif action in {"rename_section", "update_section"}:
@@ -5183,6 +5328,36 @@ def api_update_production_schedule(handler, path: str) -> None:
             if not section_exists:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_not_found"})
                 return
+            duration_was_supplied = "duration_days" in payload or "durationDays" in payload
+            section_duration = None
+            section_operations: list[dict] = []
+            allocated_duration_slots: list[int] = []
+            if duration_was_supplied:
+                section_duration = positive_schedule_half_days(
+                    production_payload_value(payload, "duration_days", "durationDays")
+                )
+                if section_duration is None or section_duration > 3650:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_section_duration"})
+                    return
+                section_operations = production_schedule_section_items(
+                    build_production_schedule_payload(con, project_id),
+                    estimate_source_id,
+                    old_title,
+                )
+                try:
+                    allocated_duration_slots = production_allocate_section_duration_slots(
+                        section_operations,
+                        int(round(section_duration * 2)),
+                    )
+                except ValueError:
+                    handler.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {
+                            "error": "bad_section_duration",
+                            "minimumDurationDays": len(section_operations) / 2,
+                        },
+                    )
+                    return
             updated_items = 0
             if title != old_title:
                 updated = con.execute(
@@ -5243,6 +5418,27 @@ def api_update_production_schedule(handler, path: str) -> None:
                     """,
                     (project_id, estimate_source_id, title, planned_qty, unit, user["id"], timestamp, timestamp),
                 )
+            if duration_was_supplied:
+                for operation_item, duration_slots in zip(section_operations, allocated_duration_slots):
+                    operation_id = int(operation_item["id"])
+                    duration_days = duration_slots / 2
+                    con.execute(
+                        """
+                        UPDATE production_schedule_operations
+                        SET manual_duration_days = ?, updated_by = ?, updated_at = ?
+                        WHERE id = ? AND project_id = ?
+                        """,
+                        (duration_days, user["id"], timestamp, operation_id, project_id),
+                    )
+                    production_set_manual_fields(con, project_id, operation_id, {"duration_days"})
+                    production_resize_manual_slot_snapshot(
+                        con,
+                        project_id,
+                        operation_id,
+                        duration_days,
+                        user["id"],
+                        timestamp,
+                    )
             audit_payload.update(
                 {
                     "estimate_source_id": estimate_source_id,
@@ -5251,6 +5447,8 @@ def api_update_production_schedule(handler, path: str) -> None:
                     "updated_items": updated_items,
                     "volume_updated": volume_was_supplied,
                     "volume_reset": reset_volume,
+                    "duration_days": section_duration,
+                    "duration_updated": duration_was_supplied,
                 }
             )
 
