@@ -3932,7 +3932,7 @@
                         '<button class="ghost compact production-section-volume-reset" type="button" data-production-section-volume-reset hidden>Вернуть расчёт по работам</button>' +
                     '</div>' +
                     '<div class="production-operation-form-error" data-production-group-editor-error role="alert" aria-live="polite"></div>' +
-                    '<footer class="production-operation-form-actions"><button class="ghost" type="button" data-production-group-editor-close>Отмена</button><button class="primary" type="submit">Сохранить</button></footer>' +
+                    '<footer class="production-operation-form-actions"><button class="danger production-delete-section-button" type="button" data-production-delete-section hidden><i data-lucide="trash-2" aria-hidden="true"></i><span>Удалить раздел</span></button><button class="ghost" type="button" data-production-group-editor-close>Отмена</button><button class="primary" type="submit">Сохранить</button></footer>' +
                 '</form>' +
             '</section>';
     }
@@ -4757,7 +4757,7 @@
             if (entry.type === 'section') {
                 var sectionHeaderSummary = productionScheduleSectionSummary(entry.estimate, entry.section, 0, schedule);
                 var sectionContext = canEditSchedule && entry.estimate.sourceId != null
-                    ? ' data-production-context-kind="section" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" data-planned-qty="' + escapeHtml(sectionHeaderSummary.plannedQty == null ? '' : sectionHeaderSummary.plannedQty) + '" data-unit="' + escapeHtml(sectionHeaderSummary.unit || '') + '" data-calculated-qty="' + escapeHtml(sectionHeaderSummary.calculatedPlannedQty == null ? '' : sectionHeaderSummary.calculatedPlannedQty) + '" data-calculated-unit="' + escapeHtml(sectionHeaderSummary.calculatedUnit || '') + '" data-volume-overridden="' + (sectionHeaderSummary.isVolumeOverridden ? '1' : '0') + '" tabindex="0" title="Правая кнопка мыши — изменить раздел и его сводный объём"'
+                    ? ' data-production-context-kind="section" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" data-operation-count="' + escapeHtml(sectionHeaderSummary.operationCount || 0) + '" data-planned-qty="' + escapeHtml(sectionHeaderSummary.plannedQty == null ? '' : sectionHeaderSummary.plannedQty) + '" data-unit="' + escapeHtml(sectionHeaderSummary.unit || '') + '" data-calculated-qty="' + escapeHtml(sectionHeaderSummary.calculatedPlannedQty == null ? '' : sectionHeaderSummary.calculatedPlannedQty) + '" data-calculated-unit="' + escapeHtml(sectionHeaderSummary.calculatedUnit || '') + '" data-volume-overridden="' + (sectionHeaderSummary.isVolumeOverridden ? '1' : '0') + '" tabindex="0" title="Правая кнопка мыши — изменить или удалить раздел"'
                     : '';
                 rows.push('<tr class="production-section-row"' + sectionContext + '><th colspan="' + String(7 + visibleDays * 2) + '"><span>' + escapeHtml(entry.section.title) + '</span></th></tr>');
                 return;
@@ -4822,7 +4822,7 @@
                 : '';
             var rowContext = '';
             if (canEditSchedule && isSectionSummary && entry.estimate.sourceId != null) {
-                rowContext = ' data-production-context-kind="section" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" data-planned-qty="' + escapeHtml(item.plannedQty == null ? '' : item.plannedQty) + '" data-unit="' + escapeHtml(item.unit || '') + '" data-calculated-qty="' + escapeHtml(item.calculatedPlannedQty == null ? '' : item.calculatedPlannedQty) + '" data-calculated-unit="' + escapeHtml(item.calculatedUnit || '') + '" data-volume-overridden="' + (item.isVolumeOverridden ? '1' : '0') + '" tabindex="0" title="Правая кнопка мыши — изменить раздел и его сводный объём"';
+                rowContext = ' data-production-context-kind="section" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" data-operation-count="' + escapeHtml(item.operationCount || 0) + '" data-planned-qty="' + escapeHtml(item.plannedQty == null ? '' : item.plannedQty) + '" data-unit="' + escapeHtml(item.unit || '') + '" data-calculated-qty="' + escapeHtml(item.calculatedPlannedQty == null ? '' : item.calculatedPlannedQty) + '" data-calculated-unit="' + escapeHtml(item.calculatedUnit || '') + '" data-volume-overridden="' + (item.isVolumeOverridden ? '1' : '0') + '" tabindex="0" title="Правая кнопка мыши — изменить или удалить раздел"';
             } else if (canEditSchedule && !isSectionSummary) {
                 rowContext = ' data-production-context-kind="operation" tabindex="0" title="Правая кнопка мыши — изменить работу"';
             }
@@ -5098,6 +5098,7 @@
         form._productionInitialUnit = String(target.dataset.unit || '');
         form._productionCalculatedPlannedQty = String(target.dataset.calculatedQty || '');
         form._productionCalculatedUnit = String(target.dataset.calculatedUnit || '');
+        form._productionOperationCount = Math.max(0, Number(target.dataset.operationCount || 0));
         if (form.elements.planned_qty) form.elements.planned_qty.value = kind === 'section' ? form._productionInitialPlannedQty : '';
         if (form.elements.unit) form.elements.unit.value = kind === 'section' ? form._productionInitialUnit : '';
         var heading = qs('[data-production-group-editor-title]', dialog);
@@ -5106,12 +5107,14 @@
         var volumeFields = qs('[data-production-section-volume-fields]', form);
         var volumeHelp = qs('[data-production-section-volume-help]', form);
         var volumeReset = qs('[data-production-section-volume-reset]', form);
+        var deleteSection = qs('[data-production-delete-section]', form);
         if (heading) heading.textContent = kind === 'section' ? 'Настройка раздела' : 'Название сметы';
         if (description) description.textContent = kind === 'section' ? 'Название применяется ко всем работам раздела, а сводный объём — только к строке раздела в графике.' : 'Изменение применится к этой смете в объекте.';
         if (label) label.textContent = kind === 'section' ? 'Название раздела' : 'Новое название сметы';
         if (volumeFields) volumeFields.hidden = kind !== 'section';
         if (volumeHelp) volumeHelp.textContent = 'Сводное значение не меняет объёмы отдельных работ. Если единицы у работ разные, задайте здесь понятный общий объём вручную.';
         if (volumeReset) volumeReset.hidden = kind !== 'section' || !form._productionInitialVolumeOverridden;
+        if (deleteSection) deleteSection.hidden = kind !== 'section';
         var error = qs('[data-production-group-editor-error]', form);
         if (error) error.textContent = '';
         closeProductionOperationEditor();
@@ -5440,6 +5443,26 @@
         }
         var groupEditorForm = qs('[data-production-group-editor-form]', panel);
         if (groupEditorForm) {
+            var deleteSectionButton = qs('[data-production-delete-section]', groupEditorForm);
+            if (deleteSectionButton) {
+                deleteSectionButton.addEventListener('click', function () {
+                    var sectionTitle = String(groupEditorForm.elements.title.value || groupEditorForm._productionInitialTitle || 'Без раздела').trim();
+                    var operationCount = Math.max(0, Number(groupEditorForm._productionOperationCount || 0));
+                    var countLabel = operationCount ? ' Вместе с ним из графика исчезнет работ: ' + String(operationCount) + '.' : '';
+                    if (!window.confirm('Удалить раздел «' + sectionTitle + '» из графика?' + countLabel + ' Исходная смета и её позиции останутся без изменений.')) return;
+                    saveProductionScheduleAction(projectId, {
+                        action: 'delete_section',
+                        estimate_source_id: productionPayloadId(groupEditorForm.elements.estimate_source_id.value),
+                        section_title: groupEditorForm.elements.old_title.value
+                    }, deleteSectionButton).then(function () {
+                        closeProductionGroupEditor();
+                        showAppNotice('Раздел удалён из графика. Смета не изменена.', 'success');
+                    }).catch(function (saveError) {
+                        var error = qs('[data-production-group-editor-error]', groupEditorForm);
+                        if (error) error.textContent = appErrorMessage(saveError, 'Не удалось удалить раздел.');
+                    });
+                });
+            }
             var groupVolumeReset = qs('[data-production-section-volume-reset]', groupEditorForm);
             var clearPendingVolumeReset = function () {
                 if (!groupEditorForm._productionResetVolume) return;

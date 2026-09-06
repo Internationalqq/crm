@@ -4862,6 +4862,86 @@ def api_update_production_schedule(handler, path: str) -> None:
             production_normalize_positions(con, project_id)
             audit_payload.update({"operation_id": operation_id})
 
+        elif action == "delete_section":
+            try:
+                estimate_source_id = int(
+                    production_payload_value(payload, "estimate_source_id", "estimateSourceId")
+                )
+            except (TypeError, ValueError):
+                estimate_source_id = 0
+            section_title = str(
+                production_payload_value(payload, "section_title", "sectionTitle", "old_title", "oldTitle", default="") or ""
+            ).strip()
+            if not estimate_source_id:
+                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_source_id"})
+                return
+            if production_table_exists(con, "project_estimates"):
+                source = con.execute(
+                    "SELECT id FROM project_estimates WHERE id = ? AND project_id = ?",
+                    (estimate_source_id, project_id),
+                ).fetchone()
+                if not source:
+                    handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_not_found"})
+                    return
+
+            current_schedule = build_production_schedule_payload(con, project_id)
+            operation_ids: list[int] = []
+            for item in current_schedule.get("items", []):
+                links = item.get("links") if isinstance(item.get("links"), list) else []
+                primary_link = next(
+                    (link for link in links if str(link.get("role") or "") == "work_basis"),
+                    links[0] if links else {},
+                )
+                item_source_id = item.get("estimateSourceId")
+                if item_source_id is None:
+                    item_source_id = primary_link.get("estimateSourceId")
+                item_section_title = str(item.get("sectionTitle") or primary_link.get("sectionTitle") or "").strip()
+                try:
+                    matches_source = int(item_source_id) == estimate_source_id
+                except (TypeError, ValueError):
+                    matches_source = False
+                if matches_source and item_section_title == section_title:
+                    operation_ids.append(int(item["id"]))
+            if not operation_ids:
+                handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_not_found"})
+                return
+
+            deleted_count = 0
+            for operation_id in operation_ids:
+                operation = production_operation_row(con, project_id, operation_id)
+                if not operation:
+                    continue
+                if operation["origin"] in {"auto", "template"}:
+                    con.execute(
+                        """
+                        INSERT OR IGNORE INTO production_schedule_suppressed_keys (
+                            project_id, generation_key, created_by, created_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (project_id, str(operation["generation_key"]), user["id"], timestamp),
+                    )
+                deleted_count += con.execute(
+                    "DELETE FROM production_schedule_operations WHERE id = ? AND project_id = ?",
+                    (operation_id, project_id),
+                ).rowcount
+            if production_table_exists(con, "production_schedule_section_overrides"):
+                con.execute(
+                    """
+                    DELETE FROM production_schedule_section_overrides
+                    WHERE project_id = ? AND estimate_source_id = ? AND section_title = ?
+                    """,
+                    (project_id, estimate_source_id, section_title),
+                )
+            production_normalize_positions(con, project_id)
+            audit_payload.update(
+                {
+                    "estimate_source_id": estimate_source_id,
+                    "section_title": section_title,
+                    "deleted_operation_ids": operation_ids,
+                    "deleted_count": int(deleted_count),
+                }
+            )
+
         elif action == "split_operation":
             operation_id = resolve_production_operation_id(con, project_id, payload)
             operation = production_operation_row(con, project_id, operation_id or 0)

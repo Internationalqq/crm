@@ -946,6 +946,23 @@ class ProductionScheduleTests(unittest.TestCase):
             api_update_production_schedule(deleted, "/api/projects/1/production-schedule")
             self.assertEqual(deleted.status, 200)
             self.assertNotIn(manual["id"], {item["id"] for item in deleted.response["items"]})
+
+            deleted_section = Handler(
+                {
+                    "action": "delete_section",
+                    "estimate_source_id": 31,
+                    "section_title": "Раздел",
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(deleted_section, "/api/projects/1/production-schedule")
+            self.assertEqual(deleted_section.status, 200)
+            self.assertEqual(deleted_section.response["items"], [])
+            self.assertEqual(deleted_section.response["sectionOverrides"], [])
+            self.assertEqual(
+                con.execute("SELECT COUNT(*) FROM estimate_items WHERE project_id = 1").fetchone()[0],
+                2,
+            )
         finally:
             schedule_module.db = original_db
             con.close()

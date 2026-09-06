@@ -42,7 +42,7 @@ assert.doesNotMatch(planningJs, /Всего<br>чел\/час/);
 assert.doesNotMatch(planningJs, /чел\.-ч/);
 assert.match(planningJs, /action: 'recalculate'/);
 assert.match(planningJs, /preserve_manual: true/);
-for (const action of ['add_operation', 'update_operation', 'delete_operation', 'split_operation', 'reorder_operations', 'save_template']) {
+for (const action of ['add_operation', 'update_operation', 'delete_operation', 'delete_section', 'split_operation', 'reorder_operations', 'save_template']) {
   assert.match(planningJs, new RegExp(`['"]${action}['"]`));
 }
 assert.match(planningJs, /data-production-add-operation/);
@@ -62,6 +62,8 @@ assert.match(planningJs, /Все работы/);
 assert.match(planningJs, /kind === 'section' \? 'update_section' : 'rename_estimate'/);
 assert.match(planningJs, /data-production-section-volume-fields/);
 assert.match(planningJs, /data-production-section-volume-reset/);
+assert.match(planningJs, /data-production-delete-section/);
+assert.match(planningJs, /Исходная смета и её позиции останутся без изменений/);
 assert.match(planningJs, /sectionOverrides/);
 assert.match(planningJs, /разные единицы измерения/);
 assert.match(planningJs, /action: 'set_start_date'/);
@@ -477,6 +479,10 @@ assert.match(rootCss, /planning\.css\?v=[^"\n]*production-section-volume-start-1
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-section-volume-start-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-section-volume-start-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-section-volume-start-1/);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*production-delete-section-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-delete-section-1/);
+assert.match(baseHtml, /app\.css\?v=[^"\n]*production-delete-section-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-delete-section-1/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-sections-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-sections-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-sections-1/);

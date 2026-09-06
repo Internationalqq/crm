@@ -1417,6 +1417,16 @@ body.production-group-editor-open .production-group-editor {
     justify-content: flex-end;
 }
 
+.production-delete-section-button {
+    gap: 6px;
+    margin-right: auto;
+}
+
+.production-delete-section-button svg {
+    height: 15px;
+    width: 15px;
+}
+
 @media (max-width: 560px) {
     .production-operation-drawer {
         max-width: 100vw;
@@ -1430,6 +1440,15 @@ body.production-group-editor-open .production-group-editor {
 
     .production-form-columns-state {
         grid-template-columns: 1fr;
+    }
+
+    .production-group-editor-form .production-operation-form-actions {
+        flex-wrap: wrap;
+    }
+
+    .production-group-editor-form .production-delete-section-button {
+        flex: 1 1 100%;
+        margin-right: 0;
     }
 
     .production-operation-form-actions .ghost,
