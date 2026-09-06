@@ -4951,6 +4951,17 @@
         return reportDates[0] || APP_TODAY;
     }
 
+    function logsCalendarSetMotion(projectId, direction) {
+        state.logsCalendarMonthMotionByProject = state.logsCalendarMonthMotionByProject || {};
+        state.logsCalendarMonthMotionByProject[projectId] = direction;
+    }
+
+    function logsCalendarTakeMotionClass(projectId) {
+        var direction = state.logsCalendarMonthMotionByProject && state.logsCalendarMonthMotionByProject[projectId] || '';
+        if (direction && state.logsCalendarMonthMotionByProject) delete state.logsCalendarMonthMotionByProject[projectId];
+        return direction ? ' is-month-changing is-' + direction : '';
+    }
+
     function formatRuMonthYear(monthIso) {
         var date = new Date(String(monthIso || logsMonthStartIso(APP_TODAY)).slice(0, 10) + 'T00:00:00Z');
         if (Number.isNaN(date.getTime())) return String(monthIso || '');
@@ -4986,7 +4997,21 @@
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
-                state.logsCalendarMonthByProject[projectId] = logsShiftMonth(state.logsCalendarMonthByProject[projectId], Number(button.dataset.logMonthShift || 0));
+                var shift = Number(button.dataset.logMonthShift || 0);
+                logsCalendarSetMotion(projectId, shift < 0 ? 'previous' : 'next');
+                state.logsCalendarMonthByProject[projectId] = logsShiftMonth(state.logsCalendarMonthByProject[projectId], shift);
+                renderLogsCalendar(project, logs);
+            });
+        });
+        qsa('[data-logs-calendar-today]').forEach(function (button) {
+            if (button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                logsCalendarSetMotion(projectId, 'today');
+                state.logsSelectedDateByProject[projectId] = APP_TODAY;
+                state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(APP_TODAY);
+                var form = qs('[data-log-form]');
+                if (form && form.report_date) form.report_date.value = APP_TODAY;
                 renderLogsCalendar(project, logs);
             });
         });
@@ -5009,6 +5034,13 @@
             monthIso = firstProjectMonthIso;
             state.logsCalendarMonthByProject[projectId] = monthIso;
         }
+        var monthMotionClass = logsCalendarTakeMotionClass(projectId);
+        var todayUnavailable = !!(projectStartIso && projectStartIso > APP_TODAY);
+        var todayAlreadyOpen = selectedDate === APP_TODAY && monthIso === logsMonthStartIso(APP_TODAY);
+        var todayDisabled = todayUnavailable || todayAlreadyOpen;
+        var todayTitle = todayUnavailable
+            ? 'Сегодняшняя дата раньше начала объекта'
+            : (todayAlreadyOpen ? 'Сегодняшний день уже открыт' : 'Перейти к сегодняшнему дню');
         var monthDate = new Date(monthIso + 'T00:00:00');
         var monthIndex = monthDate.getMonth();
         var firstWeekday = (monthDate.getDay() + 6) % 7;
@@ -5050,11 +5082,12 @@
         }
         root.innerHTML =
             '<div class="logs-calendar-card">' +
-                '<div class="logs-calendar-head">' +
-                    '<button class="ghost" type="button" data-log-month-shift="-1"' + (firstProjectMonthIso && monthIso <= firstProjectMonthIso ? ' disabled' : '') + '>Назад</button>' +
-                    '<strong>' + escapeHtml(logsMonthLabel(monthIso)) + '</strong>' +
-                    '<button class="ghost" type="button" data-log-month-shift="1">Вперед</button>' +
+                '<div class="logs-calendar-head logs-calendar-month-nav" aria-label="Навигация по календарю">' +
+                    '<button class="ghost logs-calendar-nav is-previous" type="button" data-log-month-shift="-1" aria-label="Открыть предыдущий месяц" title="Предыдущий месяц"' + (firstProjectMonthIso && monthIso <= firstProjectMonthIso ? ' disabled' : '') + '><span aria-hidden="true">←</span><span class="logs-calendar-nav-copy">Предыдущий</span></button>' +
+                    '<div class="logs-calendar-period' + monthMotionClass + '" aria-live="polite" aria-atomic="true"><small>Открыт месяц</small><strong>' + escapeHtml(logsMonthLabel(monthIso)) + '</strong></div>' +
+                    '<button class="ghost logs-calendar-nav is-next" type="button" data-log-month-shift="1" aria-label="Открыть следующий месяц" title="Следующий месяц"><span class="logs-calendar-nav-copy">Следующий</span><span aria-hidden="true">→</span></button>' +
                 '</div>' +
+                '<div class="logs-calendar-jump"><button class="ghost compact logs-calendar-today" type="button" data-logs-calendar-today title="' + escapeHtml(todayTitle) + '"' + (todayDisabled ? ' disabled' : '') + '>К сегодняшнему дню</button></div>' +
                 '<div class="logs-calendar-grid logs-calendar-weekdays">' + dayLabels.map(function (day) {
                     return '<span>' + day + '</span>';
                 }).join('') + '</div>' +
@@ -7217,6 +7250,13 @@ function renderLogsDayView(project, logs) {
         var firstProjectMonthIso = projectStartIso ? logsMonthStartIso(projectStartIso) : '';
         if (firstProjectMonthIso && monthStart < firstProjectMonthIso) monthStart = firstProjectMonthIso;
         state.logsCalendarMonthByProject[projectId] = monthStart;
+        var monthMotionClass = logsCalendarTakeMotionClass(projectId);
+        var todayUnavailable = !!(projectStartIso && projectStartIso > APP_TODAY);
+        var todayAlreadyOpen = selectedDate === APP_TODAY && monthStart === logsMonthStartIso(APP_TODAY);
+        var todayDisabled = todayUnavailable || todayAlreadyOpen;
+        var todayTitle = todayUnavailable
+            ? 'Сегодняшняя дата раньше начала объекта'
+            : (todayAlreadyOpen ? 'Сегодняшний день уже открыт' : 'Перейти к сегодняшнему дню');
         var monthDate = new Date(monthStart + 'T00:00:00Z');
         var year = monthDate.getUTCFullYear();
         var month = monthDate.getUTCMonth();
@@ -7244,11 +7284,12 @@ function renderLogsDayView(project, logs) {
         }
         root.innerHTML =
             '<div class="logs-calendar-card">' +
-                '<div class="logs-calendar-head">' +
-                    '<button class="ghost" type="button" data-log-month-shift="-1"' + (firstProjectMonthIso && monthStart <= firstProjectMonthIso ? ' disabled' : '') + '>Назад</button>' +
-                    '<b>' + escapeHtml(formatRuMonthYear(monthStart)) + '</b>' +
-                    '<button class="ghost" type="button" data-log-month-shift="1">Вперед</button>' +
+                '<div class="logs-calendar-head logs-calendar-month-nav" aria-label="Навигация по календарю">' +
+                    '<button class="ghost logs-calendar-nav is-previous" type="button" data-log-month-shift="-1" aria-label="Открыть предыдущий месяц" title="Предыдущий месяц"' + (firstProjectMonthIso && monthStart <= firstProjectMonthIso ? ' disabled' : '') + '><span aria-hidden="true">←</span><span class="logs-calendar-nav-copy">Предыдущий</span></button>' +
+                    '<div class="logs-calendar-period' + monthMotionClass + '" aria-live="polite" aria-atomic="true"><small>Открыт месяц</small><strong>' + escapeHtml(formatRuMonthYear(monthStart)) + '</strong></div>' +
+                    '<button class="ghost logs-calendar-nav is-next" type="button" data-log-month-shift="1" aria-label="Открыть следующий месяц" title="Следующий месяц"><span class="logs-calendar-nav-copy">Следующий</span><span aria-hidden="true">→</span></button>' +
                 '</div>' +
+                '<div class="logs-calendar-jump"><button class="ghost compact logs-calendar-today" type="button" data-logs-calendar-today title="' + escapeHtml(todayTitle) + '"' + (todayDisabled ? ' disabled' : '') + '>К сегодняшнему дню</button></div>' +
                 '<div class="logs-calendar-grid logs-calendar-weekdays">' + dayLabels.map(function (dayLabel) {
                     return '<span>' + dayLabel + '</span>';
                 }).join('') + '</div>' +

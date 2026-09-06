@@ -6272,9 +6272,12 @@
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
+                var shift = Number(button.dataset.logMonthShift || 0);
                 var current = state.logsCalendarMonthByProject[projectId] || logsMonthStartIso(currentLocalDateIso());
                 var date = new Date(current + 'T00:00:00Z');
-                date.setUTCMonth(date.getUTCMonth() + Number(button.dataset.logMonthShift || 0));
+                date.setUTCMonth(date.getUTCMonth() + shift);
+                state.logsCalendarMonthMotionByProject = state.logsCalendarMonthMotionByProject || {};
+                state.logsCalendarMonthMotionByProject[projectId] = shift < 0 ? 'previous' : 'next';
                 state.logsCalendarMonthByProject[projectId] = date.toISOString().slice(0, 10);
                 renderLogsCalendar(project, logs);
             });
@@ -6286,6 +6289,8 @@
             if (projectStartIso && projectStartIso > currentLocalDateIso()) todayButton.disabled = true;
             todayButton.addEventListener('click', function () {
                 var todayIso = currentLocalDateIso();
+                state.logsCalendarMonthMotionByProject = state.logsCalendarMonthMotionByProject || {};
+                state.logsCalendarMonthMotionByProject[projectId] = 'today';
                 state.logsSelectedDateByProject[projectId] = todayIso;
                 state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(todayIso);
                 var form = qs('[data-log-form]');
@@ -6336,6 +6341,16 @@
             monthIso = firstProjectMonthIso;
             state.logsCalendarMonthByProject[projectId] = monthIso;
         }
+        var monthMotion = state.logsCalendarMonthMotionByProject && state.logsCalendarMonthMotionByProject[projectId] || '';
+        if (monthMotion && state.logsCalendarMonthMotionByProject) delete state.logsCalendarMonthMotionByProject[projectId];
+        var monthMotionClass = monthMotion ? ' is-month-changing is-' + monthMotion : '';
+        var todayMonthIso = logsMonthStartIso(todayIso);
+        var todayUnavailable = !!(projectStartIso && projectStartIso > todayIso);
+        var todayAlreadyOpen = selectedDate === todayIso && monthIso === todayMonthIso;
+        var todayDisabled = todayUnavailable || todayAlreadyOpen;
+        var todayTitle = todayUnavailable
+            ? 'Сегодняшняя дата раньше начала объекта'
+            : (todayAlreadyOpen ? 'Сегодняшний день уже открыт' : 'Перейти к сегодняшнему дню');
         var monthDate = new Date(monthIso + 'T00:00:00Z');
         var monthIndex = monthDate.getUTCMonth();
         var firstWeekday = (monthDate.getUTCDay() + 6) % 7;
@@ -6399,15 +6414,17 @@
             '</button>');
             cursor.setUTCDate(cursor.getUTCDate() + 1);
         }
+        var monthTitle = projectReportCalendarMonthTitle(monthIso);
         root.innerHTML = '<div class="report-calendar-card">' +
             '<div class="report-calendar-toolbar">' +
-                '<div class="report-calendar-month-copy" aria-live="polite"><strong>' + escapeHtml(projectReportCalendarMonthTitle(monthIso)) + '</strong><span>' + escapeHtml(monthSummary) + '</span></div>' +
                 '<div class="report-calendar-controls" aria-label="Навигация по календарю">' +
-                    '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="-1" aria-label="Предыдущий месяц"' + (firstProjectMonthIso && monthIso <= firstProjectMonthIso ? ' disabled' : '') + '><span class="report-calendar-nav-mark" aria-hidden="true">‹</span></button>' +
-                    '<button class="ghost compact report-calendar-today" type="button" data-report-calendar-today>Сегодня</button>' +
-                    '<button class="ghost report-calendar-nav" type="button" data-log-month-shift="1" aria-label="Следующий месяц"><span class="report-calendar-nav-mark" aria-hidden="true">›</span></button>' +
+                    '<button class="ghost report-calendar-nav is-previous" type="button" data-log-month-shift="-1" aria-label="Открыть предыдущий месяц" title="Предыдущий месяц"' + (firstProjectMonthIso && monthIso <= firstProjectMonthIso ? ' disabled' : '') + '><span class="report-calendar-nav-mark" aria-hidden="true">←</span><span class="report-calendar-nav-copy">Предыдущий</span></button>' +
+                    '<div class="report-calendar-month-copy report-calendar-period' + monthMotionClass + '" aria-live="polite" aria-atomic="true"><span>Открыт месяц</span><strong>' + escapeHtml(monthTitle) + '</strong></div>' +
+                    '<button class="ghost report-calendar-nav is-next" type="button" data-log-month-shift="1" aria-label="Открыть следующий месяц" title="Следующий месяц"><span class="report-calendar-nav-copy">Следующий</span><span class="report-calendar-nav-mark" aria-hidden="true">→</span></button>' +
                 '</div>' +
+                '<button class="ghost compact report-calendar-today" type="button" data-report-calendar-today title="' + escapeHtml(todayTitle) + '"' + (todayDisabled ? ' disabled' : '') + '>К сегодняшнему дню</button>' +
             '</div>' +
+            '<div class="report-calendar-month-summary">' + escapeHtml(monthSummary) + '</div>' +
             '<div class="report-calendar-grid report-calendar-weekdays" aria-hidden="true">' + dayLabels.map(function (dayLabel, dayIndex) { return '<span' + (dayIndex >= 5 ? ' class="is-weekend"' : '') + '>' + dayLabel + '</span>'; }).join('') + '</div>' +
             '<div class="report-calendar-grid report-calendar-days">' + cells.join('') + '</div>' +
             '<div class="report-calendar-legend" aria-label="Обозначения статусов"><span class="is-on-track"><i aria-hidden="true"></i>По плану</span><span class="is-attention"><i aria-hidden="true"></i>Есть вопросы</span><span class="is-danger"><i aria-hidden="true"></i>Блокер / отставание</span><span class="is-neutral"><i aria-hidden="true"></i>Нет отчёта / не работали</span></div>' +

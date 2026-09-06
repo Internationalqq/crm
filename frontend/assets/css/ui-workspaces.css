@@ -1358,6 +1358,121 @@ body[data-page="logs"] .log-form .form-error:empty {
     }
 }
 
+body[data-page="logs"] .logs-calendar-head.logs-calendar-month-nav {
+    display: grid;
+    grid-template-columns: minmax(84px, .75fr) minmax(132px, 1.3fr) minmax(84px, .75fr);
+    gap: 5px !important;
+    padding: 5px 5px var(--space-3);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, #f7f9fc 0%, #f0f4f9 100%);
+}
+
+body[data-page="logs"] .logs-calendar-nav {
+    display: flex !important;
+    min-width: 0;
+    min-height: 46px !important;
+    gap: 6px;
+    align-items: center;
+    border-color: transparent !important;
+    background: transparent !important;
+    font-size: 10px !important;
+    font-weight: 650 !important;
+}
+
+body[data-page="logs"] .logs-calendar-nav.is-previous {
+    justify-content: flex-start;
+}
+
+body[data-page="logs"] .logs-calendar-nav.is-next {
+    justify-content: flex-end;
+}
+
+body[data-page="logs"] .logs-calendar-nav > span[aria-hidden="true"] {
+    font-size: 17px;
+}
+
+body[data-page="logs"] .logs-calendar-nav:disabled {
+    cursor: default;
+    opacity: .38;
+}
+
+body[data-page="logs"] .logs-calendar-period {
+    display: grid;
+    min-width: 0;
+    min-height: 46px;
+    padding: 6px 8px;
+    place-content: center;
+    gap: 2px;
+    border: 1px solid rgba(37, 99, 235, .22);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(145deg, rgba(239, 246, 255, .98), rgba(255, 255, 255, .98));
+    color: var(--color-accent-strong);
+    text-align: center;
+}
+
+body[data-page="logs"] .logs-calendar-period small {
+    color: var(--color-text-secondary);
+    font-size: 8px;
+    font-weight: 720;
+    letter-spacing: .08em;
+    line-height: 1.1;
+    text-transform: uppercase;
+}
+
+body[data-page="logs"] .logs-calendar-period strong {
+    overflow: hidden;
+    color: inherit !important;
+    font-size: 14px !important;
+    font-weight: 760 !important;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    text-transform: capitalize;
+    white-space: nowrap;
+}
+
+body[data-page="logs"] .logs-calendar-period.is-month-changing {
+    animation: pmbi-calendar-period-pulse .38s ease-out;
+}
+
+body[data-page="logs"] .logs-calendar-jump {
+    display: flex;
+    justify-content: center;
+    margin: -2px 0 var(--space-3);
+}
+
+body[data-page="logs"] .logs-calendar-today {
+    min-height: 34px !important;
+    border: 1px solid var(--color-border) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-accent-strong) !important;
+    font-size: 10px !important;
+    font-weight: 650 !important;
+}
+
+body[data-page="logs"] .logs-calendar-today:disabled {
+    cursor: default;
+    opacity: .48;
+}
+
+@media (max-width: 520px) {
+    body[data-page="logs"] .logs-calendar-head.logs-calendar-month-nav {
+        grid-template-columns: 42px minmax(0, 1fr) 42px;
+    }
+
+    body[data-page="logs"] .logs-calendar-nav {
+        justify-content: center !important;
+        padding-inline: 0 !important;
+    }
+
+    body[data-page="logs"] .logs-calendar-nav-copy {
+        display: none;
+    }
+
+    body[data-page="logs"] .logs-calendar-today {
+        width: 100%;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     body[data-page="schedule"] [data-schedule-list] > *,
     body[data-page="warehouse"] [data-warehouse-analysis] > *,

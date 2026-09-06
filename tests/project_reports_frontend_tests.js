@@ -69,6 +69,8 @@ assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-final-structured-36/
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-saved-structured-37/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-browser-qa-39/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-touch-qa-40/);
+assert.match(appCss, /project-reports\.css\?v=[^"\n]*calendar-month-nav-1/);
+assert.match(appCss, /ui-workspaces\.css\?v=[^"\n]*calendar-month-nav-1/);
 assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52/);
 assert.match(reportsCss, /\.reports-drawer-frame \.report-preview-board \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/);
 assert.match(
@@ -344,8 +346,11 @@ assert.match(operationsJs, /function projectReportDefaultSelectedDate\(logs, fal
 assert.match(operationsJs, /if \(\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(fallbackIso\)\) return fallbackIso;/);
 assert.match(operationsJs, /var earliestReport = reports\[reports\.length - 1\]/);
 assert.match(operationsJs, /typeof PMBI\.isCurrentProject === 'function'/);
-assert.match(operationsJs, /class="report-calendar-month-copy"/);
+assert.match(operationsJs, /class="report-calendar-month-copy report-calendar-period/);
 assert.match(operationsJs, /class="report-calendar-nav-mark"/);
+assert.match(operationsJs, /<span>Открыт месяц<\/span>/);
+assert.match(operationsJs, />К сегодняшнему дню<\/button>/);
+assert.match(operationsJs, /state\.logsCalendarMonthMotionByProject\[projectId\] = shift < 0 \? 'previous' : 'next'/);
 assert.match(operationsJs, /classes\.push\('is-weekend'\)/);
 const reportsPanelStart = operationsJs.lastIndexOf('renderProjectReportsPanel = function');
 const reportsPanelEnd = operationsJs.indexOf('renderProjectReportForm = function', reportsPanelStart);
@@ -527,6 +532,9 @@ assert.match(reportCalendarJs, /projectReportProjectStartIso\(project\)/);
 assert.match(reportCalendarJs, /is-before-project/);
 assert.match(reportCalendarJs, /monthIso < firstProjectMonthIso/);
 assert.match(reportCalendarJs, /monthIso <= firstProjectMonthIso \? ' disabled'/);
+assert.match(reportCalendarJs, /report-calendar-period/);
+assert.match(reportCalendarJs, /report-calendar-nav-copy/);
+assert.match(reportCalendarJs, /report-calendar-month-summary/);
 assert.match(reportCalendarJs, /report-calendar-legend/);
 assert.match(reportCalendarJs, /is-on-track/);
 assert.match(reportCalendarJs, /is-attention/);
@@ -547,6 +555,10 @@ assert.match(baseReportCalendarJs, /logsInitialSelectedDate\(project, logs\)/);
 assert.match(baseReportCalendarJs, /monthStart < firstProjectMonthIso/);
 assert.match(baseReportCalendarJs, /is-before-project/);
 assert.match(baseReportCalendarJs, /monthStart <= firstProjectMonthIso \? ' disabled'/);
+assert.match(baseReportCalendarJs, /logs-calendar-period/);
+assert.match(baseReportCalendarJs, /К сегодняшнему дню/);
+assert.match(reportsCss, /\.report-calendar-period\.is-month-changing/);
+assert.match(reportsCss, /@keyframes pmbi-calendar-period-pulse/);
 const reportDayFlowStart = operationsJs.indexOf('renderLogsDayView = function', reportCalendarEnd);
 const reportDayFlowEnd = operationsJs.indexOf('renderLogsList = function', reportDayFlowStart);
 const reportDayFlowJs = operationsJs.slice(reportDayFlowStart, reportDayFlowEnd);
@@ -1751,6 +1763,8 @@ assert.match(routerJs, /operations\.js\?v=[^']*report-final-structured-36/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-saved-structured-37/);
 assert.match(routerJs, /app\.js\?v=[^']*report-calendar-project-start-1/);
 assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-project-start-1/);
+assert.match(routerJs, /app\.js\?v=[^']*calendar-month-nav-1/);
+assert.match(routerJs, /operations\.js\?v=[^']*calendar-month-nav-1/);
 
 const runtimeNodes = {
   '[data-panel="reports"] .report-workspace': {},
@@ -1825,6 +1839,10 @@ assert.equal(runtimeState.logsSelectedDateByProject[42], '2026-08-20');
 assert.equal(runtimeState.logsCalendarMonthByProject[42], '2026-08-01');
 assert.doesNotMatch(projectStartCalendarHtml, /data-log-date="2026-08-19"/);
 assert.match(projectStartCalendarHtml, /data-log-month-shift="-1"[^>]* disabled/);
+assert.match(projectStartCalendarHtml, /Открыт месяц/);
+assert.match(projectStartCalendarHtml, /Август 2026/);
+assert.match(projectStartCalendarHtml, /К сегодняшнему дню/);
+assert.doesNotMatch(projectStartCalendarHtml, />Сегодня<\/button>/);
 
 runtimeOperations.renderLogsList({ id: 42, title: 'Тестовый объект' }, mixedRuntimeLogs);
 const runtimeActionsHtml = runtimeNodes['[data-panel="reports"] [data-logs-list]'].innerHTML;
