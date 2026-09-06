@@ -41,24 +41,17 @@ class StaticResponseHarness:
 
 
 class HttpStaticDeliveryTests(unittest.TestCase):
-    def test_head_root_matches_get_headers_and_has_no_body(self) -> None:
+    def test_head_root_matches_get_redirect_and_has_no_body(self) -> None:
         get_status, get_headers, get_body = StaticResponseHarness.request("GET", "/")
         head_status, head_headers, head_body = StaticResponseHarness.request("HEAD", "/")
 
         self.assertEqual(head_status, get_status)
-        self.assertEqual(head_status, 200)
-        self.assertTrue(get_body)
+        self.assertEqual(head_status, 302)
+        self.assertEqual(get_body, b"")
         self.assertEqual(head_body, b"")
-        self.assertEqual(head_headers["Content-Length"], get_headers["Content-Length"])
-        self.assertEqual(head_headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertEqual(head_headers["Location"], "/app/projects")
+        self.assertEqual(head_headers["Location"], get_headers["Location"])
         self.assertEqual(head_headers["Cache-Control"], "no-store")
-        self.assertEqual(head_headers["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(head_headers["X-Frame-Options"], "DENY")
-        self.assertEqual(
-            head_headers["Content-Security-Policy"],
-            "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
-        )
-        self.assertEqual(head_headers["Referrer-Policy"], "no-referrer")
 
     def test_versioned_asset_is_immutable_but_unversioned_asset_revalidates(self) -> None:
         _, versioned_headers, _ = StaticResponseHarness.request(

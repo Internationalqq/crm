@@ -23,9 +23,16 @@ assert.match(source, /--pmbi-style-planning-ready/);
 const appCssUrl = baseHtml.match(/href="([^"]*\/assets\/app\.css[^"]*)"/)[1];
 const routerUrl = baseHtml.match(/src="([^"]*\/assets\/js\/router\.js[^"]*)"/)[1];
 const healthUrl = baseHtml.match(/src="([^"]*\/assets\/js\/style-health\.js[^"]*)"/)[1];
-assert.equal(appCssUrl, '/assets/app.css?v=20260902-report-ux-r1-production-scroll-wheel-fix-1');
-assert.equal(routerUrl, '/assets/js/router.js?v=20260903-report-ux-r1-production-print-pdf-2-production-scroll-wheel-fix-1-autobot-foreman-bridge-1-production-print-scale-1-multi-estimate-bundle-1');
+const lucideUrl = baseHtml.match(/src="([^"]*\/assets\/vendor\/lucide\.min\.js[^"]*)"/)[1];
+const sortableUrl = baseHtml.match(/src="([^"]*\/assets\/vendor\/sortable\.min\.js[^"]*)"/)[1];
+assert.equal(appCssUrl, '/assets/app.css?v=20260904-public-project-covers-3-report-ux-r1-production-scroll-wheel-fix-1-production-sections-1');
+assert.equal(routerUrl, '/assets/js/router.js?v=20260903-report-ux-r1-public-portfolio-1-production-print-scale-live-2-production-print-pdf-2-production-print-scale-1-production-scroll-wheel-fix-1-production-sections-1');
 assert.equal(healthUrl, '/assets/js/style-health.js?v=20260902-report-ux-r1');
+assert.equal(lucideUrl, '/assets/vendor/lucide.min.js?v=1.41.0');
+assert.equal(sortableUrl, '/assets/vendor/sortable.min.js?v=1.15.2');
+assert.doesNotMatch(baseHtml, /<script[^>]+src="https?:\/\//i, 'the app shell must not depend on third-party scripts');
+assert.ok(fs.existsSync(path.join(root, 'frontend/assets/vendor/LICENSE-lucide.txt')));
+assert.ok(fs.existsSync(path.join(root, 'frontend/assets/vendor/LICENSE-sortable.txt')));
 assert.ok(baseHtml.indexOf(healthUrl) < baseHtml.indexOf(routerUrl), 'style health must load before the router');
 
 function element(tagName) {
