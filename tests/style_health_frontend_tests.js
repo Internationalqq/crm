@@ -26,7 +26,7 @@ const healthUrl = baseHtml.match(/src="([^"]*\/assets\/js\/style-health\.js[^"]*
 const lucideUrl = baseHtml.match(/src="([^"]*\/assets\/vendor\/lucide\.min\.js[^"]*)"/)[1];
 const sortableUrl = baseHtml.match(/src="([^"]*\/assets\/vendor\/sortable\.min\.js[^"]*)"/)[1];
 assert.equal(appCssUrl, '/assets/app.css?v=20260904-public-project-covers-3-report-ux-r1-production-scroll-wheel-fix-1-production-sections-1');
-assert.equal(routerUrl, '/assets/js/router.js?v=20260903-report-ux-r1-public-portfolio-1-production-print-scale-live-2-production-print-pdf-2-production-print-scale-1-production-scroll-wheel-fix-1-production-sections-1');
+assert.equal(routerUrl, '/assets/js/router.js?v=20260903-report-ux-r1-public-portfolio-1-production-print-scale-live-2-production-print-pdf-2-production-print-scale-1-production-scroll-wheel-fix-1-production-sections-1-report-calendar-project-start-1');
 assert.equal(healthUrl, '/assets/js/style-health.js?v=20260902-report-ux-r1');
 assert.equal(lucideUrl, '/assets/vendor/lucide.min.js?v=1.41.0');
 assert.equal(sortableUrl, '/assets/vendor/sortable.min.js?v=1.15.2');

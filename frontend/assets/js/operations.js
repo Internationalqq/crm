@@ -1558,7 +1558,7 @@
             loadProjectLogs(project.id, function (logs) {
                 loadProjectNotifications(project.id, function (notifications) {
                     if (!state.logsSelectedDateByProject[projectId]) {
-                        state.logsSelectedDateByProject[projectId] = (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+                        state.logsSelectedDateByProject[projectId] = projectReportDefaultSelectedDate(logs, projectReportProjectStartIso(project));
                     }
                     renderLogsStats(logs, notifications);
                     renderLogsAlerts(notifications);
@@ -1774,7 +1774,7 @@
             if (hasRole('guest')) {
                 if (!isCurrentProject(projectId, loadingToken)) return;
                 if (!state.logsSelectedDateByProject[projectId]) {
-                    state.logsSelectedDateByProject[projectId] = projectReportDefaultSelectedDate(logs, project.started_at || APP_TODAY);
+                    state.logsSelectedDateByProject[projectId] = projectReportDefaultSelectedDate(logs, projectReportProjectStartIso(project));
                 }
                 renderLogsStats(logs, null);
                 renderLogsAlerts(null);
@@ -1785,7 +1785,7 @@
             loadProjectNotifications(projectId, function (notifications) {
                 if (!isCurrentProject(projectId, loadingToken)) return;
                 if (!state.logsSelectedDateByProject[projectId]) {
-                    state.logsSelectedDateByProject[projectId] = projectReportDefaultSelectedDate(logs, project.started_at || APP_TODAY);
+                    state.logsSelectedDateByProject[projectId] = projectReportDefaultSelectedDate(logs, projectReportProjectStartIso(project));
                 }
                 renderLogsStats(logs, notifications);
                 renderLogsAlerts(notifications);
@@ -3869,7 +3869,7 @@
             loadProjectLogs(project.id, function (logs) {
                 loadProjectNotifications(project.id, function (notifications) {
                     if (!state.logsSelectedDateByProject[projectId]) {
-                        state.logsSelectedDateByProject[projectId] = (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+                        state.logsSelectedDateByProject[projectId] = projectReportDefaultSelectedDate(logs, projectReportProjectStartIso(project));
                     }
                     renderLogsStats(logs, notifications);
                     renderLogsAlerts(notifications);
@@ -5606,8 +5606,13 @@
     }
 
     function projectReportDefaultSelectedDate(logs, fallbackDate) {
-        var reports = projectReportFieldLogs(logs);
-        return (reports[0] && reports[0].report_date) || fallbackDate || currentLocalDateIso();
+        var reports = projectReportFieldLogs(logs).filter(function (log) {
+            return /^\d{4}-\d{2}-\d{2}$/.test(String(log && log.report_date || '').slice(0, 10));
+        });
+        var fallbackIso = String(fallbackDate || '').slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fallbackIso)) return fallbackIso;
+        var earliestReport = reports[reports.length - 1];
+        return (earliestReport && earliestReport.report_date) || currentLocalDateIso();
     }
 
     function projectReportEntryTypeHtml(log) {
@@ -6321,7 +6326,7 @@
         var visibleLogs = projectStartIso ? logs.filter(function (log) {
             return !log.report_date || String(log.report_date).slice(0, 10) >= projectStartIso;
         }) : logs;
-        var selectedDate = state.logsSelectedDateByProject[projectId] || projectReportDefaultSelectedDate(visibleLogs, projectStartIso || todayIso);
+        var selectedDate = state.logsSelectedDateByProject[projectId] || projectReportDefaultSelectedDate(visibleLogs, projectStartIso);
         if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
         state.logsSelectedDateByProject[projectId] = selectedDate;
         if (!state.logsCalendarMonthByProject[projectId]) state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
@@ -6420,7 +6425,10 @@
         logs = projectReportFieldLogs(logs);
         var projectId = Number(project.id);
         var todayIso = currentLocalDateIso();
-        var selectedDate = state.logsSelectedDateByProject[projectId] || projectReportDefaultSelectedDate(logs, todayIso);
+        var projectStartIso = projectReportProjectStartIso(project);
+        var selectedDate = state.logsSelectedDateByProject[projectId] || projectReportDefaultSelectedDate(logs, projectStartIso);
+        if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+        state.logsSelectedDateByProject[projectId] = selectedDate;
         var selectedLogs = logs.filter(function (log) { return log.report_date === selectedDate; });
         var isToday = selectedDate === todayIso;
         var heading = '<div class="report-selected-day-head"><div><span class="report-pane-kicker">Выбранный день</span><h3>' + escapeHtml(formatRuDate(selectedDate)) + '</h3></div><span class="report-day-count' + (selectedLogs.length ? ' has-value' : '') + '" aria-label="Отчетов за день: ' + selectedLogs.length + '">' + selectedLogs.length + '</span></div>';

@@ -144,8 +144,8 @@ class GuestAccessTests(unittest.TestCase):
                     """
                     INSERT INTO projects (
                         title, address, client_name, status, progress, guest_visible,
-                        budget, paid, spent, created_at, updated_at
-                    ) VALUES ('Чебаркуль', 'Закрытый адрес', 'Заказчик', 'active', 37, 0, 0, 0, 0, ?, ?)
+                        budget, paid, spent, started_at, created_at, updated_at
+                    ) VALUES ('Чебаркуль', 'Закрытый адрес', 'Заказчик', 'active', 37, 0, 0, 0, 0, '2026-08-20', ?, ?)
                     """,
                     (timestamp, timestamp),
                 ).lastrowid
@@ -155,8 +155,8 @@ class GuestAccessTests(unittest.TestCase):
                     """
                     INSERT INTO projects (
                         title, address, client_name, status, progress, guest_visible,
-                        budget, paid, spent, created_at, updated_at
-                    ) VALUES ('Чужой объект', 'Другой адрес', 'Другой заказчик', 'active', 10, 1, 0, 0, 0, ?, ?)
+                        budget, paid, spent, started_at, created_at, updated_at
+                    ) VALUES ('Чужой объект', 'Другой адрес', 'Другой заказчик', 'active', 10, 1, 0, 0, 0, '2026-08-10', ?, ?)
                     """,
                     (timestamp, timestamp),
                 ).lastrowid
@@ -421,9 +421,33 @@ class GuestAccessTests(unittest.TestCase):
         projects.api_projects(handler)
         self.assertEqual(handler.status, HTTPStatus.OK)
         self.assertEqual([item["id"] for item in handler.payload["projects"]], [self.assigned_project_id])
-        self.assertEqual(set(handler.payload["projects"][0]), {"id", "title", "status", "progress"})
+        self.assertEqual(
+            set(handler.payload["projects"][0]),
+            {"id", "title", "status", "progress", "started_at"},
+        )
+        self.assertEqual(handler.payload["projects"][0]["started_at"], "2026-08-20")
         self.assertTrue(projects.can_access_project(handler, guest, self.assigned_project_id))
         self.assertFalse(projects.can_access_project(handler, guest, self.other_project_id))
+
+    def test_public_project_list_exposes_safe_project_start_date(self) -> None:
+        handler = JsonHandler(auth.public_viewer())
+        projects.api_projects(handler)
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        by_id = {item["id"]: item for item in handler.payload["projects"]}
+        project = by_id[self.assigned_project_id]
+        self.assertEqual(project["started_at"], "2026-08-20")
+        self.assertEqual(
+            set(project),
+            {
+                "id",
+                "title",
+                "status",
+                "progress",
+                "started_at",
+                "cover_photo_url",
+                "cover_photo_title",
+            },
+        )
 
     def test_guest_reports_and_schedule_are_project_scoped_and_redacted(self) -> None:
         guest, _response = self.create_guest()

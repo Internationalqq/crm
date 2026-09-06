@@ -409,6 +409,7 @@ def serialize_project(
             "title": str(row["title"] or ""),
             "status": str(row["status"] or ""),
             "progress": int(row["progress"] or 0),
+            "started_at": row["started_at"],
             "cover_photo_url": f"/api/documents/{cover_photo['id']}/view" if cover_photo else None,
             "cover_photo_title": cover_photo["title"] if cover_photo else None,
         }
@@ -418,6 +419,7 @@ def serialize_project(
             "title": str(row["title"] or ""),
             "status": str(row["status"] or ""),
             "progress": int(row["progress"] or 0),
+            "started_at": row["started_at"],
         }
     data = dict(row)
     data["description"] = normalize_project_description(data.get("description"))
@@ -627,7 +629,7 @@ def api_projects(handler) -> None:
         if user_is_public_viewer(user):
             rows = con.execute(
                 """
-                SELECT p.id, p.title, p.status, p.progress
+                SELECT p.id, p.title, p.status, p.progress, p.started_at
                 FROM projects p
                 ORDER BY p.id DESC
                 """
@@ -635,7 +637,7 @@ def api_projects(handler) -> None:
         elif user_is_guest(user):
             rows = con.execute(
                 """
-                SELECT p.id, p.title, p.status, p.progress
+                SELECT p.id, p.title, p.status, p.progress, p.started_at
                 FROM projects p
                 JOIN user_project_access a ON a.project_id = p.id
                 WHERE a.user_id = ?

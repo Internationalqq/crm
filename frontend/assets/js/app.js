@@ -4933,6 +4933,24 @@
         return String(base).slice(0, 7) + '-01';
     }
 
+    function logsProjectStartIso(project) {
+        var value = String(project && (project.started_at || project.startedAt) || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+        var parsed = new Date(value + 'T00:00:00Z');
+        return Number.isNaN(parsed.getTime()) ? '' : value;
+    }
+
+    function logsInitialSelectedDate(project, logs) {
+        var projectStartIso = logsProjectStartIso(project);
+        if (projectStartIso) return projectStartIso;
+        var reportDates = (Array.isArray(logs) ? logs : []).map(function (log) {
+            return String(log && log.report_date || '').slice(0, 10);
+        }).filter(function (value) {
+            return /^\d{4}-\d{2}-\d{2}$/.test(value);
+        }).sort();
+        return reportDates[0] || APP_TODAY;
+    }
+
     function formatRuMonthYear(monthIso) {
         var date = new Date(String(monthIso || logsMonthStartIso(APP_TODAY)).slice(0, 10) + 'T00:00:00Z');
         if (Number.isNaN(date.getTime())) return String(monthIso || '');
@@ -4978,11 +4996,19 @@
         var root = qs('[data-logs-calendar]');
         if (!root || !project) return;
         var projectId = Number(project.id);
-        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+        var projectStartIso = logsProjectStartIso(project);
+        var selectedDate = state.logsSelectedDateByProject[projectId] || logsInitialSelectedDate(project, logs);
+        if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+        state.logsSelectedDateByProject[projectId] = selectedDate;
         if (!state.logsCalendarMonthByProject[projectId]) {
             state.logsCalendarMonthByProject[projectId] = logsMonthStartIso(selectedDate);
         }
         var monthIso = state.logsCalendarMonthByProject[projectId];
+        var firstProjectMonthIso = projectStartIso ? logsMonthStartIso(projectStartIso) : '';
+        if (firstProjectMonthIso && monthIso < firstProjectMonthIso) {
+            monthIso = firstProjectMonthIso;
+            state.logsCalendarMonthByProject[projectId] = monthIso;
+        }
         var monthDate = new Date(monthIso + 'T00:00:00');
         var monthIndex = monthDate.getMonth();
         var firstWeekday = (monthDate.getDay() + 6) % 7;
@@ -4998,6 +5024,11 @@
         for (var i = 0; i < 42; i += 1) {
             var iso = cursor.toISOString().slice(0, 10);
             var logsForDay = byDate[iso] || [];
+            if (projectStartIso && iso < projectStartIso) {
+                cells.push('<span class="logs-day logs-day-out is-before-project" aria-hidden="true"></span>');
+                cursor.setDate(cursor.getDate() + 1);
+                continue;
+            }
             var progressValue = logsForDay.reduce(function (best, log) {
                 var value = Number(log.progress_percent);
                 return isNaN(value) ? best : Math.max(best, value);
@@ -5020,7 +5051,7 @@
         root.innerHTML =
             '<div class="logs-calendar-card">' +
                 '<div class="logs-calendar-head">' +
-                    '<button class="ghost" type="button" data-log-month-shift="-1">Назад</button>' +
+                    '<button class="ghost" type="button" data-log-month-shift="-1"' + (firstProjectMonthIso && monthIso <= firstProjectMonthIso ? ' disabled' : '') + '>Назад</button>' +
                     '<strong>' + escapeHtml(logsMonthLabel(monthIso)) + '</strong>' +
                     '<button class="ghost" type="button" data-log-month-shift="1">Вперед</button>' +
                 '</div>' +
@@ -5037,7 +5068,10 @@ function renderLogsDayView(project, logs) {
         var root = qs('[data-logs-day-view]');
         if (!root || !project) return;
         var projectId = Number(project.id);
-        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || APP_TODAY;
+        var projectStartIso = logsProjectStartIso(project);
+        var selectedDate = state.logsSelectedDateByProject[projectId] || logsInitialSelectedDate(project, logs);
+        if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+        state.logsSelectedDateByProject[projectId] = selectedDate;
         var selectedLogs = logs.filter(function (log) { return log.report_date === selectedDate; });
         if (!selectedLogs.length) {
             root.innerHTML =
@@ -7132,7 +7166,7 @@ function renderLogsDayView(project, logs) {
         loadProjectLogs(projectId, function (logs) {
             loadProjectNotifications(projectId, function (notifications) {
                 if (!state.logsSelectedDateByProject[projectId]) {
-                    state.logsSelectedDateByProject[projectId] = (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+                    state.logsSelectedDateByProject[projectId] = logsInitialSelectedDate(project, logs);
                 }
                 renderLogsStats(logs, notifications);
                 renderLogsAlerts(notifications);
@@ -7175,8 +7209,13 @@ function renderLogsDayView(project, logs) {
         var root = qs('[data-logs-calendar]');
         if (!root || !project) return;
         var projectId = Number(project.id);
-        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || APP_TODAY;
+        var projectStartIso = logsProjectStartIso(project);
+        var selectedDate = state.logsSelectedDateByProject[projectId] || logsInitialSelectedDate(project, logs);
+        if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+        state.logsSelectedDateByProject[projectId] = selectedDate;
         var monthStart = state.logsCalendarMonthByProject[projectId] || logsMonthStartIso(selectedDate);
+        var firstProjectMonthIso = projectStartIso ? logsMonthStartIso(projectStartIso) : '';
+        if (firstProjectMonthIso && monthStart < firstProjectMonthIso) monthStart = firstProjectMonthIso;
         state.logsCalendarMonthByProject[projectId] = monthStart;
         var monthDate = new Date(monthStart + 'T00:00:00Z');
         var year = monthDate.getUTCFullYear();
@@ -7193,6 +7232,10 @@ function renderLogsDayView(project, logs) {
         for (var blank = 0; blank < firstWeekday; blank += 1) cells.push('<div class="logs-calendar-day is-empty"></div>');
         for (var day = 1; day <= daysInMonth; day += 1) {
             var iso = new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+            if (projectStartIso && iso < projectStartIso) {
+                cells.push('<div class="logs-calendar-day is-empty is-before-project" aria-hidden="true"></div>');
+                continue;
+            }
             var classes = ['logs-calendar-day'];
             if (iso === APP_TODAY) classes.push('is-today');
             if (iso === selectedDate) classes.push('is-selected');
@@ -7202,7 +7245,7 @@ function renderLogsDayView(project, logs) {
         root.innerHTML =
             '<div class="logs-calendar-card">' +
                 '<div class="logs-calendar-head">' +
-                    '<button class="ghost" type="button" data-log-month-shift="-1">Назад</button>' +
+                    '<button class="ghost" type="button" data-log-month-shift="-1"' + (firstProjectMonthIso && monthStart <= firstProjectMonthIso ? ' disabled' : '') + '>Назад</button>' +
                     '<b>' + escapeHtml(formatRuMonthYear(monthStart)) + '</b>' +
                     '<button class="ghost" type="button" data-log-month-shift="1">Вперед</button>' +
                 '</div>' +
@@ -7219,7 +7262,10 @@ function renderLogsDayView(project, logs) {
         var root = qs('[data-logs-day-view]');
         if (!root || !project) return;
         var projectId = Number(project.id);
-        var selectedDate = state.logsSelectedDateByProject[projectId] || (logs[0] && logs[0].report_date) || APP_TODAY;
+        var projectStartIso = logsProjectStartIso(project);
+        var selectedDate = state.logsSelectedDateByProject[projectId] || logsInitialSelectedDate(project, logs);
+        if (projectStartIso && selectedDate < projectStartIso) selectedDate = projectStartIso;
+        state.logsSelectedDateByProject[projectId] = selectedDate;
         var selectedLogs = logs.filter(function (log) { return log.report_date === selectedDate; });
         if (!selectedLogs.length) {
             root.innerHTML =
@@ -9003,7 +9049,7 @@ function renderLogsDayView(project, logs) {
         loadProjectLogs(projectId, function (logs) {
             loadProjectNotifications(projectId, function (notifications) {
                 if (!state.logsSelectedDateByProject[projectId]) {
-                    state.logsSelectedDateByProject[projectId] = (logs[0] && logs[0].report_date) || project.started_at || APP_TODAY;
+                    state.logsSelectedDateByProject[projectId] = logsInitialSelectedDate(project, logs);
                 }
                 renderLogsStats(logs, notifications);
                 renderLogsAlerts(notifications);
