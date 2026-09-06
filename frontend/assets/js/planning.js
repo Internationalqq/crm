@@ -3915,7 +3915,18 @@
                     '<div class="production-operation-form-error" data-production-operation-error></div>' +
                     '<footer class="production-operation-form-actions"><button class="ghost" type="button" data-production-editor-close>Отмена</button><button class="primary" type="submit">Сохранить работу</button></footer>' +
                 '</form>' +
-            '</aside>';
+            '</aside>' +
+            '<div class="production-group-editor-overlay" data-production-group-editor-overlay aria-hidden="true"></div>' +
+            '<section class="production-group-editor" data-production-group-editor aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="production-group-editor-title">' +
+                '<button class="production-operation-close" type="button" data-production-group-editor-close aria-label="Закрыть">×</button>' +
+                '<header class="production-operation-editor-head"><span class="eyebrow">График производства</span><h3 id="production-group-editor-title" data-production-group-editor-title>Переименование</h3><p data-production-group-editor-description>Введите новое название.</p></header>' +
+                '<form class="production-operation-form production-group-editor-form" data-production-group-editor-form>' +
+                    '<input type="hidden" name="group_kind"><input type="hidden" name="estimate_source_id"><input type="hidden" name="old_title">' +
+                    '<label><span data-production-group-editor-label>Новое название</span><input name="title" required maxlength="500" autocomplete="off"></label>' +
+                    '<div class="production-operation-form-error" data-production-group-editor-error role="alert" aria-live="polite"></div>' +
+                    '<footer class="production-operation-form-actions"><button class="ghost" type="button" data-production-group-editor-close>Отмена</button><button class="primary" type="submit">Сохранить</button></footer>' +
+                '</form>' +
+            '</section>';
     }
 
     function productionSchedulePrintDayCount(schedule) {
@@ -4685,17 +4696,17 @@
         var renderedItemIndex = 0;
         displayEntries.forEach(function (entry) {
             if (entry.type === 'estimate') {
-                var estimateEdit = canEditSchedule && entry.estimate.sourceId != null
-                    ? '<button type="button" class="production-group-edit" data-production-rename-estimate data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.estimate.title) + '" title="Переименовать смету" aria-label="Переименовать смету">✎</button>'
+                var estimateContext = canEditSchedule && entry.estimate.sourceId != null
+                    ? ' data-production-context-kind="estimate" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.estimate.title) + '" tabindex="0" title="Правая кнопка мыши — изменить название сметы"'
                     : '';
-                rows.push('<tr class="production-estimate-row"><th colspan="' + String(7 + visibleDays * 2) + '"><span><small>Смета</small><b>' + escapeHtml(entry.estimate.title) + '</b></span>' + estimateEdit + '</th></tr>');
+                rows.push('<tr class="production-estimate-row"' + estimateContext + '><th colspan="' + String(7 + visibleDays * 2) + '"><span><small>Смета</small><b>' + escapeHtml(entry.estimate.title) + '</b></span></th></tr>');
                 return;
             }
             if (entry.type === 'section') {
-                var sectionEdit = canEditSchedule && entry.estimate.sourceId != null
-                    ? '<button type="button" class="production-group-edit" data-production-rename-section data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" title="Переименовать раздел" aria-label="Переименовать раздел">✎</button>'
+                var sectionContext = canEditSchedule && entry.estimate.sourceId != null
+                    ? ' data-production-context-kind="section" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" tabindex="0" title="Правая кнопка мыши — изменить название раздела"'
                     : '';
-                rows.push('<tr class="production-section-row"><th colspan="' + String(7 + visibleDays * 2) + '"><span>' + escapeHtml(entry.section.title) + '</span>' + sectionEdit + '</th></tr>');
+                rows.push('<tr class="production-section-row"' + sectionContext + '><th colspan="' + String(7 + visibleDays * 2) + '"><span>' + escapeHtml(entry.section.title) + '</span></th></tr>');
                 return;
             }
             var item = entry.item;
@@ -4750,16 +4761,18 @@
                 ? ' disabled title="Для разделения нужна длительность не меньше 1 дня"'
                 : (placementIsManual ? ' disabled title="Сначала верните автоматическую раскладку этой работы"' : ' title="Разделить на две работы"');
             var rowActions = canEditSchedule && !isSectionSummary ? '<span class="production-row-actions">' +
-                '<button type="button" class="production-edit-operation-button" data-production-edit-operation data-operation-id="' + escapeHtml(operationId) + '" title="Изменить работу, объём и параметры" aria-label="Изменить работу, объём и параметры"><span aria-hidden="true">✎</span><span>Изменить</span></button>' +
                 '<button type="button" data-production-split-operation data-operation-id="' + escapeHtml(operationId) + '"' + splitAttributes + ' aria-label="Разделить работу">⑂</button>' +
                 '<button type="button" class="is-danger" data-production-delete-operation data-operation-id="' + escapeHtml(operationId) + '" title="Удалить" aria-label="Удалить работу">×</button>' +
             '</span>' : '';
             var dragHandle = canEditSchedule && !isSectionSummary
                 ? '<span class="production-drag-handle" data-production-drag-handle title="Перетащить работу" aria-label="Перетащить работу" tabindex="0">⋮⋮</span>'
                 : '';
-            var summarySectionEdit = isSectionSummary && canEditSchedule && entry.estimate.sourceId != null
-                ? '<button type="button" class="production-group-edit" data-production-rename-section data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" title="Переименовать раздел" aria-label="Переименовать раздел">✎</button>'
-                : '';
+            var rowContext = '';
+            if (canEditSchedule && isSectionSummary && entry.estimate.sourceId != null) {
+                rowContext = ' data-production-context-kind="section" data-estimate-source-id="' + escapeHtml(entry.estimate.sourceId) + '" data-current-title="' + escapeHtml(entry.section.rawTitle) + '" data-display-title="' + escapeHtml(entry.section.title) + '" tabindex="0" title="Правая кнопка мыши — изменить название раздела"';
+            } else if (canEditSchedule && !isSectionSummary) {
+                rowContext = ' data-production-context-kind="operation" tabindex="0" title="Правая кнопка мыши — изменить работу"';
+            }
             var durationMarkup = isSectionSummary
                 ? '<strong class="production-section-duration">' + escapeHtml(quantityText(durationDays)) + '</strong><small>рассчитано по работам</small>'
                 : '<div class="production-duration-stepper" role="group" aria-label="' + escapeHtml('Продолжительность: ' + (item.title || 'Работа')) + '">' +
@@ -4770,9 +4783,9 @@
             var volumeMarkup = isSectionSummary || !canEditSchedule
                 ? escapeHtml(volume)
                 : '<label class="production-volume-editor"><span class="sr-only">Объём работы</span><input type="text" inputmode="decimal" value="' + escapeHtml(rawVolume == null ? '' : String(rawVolume)) + '" placeholder="—" data-production-volume data-operation-id="' + escapeHtml(operationId) + '" aria-label="' + escapeHtml('Объём работы: ' + (item.title || 'Работа')) + '"><small>' + escapeHtml(volumePlan.unit || item.unit || 'ед.') + '</small></label>';
-            rows.push('<tr class="production-work-row' + (isSectionSummary ? ' production-section-summary-row' : '') + ' production-health-' + health.key + '"' + (isSectionSummary ? '' : ' data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '"') + ' aria-label="' + escapeHtml((item.title || 'Работа') + '. Статус: ' + health.label) + '">' +
+            rows.push('<tr class="production-work-row' + (isSectionSummary ? ' production-section-summary-row' : '') + ' production-health-' + health.key + '"' + (isSectionSummary ? '' : ' data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '"') + rowContext + ' aria-label="' + escapeHtml((item.title || 'Работа') + '. Статус: ' + health.label) + '">' +
                 '<td class="production-number-cell">' + dragHandle + '<span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
-                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + summarySectionEdit + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
+                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
                 '<td class="production-volume-cell">' + volumeMarkup + '</td>' +
                 '<td class="production-people-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.peopleCount || item.crewSize || 1))) + '</td>' +
                 '<td class="production-shifts-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.shiftCount || 1))) + '</td>' +
@@ -4787,7 +4800,7 @@
             '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (viewMode === 'sections' ? 'Сводный план по сметам и разделам. Продолжительность раздела рассчитана по входящим в него работам.' : (guestView ? 'Подробная последовательность всех работ по объекту.' : 'Подробный план: работы сгруппированы по сметам и разделам и доступны для редактирования.')) + ' Каждая половина клетки — 0,5 дня. День 1 — ' + escapeHtml(dayOneMeta.shortLabel + ' (' + dayOneMeta.weekday + ')') + '.</p></div>' +
                 '<div class="production-schedule-actions">' +
                     '<div class="production-view-switch" role="group" aria-label="Детализация графика"><button type="button" data-production-view="sections" aria-pressed="' + (viewMode === 'sections' ? 'true' : 'false') + '"><i data-lucide="layout-list" aria-hidden="true"></i><span>По разделам</span></button><button type="button" data-production-view="works" aria-pressed="' + (viewMode === 'works' ? 'true' : 'false') + '"><i data-lucide="list-tree" aria-hidden="true"></i><span>Все работы</span></button></div>' +
-                    (canEditSchedule && viewMode === 'sections' ? '<button class="primary compact production-edit-schedule-button" type="button" data-production-edit-schedule><i data-lucide="pencil" aria-hidden="true"></i><span>Редактировать график</span></button>' : '') +
+                    (canEditSchedule && viewMode === 'sections' ? '<button class="primary compact production-edit-schedule-button" type="button" data-production-edit-schedule><span>Редактировать график</span></button>' : '') +
                     (canEditSchedule ? '<button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Добавить работу</button>' : '') +
                     '<button class="ghost compact production-print-button" type="button" data-production-print data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="printer" aria-hidden="true"></i><span>Распечатать в PDF</span></button>' +
                     '<button class="ghost compact" type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">+ 7 дней</button>' +
@@ -4795,7 +4808,7 @@
                     (canEditSchedule ? '<button class="ghost compact" type="button" data-production-reset-cells data-project-id="' + escapeHtml(project.id) + '">Вернуть авто-раскладку</button>' : '') +
                     (canEditSchedule ? '<button class="ghost compact" type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
                 '</div></div>' +
-            (guestView ? '' : '<div class="production-recalculate-note">' + (canEditSchedule && viewMode === 'sections' ? '<b>Редактирование:</b> откройте «Все работы», чтобы менять объём, название, состав бригады, сроки, состояние и связи со сметой.' : '<b>Редактирование:</b> объём и длительность меняются прямо в таблице; остальные параметры — кнопкой «Изменить». Пересчёт сохраняет ручные правки.') + '</div>') +
+            (guestView ? '' : '<div class="production-recalculate-note">' + (canEditSchedule && viewMode === 'sections' ? '<b>Редактирование:</b> нажмите правой кнопкой мыши по смете или разделу. Для полной настройки работ откройте «Все работы».' : '<b>Редактирование:</b> нажмите правой кнопкой мыши по работе, смете или разделу. Объём и длительность также меняются прямо в таблице.') + '</div>') +
             productionScheduleLegendMarkup('production-health-legend') +
             '<div class="production-scroll-hint" aria-hidden="true">Колесо — вверх/вниз · Shift + колесо — по дням</div>' +
             '<div class="production-table-shell" data-production-table-shell>' +
@@ -5004,11 +5017,54 @@
         });
     }
 
+    function closeProductionGroupEditor() {
+        document.body.classList.remove('production-group-editor-open');
+        var panel = qs('[data-panel="production-schedule"]');
+        if (!panel) return;
+        qsa('[data-production-group-editor], [data-production-group-editor-overlay]', panel).forEach(function (node) {
+            node.setAttribute('aria-hidden', 'true');
+        });
+    }
+
+    function openProductionGroupEditor(target) {
+        var panel = qs('[data-panel="production-schedule"]');
+        var dialog = panel ? qs('[data-production-group-editor]', panel) : null;
+        var form = dialog ? qs('[data-production-group-editor-form]', dialog) : null;
+        if (!dialog || !form || !target) return;
+        var kind = target.dataset.productionContextKind === 'section' ? 'section' : 'estimate';
+        var currentTitle = String(kind === 'section' ? (target.dataset.displayTitle || target.dataset.currentTitle || 'Без раздела') : target.dataset.currentTitle || '').trim();
+        form.elements.group_kind.value = kind;
+        form.elements.estimate_source_id.value = String(target.dataset.estimateSourceId || '');
+        form.elements.old_title.value = String(target.dataset.currentTitle || '');
+        form.elements.title.value = currentTitle;
+        form._productionInitialTitle = currentTitle;
+        var heading = qs('[data-production-group-editor-title]', dialog);
+        var description = qs('[data-production-group-editor-description]', dialog);
+        var label = qs('[data-production-group-editor-label]', dialog);
+        if (heading) heading.textContent = kind === 'section' ? 'Название раздела' : 'Название сметы';
+        if (description) description.textContent = kind === 'section' ? 'Изменение применится ко всем работам этого раздела.' : 'Изменение применится к этой смете в объекте.';
+        if (label) label.textContent = kind === 'section' ? 'Новое название раздела' : 'Новое название сметы';
+        var error = qs('[data-production-group-editor-error]', form);
+        if (error) error.textContent = '';
+        closeProductionOperationEditor();
+        dialog.setAttribute('aria-hidden', 'false');
+        var overlay = qs('[data-production-group-editor-overlay]', panel);
+        if (overlay) overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('production-group-editor-open');
+        setTimeout(function () {
+            if (form.elements.title && typeof form.elements.title.focus === 'function') {
+                form.elements.title.focus();
+                form.elements.title.select();
+            }
+        }, 60);
+    }
+
     function openProductionOperationEditor(projectId, operationId) {
         var panel = qs('[data-panel="production-schedule"]');
         var drawer = panel ? qs('[data-production-editor]', panel) : null;
         var form = drawer ? qs('[data-production-operation-form]', drawer) : null;
         if (!drawer || !form) return;
+        closeProductionGroupEditor();
         var item = operationId == null ? null : productionScheduleItemById(projectId, operationId);
         var setValue = function (name, value) {
             if (form.elements && form.elements[name]) form.elements[name].value = value == null ? '' : String(value);
@@ -5121,38 +5177,19 @@
                 renderSelectedProjectProductionSchedule();
             });
         });
-        qsa('[data-production-rename-estimate]', panel).forEach(function (button) {
-            button.addEventListener('click', function () {
-                var currentTitle = String(button.dataset.currentTitle || '').trim();
-                var nextTitle = window.prompt('Новое название сметы', currentTitle);
-                if (nextTitle == null) return;
-                nextTitle = String(nextTitle).trim();
-                if (!nextTitle || nextTitle === currentTitle) return;
-                saveProductionScheduleAction(projectId, {
-                    action: 'rename_estimate',
-                    estimate_source_id: productionPayloadId(button.dataset.estimateSourceId),
-                    title: nextTitle
-                }, button).then(function () {
-                    showAppNotice('Название сметы обновлено.', 'success');
-                }).catch(function () {});
-            });
-        });
-        qsa('[data-production-rename-section]', panel).forEach(function (button) {
-            button.addEventListener('click', function () {
-                var currentTitle = String(button.dataset.currentTitle || '').trim();
-                var displayTitle = String(button.dataset.displayTitle || currentTitle || 'Без раздела').trim();
-                var nextTitle = window.prompt('Новое название раздела', displayTitle);
-                if (nextTitle == null) return;
-                nextTitle = String(nextTitle).trim();
-                if (!nextTitle || nextTitle === displayTitle) return;
-                saveProductionScheduleAction(projectId, {
-                    action: 'rename_section',
-                    estimate_source_id: productionPayloadId(button.dataset.estimateSourceId),
-                    old_title: currentTitle,
-                    title: nextTitle
-                }, button).then(function () {
-                    showAppNotice('Название раздела обновлено.', 'success');
-                }).catch(function () {});
+        qsa('[data-production-context-kind]', panel).forEach(function (target) {
+            var openContextEditor = function (event) {
+                if (event) event.preventDefault();
+                if (target.dataset.productionContextKind === 'operation') {
+                    openProductionOperationEditor(projectId, target.dataset.operationId);
+                } else {
+                    openProductionGroupEditor(target);
+                }
+            };
+            target.addEventListener('contextmenu', openContextEditor);
+            target.addEventListener('keydown', function (event) {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+                openContextEditor(event);
             });
         });
         qsa('[data-production-print]', panel).forEach(function (button) {
@@ -5246,17 +5283,23 @@
         qsa('[data-production-add-operation]', panel).forEach(function (button) {
             button.addEventListener('click', function () { openProductionOperationEditor(projectId, null); });
         });
-        qsa('[data-production-edit-operation]', panel).forEach(function (button) {
-            button.addEventListener('click', function () { openProductionOperationEditor(projectId, button.dataset.operationId); });
-        });
         qsa('[data-production-editor-close], [data-production-editor-overlay]', panel).forEach(function (button) {
             button.addEventListener('click', function () { closeProductionOperationEditor(); });
+        });
+        qsa('[data-production-group-editor-close], [data-production-group-editor-overlay]', panel).forEach(function (button) {
+            button.addEventListener('click', function () { closeProductionGroupEditor(); });
         });
 
         var editor = qs('[data-production-editor]', panel);
         if (editor) {
             editor.addEventListener('keydown', function (event) {
                 if (event.key === 'Escape') closeProductionOperationEditor();
+            });
+        }
+        var groupEditor = qs('[data-production-group-editor]', panel);
+        if (groupEditor) {
+            groupEditor.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') closeProductionGroupEditor();
             });
         }
         var linkFilter = qs('[data-production-link-filter]', panel);
@@ -5288,6 +5331,37 @@
                     closeProductionOperationEditor();
                 }).catch(function (saveError) {
                     if (error) error.textContent = appErrorMessage(saveError, 'Не удалось сохранить работу.');
+                });
+            });
+        }
+        var groupEditorForm = qs('[data-production-group-editor-form]', panel);
+        if (groupEditorForm) {
+            groupEditorForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                var kind = groupEditorForm.elements.group_kind.value === 'section' ? 'section' : 'estimate';
+                var nextTitle = String(groupEditorForm.elements.title.value || '').trim();
+                var error = qs('[data-production-group-editor-error]', groupEditorForm);
+                if (!nextTitle) {
+                    if (error) error.textContent = 'Укажите название.';
+                    return;
+                }
+                if (nextTitle === groupEditorForm._productionInitialTitle) {
+                    closeProductionGroupEditor();
+                    return;
+                }
+                var payload = {
+                    action: kind === 'section' ? 'rename_section' : 'rename_estimate',
+                    estimate_source_id: productionPayloadId(groupEditorForm.elements.estimate_source_id.value),
+                    title: nextTitle
+                };
+                if (kind === 'section') payload.old_title = groupEditorForm.elements.old_title.value;
+                var submit = qs('button[type="submit"]', groupEditorForm);
+                if (error) error.textContent = '';
+                saveProductionScheduleAction(projectId, payload, submit).then(function () {
+                    closeProductionGroupEditor();
+                    showAppNotice(kind === 'section' ? 'Название раздела обновлено.' : 'Название сметы обновлено.', 'success');
+                }).catch(function (saveError) {
+                    if (error) error.textContent = appErrorMessage(saveError, 'Не удалось сохранить название.');
                 });
             });
         }

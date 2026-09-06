@@ -59,8 +59,7 @@ assert.match(planningJs, /data-production-view="sections"/);
 assert.match(planningJs, /data-production-view="works"/);
 assert.match(planningJs, /По разделам/);
 assert.match(planningJs, /Все работы/);
-assert.match(planningJs, /action: 'rename_estimate'/);
-assert.match(planningJs, /action: 'rename_section'/);
+assert.match(planningJs, /kind === 'section' \? 'rename_section' : 'rename_estimate'/);
 assert.match(planningJs, /class="production-month-head"/);
 assert.match(planningJs, /class="production-day-head production-date-head/);
 assert.match(planningJs, /class="production-half-day-head"/);
@@ -90,7 +89,14 @@ const productionPrintOpenBlock = planningJs.slice(
   planningJs.indexOf('function renderProductionSchedule'),
 );
 assert.doesNotMatch(productionPrintOpenBlock, /window\.open\(/);
-assert.match(planningJs, /data-production-edit-operation/);
+assert.doesNotMatch(planningJs, /data-production-edit-operation|production-group-edit(?!or)|data-lucide="pencil"/);
+assert.match(planningJs, /data-production-context-kind="operation"/);
+assert.match(planningJs, /data-production-context-kind="estimate"/);
+assert.match(planningJs, /data-production-context-kind="section"/);
+assert.match(planningJs, /data-production-group-editor-form/);
+assert.match(planningJs, /addEventListener\('contextmenu', openContextEditor\)/);
+assert.match(planningJs, /event\.key !== 'ContextMenu'.*event\.shiftKey.*event\.key === 'F10'/);
+assert.doesNotMatch(planningJs, /window\.prompt\('Новое название (?:сметы|раздела)'/);
 assert.match(planningJs, /data-production-delete-operation/);
 assert.match(planningJs, /data-production-split-operation/);
 assert.match(planningJs, /data-production-operation-row/);
@@ -272,6 +278,8 @@ assert.equal(productionWheelPrevented, 4, 'Browser zoom and already handled whee
 assert.match(planningCss, /\.production-schedule-table/);
 assert.match(planningCss, /\.production-duration-stepper/);
 assert.match(planningCss, /\.production-operation-drawer/);
+assert.match(planningCss, /\.production-group-editor/);
+assert.match(planningCss, /tr\[data-production-context-kind\]/);
 for (const health of ['neutral', 'green', 'yellow', 'red']) {
   assert.match(planningCss, new RegExp(`\\.production-work-row\\.production-health-${health}`));
 }

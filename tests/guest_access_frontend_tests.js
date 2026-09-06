@@ -210,5 +210,6 @@ assert.match(guestScheduleHtml, /data-production-view="sections"[^>]*aria-presse
 assert.match(guestScheduleHtml, /data-production-cell[^>]* disabled/);
 assert.doesNotMatch(guestScheduleHtml, /data-production-operation-form/);
 assert.doesNotMatch(guestScheduleHtml, /data-production-rename-(?:estimate|section)/);
+assert.doesNotMatch(guestScheduleHtml, /data-production-context-kind|data-production-group-editor-form/);
 
 console.log('guest_access_frontend_ok');
