@@ -1771,6 +1771,26 @@ def init_db() -> None:
                 PRIMARY KEY (project_id, estimate_item_id, slot_number)
             );
 
+            CREATE TABLE IF NOT EXISTS production_schedule_settings (
+                project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+                start_date TEXT NOT NULL,
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS production_schedule_section_overrides (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                estimate_source_id INTEGER NOT NULL REFERENCES project_estimates(id) ON DELETE CASCADE,
+                section_title TEXT NOT NULL DEFAULT '',
+                planned_qty REAL NOT NULL CHECK(planned_qty >= 0),
+                unit TEXT NOT NULL DEFAULT '',
+                updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, estimate_source_id, section_title)
+            );
+
             CREATE TABLE IF NOT EXISTS production_schedule_operations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

@@ -64,6 +64,24 @@ def production_connection() -> sqlite3.Connection:
             is_filled INTEGER NOT NULL,
             PRIMARY KEY (project_id, estimate_item_id, slot_number)
         );
+        CREATE TABLE production_schedule_settings (
+            project_id INTEGER PRIMARY KEY,
+            start_date TEXT NOT NULL,
+            updated_by INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE production_schedule_section_overrides (
+            project_id INTEGER NOT NULL,
+            estimate_source_id INTEGER NOT NULL,
+            section_title TEXT NOT NULL DEFAULT '',
+            planned_qty REAL NOT NULL,
+            unit TEXT NOT NULL DEFAULT '',
+            updated_by INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (project_id, estimate_source_id, section_title)
+        );
         CREATE TABLE production_schedule_operations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL,
@@ -722,6 +740,20 @@ class ProductionScheduleTests(unittest.TestCase):
             ALTER TABLE projects ADD COLUMN customer_schedule_version INTEGER DEFAULT 1;
             ALTER TABLE projects ADD COLUMN customer_schedule_approved_at INTEGER;
             ALTER TABLE projects ADD COLUMN updated_at INTEGER;
+            ALTER TABLE estimate_items ADD COLUMN estimate_source_id INTEGER;
+            CREATE TABLE project_estimates (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL,
+                source_type TEXT NOT NULL,
+                source_key TEXT NOT NULL,
+                title TEXT,
+                file_name TEXT,
+                updated_at INTEGER
+            );
+            INSERT INTO project_estimates (
+                id, project_id, source_type, source_key, title, file_name, updated_at
+            ) VALUES (31, 1, 'file', 'estimate-31', 'Смета 31', 'estimate.xlsx', 1);
+            UPDATE estimate_items SET estimate_source_id = 31;
             CREATE TABLE audit_log (
                 user_id INTEGER,
                 action TEXT,
@@ -767,6 +799,32 @@ class ProductionScheduleTests(unittest.TestCase):
             guest_denied = Handler({"action": "add_operation", "title": "Нельзя"}, role="guest")
             api_update_production_schedule(guest_denied, "/api/projects/1/production-schedule")
             self.assertEqual(guest_denied.status, 403)
+
+            shifted = Handler({"action": "set_start_date", "start_date": "2026-09-05"}, role="purchaser")
+            api_update_production_schedule(shifted, "/api/projects/1/production-schedule")
+            self.assertEqual(shifted.status, 200)
+            self.assertEqual(shifted.response["startDate"], "2026-09-05")
+            self.assertEqual(shifted.response["startDateSource"], "manual")
+
+            section_volume = Handler(
+                {
+                    "action": "update_section",
+                    "estimate_source_id": 31,
+                    "old_title": "Раздел",
+                    "planned_qty": 250.5,
+                    "unit": "м²",
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(section_volume, "/api/projects/1/production-schedule")
+            self.assertEqual(section_volume.status, 200)
+            self.assertEqual(
+                section_volume.response["sectionOverrides"],
+                [{"estimateSourceId": 31, "sectionTitle": "Раздел", "plannedQty": 250.5, "unit": "м²"}],
+            )
+            guest_schedule = build_guest_production_schedule_payload(con, 1)
+            self.assertEqual(guest_schedule["startDate"], "2026-09-05")
+            self.assertEqual(guest_schedule["sectionOverrides"], section_volume.response["sectionOverrides"])
 
             added = Handler(
                 {

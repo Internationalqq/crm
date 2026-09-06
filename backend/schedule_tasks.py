@@ -2119,6 +2119,49 @@ def production_project_calendar_row(con: sqlite3.Connection, project_id: int) ->
     ).fetchone()
 
 
+def production_schedule_calendar_settings(
+    con: sqlite3.Connection,
+    project_id: int,
+    project_start: date,
+    has_explicit_project_start: bool,
+) -> tuple[date, str]:
+    """Resolve the editable calendar anchor while remaining compatible with older schemas."""
+
+    if production_table_exists(con, "production_schedule_settings"):
+        row = con.execute(
+            "SELECT start_date FROM production_schedule_settings WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        manual_start = parse_iso_date(row["start_date"]) if row else None
+        if manual_start:
+            return manual_start, "manual"
+    return project_start, "project" if has_explicit_project_start else "today"
+
+
+def production_schedule_section_overrides(con: sqlite3.Connection, project_id: int) -> list[dict]:
+    """Return manual section summary volumes used by both private and guest schedules."""
+
+    if not production_table_exists(con, "production_schedule_section_overrides"):
+        return []
+    return [
+        {
+            "estimateSourceId": int(row["estimate_source_id"]),
+            "sectionTitle": str(row["section_title"] or ""),
+            "plannedQty": float(row["planned_qty"]),
+            "unit": str(row["unit"] or ""),
+        }
+        for row in con.execute(
+            """
+            SELECT estimate_source_id, section_title, planned_qty, unit
+            FROM production_schedule_section_overrides
+            WHERE project_id = ?
+            ORDER BY estimate_source_id, section_title
+            """,
+            (project_id,),
+        ).fetchall()
+    ]
+
+
 def production_operation_actual_summaries(
     con: sqlite3.Connection,
     project_id: int,
@@ -3145,6 +3188,12 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
     migrate_legacy_production_schedule(con, project_id)
     explicit_project_start = parse_iso_date(project["started_at"])
     project_start = explicit_project_start or date.today()
+    schedule_start, schedule_start_source = production_schedule_calendar_settings(
+        con,
+        project_id,
+        project_start,
+        explicit_project_start is not None,
+    )
     today_date = date.today()
     actual_summaries = production_operation_actual_summaries(con, project_id)
 
@@ -3266,7 +3315,7 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
             actual_summary=actual_summary,
             effective_slots=effective_slots,
             fallback_slots=base_slots if placement_mode != "manual" else set(),
-            project_start=project_start,
+            project_start=schedule_start,
             today_date=today_date,
         )
         items.append(
@@ -3342,8 +3391,8 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
     return {
         "projectId": int(project["id"]),
         "projectTitle": str(project["title"] or ""),
-        "startDate": project_start.isoformat(),
-        "startDateSource": "project" if explicit_project_start else "today",
+        "startDate": schedule_start.isoformat(),
+        "startDateSource": schedule_start_source,
         "deadlineDate": parse_iso_date(project["deadline_at"]).isoformat() if parse_iso_date(project["deadline_at"]) else None,
         "today": today_date.isoformat(),
         "shiftHours": SCHEDULE_SHIFT_HOURS,
@@ -3353,6 +3402,7 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         "items": items,
         "operations": items,
         "estimateOptions": estimate_options,
+        "sectionOverrides": production_schedule_section_overrides(con, project_id),
         "generation": generation,
         "template": {"key": generation.get("templateKey"), "matched": generation.get("mode") == "template"},
     }
@@ -3366,20 +3416,27 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
         raise LookupError("project_not_found")
     explicit_project_start = parse_iso_date(project["started_at"])
     project_start = explicit_project_start or date.today()
+    schedule_start, schedule_start_source = production_schedule_calendar_settings(
+        con,
+        project_id,
+        project_start,
+        explicit_project_start is not None,
+    )
     today_date = date.today()
     actual_summaries = production_operation_actual_summaries(con, project_id)
     if not production_table_exists(con, "production_schedule_operations"):
         return {
             "projectId": int(project["id"]),
             "projectTitle": str(project["title"] or ""),
-            "startDate": project_start.isoformat(),
-            "startDateSource": "project" if explicit_project_start else "today",
+            "startDate": schedule_start.isoformat(),
+            "startDateSource": schedule_start_source,
             "deadlineDate": parse_iso_date(project["deadline_at"]).isoformat() if parse_iso_date(project["deadline_at"]) else None,
             "today": today_date.isoformat(),
             "shiftHours": SCHEDULE_SHIFT_HOURS,
             "dayCount": 0,
             "autoDayCount": 0,
             "items": [],
+            "sectionOverrides": production_schedule_section_overrides(con, project_id),
         }
 
     # Public users receive only the harmless grouping labels required to render
@@ -3482,7 +3539,7 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
             actual_summary=actual_summary,
             effective_slots=effective_slots,
             fallback_slots=base_slots if placement_mode != "manual" else set(),
-            project_start=project_start,
+            project_start=schedule_start,
             today_date=today_date,
         )
         items.append(
@@ -3514,14 +3571,15 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
     return {
         "projectId": int(project["id"]),
         "projectTitle": str(project["title"] or ""),
-        "startDate": project_start.isoformat(),
-        "startDateSource": "project" if explicit_project_start else "today",
+        "startDate": schedule_start.isoformat(),
+        "startDateSource": schedule_start_source,
         "deadlineDate": parse_iso_date(project["deadline_at"]).isoformat() if parse_iso_date(project["deadline_at"]) else None,
         "today": today_date.isoformat(),
         "shiftHours": SCHEDULE_SHIFT_HOURS,
         "dayCount": day_count,
         "autoDayCount": math.ceil(max(0, cursor_slot - 1) / 2),
         "items": items,
+        "sectionOverrides": production_schedule_section_overrides(con, project_id),
     }
 
 
@@ -4467,7 +4525,45 @@ def api_update_production_schedule(handler, path: str) -> None:
         audit_payload: dict = {"project_id": project_id, "action": action}
         timestamp = now_ts()
 
-        if action == "set_cell":
+        if action == "set_start_date":
+            if not production_table_exists(con, "production_schedule_settings"):
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "production_schedule_schema_missing"})
+                return
+            reset = bool(payload.get("reset"))
+            if reset:
+                con.execute(
+                    "DELETE FROM production_schedule_settings WHERE project_id = ?",
+                    (project_id,),
+                )
+                audit_payload["reset"] = True
+            else:
+                raw_start_date = str(
+                    production_payload_value(payload, "start_date", "startDate", default="") or ""
+                ).strip()
+                start_date = parse_iso_date(raw_start_date)
+                if (
+                    not start_date
+                    or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_start_date)
+                    or start_date.year < 1900
+                    or start_date.year > 2200
+                ):
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_start_date"})
+                    return
+                con.execute(
+                    """
+                    INSERT INTO production_schedule_settings (
+                        project_id, start_date, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                        start_date = excluded.start_date,
+                        updated_by = excluded.updated_by,
+                        updated_at = excluded.updated_at
+                    """,
+                    (project_id, start_date.isoformat(), user["id"], timestamp, timestamp),
+                )
+                audit_payload["start_date"] = start_date.isoformat()
+
+        elif action == "set_cell":
             operation_id = resolve_production_operation_id(con, project_id, payload)
             try:
                 slot_number = int(production_payload_value(payload, "slot_number", "slotNumber"))
@@ -4945,7 +5041,7 @@ def api_update_production_schedule(handler, path: str) -> None:
             )
             audit_payload.update({"estimate_source_id": estimate_source_id, "title": title})
 
-        elif action == "rename_section":
+        elif action in {"rename_section", "update_section"}:
             try:
                 estimate_source_id = int(
                     production_payload_value(payload, "estimate_source_id", "estimateSourceId")
@@ -4955,15 +5051,14 @@ def api_update_production_schedule(handler, path: str) -> None:
             old_title = str(
                 production_payload_value(payload, "old_title", "oldTitle", default="") or ""
             ).strip()
-            title = re.sub(
-                r"\s+",
-                " ",
-                str(production_payload_value(payload, "title", default="") or "").strip(),
-            )
+            title_was_supplied = "title" in payload
+            title = re.sub(r"\s+", " ", str(payload.get("title") or "").strip()) if title_was_supplied else old_title
             if not estimate_source_id:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_source_id"})
                 return
-            if not title or len(title) > 500:
+            if (title_was_supplied and (not title or len(title) > 500)) or (
+                action == "rename_section" and not title_was_supplied
+            ):
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_title"})
                 return
             if not production_table_exists(con, "project_estimates") or "estimate_source_id" not in table_columns(con, "estimate_items"):
@@ -4976,24 +5071,106 @@ def api_update_production_schedule(handler, path: str) -> None:
             if not source:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_not_found"})
                 return
-            updated = con.execute(
+            reset_volume = bool(production_payload_value(payload, "reset_volume", "resetVolume", default=False))
+            volume_was_supplied = "planned_qty" in payload or "plannedQty" in payload or "unit" in payload
+            if (reset_volume or volume_was_supplied) and not production_table_exists(con, "production_schedule_section_overrides"):
+                handler.send_json(HTTPStatus.CONFLICT, {"error": "production_schedule_schema_missing"})
+                return
+            planned_qty = None
+            unit = ""
+            if volume_was_supplied and not reset_volume:
+                raw_planned_qty = production_payload_value(payload, "planned_qty", "plannedQty")
+                try:
+                    planned_qty = float(raw_planned_qty)
+                except (TypeError, ValueError):
+                    planned_qty = -1
+                unit = re.sub(r"\s+", " ", str(payload.get("unit") or "").strip())
+                if not math.isfinite(planned_qty) or planned_qty < 0:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_planned_qty"})
+                    return
+                if len(unit) > 40:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_unit"})
+                    return
+            section_exists = con.execute(
                 """
-                UPDATE estimate_items
-                SET section_title = ?
+                SELECT 1 FROM estimate_items
                 WHERE project_id = ? AND estimate_source_id = ?
                   AND COALESCE(trim(section_title), '') = ?
+                LIMIT 1
                 """,
-                (title, project_id, estimate_source_id, old_title),
-            )
-            if not updated.rowcount:
+                (project_id, estimate_source_id, old_title),
+            ).fetchone()
+            if not section_exists:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "section_not_found"})
                 return
+            updated_items = 0
+            if title != old_title:
+                updated = con.execute(
+                    """
+                    UPDATE estimate_items
+                    SET section_title = ?
+                    WHERE project_id = ? AND estimate_source_id = ?
+                      AND COALESCE(trim(section_title), '') = ?
+                    """,
+                    (title, project_id, estimate_source_id, old_title),
+                )
+                updated_items = int(updated.rowcount)
+                if production_table_exists(con, "production_schedule_section_overrides"):
+                    old_override = con.execute(
+                        """
+                        SELECT planned_qty, unit FROM production_schedule_section_overrides
+                        WHERE project_id = ? AND estimate_source_id = ? AND section_title = ?
+                        """,
+                        (project_id, estimate_source_id, old_title),
+                    ).fetchone()
+                    if old_override:
+                        con.execute(
+                            """
+                            DELETE FROM production_schedule_section_overrides
+                            WHERE project_id = ? AND estimate_source_id = ? AND section_title = ?
+                            """,
+                            (project_id, estimate_source_id, title),
+                        )
+                        con.execute(
+                            """
+                            UPDATE production_schedule_section_overrides
+                            SET section_title = ?, updated_by = ?, updated_at = ?
+                            WHERE project_id = ? AND estimate_source_id = ? AND section_title = ?
+                            """,
+                            (title, user["id"], timestamp, project_id, estimate_source_id, old_title),
+                        )
+
+            if reset_volume:
+                con.execute(
+                    """
+                    DELETE FROM production_schedule_section_overrides
+                    WHERE project_id = ? AND estimate_source_id = ? AND section_title = ?
+                    """,
+                    (project_id, estimate_source_id, title),
+                )
+            elif volume_was_supplied:
+                con.execute(
+                    """
+                    INSERT INTO production_schedule_section_overrides (
+                        project_id, estimate_source_id, section_title, planned_qty,
+                        unit, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(project_id, estimate_source_id, section_title) DO UPDATE SET
+                        planned_qty = excluded.planned_qty,
+                        unit = excluded.unit,
+                        updated_by = excluded.updated_by,
+                        updated_at = excluded.updated_at
+                    """,
+                    (project_id, estimate_source_id, title, planned_qty, unit, user["id"], timestamp, timestamp),
+                )
             audit_payload.update(
                 {
                     "estimate_source_id": estimate_source_id,
                     "old_title": old_title,
                     "title": title,
-                    "updated_items": int(updated.rowcount),
+                    "updated_items": updated_items,
+                    "volume_updated": volume_was_supplied,
+                    "volume_reset": reset_volume,
                 }
             )
 

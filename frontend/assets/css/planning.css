@@ -211,6 +211,88 @@ body.cal-modal-open .calendar-modal-overlay {
     justify-content: flex-end;
 }
 
+.production-start-date-control {
+    align-items: center;
+    background: #f6f8fb;
+    border: 1px solid #d8e0ea;
+    border-radius: 11px;
+    display: grid;
+    gap: 3px 8px;
+    grid-template-columns: auto auto;
+    padding: 6px 8px;
+}
+
+.production-start-date-control > span {
+    color: #526170;
+    font-size: 10px;
+    font-weight: 850;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+.production-start-date-control > small {
+    color: #7a8793;
+    font-size: 9px;
+    grid-column: 1 / -1;
+    line-height: 1.2;
+    max-width: 250px;
+}
+
+.production-start-date-inputs {
+    align-items: center;
+    display: grid;
+    grid-template-columns: 28px minmax(128px, 1fr) 28px;
+}
+
+.production-start-date-inputs button,
+.production-start-date-inputs input {
+    background: #fff;
+    border: 1px solid #cdd7e3;
+    color: #253445;
+    min-height: 30px;
+}
+
+.production-start-date-inputs button {
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 850;
+    padding: 0;
+}
+
+.production-start-date-inputs button:first-child {
+    border-radius: 8px 0 0 8px;
+}
+
+.production-start-date-inputs button:last-child {
+    border-radius: 0 8px 8px 0;
+}
+
+.production-start-date-inputs input {
+    border-inline: 0;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 750;
+    min-width: 128px;
+    padding: 4px 6px;
+}
+
+.production-start-date-inputs button:hover {
+    background: #edf4ff;
+    color: #1f5bd5;
+}
+
+.production-start-date-reset {
+    background: transparent;
+    border: 0;
+    color: #2f6fed;
+    cursor: pointer;
+    font-size: 9px;
+    font-weight: 800;
+    grid-column: 1 / -1;
+    justify-self: start;
+    padding: 0;
+}
+
 .production-view-switch {
     align-items: center;
     background: #e9eef5;
@@ -1142,6 +1224,30 @@ body.production-group-editor-open .production-group-editor {
     gap: 12px;
 }
 
+.production-section-volume-fields {
+    background: #f7f9fc;
+    border: 1px solid #dce4ed;
+    border-radius: 12px;
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+}
+
+.production-section-volume-fields[hidden] {
+    display: none;
+}
+
+.production-section-volume-help {
+    color: #6d7986;
+    font-size: 11px;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.production-section-volume-reset {
+    justify-self: start;
+}
+
 .production-operation-close {
     align-items: center;
     background: #f0f3f5;
@@ -1196,6 +1302,7 @@ body.production-group-editor-open .production-group-editor {
 .production-operation-form input[type="text"],
 .production-operation-form input[type="number"],
 .production-operation-form input[type="search"],
+.production-operation-form input[type="date"],
 .production-operation-form input:not([type]),
 .production-operation-form select {
     background: #fff;
