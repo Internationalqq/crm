@@ -1121,15 +1121,6 @@ body.cal-modal-open .calendar-modal-overlay {
     background: linear-gradient(90deg, var(--production-health-color, var(--production-health-neutral)) 0 50%, #fff 50% 100%);
 }
 
-.production-cell-toggle.is-filled.is-overridden {
-    box-shadow: inset 0 0 0 2px rgba(29, 42, 52, .48);
-}
-
-.production-cell-toggle.is-overridden:not(.is-filled) {
-    background: #fff;
-    box-shadow: inset 0 0 0 2px #8795a3;
-}
-
 .production-cell-toggle:hover:not(:disabled) {
     box-shadow: inset 0 0 0 2px #1d6adf;
 }

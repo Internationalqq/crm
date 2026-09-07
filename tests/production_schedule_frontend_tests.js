@@ -367,6 +367,7 @@ assert.match(planningCss, /\.production-duration-step-button\s*\{[^}]*display: g
 assert.match(planningCss, /\.production-day-head\s*\{[^}]*width: 15px;/s);
 assert.match(planningCss, /\.production-day-cell\s*\{[^}]*width: 15px;/s);
 assert.match(planningCss, /\.production-cell-toggle\.is-filled\.is-partial\s*\{[^}]*linear-gradient/s);
+assert.doesNotMatch(planningCss, /\.production-cell-toggle\.is-(?:filled\.)?is-overridden\s*\{/);
 assert.match(planningJs, /data-production-duration-step="-0\.5"[\s\S]*?<span aria-hidden="true">−<\/span>/);
 assert.match(planningJs, /data-production-duration-step="0\.5"[\s\S]*?<span aria-hidden="true">\+<\/span>/);
 assert.doesNotMatch(planningJs, /production-work-heading"><i/);
@@ -461,6 +462,7 @@ assert.match(printableHtml, /rowspan="2"/);
 assert.doesNotMatch(printableHtml, /production-print-half|>1\/2<|>2\/2</);
 assert.match(printableHtml, /Статусы выполнения графика/);
 assert.match(printableHtml, /production-print-slot is-filled tone-green is-overridden/);
+assert.doesNotMatch(printableHtml, /\.production-print-slot\.is-overridden\s*\{/);
 assert.equal((printableHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 1);
 assert.match(printableHtml, /ЮУРГУ &lt;корпус&gt;/);
 assert.doesNotMatch(printableHtml, /data-production-(?:cell|duration|edit-operation)/);
@@ -505,6 +507,10 @@ assert.match(rootCss, /planning\.css\?v=[^"\n]*production-day-grid-add-section-1
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-day-grid-add-section-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-day-grid-add-section-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-day-grid-add-section-1/);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*production-override-outline-fix-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-override-outline-fix-1/);
+assert.match(baseHtml, /app\.css\?v=[^"\n]*production-override-outline-fix-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-override-outline-fix-1/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*schedule-health-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*schedule-health-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*report-ux-r1/);
