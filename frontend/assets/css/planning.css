@@ -211,6 +211,22 @@ body.cal-modal-open .calendar-modal-overlay {
     justify-content: flex-end;
 }
 
+.production-add-controls {
+    align-items: stretch;
+    background: #e9eef5;
+    border: 1px solid #d5deea;
+    border-radius: 10px;
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+}
+
+.production-add-controls .compact {
+    border-radius: 7px;
+    min-height: 30px;
+    padding-inline: 10px;
+}
+
 .production-start-date-control {
     align-items: center;
     background: #f6f8fb;
@@ -600,7 +616,7 @@ body.cal-modal-open .calendar-modal-overlay {
     border-top: 0;
     font-size: 10px;
     font-weight: 800;
-    height: 78px;
+    height: 58px;
     line-height: 1.2;
     position: sticky;
     text-align: center;
@@ -1005,8 +1021,8 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-day-head {
-    min-width: 30px;
-    width: 30px;
+    min-width: 15px;
+    width: 15px;
 }
 
 .production-schedule-table thead .production-number-cell,
@@ -1043,16 +1059,16 @@ body.cal-modal-open .calendar-modal-overlay {
 }
 
 .production-date-head span {
-    font-size: 11px;
+    font-size: 9px;
     line-height: 1;
 }
 
 .production-date-head small {
     color: #68737c;
-    font-size: 8px;
+    font-size: 6px;
     font-weight: 700;
     line-height: 1;
-    margin-top: 3px;
+    margin-top: 2px;
     text-transform: uppercase;
 }
 
@@ -1065,31 +1081,22 @@ body.cal-modal-open .calendar-modal-overlay {
     color: #245b9a;
 }
 
-.production-half-day-head {
-    color: #737d85;
-    font-size: 7px !important;
-    height: 20px !important;
-    min-width: 15px;
-    top: 58px !important;
-    width: 15px;
-}
-
-.production-day-half-cell {
+.production-day-cell {
     min-width: 15px;
     position: relative;
     width: 15px;
 }
 
-.production-day-half-cell.is-first-half {
+.production-day-cell.is-first-of-pair {
     border-right-color: #bfc2c4;
     border-right-style: dashed;
 }
 
-.production-day-half-cell.is-weekend .production-cell-toggle:not(.is-filled) {
+.production-day-cell.is-weekend .production-cell-toggle:not(.is-filled) {
     background: #fafafa;
 }
 
-.production-day-half-cell.is-today {
+.production-day-cell.is-today {
     box-shadow: inset 1px 0 rgba(47, 111, 218, .45), inset -1px 0 rgba(47, 111, 218, .45);
 }
 
@@ -1110,8 +1117,11 @@ body.cal-modal-open .calendar-modal-overlay {
     background: var(--production-health-color, var(--production-health-neutral));
 }
 
+.production-cell-toggle.is-filled.is-partial {
+    background: linear-gradient(90deg, var(--production-health-color, var(--production-health-neutral)) 0 50%, #fff 50% 100%);
+}
+
 .production-cell-toggle.is-filled.is-overridden {
-    background: var(--production-health-color, var(--production-health-neutral));
     box-shadow: inset 0 0 0 2px rgba(29, 42, 52, .48);
 }
 

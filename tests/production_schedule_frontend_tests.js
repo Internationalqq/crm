@@ -17,10 +17,10 @@ assert.match(projectsHtml, /data-panel="production-schedule"/);
 assert.match(coreJs, /productionScheduleByProject/);
 assert.match(appJs, /loadSelectedProjectProductionSchedule/);
 assert.match(appJs, /tabName === 'production-schedule'/);
-assert.match(planningJs, /data-production-cell/);
-assert.match(planningJs, /action: 'set_cell'/);
+assert.match(planningJs, /data-production-day/);
+assert.match(planningJs, /action: 'set_day'/);
 assert.match(planningJs, /operation_id: productionPayloadId\(button\.dataset\.operationId\)/);
-assert.match(planningJs, /slot_number: Number\(button\.dataset\.slotNumber\)/);
+assert.match(planningJs, /day_number: Number\(button\.dataset\.dayNumber\)/);
 assert.match(planningJs, /step="0\.5"/);
 assert.match(planningJs, /class="production-duration-stepper" role="group"/);
 assert.match(planningJs, /data-production-duration-step="-0\.5"/);
@@ -42,10 +42,12 @@ assert.doesNotMatch(planningJs, /Всего<br>чел\/час/);
 assert.doesNotMatch(planningJs, /чел\.-ч/);
 assert.match(planningJs, /action: 'recalculate'/);
 assert.match(planningJs, /preserve_manual: true/);
-for (const action of ['add_operation', 'update_operation', 'delete_operation', 'delete_section', 'split_operation', 'reorder_operations', 'save_template']) {
+for (const action of ['add_operation', 'add_section', 'update_operation', 'delete_operation', 'delete_section', 'split_operation', 'reorder_operations', 'save_template']) {
   assert.match(planningJs, new RegExp(`['"]${action}['"]`));
 }
 assert.match(planningJs, /data-production-add-operation/);
+assert.match(planningJs, /data-production-add-section/);
+assert.match(planningJs, /Добавить раздел/);
 assert.match(planningJs, /data-production-print data-project-id/);
 assert.match(planningJs, /data-lucide="printer"/);
 assert.match(planningJs, /Распечатать в PDF/);
@@ -59,7 +61,8 @@ assert.match(planningJs, /data-production-view="sections"/);
 assert.match(planningJs, /data-production-view="works"/);
 assert.match(planningJs, /По разделам/);
 assert.match(planningJs, /Все работы/);
-assert.match(planningJs, /kind === 'section' \? 'update_section' : 'rename_estimate'/);
+assert.match(planningJs, /kind === 'section' && groupEditorForm\._productionManualOperationId \? 'update_operation'/);
+assert.match(planningJs, /payload\.section_title = nextTitle/);
 assert.match(planningJs, /data-production-section-volume-fields/);
 assert.match(planningJs, /data-production-section-volume-reset/);
 assert.match(planningJs, /data-production-delete-section/);
@@ -82,7 +85,8 @@ assert.match(planningJs, /name="section_duration_days"/);
 assert.match(planningJs, /payload\.duration_days = nextDuration/);
 assert.match(planningJs, /class="production-month-head"/);
 assert.match(planningJs, /class="production-day-head production-date-head/);
-assert.match(planningJs, /class="production-half-day-head"/);
+assert.doesNotMatch(planningJs, /class="production-half-day-head"/);
+assert.doesNotMatch(planningJs, />1\/2<|>2\/2</);
 assert.match(planningJs, /Статусы выполнения графика/);
 assert.match(planningJs, /День 1 —/);
 assert.match(planningJs, /aria-current="date"/);
@@ -336,7 +340,7 @@ assert.match(planningJs, /preview\.scaleInput\.addEventListener\('input'[\s\S]*?
 assert.match(planningJs, /scaleRenderTimer = window\.setTimeout/);
 assert.doesNotMatch(planningCss, /\.production-table-sticky-header/);
 assert.match(planningCss, /\.production-cell-toggle\s*\{[^}]*inset: 0;[^}]*position: absolute;/s);
-assert.match(planningCss, /\.production-day-half-cell\s*\{[^}]*position: relative;/s);
+assert.match(planningCss, /\.production-day-cell\s*\{[^}]*position: relative;/s);
 assert.doesNotMatch(planningCss, /\.production-table-scroll\s*\{[^}]*cursor: ew-resize;/s);
 assert.doesNotMatch(planningCss, /cursor: ns-resize/);
 assert.match(planningCss, /\.production-cell-toggle\s*\{[^}]*cursor: pointer;/s);
@@ -345,9 +349,9 @@ assert.doesNotMatch(planningJs, /is-wheel-vertical-zone/);
 assert.doesNotMatch(planningJs, /is-wheel-horizontal-zone/);
 assert.match(planningCss, /\.production-schedule-table\s*\{[^}]*--production-number-width: 40px;[^}]*--production-work-width: 340px;/s);
 assert.match(planningCss, /\.production-schedule-table th,\s*\.production-schedule-table td\s*\{[^}]*height: 30px;[^}]*vertical-align: middle;/s);
-assert.match(planningCss, /\.production-schedule-table thead th\s*\{[^}]*height: 78px;[^}]*position: sticky;[^}]*top: 0;/s);
+assert.match(planningCss, /\.production-schedule-table thead th\s*\{[^}]*height: 58px;[^}]*position: sticky;[^}]*top: 0;/s);
 assert.match(planningCss, /\.production-date-head\s*\{[^}]*top: 22px !important;/s);
-assert.match(planningCss, /\.production-half-day-head\s*\{[^}]*top: 58px !important;/s);
+assert.doesNotMatch(planningCss, /\.production-half-day-head\s*\{/);
 for (const movingMetricClass of ['volume', 'people', 'shifts', 'brigades', 'duration']) {
   assert.doesNotMatch(
     planningCss,
@@ -360,8 +364,9 @@ assert.match(planningCss, /\.production-table-shell\.is-horizontally-scrolled \.
 assert.match(planningCss, /\.production-schedule-table \.production-volume-cell,[\s\S]*?\.production-schedule-table \.production-duration-cell\s*\{[^}]*text-align: center;/s);
 assert.match(planningCss, /\.production-duration-stepper\s*\{[^}]*grid-template-columns: 24px 34px 24px;[^}]*height: 24px;[^}]*width: 82px;/s);
 assert.match(planningCss, /\.production-duration-step-button\s*\{[^}]*display: grid;[^}]*place-items: center;/s);
-assert.match(planningCss, /\.production-day-head\s*\{[^}]*width: 30px;/s);
-assert.match(planningCss, /\.production-day-half-cell\s*\{[^}]*width: 15px;/s);
+assert.match(planningCss, /\.production-day-head\s*\{[^}]*width: 15px;/s);
+assert.match(planningCss, /\.production-day-cell\s*\{[^}]*width: 15px;/s);
+assert.match(planningCss, /\.production-cell-toggle\.is-filled\.is-partial\s*\{[^}]*linear-gradient/s);
 assert.match(planningJs, /data-production-duration-step="-0\.5"[\s\S]*?<span aria-hidden="true">−<\/span>/);
 assert.match(planningJs, /data-production-duration-step="0\.5"[\s\S]*?<span aria-hidden="true">\+<\/span>/);
 assert.doesNotMatch(planningJs, /production-work-heading"><i/);
@@ -417,10 +422,10 @@ assert.equal(productionPrintApi.productionSchedulePrintDayCount(printableSchedul
 assert.equal(productionPrintApi.productionSchedulePrintDayCount({ dayCount: 2, items: [{ filledSlots: [27] }] }), 14);
 assert.deepEqual(productionPrintApi.productionSchedulePrintConfig(printableSchedule), {
   dayCount: 13,
-  daysPerSheet: 12,
+  daysPerSheet: 13,
   layout: 'paged',
   scalePercent: 100,
-  sheetCount: 2,
+  sheetCount: 1,
 });
 assert.deepEqual(productionPrintApi.productionSchedulePrintConfig(printableSchedule, { layout: 'fit-one' }), {
   dayCount: 13,
@@ -431,8 +436,8 @@ assert.deepEqual(productionPrintApi.productionSchedulePrintConfig(printableSched
 });
 assert.equal(productionPrintApi.productionSchedulePrintConfig(printableSchedule, { layout: 'paged', scalePercent: 50 }).sheetCount, 1);
 assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 50 }).sheetCount, 1);
-assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 60 }).sheetCount, 2);
-assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 100 }).sheetCount, 4);
+assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 60 }).sheetCount, 1);
+assert.equal(productionPrintApi.productionSchedulePrintConfig({ dayCount: 40 }, { layout: 'paged', scalePercent: 100 }).sheetCount, 2);
 assert.equal(productionPrintApi.productionSchedulePrintScalePercent(0), 1);
 assert.equal(productionPrintApi.productionSchedulePrintScalePercent(250), 100);
 assert.equal(productionPrintApi.productionSchedulePrintScalePercent('bad', 63), 63);
@@ -443,21 +448,20 @@ const printableHtml = productionPrintApi.productionSchedulePrintDocument(
   { name: 'ЮУРГУ <корпус>', address: 'ул. Тестовая, 1' },
   printableSchedule,
 );
-assert.equal((printableHtml.match(/<section class="production-print-sheet">/g) || []).length, 2);
+assert.equal((printableHtml.match(/<section class="production-print-sheet">/g) || []).length, 1);
 assert.match(printableHtml, /@page\{size:A4 landscape;margin:8mm\}/);
 assert.match(printableHtml, /print-color-adjust:exact/);
-assert.match(printableHtml, /Дни 1–12/);
-assert.match(printableHtml, /Дни 13/);
-assert.match(printableHtml, /День 13/);
+assert.match(printableHtml, /Дни 1–13/);
 assert.doesNotMatch(printableHtml, /День 14/);
 assert.match(printableHtml, /Август 2026/);
 assert.match(printableHtml, /Сентябрь 2026/);
 assert.match(printableHtml, /25 авг\. · вт/);
 assert.match(printableHtml, /6 сент\. · вс/);
-assert.match(printableHtml, /rowspan="3"/);
+assert.match(printableHtml, /rowspan="2"/);
+assert.doesNotMatch(printableHtml, /production-print-half|>1\/2<|>2\/2</);
 assert.match(printableHtml, /Статусы выполнения графика/);
 assert.match(printableHtml, /production-print-slot is-filled tone-green is-overridden/);
-assert.equal((printableHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 2);
+assert.equal((printableHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 1);
 assert.match(printableHtml, /ЮУРГУ &lt;корпус&gt;/);
 assert.doesNotMatch(printableHtml, /data-production-(?:cell|duration|edit-operation)/);
 const fitOneHtml = productionPrintApi.productionSchedulePrintDocument(
@@ -468,9 +472,9 @@ const fitOneHtml = productionPrintApi.productionSchedulePrintDocument(
 assert.equal((fitOneHtml.match(/<section class="production-print-sheet">/g) || []).length, 1);
 assert.match(fitOneHtml, /data-production-print-layout="fit-one"/);
 assert.match(fitOneHtml, /data-production-print-sheet-count="1"/);
-assert.match(fitOneHtml, /data-production-print-canvas style="--production-print-natural-width:284mm"/);
+assert.match(fitOneHtml, /data-production-print-canvas style="--production-print-natural-width:219mm"/);
 assert.match(fitOneHtml, /Дни 1–13/);
-assert.match(fitOneHtml, /День 13/);
+assert.match(fitOneHtml, /title="6 сент\. · вс">6<\/th>/);
 assert.equal((fitOneHtml.match(/Гидроизоляция &lt;основная&gt;/g) || []).length, 1);
 assert.match(fitOneHtml, /height:194mm[^}]*overflow:hidden[^}]*width:281mm/);
 assert.match(fitOneHtml, /transform:scale\(var\(--production-print-scale\)\)/);
@@ -491,12 +495,16 @@ const hiddenColumnsPrintTable = hiddenColumnsPrintHtml.slice(
   hiddenColumnsPrintHtml.indexOf('<table'),
   hiddenColumnsPrintHtml.indexOf('</table>') + '</table>'.length,
 );
-assert.doesNotMatch(hiddenColumnsPrintTable, /<th rowspan="3">(?:Чел\.|Смен|Бригад)<\/th>/);
+assert.doesNotMatch(hiddenColumnsPrintTable, /<th rowspan="2">(?:Чел\.|Смен|Бригад)<\/th>/);
 assert.doesNotMatch(hiddenColumnsPrintTable, /production-print-(?:people|shifts|brigades)-column/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*production-parallel-start-add-fix-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*production-parallel-start-add-fix-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*production-parallel-start-add-fix-1/);
 assert.match(baseHtml, /router\.js\?v=[^"\n]*production-parallel-start-add-fix-1/);
+assert.match(rootCss, /planning\.css\?v=[^"\n]*production-day-grid-add-section-1/);
+assert.match(routerJs, /planning\.js\?v=[^'\n]*production-day-grid-add-section-1/);
+assert.match(baseHtml, /app\.css\?v=[^"\n]*production-day-grid-add-section-1/);
+assert.match(baseHtml, /router\.js\?v=[^"\n]*production-day-grid-add-section-1/);
 assert.match(rootCss, /planning\.css\?v=[^"\n]*schedule-health-1/);
 assert.match(routerJs, /planning\.js\?v=[^'\n]*schedule-health-1/);
 assert.match(baseHtml, /app\.css\?v=[^"\n]*report-ux-r1/);

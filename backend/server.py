@@ -1816,6 +1816,8 @@ def init_db() -> None:
                 manual_duration_days REAL
                     CHECK(manual_duration_days IS NULL OR (manual_duration_days > 0 AND manual_duration_days * 2 = CAST(manual_duration_days * 2 AS INTEGER))),
                 placement_mode TEXT NOT NULL DEFAULT 'auto' CHECK(placement_mode IN ('auto','manual')),
+                manual_estimate_title TEXT NOT NULL DEFAULT '',
+                manual_section_title TEXT NOT NULL DEFAULT '',
                 position INTEGER NOT NULL DEFAULT 0,
                 origin TEXT NOT NULL DEFAULT 'auto' CHECK(origin IN ('auto', 'template', 'manual')),
                 status TEXT NOT NULL DEFAULT 'needs_review'
@@ -4362,6 +4364,8 @@ def init_db() -> None:
                 "source_link_count": "INTEGER NOT NULL DEFAULT 0",
                 "source_links_snapshot": "TEXT NOT NULL DEFAULT '[]'",
                 "placement_mode": "TEXT NOT NULL DEFAULT 'auto'",
+                "manual_estimate_title": "TEXT NOT NULL DEFAULT ''",
+                "manual_section_title": "TEXT NOT NULL DEFAULT ''",
             },
         )
         con.execute(

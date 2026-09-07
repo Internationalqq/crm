@@ -104,6 +104,8 @@ def production_connection() -> sqlite3.Connection:
             auto_duration_days REAL NOT NULL DEFAULT 1,
             manual_duration_days REAL,
             placement_mode TEXT NOT NULL DEFAULT 'auto',
+            manual_estimate_title TEXT NOT NULL DEFAULT '',
+            manual_section_title TEXT NOT NULL DEFAULT '',
             position INTEGER NOT NULL DEFAULT 0,
             origin TEXT NOT NULL DEFAULT 'auto',
             status TEXT NOT NULL DEFAULT 'needs_review',
@@ -957,6 +959,18 @@ class ProductionScheduleTests(unittest.TestCase):
             self.assertEqual(changed["placementMode"], "manual")
             self.assertIn(1, changed["filledSlots"])
 
+            day = Handler({"action": "set_day", "operation_id": manual["id"], "day_number": 1, "is_filled": True})
+            api_update_production_schedule(day, "/api/projects/1/production-schedule")
+            self.assertEqual(day.status, 200)
+            changed = next(item for item in day.response["items"] if item["id"] == manual["id"])
+            self.assertTrue({1, 2}.issubset(changed["filledSlots"]))
+
+            cleared_day = Handler({"action": "set_day", "operation_id": manual["id"], "day_number": 1, "is_filled": False})
+            api_update_production_schedule(cleared_day, "/api/projects/1/production-schedule")
+            self.assertEqual(cleared_day.status, 200)
+            changed = next(item for item in cleared_day.response["items"] if item["id"] == manual["id"])
+            self.assertTrue({1, 2}.isdisjoint(changed["filledSlots"]))
+
             resized = Handler(
                 {
                     "action": "set_duration",
@@ -1008,6 +1022,57 @@ class ProductionScheduleTests(unittest.TestCase):
             api_update_production_schedule(deleted, "/api/projects/1/production-schedule")
             self.assertEqual(deleted.status, 200)
             self.assertNotIn(manual["id"], {item["id"] for item in deleted.response["items"]})
+
+            added_section = Handler(
+                {
+                    "action": "add_section",
+                    "title": "Ручной раздел",
+                    "planned_qty": 20,
+                    "unit": "м²",
+                    "duration_days": 2,
+                    "start_date": "2026-09-06",
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(added_section, "/api/projects/1/production-schedule")
+            self.assertEqual(added_section.status, 200)
+            manual_section = next(item for item in added_section.response["items"] if item["isManualSection"])
+            self.assertEqual(manual_section["estimateTitle"], "Добавленные вручную")
+            self.assertEqual(manual_section["sectionTitle"], "Ручной раздел")
+            self.assertIsNone(manual_section["estimateSourceId"])
+            self.assertEqual(manual_section["filledSlots"], [3, 4, 5, 6])
+
+            updated_section = Handler(
+                {
+                    "action": "update_operation",
+                    "operation_id": manual_section["id"],
+                    "title": "Новый ручной раздел",
+                    "section_title": "Новый ручной раздел",
+                    "planned_qty": 32,
+                    "unit": "м³",
+                    "duration_days": 3,
+                    "start_date": "2026-09-07",
+                },
+                role="purchaser",
+            )
+            api_update_production_schedule(updated_section, "/api/projects/1/production-schedule")
+            self.assertEqual(updated_section.status, 200)
+            manual_section = next(item for item in updated_section.response["items"] if item["id"] == manual_section["id"])
+            self.assertEqual(manual_section["title"], "Новый ручной раздел")
+            self.assertEqual(manual_section["sectionTitle"], "Новый ручной раздел")
+            self.assertEqual(manual_section["plannedQty"], 32)
+            self.assertEqual(manual_section["unit"], "м³")
+            self.assertEqual(manual_section["plannedStartDate"], "2026-09-07")
+            self.assertEqual(manual_section["filledSlots"], [5, 6, 7, 8, 9, 10])
+            guest_with_section = build_guest_production_schedule_payload(con, 1)
+            guest_manual_section = next(item for item in guest_with_section["items"] if item["id"] == manual_section["id"])
+            self.assertTrue(guest_manual_section["isManualSection"])
+            self.assertEqual(guest_manual_section["sectionTitle"], "Новый ручной раздел")
+
+            removed_manual_section = Handler({"action": "delete_operation", "operation_id": manual_section["id"]}, role="purchaser")
+            api_update_production_schedule(removed_manual_section, "/api/projects/1/production-schedule")
+            self.assertEqual(removed_manual_section.status, 200)
+            self.assertNotIn(manual_section["id"], {item["id"] for item in removed_manual_section.response["items"]})
 
             resized_section = Handler(
                 {

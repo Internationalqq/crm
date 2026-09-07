@@ -3498,6 +3498,9 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
         links = links_by_operation.get(operation_id, [])
         linked_ids = sorted({int(link["estimateItemId"]) for link in links})
         work_basis = next((link for link in links if link["role"] == "work_basis"), None)
+        manual_section_title = str(operation["manual_section_title"] or "").strip()
+        manual_estimate_title = str(operation["manual_estimate_title"] or "").strip()
+        is_manual_section = bool(manual_section_title)
         status = str(operation["status"] or "needs_review")
         live_link_ids = {int(link["estimateItemId"]) for link in links if not link["isStale"]}
         if int(operation["source_link_count"] or 0) > len(live_link_ids) or any(link["isStale"] for link in links):
@@ -3530,11 +3533,12 @@ def build_production_schedule_payload(con: sqlite3.Connection, project_id: int) 
                 "title": str(operation["title"] or ""),
                 "unit": str(operation["unit"] or ""),
                 "plannedQty": None if operation["planned_qty"] is None else float(operation["planned_qty"]),
-                "sectionTitle": str(work_basis["sectionTitle"] or "") if work_basis else "",
-                "estimateSourceId": work_basis["estimateSourceId"] if work_basis else None,
-                "estimateSourceKey": str(work_basis["estimateSourceKey"] or "") if work_basis else "",
-                "estimateTitle": str(work_basis["estimateTitle"] or "") if work_basis else "",
-                "estimateFileName": str(work_basis["estimateFileName"] or "") if work_basis else "",
+                "sectionTitle": manual_section_title if is_manual_section else (str(work_basis["sectionTitle"] or "") if work_basis else ""),
+                "estimateSourceId": None if is_manual_section else (work_basis["estimateSourceId"] if work_basis else None),
+                "estimateSourceKey": "manual-schedule" if is_manual_section else (str(work_basis["estimateSourceKey"] or "") if work_basis else ""),
+                "estimateTitle": manual_estimate_title if is_manual_section else (str(work_basis["estimateTitle"] or "") if work_basis else ""),
+                "estimateFileName": "" if is_manual_section else (str(work_basis["estimateFileName"] or "") if work_basis else ""),
+                "isManualSection": is_manual_section,
                 "crewSize": int(operation["people_count"] or 1),
                 "peopleCount": int(operation["people_count"] or 1),
                 "shiftCount": int(operation["shift_count"] or 1),
@@ -3706,6 +3710,13 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
     for operation in operation_rows:
         operation_id = int(operation["id"])
         grouping = guest_grouping.get(operation_id, {})
+        manual_section_title = str(operation["manual_section_title"] or "").strip()
+        if manual_section_title:
+            grouping = {
+                "sectionTitle": manual_section_title,
+                "estimateSourceId": None,
+                "estimateTitle": str(operation["manual_estimate_title"] or "Добавленные вручную"),
+            }
         manual_duration = positive_schedule_half_days(operation["manual_duration_days"])
         auto_duration = positive_schedule_half_days(operation["auto_duration_days"]) or 1.0
         duration_days = manual_duration if manual_duration is not None else auto_duration
@@ -3759,6 +3770,7 @@ def build_guest_production_schedule_payload(con: sqlite3.Connection, project_id:
                 "sectionTitle": str(grouping.get("sectionTitle") or ""),
                 "estimateSourceId": grouping.get("estimateSourceId"),
                 "estimateTitle": str(grouping.get("estimateTitle") or ""),
+                "isManualSection": bool(manual_section_title),
                 "crewSize": int(operation["people_count"] or 1),
                 "peopleCount": int(operation["people_count"] or 1),
                 "shiftCount": int(operation["shift_count"] or 1),
@@ -4803,18 +4815,29 @@ def api_update_production_schedule(handler, path: str) -> None:
                 )
                 audit_payload["start_date"] = start_date.isoformat()
 
-        elif action == "set_cell":
+        elif action in {"set_cell", "set_day"}:
             operation_id = resolve_production_operation_id(con, project_id, payload)
-            try:
-                slot_number = int(production_payload_value(payload, "slot_number", "slotNumber"))
-            except (TypeError, ValueError):
-                slot_number = 0
             if not operation_id:
                 handler.send_json(HTTPStatus.NOT_FOUND, {"error": "operation_not_found"})
                 return
-            if slot_number < 1 or slot_number > 7300:
-                handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_slot_number"})
-                return
+            if action == "set_day":
+                try:
+                    day_number = int(production_payload_value(payload, "day_number", "dayNumber"))
+                except (TypeError, ValueError):
+                    day_number = 0
+                if day_number < 1 or day_number > 3650:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_day_number"})
+                    return
+                slot_numbers = [(day_number - 1) * 2 + 1, (day_number - 1) * 2 + 2]
+            else:
+                try:
+                    slot_number = int(production_payload_value(payload, "slot_number", "slotNumber"))
+                except (TypeError, ValueError):
+                    slot_number = 0
+                if slot_number < 1 or slot_number > 7300:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_slot_number"})
+                    return
+                slot_numbers = [slot_number]
             is_filled = 1 if production_payload_value(payload, "is_filled", "isFilled", default=False) else 0
             operation = production_operation_row(con, project_id, operation_id)
             if str(operation["placement_mode"] or "auto") != "manual":
@@ -4834,25 +4857,30 @@ def api_update_production_schedule(handler, path: str) -> None:
                     "UPDATE production_schedule_operations SET placement_mode = 'manual', updated_by = ?, updated_at = ? WHERE id = ? AND project_id = ?",
                     (user["id"], timestamp, operation_id, project_id),
                 )
-            if is_filled:
-                con.execute(
-                    """
-                    INSERT INTO production_schedule_operation_slot_overrides (
-                        operation_id, slot_number, is_filled, updated_by, created_at, updated_at
-                    ) VALUES (?, ?, 1, ?, ?, ?)
-                    ON CONFLICT(operation_id, slot_number) DO UPDATE SET
-                        is_filled = 1,
-                        updated_by = excluded.updated_by,
-                        updated_at = excluded.updated_at
-                    """,
-                    (operation_id, slot_number, user["id"], timestamp, timestamp),
-                )
+            for slot_number in slot_numbers:
+                if is_filled:
+                    con.execute(
+                        """
+                        INSERT INTO production_schedule_operation_slot_overrides (
+                            operation_id, slot_number, is_filled, updated_by, created_at, updated_at
+                        ) VALUES (?, ?, 1, ?, ?, ?)
+                        ON CONFLICT(operation_id, slot_number) DO UPDATE SET
+                            is_filled = 1,
+                            updated_by = excluded.updated_by,
+                            updated_at = excluded.updated_at
+                        """,
+                        (operation_id, slot_number, user["id"], timestamp, timestamp),
+                    )
+                else:
+                    con.execute(
+                        "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ? AND slot_number = ?",
+                        (operation_id, slot_number),
+                    )
+            audit_payload.update({"operation_id": operation_id, "is_filled": bool(is_filled)})
+            if action == "set_day":
+                audit_payload.update({"day_number": day_number, "slot_numbers": slot_numbers})
             else:
-                con.execute(
-                    "DELETE FROM production_schedule_operation_slot_overrides WHERE operation_id = ? AND slot_number = ?",
-                    (operation_id, slot_number),
-                )
-            audit_payload.update({"operation_id": operation_id, "slot_number": slot_number, "is_filled": bool(is_filled)})
+                audit_payload["slot_number"] = slot_numbers[0]
 
         elif action == "set_duration":
             operation_id = resolve_production_operation_id(con, project_id, payload)
@@ -4891,7 +4919,8 @@ def api_update_production_schedule(handler, path: str) -> None:
             )
             audit_payload.update({"operation_id": operation_id, "duration_days": None if reset else duration_days, "reset": reset})
 
-        elif action == "add_operation":
+        elif action in {"add_operation", "add_section"}:
+            is_manual_section = action == "add_section"
             title = str(payload.get("title") or "").strip()
             if not title or len(title) > 500:
                 handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_title"})
@@ -4950,6 +4979,8 @@ def api_update_production_schedule(handler, path: str) -> None:
             position = int(max_position) + 1 if max_position is not None else 0
             generation_key = f"manual:{project_id}:{time.time_ns()}"
             manual_fields = {"title", "planned_qty", "unit", "people_count", "shift_count", "brigade_count", "duration_days", "color", "status"}
+            if is_manual_section:
+                manual_fields.add("manual_section_title")
             cursor = con.execute(
                 """
                 INSERT INTO production_schedule_operations (
@@ -4968,6 +4999,15 @@ def api_update_production_schedule(handler, path: str) -> None:
                 ),
             )
             operation_id = int(cursor.lastrowid)
+            if is_manual_section:
+                con.execute(
+                    """
+                    UPDATE production_schedule_operations
+                    SET manual_estimate_title = ?, manual_section_title = ?
+                    WHERE id = ? AND project_id = ?
+                    """,
+                    ("Добавленные вручную", title, operation_id, project_id),
+                )
             production_replace_links(con, project_id, operation_id, links)
             if operation_start_slot is not None:
                 production_place_operation_slots(
@@ -4983,6 +5023,7 @@ def api_update_production_schedule(handler, path: str) -> None:
                 {
                     "operation_id": operation_id,
                     "title": title,
+                    "manual_section": is_manual_section,
                     "start_date": operation_start_date.isoformat() if operation_start_date else None,
                 }
             )
@@ -5017,6 +5058,18 @@ def api_update_production_schedule(handler, path: str) -> None:
                     return
                 updates["title"] = title
                 manual_fields.add("title")
+            if "section_title" in payload or "sectionTitle" in payload:
+                section_title = re.sub(
+                    r"\s+",
+                    " ",
+                    str(production_payload_value(payload, "section_title", "sectionTitle") or "").strip(),
+                )
+                if not section_title or len(section_title) > 500:
+                    handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_section_title"})
+                    return
+                updates["manual_section_title"] = section_title
+                updates["manual_estimate_title"] = str(operation["manual_estimate_title"] or "Добавленные вручную")
+                manual_fields.add("manual_section_title")
             if "planned_qty" in payload or "plannedQty" in payload:
                 raw_planned_qty = production_payload_value(payload, "planned_qty", "plannedQty")
                 if raw_planned_qty in (None, ""):
