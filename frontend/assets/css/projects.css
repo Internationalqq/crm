@@ -1,17 +1,8 @@
 /* Extracted from app.css: projects. Keep app.css as the import entrypoint. */
 
-body[data-page="autobot"] .autobot-stage {
-    height: calc(100vh - 72px);
-}
-
 body.project-edit-open,
 body.side-drawer-open {
     overflow: hidden;
-}
-
-body[data-page="autobot"] .autobot-stage,
-body[data-page="autobot"] .autobot-embed {
-    height: calc(100vh - 50px) !important;
 }
 
 html.project-route-loading body[data-page="projects"] [data-project-overview-section] {
@@ -123,7 +114,6 @@ input[type="checkbox"][data-section-work-check]:checked::before {
 }
 
 @media (max-width: 720px) {
-    .project-card-tools,
     .project-overview-head {
         flex-direction: column;
         align-items: stretch;
@@ -499,62 +489,6 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     display: inline-flex;
     align-items: center;
     min-height: 38px;
-}
-
-.project-detail-nav {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    margin-left: -2px;
-}
-
-.project-detail-nav .tabs {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.project-back-button {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    min-height: 38px;
-    padding: 0;
-    border: 1px solid #cfe0f5;
-    border-radius: 8px;
-    background: linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%);
-    color: #214f8d;
-    font-weight: 900;
-    text-decoration: none;
-    cursor: pointer;
-    box-shadow: 0 6px 14px rgba(47, 111, 237, .09);
-    transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
-}
-
-.project-back-button:hover {
-    transform: translateX(-2px);
-    border-color: #9dc0ef;
-    background: #eff6ff;
-    box-shadow: 0 8px 18px rgba(37, 99, 235, .14);
-}
-
-.project-back-button svg.lucide {
-    width: 17px;
-    height: 17px;
-    stroke-width: 2.4;
-}
-
-@media (max-width: 720px) {
-    .project-detail-nav {
-        display: grid;
-        gap: 8px;
-        margin-left: 0;
-    }
-
-    .project-back-button {
-        width: 38px;
-    }
 }
 
 .project-focus-grid {
@@ -1273,7 +1207,7 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     text-decoration: none;
 }
 
-.card,
+.card:not(.production-schedule-card),
 .project-card,
 .stat-card {
     padding: 14px !important;
@@ -2525,7 +2459,7 @@ input[type="checkbox"][data-section-work-check]:checked::before {
 }
 
 .finance-invoice-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+    background: var(--surface-main);
 }
 
 .finance-suggest-field {
@@ -2752,7 +2686,7 @@ input[type="checkbox"][data-section-work-check]:checked::before {
     min-width: 0;
     color: #526779;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 500;
 }
 
 .finance-income-form input,
@@ -3786,22 +3720,6 @@ body.role-guest[data-page="projects"] button.guest-project-action.is-production:
     opacity: .68;
 }
 
-body.role-guest[data-page="projects"] .project-detail-nav .tabs {
-    width: min(100%, 680px);
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow: visible !important;
-}
-
-body.role-guest[data-page="projects"] .project-detail-nav .tab {
-    min-width: 0 !important;
-    min-height: 46px;
-    justify-content: center;
-    line-height: 1.25;
-    text-align: center;
-    white-space: normal !important;
-}
-
 @media (max-width: 600px) {
     body.role-guest[data-page="projects"] .projects-card-grid .guest-project-card .project-card-shell {
         gap: 20px !important;
@@ -3829,8 +3747,7 @@ body.role-guest[data-page="projects"] .project-detail-nav .tab {
         justify-self: start;
     }
 
-    body.role-guest[data-page="projects"] .guest-project-actions,
-    body.role-guest[data-page="projects"] .project-detail-nav .tabs {
+    body.role-guest[data-page="projects"] .guest-project-actions {
         grid-template-columns: 1fr;
     }
 

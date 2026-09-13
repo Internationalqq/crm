@@ -276,7 +276,7 @@
             '<button class="daily-standup-backdrop" type="button" data-daily-quick-close aria-label="Закрыть"></button>' +
             '<section class="daily-standup-dialog" role="dialog" aria-modal="true" aria-label="Новая задача">' +
                 '<div class="daily-standup-head"><div><span class="section-label">Новая задача</span><h3>Добавить в план</h3></div><button class="ghost compact" type="button" data-daily-quick-close>Закрыть</button></div>' +
-                '<form data-daily-quick-form><textarea name="text" rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea><div class="daily-standup-actions"><button class="primary" type="submit">Добавить</button></div></form>' +
+                '<form data-daily-quick-form><textarea name="text" rows="5" aria-label="Новые задачи" placeholder="Каждая строка станет отдельной задачей"></textarea><div class="daily-standup-actions"><button class="primary" type="submit">Добавить</button></div></form>' +
             '</section>';
         modal.addEventListener('click', function (event) {
             if (event.target.closest('[data-daily-quick-close]')) modal.hidden = true;
@@ -413,7 +413,7 @@
                     '<div class="daily-standup-block">' +
                         '<strong>Добавить новые задачи</strong>' +
                         '<div class="daily-standup-new-row">' +
-                            '<textarea data-daily-standup-new-textarea rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
+                            '<textarea data-daily-standup-new-textarea rows="5" aria-label="Новые задачи" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
                             '<button class="ghost compact" type="button" data-daily-standup-new-add>Добавить</button>' +
                         '</div>' +
                         '<div class="daily-standup-new-list" data-daily-standup-new-list hidden></div>' +
@@ -1089,7 +1089,7 @@
                 '<div class="daily-standup-head"><div><h3>Добавить задачу</h3></div><button class="ghost compact" type="button" data-daily-quick-close>Закрыть</button></div>' +
                 '<form data-daily-quick-form>' +
                     '<label class="daily-create-field"><span>Исполнитель</span><select name="userId" data-daily-create-user></select></label>' +
-                    '<textarea name="text" rows="5" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
+                    '<textarea name="text" rows="5" aria-label="Новые задачи" placeholder="Каждая строка станет отдельной задачей"></textarea>' +
                     '<div class="daily-standup-actions"><button class="primary" type="submit">Добавить</button></div>' +
                 '</form>' +
             '</section>';

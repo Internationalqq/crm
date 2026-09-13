@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,13 +32,10 @@ assert.match(appJs, /function taskCompletionTime\(value\)/);
 assert.match(taskRowBlock, /taskCompletionTime\(completedAt\)/);
 assert.doesNotMatch(taskRowBlock, /dailyTaskTime\(/);
 
-assert.ok(appCss.includes('./css/tasks.css?v=20260823-object-tasks-workspace-1'));
+assertVersionedAsset(appCss, 'css/tasks.css');
 assert.ok(appCss.indexOf('./css/tasks.css') > appCss.indexOf('./css/components.css'), 'Task workspace CSS must follow legacy component styles');
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*object-tasks-workspace-1/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*report-browser-qa-39/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*report-touch-qa-40/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52/);
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(routerJs, 'js/app.js');
 
 for (const selector of [
   '.task-workspace-head',

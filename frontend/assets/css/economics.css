@@ -4,9 +4,9 @@
     display: grid;
     gap: 18px;
     margin-bottom: 18px;
-    padding: 20px;
-    border: 1px solid #cfdef2;
-    background: linear-gradient(145deg, #fff 0%, #f7faff 100%);
+    padding: 16px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
 }
 
 .economics-head,
@@ -51,7 +51,7 @@
     background: var(--badge-neutral-bg);
     color: var(--badge-neutral-text);
     font-size: 11px;
-    font-weight: 900;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -111,7 +111,7 @@
 .economics-metric > span {
     color: var(--muted);
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .03em;
 }
@@ -220,7 +220,7 @@
     gap: 12px;
     padding: 13px 14px;
     cursor: pointer;
-    font-weight: 850;
+    font-weight: 600;
     list-style: none;
 }
 
@@ -253,7 +253,7 @@
     background: var(--surface-muted);
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     text-transform: uppercase;
 }
 
@@ -351,13 +351,16 @@
 .econ-entity-head h4,
 .econ-entity-head p,
 .econ-subhead h4,
+.econ-subhead h5,
 .econ-subhead p {
     margin: 0;
 }
 
 .econ-management-head p,
 .econ-entity-head p,
+.econ-subhead > div > span,
 .econ-subhead p {
+    display: block;
     margin-top: 5px;
     color: var(--muted);
     font-size: 12px;
@@ -386,7 +389,7 @@
     background: transparent;
     color: var(--muted);
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -461,7 +464,7 @@
     overflow: hidden;
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     letter-spacing: 0.045em;
     text-overflow: ellipsis;
     text-transform: uppercase;
@@ -537,7 +540,7 @@
     overflow: hidden;
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
@@ -623,7 +626,7 @@
     padding: 13px 15px;
     color: var(--text);
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
     list-style: none;
 }
@@ -690,7 +693,7 @@
     padding: 0 6px;
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     text-transform: uppercase;
 }
 
@@ -720,7 +723,7 @@
     margin-bottom: 5px;
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     letter-spacing: 0.035em;
     text-transform: uppercase;
 }
@@ -736,7 +739,7 @@
     margin-bottom: 5px;
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     letter-spacing: 0.035em;
     text-transform: uppercase;
 }
@@ -800,7 +803,7 @@
     padding: 0 6px;
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     text-transform: uppercase;
 }
 
@@ -941,7 +944,7 @@
     background: var(--surface-muted);
     color: var(--muted);
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
     letter-spacing: 0.035em;
     text-transform: uppercase;
 }
@@ -973,7 +976,7 @@
 .econ-input-subdetails > summary {
     color: var(--muted);
     font-size: 11px;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -1089,6 +1092,12 @@
 }
 
 @media (max-width: 700px) {
+    .econ-subhead,
+    .econ-entity-head {
+        flex-direction: column;
+        gap: 10px;
+    }
+
     .econ-management-head {
         display: grid;
         padding: 16px;

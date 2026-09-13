@@ -1,6 +1,5 @@
 <section class="page-head" data-project-overview-section>
     <div>
-        <p class="eyebrow">Центр работы</p>
         <h2>Объекты строительства</h2>
         <p>Живой прогресс объекта, материалы по смете, остатки и нехватка.</p>
     </div>
@@ -49,7 +48,7 @@
     </form>
 </section>
 
-<section class="card" data-project-overview-section>
+<section class="card project-list-workspace" data-project-overview-section>
     <div class="card-head">
         <h3>Список объектов</h3>
         <input class="search" aria-label="Поиск по объектам" placeholder="Поиск по объектам" data-project-search>
@@ -72,7 +71,14 @@
         <a class="project-back-button" href="/app/projects" aria-label="Назад к объектам" title="Назад к объектам">
             <i data-lucide="arrow-left" aria-hidden="true"></i>
         </a>
+        <div class="project-detail-context">
+            <h2 data-detail-title>Объект</h2>
+            <span data-detail-status></span>
+        </div>
         <div class="project-tab-cluster">
+            <label class="project-section-picker">Раздел объекта
+                <select data-project-section-select aria-label="Раздел объекта"></select>
+            </label>
             <div class="tabs" role="tablist" aria-label="Разделы объекта">
                 <button class="tab active" type="button" role="tab" id="project-tab-overview" data-tab="overview" aria-controls="project-panel-overview" aria-selected="true" aria-current="page"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Сводка</span></button>
                 <button class="tab" type="button" role="tab" id="project-tab-schedule" data-tab="schedule" aria-controls="project-panel-schedule" aria-selected="false" tabindex="-1"><i data-lucide="hammer" aria-hidden="true"></i><span>Работы</span></button>
@@ -102,7 +108,7 @@
     </div>
     <nav class="project-mobile-capture" aria-label="Быстрые действия по объекту">
         <button type="button" data-project-quick-action="document" data-document-type="photo_report"><i data-lucide="camera" aria-hidden="true"></i><span>Фото</span></button>
-        <button class="is-primary" type="button" data-project-quick-action="report" data-report-start-voice><i data-lucide="mic" aria-hidden="true"></i><span>Отчёт</span></button>
+        <button class="is-primary" type="button" data-project-quick-action="report"><i data-lucide="notebook-pen" aria-hidden="true"></i><span>Отчёт</span></button>
         <button type="button" data-project-quick-action="material"><i data-lucide="package-plus" aria-hidden="true"></i><span>Материал</span></button>
     </nav>
     <div class="tab-panel active" id="project-panel-overview" role="tabpanel" aria-labelledby="project-tab-overview" data-panel="overview"></div>

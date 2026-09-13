@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -50,28 +51,8 @@ assert.equal(previewRefreshEvents[0].projectId, 42);
 assert.equal(previewRefreshEvents[0].event.type, 'input');
 assert.equal(previewRefreshEvents[0].event.bubbles, true);
 
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*project-report-modal-1/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-modal-cool-2/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-modal-native-3/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-modal-neutral-4/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-create-plus-5/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-refresh-8/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-calendar-9/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-calendar-apple-10/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-live-suggestions-16/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-entry-hierarchy-17/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-action-history-18/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-icon-minimal-32/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-photo-tone-33/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-sheet-minimal-34/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-resource-remove-right-35/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-final-structured-36/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-saved-structured-37/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-browser-qa-39/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-touch-qa-40/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*calendar-month-nav-1/);
-assert.match(appCss, /ui-workspaces\.css\?v=[^"\n]*calendar-month-nav-1/);
-assert.match(appCss, /project-reports\.css\?v=[^"\n]*report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52/);
+assertVersionedAsset(appCss, 'css/project-reports.css');
+assertVersionedAsset(appCss, 'css/ui-workspaces.css');
 assert.match(reportsCss, /\.reports-drawer-frame \.report-preview-board \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/);
 assert.match(
   reportsCss,
@@ -1742,29 +1723,10 @@ assert.equal(legacyReportWord.test(projectsHtml), false, 'Projects page must con
 assert.match(projectsHtml, /data-tab="reports"[^>]*>[\s\S]*?<span>Журнал<\/span>/);
 assert.match(projectsHtml, /class="project-report-primary"[^>]*data-project-quick-action="report"/);
 assert.match(projectsHtml, /class="project-mobile-capture"[\s\S]*?data-project-quick-action="report"/);
-assert.match(projectsHtml, /data-project-quick-action="report" data-report-start-voice/);
+assert.doesNotMatch(projectsHtml, /data-project-quick-action="report" data-report-start-voice/);
 
-assert.match(routerJs, /operations\.js\?v=[^']*project-report-modal-1/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-modal-cool-2/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-modal-native-3/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-create-plus-5/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-submit-fix-6/);
-assert.match(routerJs, /operations\.js\?v=[^']*reports-wording-7/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-refresh-8/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-9/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-apple-10/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-load-12/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-live-suggestions-16/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-entry-hierarchy-17/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-action-history-18/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-icon-minimal-32/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-sheet-minimal-34/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-final-structured-36/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-saved-structured-37/);
-assert.match(routerJs, /app\.js\?v=[^']*report-calendar-project-start-1/);
-assert.match(routerJs, /operations\.js\?v=[^']*report-calendar-project-start-1/);
-assert.match(routerJs, /app\.js\?v=[^']*calendar-month-nav-1/);
-assert.match(routerJs, /operations\.js\?v=[^']*calendar-month-nav-1/);
+assertVersionedAsset(routerJs, 'js/operations.js');
+assertVersionedAsset(routerJs, 'js/app.js');
 
 const runtimeNodes = {
   '[data-panel="reports"] .report-workspace': {},

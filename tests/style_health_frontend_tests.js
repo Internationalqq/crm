@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { assertVersionedAsset } = require('./asset_contract');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -25,9 +26,9 @@ const routerUrl = baseHtml.match(/src="([^"]*\/assets\/js\/router\.js[^"]*)"/)[1
 const healthUrl = baseHtml.match(/src="([^"]*\/assets\/js\/style-health\.js[^"]*)"/)[1];
 const lucideUrl = baseHtml.match(/src="([^"]*\/assets\/vendor\/lucide\.min\.js[^"]*)"/)[1];
 const sortableUrl = baseHtml.match(/src="([^"]*\/assets\/vendor\/sortable\.min\.js[^"]*)"/)[1];
-assert.equal(appCssUrl, '/assets/app.css?v=20260904-public-project-covers-3-report-ux-r1-production-scroll-wheel-fix-1-production-sections-1-calendar-month-nav-1');
-assert.equal(routerUrl, '/assets/js/router.js?v=20260903-report-ux-r1-public-portfolio-1-production-print-scale-live-2-production-print-pdf-2-production-print-scale-1-production-scroll-wheel-fix-1-production-sections-1-report-calendar-project-start-1-calendar-month-nav-1');
-assert.equal(healthUrl, '/assets/js/style-health.js?v=20260902-report-ux-r1');
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(baseHtml, 'js/router.js');
+assertVersionedAsset(baseHtml, 'js/style-health.js');
 assert.equal(lucideUrl, '/assets/vendor/lucide.min.js?v=1.41.0');
 assert.equal(sortableUrl, '/assets/vendor/sortable.min.js?v=1.15.2');
 assert.doesNotMatch(baseHtml, /<script[^>]+src="https?:\/\//i, 'the app shell must not depend on third-party scripts');

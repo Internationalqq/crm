@@ -483,6 +483,10 @@ def build_reconciliation(
     original_snapshot = _latest_snapshot(con, project_id, "original")
     ai_snapshot = _latest_snapshot(con, project_id, "ai")
     base = {
+        "liveItemCount": int(con.execute(
+            "SELECT COUNT(*) FROM estimate_items WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0",
+            (project_id,),
+        ).fetchone()[0]),
         "ready": bool(original_snapshot and ai_snapshot),
         "originalSnapshot": _snapshot_payload(original_snapshot),
         "aiSnapshot": _snapshot_payload(ai_snapshot),

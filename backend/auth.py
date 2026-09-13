@@ -899,6 +899,15 @@ def guest_api_allowed(method: str, path: str) -> bool:
     )
 
 
+def public_api_allowed(method: str, path: str) -> bool:
+    """Only these read routes may use the anonymous portfolio identity."""
+    return method.upper() == "GET" and (
+        path in {"/api/auth/me", "/api/projects"}
+        or bool(re.fullmatch(r"/api/documents/\d+/view", path))
+        or bool(re.fullmatch(r"/api/projects/\d+(?:/(?:daily-logs|production-schedule))?", path))
+    )
+
+
 def user_is_main_admin(user: dict) -> bool:
     return user_is_main_admin_account(user) or user_is_hidden_admin(user)
 

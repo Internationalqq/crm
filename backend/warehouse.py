@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from business_time import today_iso
+
 import json
 import re
 import sqlite3
@@ -26,7 +28,6 @@ from sqlite_config import connect_database
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
-TODAY_ISO = date.today().isoformat()
 FUZZY_MATCH_THRESHOLD = 0.70
 
 
@@ -297,6 +298,7 @@ def payload_get(source: dict | sqlite3.Row | None, *keys: str) -> object:
 
 
 def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict]:
+    today = today_iso()
     stage_rows = con.execute(
         """
         SELECT id, title, parent_id, stage_kind, position
@@ -408,7 +410,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
         )
         delivery_days = int(row["delivery_days"]) if row["delivery_days"] is not None else int(estimated_delivery_days)
         need_by_date = str(row["need_by_date"] or row["stage_planned_start"] or row["stage_planned_end"] or "")
-        soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
+        soon_threshold = (parse_iso_date(today) + timedelta(days=13)).isoformat()
         if missing <= 0:
             if received >= planned:
                 supply_status = "in_stock"
@@ -416,7 +418,7 @@ def material_summary_rows(con: sqlite3.Connection, project_id: int) -> list[dict
             else:
                 supply_status = "ordered"
                 supply_label = "Заказано, ждём поставку"
-        elif need_by_date and need_by_date < TODAY_ISO:
+        elif need_by_date and need_by_date < today:
             supply_status = "required"
             supply_label = "Требуется"
         elif need_by_date and need_by_date <= soon_threshold:

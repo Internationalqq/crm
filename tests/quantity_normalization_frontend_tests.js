@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,8 +29,8 @@ assert.match(read('frontend/assets/js/planning.js'), /quantityText\(plan\.totalQ
 assert.match(projectCss, /\.quick-alert-section-items/);
 assert.match(qaCss, /\.warehouse-volume\.is-missing/);
 
-assert.match(routerJs, /app\.js\?v=[^'\"]*quantity-normalization-1/);
-assert.match(routerJs, /procurement\.js\?v=20260821-quantity-normalization-1/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(routerJs, 'js/procurement.js');
+assertVersionedAsset(baseHtml, 'js/router.js');
 
 console.log('quantity_normalization_frontend_ok');

@@ -11,8 +11,6 @@ const autobot = read('frontend/pages/autobot.html');
 const app = read('frontend/assets/js/app.js');
 
 const imageNames = [
-  'dashboard-construction.webp',
-  'autobot-construction-ai.webp',
   'project-cover-site.webp',
   'project-cover-interior.webp',
   'project-cover-exterior.webp',
@@ -32,8 +30,8 @@ assert.ok(
   'the photo layer must load after the existing object-control workspace',
 );
 assert.match(dashboard, /dashboard-autobot-card hidden" data-nav="autobot"/);
-assert.match(dashboard, /Запустить AutoBot/);
-assert.match(dashboard, /Оперативная сводка/);
+assert.match(dashboard, /Открыть AutoBot/);
+assert.match(dashboard, /Фокус на сегодня/);
 assert.match(autobot, /data-lucide="bot"/);
 
 assert.match(app, /PROJECT_COVER_FALLBACKS/);
@@ -45,8 +43,7 @@ assert.match(app, /object-photo-grid/);
 assert.match(app, /document-file-visual has-image/);
 assert.match(app, /loading="lazy" decoding="async"/);
 
-assert.match(visualCss, /\.nav a\[data-nav="autobot"\]/);
-assert.match(visualCss, /body\[data-page="autobot"\] \.autobot-workspace-head/);
+
 assert.match(visualCss, /@media \(max-width: 720px\)/);
 assert.match(visualCss, /@media \(prefers-reduced-motion: reduce\)/);
 

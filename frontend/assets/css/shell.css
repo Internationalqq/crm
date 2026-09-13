@@ -208,7 +208,7 @@ html.sidebar-pref-collapsed .brand span {
 }
 
 .brand {
-    background: rgba(255,255,255,.075);
+    background: transparent;
     padding: 6px 8px;
 }
 
@@ -957,7 +957,7 @@ html.sidebar-pref-collapsed .brand span {
         font-size: 24px;
     }
 
-    .card,
+    .card:not(.production-schedule-card),
     .project-card,
     .stat-card {
         padding: 12px !important;

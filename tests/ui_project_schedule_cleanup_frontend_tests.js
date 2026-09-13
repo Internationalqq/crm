@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -99,20 +100,20 @@ for (const removedListControl of [
   );
 }
 
-assert.doesNotMatch(projectsCss, /\[data-panel="schedule"\] \.schedule-project-topbar/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.project-schedule-view-switcher\.market-toolbar/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.execution-summary/);
+assert.doesNotMatch(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.schedule-project-topbar/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.project-schedule-view-switcher\.market-toolbar/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.execution-summary/);
 assert.match(projectsCss, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.estimate-section-progress-split/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.estimate-section-progress-split/);
 assert.match(projectsCss, /\.estimate-section-progress-work-only[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(projectsCss, /\.section-schedule-detail-grid\.is-work-only[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-progress-bar/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-progress-value/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-chevron[\s\S]*?display: none !important/);
-assert.match(projectsCss, /\[data-panel="schedule"\] \.section-schedule-detail-list \.quantity-actual-editor/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.section-schedule-progress-bar/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.section-schedule-progress-value/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.section-schedule-chevron[\s\S]*?display: none !important/);
+assert.match(projectsCss, /\[data-panel="schedule"\](?:, body\[data-page="schedule"\] \.schedule-project-body\))? \.section-schedule-detail-list \.quantity-actual-editor/);
 assert.match(projectsCss, /height: 6px !important/);
 
-assert.match(appCss, /ui-projects\.css\?v=[^"\n]*works-only-1/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assertVersionedAsset(appCss, 'css/ui-projects.css');
+assertVersionedAsset(baseHtml, 'app.css');
 
 console.log('ui_project_schedule_cleanup_frontend_ok');

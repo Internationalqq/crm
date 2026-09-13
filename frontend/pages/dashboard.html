@@ -1,11 +1,10 @@
 <section class="dashboard-hero">
     <div class="dashboard-hero-copy">
-        <p class="eyebrow">Стройка под контролем</p>
-        <h2>Управляйте объектами без слепых зон</h2>
-        <p>Прогресс, риски, материалы, задачи и свежие события — одна живая картина по всей стройке.</p>
+        <h2>Обзор объектов</h2>
+        <p>Ход работ, задачи и деньги по вашим объектам.</p>
     </div>
     <div class="hero-actions">
-        <a class="primary" href="/app/projects"><i data-lucide="building-2" aria-hidden="true"></i><span>Перейти к объектам</span></a>
+        <a class="primary" href="/app/projects"><i data-lucide="building-2" aria-hidden="true"></i><span>Все объекты</span></a>
         <a class="ghost" href="/app/logs"><i data-lucide="clipboard-list" aria-hidden="true"></i><span>Журнал работ</span></a>
         <a class="ghost" href="/app/warehouse"><i data-lucide="warehouse" aria-hidden="true"></i><span>Склад</span></a>
     </div>
@@ -29,7 +28,6 @@
         <section class="card">
             <div class="card-head">
                 <div>
-                    <span class="section-label">Объекты</span>
                     <h3><i data-lucide="hard-hat" aria-hidden="true"></i><span>Проекты в работе</span></h3>
                 </div>
                 <a class="subtle-link" href="/app/projects"><span>Все объекты</span><i data-lucide="arrow-right" aria-hidden="true"></i></a>
@@ -46,7 +44,6 @@
         <section class="card">
             <div class="card-head">
                 <div>
-                    <span class="section-label">Лента</span>
                     <h3><i data-lucide="activity" aria-hidden="true"></i><span>Последняя активность</span></h3>
                 </div>
                 <span class="muted">Задачи, чат, документы, склад</span>
@@ -62,27 +59,9 @@
     </div>
 
     <aside class="dashboard-side">
-        <section class="dashboard-autobot-card hidden" data-nav="autobot">
-            <div class="dashboard-autobot-content">
-                <span class="dashboard-autobot-kicker"><i data-lucide="sparkles" aria-hidden="true"></i>AI · закупки</span>
-                <h3>AutoBot знает рынок стройматериалов</h3>
-                <p>Разбирает сметы, находит тендеры и сравнивает цены — пока команда ведёт объект.</p>
-                <div class="dashboard-autobot-tags" aria-label="Возможности AutoBot">
-                    <span>Тендеры</span>
-                    <span>Сметы</span>
-                    <span>Цены</span>
-                </div>
-                <a class="dashboard-autobot-cta" href="/app/autobot">
-                    <span>Запустить AutoBot</span>
-                    <i data-lucide="arrow-up-right" aria-hidden="true"></i>
-                </a>
-            </div>
-        </section>
-
         <section class="card accent-card">
             <div class="card-head">
                 <div>
-                    <span class="section-label">Оперативная сводка</span>
                     <h3><i data-lucide="target" aria-hidden="true"></i><span>Фокус на сегодня</span></h3>
                 </div>
             </div>
@@ -97,7 +76,6 @@
         <section class="card">
             <div class="card-head">
                 <div>
-                    <span class="section-label">Риски</span>
                     <h3><i data-lucide="triangle-alert" aria-hidden="true"></i><span>Материалы и блокеры</span></h3>
                 </div>
             </div>
@@ -109,17 +87,17 @@
             </div>
         </section>
 
-        <section class="card mini-metrics">
-            <div>
-                <span><i data-lucide="file-text" aria-hidden="true"></i>Документы</span>
-                <strong>Акты / договоры</strong>
-                <small>Готово место под генерацию актов выполненных работ.</small>
-            </div>
-            <div>
-                <span><i data-lucide="shield-check" aria-hidden="true"></i>Доступы</span>
-                <strong>Роли</strong>
-                <small>Директор, прораб, закупщик и заказчик видят разные данные.</small>
+        <section class="dashboard-autobot-card hidden" data-nav="autobot">
+            <div class="dashboard-autobot-content">
+                <span class="dashboard-autobot-kicker"><i data-lucide="sparkles" aria-hidden="true"></i>AI · закупки</span>
+                <h3>AutoBot</h3>
+                <p>Поиск цен и работа со сметами.</p>
+                <a class="dashboard-autobot-cta" href="/app/autobot">
+                    <span>Открыть AutoBot</span>
+                    <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+                </a>
             </div>
         </section>
+
     </aside>
 </section>

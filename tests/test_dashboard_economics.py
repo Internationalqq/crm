@@ -31,6 +31,15 @@ class DashboardHandler:
 
 
 class DashboardEconomicsTests(unittest.TestCase):
+    def test_imported_active_project_counts_as_in_progress(self) -> None:
+        with server.db() as con:
+            con.execute("UPDATE projects SET status = 'active' WHERE id = ?", (self.project_id,))
+            con.commit()
+        handler = DashboardHandler({"id": self.admin_id, "login": "admin", "role": "admin", "roles": []})
+        server.PMBIHandler.api_dashboard(handler)
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertEqual(handler.response["activeProjects"], 1)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_server_db = server.DB_PATH

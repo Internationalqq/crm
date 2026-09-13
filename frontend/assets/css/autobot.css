@@ -2,12 +2,11 @@
 body[data-page="autobot"] main.content {
     width: 100% !important;
     max-width: none !important;
-    height: 100vh;
-    padding: 72px 18px 18px !important;
+    min-height: 0;
+    height: auto;
+    padding: 18px !important;
     overflow: hidden !important;
-    background:
-        radial-gradient(circle at 8% 5%, rgba(37, 99, 235, .07), transparent 28%),
-        var(--color-canvas);
+    background: var(--color-canvas);
 }
 
 /* AutoBot owns its scrolling area, so the CRM header must stay in the page flow. */
@@ -25,12 +24,6 @@ body[data-page="autobot"] .topbar {
     transform: none !important;
     opacity: 1 !important;
     pointer-events: auto !important;
-}
-
-body[data-page="autobot"] main.content {
-    min-height: 0;
-    height: auto;
-    padding-top: 18px !important;
 }
 
 body[data-page="autobot"].autobot-topbar-hidden .topbar {
@@ -106,8 +99,8 @@ body[data-page="autobot"] .autobot-heading-icon {
     border: 1px solid #c8dcfb;
     border-radius: 13px;
     color: #2563eb;
-    background: linear-gradient(145deg, #ffffff, #eaf3ff);
-    box-shadow: 0 8px 20px rgba(37, 99, 235, .10);
+    background: var(--color-surface);
+    box-shadow: none;
 }
 
 body[data-page="autobot"] .autobot-heading-icon svg {
@@ -365,7 +358,6 @@ body[data-page="autobot"] .autobot-offline-actions a {
 
 @media (max-width: 720px) {
     body[data-page="autobot"] main.content {
-        height: calc(100dvh - 60px);
         padding: 10px !important;
     }
 
@@ -374,7 +366,6 @@ body[data-page="autobot"] .autobot-offline-actions a {
     }
 
     body[data-page="autobot"].autobot-topbar-hidden main.content {
-        height: 100dvh;
         padding: 0 !important;
     }
 

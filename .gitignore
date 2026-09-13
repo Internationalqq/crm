@@ -17,3 +17,5 @@ tmp/
 /.tmp_doc_read/
 /.tmp_hermes_review/
 /*.docx
+/*.bundle
+/server-migration-*.tar.gz

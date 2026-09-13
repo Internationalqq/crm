@@ -737,7 +737,9 @@
         if (page === 'autobot' && PMBI.autobot && typeof PMBI.autobot.init === 'function') PMBI.autobot.init();
     }
 
+    var projectsLoadToken = 0;
     function loadProjects(callback) {
+        var requestToken = ++projectsLoadToken;
         var listRoot = page === 'projects' ? qs('[data-projects-list]') : null;
         function finish() {
             if (typeof callback !== 'function') return;
@@ -755,6 +757,7 @@
             cacheTtl: 60 * 1000,
             requestGroup: 'projects-list'
         }).then(function (data) {
+            if (requestToken !== projectsLoadToken) return;
             state.projects = Array.isArray(data && data.projects) ? data.projects : [];
             state.projectCompanies = Array.isArray(data && data.portfolioCompanies) ? data.portfolioCompanies : [];
             state.projectsLoaded = true;
@@ -768,6 +771,7 @@
             }
             finish();
         }).catch(function (error) {
+            if (requestToken !== projectsLoadToken || (error && error.name === 'AbortError')) return;
             console.error('Projects load failed', error);
             state.projects = [];
             state.projectsLoaded = false;
@@ -1022,7 +1026,7 @@
             var cover = projectCoverVisual(project);
             return '<a class="dashboard-project" href="/app/projects?openProject=' + encodeURIComponent(project.id) + '" data-dashboard-project-id="' + project.id + '">' +
                 '<span class="dashboard-project-cover' + (cover.uploaded ? ' has-uploaded-photo' : ' is-curated-cover') + '" aria-hidden="true">' +
-                    '<img src="' + escapeHtml(cover.url) + '" alt="" loading="lazy" decoding="async">' +
+                    (cover.uploaded ? '<img src="' + escapeHtml(cover.url) + '" alt="" loading="lazy" decoding="async">' : '<i data-lucide="building-2"></i>') +
                 '</span>' +
                 '<div class="project-row-main">' +
                     '<b><i data-lucide="building-2" aria-hidden="true"></i><span>' + escapeHtml(project.title) + '</span></b>' +
@@ -1168,6 +1172,8 @@
         tab.classList.add('active');
         tab.setAttribute('aria-current', 'page');
         panel.hidden = false;
+        var sectionSelect = qs('[data-project-section-select]', root);
+        if (sectionSelect) sectionSelect.value = tabName;
         if (typeof tab.scrollIntoView === 'function') {
             try { tab.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }); } catch (scrollError) {}
         }
@@ -1198,7 +1204,9 @@
     }
 
     function isProjectTabHidden(tabName) {
+        if (!/^(overview|schedule|warehouse-control|tasks|reports|documents|finance|calendar|production-schedule|estimate-reconciliation|chat|ai)$/.test(String(tabName || ''))) return true;
         if (isGuestRole()) return ['reports', 'production-schedule'].indexOf(tabName) === -1;
+        if (tabName === 'finance') return !canSeeFinances();
         if ((tabName === 'calendar' || tabName === 'estimate-reconciliation' || tabName === 'warehouse-control') && hasRole('customer')) return true;
         if (hasRole('admin') || hasRole('director')) return false;
         return false;
@@ -1208,28 +1216,10 @@
         root = root || qs('[data-project-detail]') || document;
         var reportsTabLabel = qs('[data-tab="reports"] span', root);
         if (reportsTabLabel) reportsTabLabel.textContent = isGuestRole() ? 'Отчёты' : 'Журнал';
-        var roleHiddenTabs = isGuestRole() ? {
-            overview: true,
-            schedule: true,
-            'warehouse-control': true,
-            tasks: true,
-            reports: false,
-            documents: true,
-            finance: true,
-            calendar: true,
-            'production-schedule': false,
-            'estimate-reconciliation': true,
-            chat: true,
-            ai: true
-        } : {
-            calendar: hasRole('customer'),
-            'estimate-reconciliation': hasRole('customer'),
-            'warehouse-control': hasRole('customer'),
-            reports: false,
-            finance: !canSeeFinances()
-        };
-        Object.keys(roleHiddenTabs).forEach(function (tabName) {
-            var hidden = !!roleHiddenTabs[tabName];
+        var tabNames = ['overview', 'schedule', 'warehouse-control', 'tasks', 'reports', 'documents',
+            'finance', 'calendar', 'production-schedule', 'estimate-reconciliation', 'chat', 'ai'];
+        tabNames.forEach(function (tabName) {
+            var hidden = isProjectTabHidden(tabName);
             qsa('[data-tab="' + tabName + '"]', root).forEach(function (node) {
                 node.classList.toggle('hidden', hidden);
                 node.setAttribute('aria-hidden', hidden ? 'true' : 'false');
@@ -1245,6 +1235,20 @@
         qsa('[data-project-quick-action="invoice"]', root).forEach(function (node) {
             node.hidden = !canSeeFinances();
         });
+        var select = qs('[data-project-section-select]', root);
+        if (select) {
+            var currentValue = select.value;
+            var options = qsa('[data-tab]', root).filter(function (node) {
+                return !isProjectTabHidden(node.dataset.tab);
+            }).map(function (node) {
+                var option = document.createElement('option');
+                option.value = node.dataset.tab;
+                option.textContent = node.textContent.trim();
+                return option;
+            });
+            select.replaceChildren.apply(select, options);
+            select.value = currentValue;
+        }
     }
 
     function bindProjectTabClicks() {
@@ -1254,6 +1258,11 @@
         if (bindHorizontalWheelScroll) bindHorizontalWheelScroll(qs('.project-tab-cluster > .tabs', tabsRoot));
         if (tabsRoot.dataset.projectTabsBound === '1') return;
         tabsRoot.dataset.projectTabsBound = '1';
+        tabsRoot.addEventListener('change', function (event) {
+            if (event.target && event.target.matches('[data-project-section-select]')) {
+                activateProjectTab(event.target.value);
+            }
+        });
         tabsRoot.addEventListener('click', function (event) {
             var button = event.target && event.target.closest('[data-tab]');
             if (!button || !tabsRoot.contains(button)) return;
@@ -1292,7 +1301,31 @@
         });
         if (state.selectedProject && Number(state.selectedProject.id) === Number(project.id)) {
             state.selectedProject = project;
+            updateProjectDetailContext(project);
         }
+    }
+
+    function updateProjectDetailContext(project) {
+        var root = qs('[data-project-detail]');
+        if (!root || !project) return;
+        var title = qs('[data-detail-title]', root);
+        var status = qs('[data-detail-status]', root);
+        if (title) title.textContent = project.title || 'Объект';
+        if (status) status.textContent = project.status || '';
+    }
+
+    function refreshProjectOverviewHeader(project, panel) {
+        // Forecast and hub requests finish independently. Keep the hub node so an
+        // in-flight request still renders into the visible overview after this update.
+        var hub = qs('[data-project-hub]', panel);
+        var cover = qs('[data-project-cover-state]', panel);
+        safeReplaceChildren(panel, renderProjectOverviewHero(project));
+        var placeholder = qs('[data-project-hub]', panel);
+        if (hub && placeholder) placeholder.replaceWith(hub);
+        var coverPlaceholder = qs('[data-project-cover-state]', panel);
+        if (cover && coverPlaceholder) coverPlaceholder.replaceWith(cover);
+        refreshLucideIcons(panel);
+        bindProjectOverviewActions();
     }
 
     function projectScheduleSummary(project) {
@@ -4060,6 +4093,12 @@
 
     function documentDisplayDate(doc) {
         var value = doc && (doc.updated_at || doc.created_at);
+        if (value && /^\d+(?:\.\d+)?$/.test(String(value))) {
+            var timestamp = Number(value);
+            var date = new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp);
+            if (!Number.isFinite(date.getTime())) return '';
+            value = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+        }
         return value ? formatDisplayDate(value) : '';
     }
 
@@ -6523,10 +6562,10 @@ function renderLogsDayView(project, logs) {
                 var coverVisual = projectCoverVisual(project);
                 return '<article class="project-card ' + (completed ? 'project-completed ' : '') + (!completed && criticalCount ? 'project-risk' : '') + '" data-project-id="' + escapeHtml(project.id || '') + '">' +
                     '<div class="project-card-shell">' +
-                        '<div class="project-card-cover">' +
+                        (coverVisual.uploaded ? '<div class="project-card-cover">' +
                             projectCoverMedia(project, 'project-card-cover-media', 'lazy') +
                             '<span class="project-card-cover-label"><i data-lucide="' + (coverVisual.uploaded ? 'camera' : 'image') + '"></i>' + (coverVisual.uploaded ? 'Фото объекта' : 'Обложка объекта') + '</span>' +
-                        '</div>' +
+                        '</div>' : '') +
                         '<div class="project-card-headline">' +
                             '<div class="project-card-icon" aria-hidden="true"><i data-lucide="' + (completed ? 'folder-git-2' : 'building-2') + '"></i></div>' +
                             '<div class="project-card-heading">' +
@@ -6557,6 +6596,7 @@ function renderLogsDayView(project, logs) {
                             '<button class="project-quick-action" type="button" data-project-quick-tab="schedule" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Работы"><i data-lucide="hammer"></i></button>' +
                             '<button class="project-quick-action" type="button" data-project-quick-tab="tasks" data-project-id="' + escapeHtml(project.id || '') + '" aria-label="Задачи"><i data-lucide="kanban-square"></i></button>' +
                             financeQuickAction +
+                            '<button class="ghost compact project-open-action" type="button" data-project-quick-tab="overview" data-project-id="' + escapeHtml(project.id || '') + '">Открыть объект<i data-lucide="arrow-up-right" aria-hidden="true"></i></button>' +
                         '</div>' +
                     '</div>' +
                 '</article>';
@@ -6901,6 +6941,7 @@ function renderLogsDayView(project, logs) {
         function panel(name) { return qs('[data-panel="' + name + '"]'); }
         state.selectedProject = project;
         root.hidden = false;
+        updateProjectDetailContext(project);
         setProjectFocusMode(true);
         bindProjectTabClicks();
         document.documentElement.classList.remove('projects-booting');
@@ -7004,9 +7045,7 @@ function renderLogsDayView(project, logs) {
         loadSectionScheduleForecast(project.id, project.started_at || APP_TODAY, function () {
             if (!isCurrentProject(project.id, loadingToken)) return;
             if (overviewPanel) {
-                safeReplaceChildren(overviewPanel, renderProjectOverviewHero(project));
-                refreshLucideIcons(overviewPanel);
-                bindProjectOverviewActions();
+                refreshProjectOverviewHeader(project, overviewPanel);
             }
             queueScheduleRender(state.stagesByProject[project.id] || []);
         });
@@ -7692,15 +7731,8 @@ function renderLogsDayView(project, logs) {
         rerenderProjectMaterialAndWorkViews(projectId);
         var schedulePanel = qs('[data-panel="schedule"]');
         if (schedulePanel) {
-            safeReplaceChildren(schedulePanel, renderSchedulePanel(state.stagesByProject[projectId] || [], state.selectedProject));
             bindAutoScheduleForm(projectId);
             bindScheduleStatusActions(projectId);
-            bindSectionScheduleRefresh(projectId);
-            bindSectionScheduleInteractions(projectId);
-            bindActualQuantityInputs(projectId);
-            bindProjectMarketToggles(projectId);
-            bindProjectChainActions();
-            if (PMBI.planning && typeof PMBI.planning.bindProjectScheduleViews === 'function') PMBI.planning.bindProjectScheduleViews(projectId);
         }
     }
 
@@ -9582,7 +9614,7 @@ function renderLogsDayView(project, logs) {
         return '<div class="finance-form-modal" data-finance-form-modal hidden>' +
             '<div class="finance-form-backdrop" data-finance-modal-close></div>' +
             '<div class="finance-form-dialog" role="dialog" aria-modal="true">' +
-                '<button class="finance-form-close" type="button" data-finance-modal-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c"><i data-lucide="x"></i></button>' +
+                '<button class="finance-form-close" type="button" data-finance-modal-close aria-label="\u0417\u0430\u043a\u0440\u044b\u0442\u044c"><span aria-hidden="true">×</span></button>' +
                 '<div class="finance-form-pane" data-finance-modal-pane="invoice">' + renderFinanceInvoiceForm() + '</div>' +
                 (canAddIncome ? '<div class="finance-form-pane" data-finance-modal-pane="income" hidden>' + renderFinanceIncomeForm() + '</div>' : '') +
             '</div>' +
@@ -9623,7 +9655,8 @@ function renderLogsDayView(project, logs) {
         document.body.classList.add('finance-modal-lock');
         requestAnimationFrame(function () {
             modal.classList.add('is-open');
-            var firstInput = qs('input, select, textarea, button[type="submit"]', modal);
+            var activePane = qs('[data-finance-modal-pane="' + type + '"]', modal);
+            var firstInput = activePane && qs('input, select, textarea, button[type="submit"]', activePane);
             if (firstInput && typeof firstInput.focus === 'function') firstInput.focus();
         });
     }
@@ -12955,18 +12988,26 @@ function renderLogsDayView(project, logs) {
         if (!projectId) return Promise.resolve(null);
         var item = actualQuantityInputItem(input);
         var value = input.value;
-        if (input.getAttribute('data-actual-kind') === 'work') {
-            setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, value);
-        } else {
-            setMaterialManualActualQty(projectId, item, value);
-        }
         updateActualQuantityLabel(input, value);
         if (!shouldRerender) return Promise.resolve(null);
         var planTotal = quantityPlanInfo(item).totalQty;
-        var request = Promise.resolve(null);
-        if (input.dataset.progressSyncedValue !== String(value)) {
-            input.dataset.progressSyncedValue = String(value);
-            request = postProgressItem(projectId, {
+        var numericValue = Number(String(value).replace(',', '.'));
+        if (!String(value).trim() || !Number.isFinite(numericValue) || numericValue < 0 || (planTotal > 0 && numericValue > planTotal)) {
+            var error = new Error('Введите выполненный объём от 0' + (planTotal > 0 ? ' до ' + quantityText(planTotal) : '') + '.');
+            showAppNotice(error.message, 'error');
+            return Promise.reject(error);
+        }
+        value = clampActualQty(value, planTotal);
+        if (input._progressRequest) {
+            if (input.dataset.progressPendingValue === String(value)) return input._progressRequest;
+            // Serialize edits of one input so an older response cannot win.
+            return input._progressRequest.catch(function () {}).then(function () {
+                return saveActualQuantityInput(input, true);
+            });
+        }
+        if (input.dataset.progressSyncedValue === String(value)) return Promise.resolve(null);
+        input.dataset.progressPendingValue = String(value);
+        var request = postProgressItem(projectId, {
                 kind: input.getAttribute('data-actual-kind') || '',
                 itemId: input.getAttribute('data-item-id') || '',
                 sectionTitle: input.getAttribute('data-section-title') || '',
@@ -12974,14 +13015,24 @@ function renderLogsDayView(project, logs) {
                 unit: item.unit,
                 actualQty: value,
                 completed: planTotal > 0 && Number(value || 0) >= planTotal
-            }, input.getAttribute('data-section-title') || '').then(function () {
+            }, input.getAttribute('data-section-title') || '').then(function (data) {
+                if (data && data.actualQty != null && Number.isFinite(Number(data.actualQty))) value = Number(data.actualQty);
+                input.dataset.progressSyncedValue = String(value);
+                input.defaultValue = String(value);
+                if (input.getAttribute('data-actual-kind') === 'work') {
+                    setWorkActualQty(projectId, input.getAttribute('data-section-title') || '', item, value);
+                } else {
+                    setMaterialManualActualQty(projectId, item, value);
+                    updateMaterialScheduleItemDom(input.getAttribute('data-item-id') || '', planTotal > 0 && Number(value || 0) >= planTotal);
+                }
+                updateBulkSectionCheckState(sectionBulkScope(input));
                 refreshSelectedProjectProgressViews(projectId);
+                return data;
+            }).finally(function () {
+                delete input._progressRequest;
+                delete input.dataset.progressPendingValue;
             });
-        }
-        updateBulkSectionCheckState(sectionBulkScope(input));
-        if (input.getAttribute('data-actual-kind') === 'material') {
-            updateMaterialScheduleItemDom(input.getAttribute('data-item-id') || '', planTotal > 0 && Number(value || 0) >= planTotal);
-        }
+        input._progressRequest = request;
         return request;
     }
 
@@ -13104,7 +13155,7 @@ function renderLogsDayView(project, logs) {
                 errorNode.classList.remove('active');
             }
             var value = Number(String(input.value || '').replace(',', '.'));
-            if (!Number.isFinite(value) || value < 0 || (total > 0 && value > total)) {
+            if (!String(input.value).trim() || !Number.isFinite(value) || value < 0 || (total > 0 && value > total)) {
                 input.setAttribute('aria-invalid', 'true');
                 if (errorNode) {
                     errorNode.textContent = total > 0 ? ('Введите число от 0 до ' + quantityText(total) + ' ' + unit + '.') : 'Введите корректный выполненный объём.';
@@ -13113,7 +13164,6 @@ function renderLogsDayView(project, logs) {
                 input.focus();
                 return;
             }
-            var previous = actual;
             input.removeAttribute('aria-invalid');
             withSubmitLock(form, function () {
                 var syncInput = document.createElement('input');
@@ -13130,7 +13180,6 @@ function renderLogsDayView(project, logs) {
                 closeWorkQuantityDialog(modal);
                 showAppNotice('Выполненный объём сохранён.', 'success');
             }).catch(function (error) {
-                setWorkActualQty(projectId, sectionTitle, item, previous);
                 if (errorNode) {
                     errorNode.textContent = appErrorMessage(error, 'Не удалось сохранить выполненный объём.');
                     errorNode.classList.add('active');
@@ -13251,7 +13300,7 @@ function renderLogsDayView(project, logs) {
             if (actualInput) {
                 event.stopPropagation();
                 if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-                saveActualQuantityInput(actualInput, true);
+                saveActualQuantityInput(actualInput, true).catch(function () {});
                 updateBulkSectionCheckState(sectionBulkScope(actualInput));
                 syncBulkSectionChecks();
                 return;
@@ -13297,14 +13346,8 @@ function renderLogsDayView(project, logs) {
                     input.blur();
                 }
             });
-            input.addEventListener('input', function () {
-                saveActualQuantityInput(input, false);
-            });
-            input.addEventListener('change', function () {
-                saveActualQuantityInput(input, true);
-            });
             input.addEventListener('blur', function () {
-                saveActualQuantityInput(input, true);
+                saveActualQuantityInput(input, true).catch(function () {});
             });
         });
     }
@@ -14018,6 +14061,7 @@ function renderLogsDayView(project, logs) {
                 '<button class="menu-btn topbar-icon-button" type="button" data-menu-toggle aria-label="Навигация" title="Навигация">' +
                     '<i data-lucide="panel-left" aria-hidden="true"></i>' +
                 '</button>' +
+                '<span class="topbar-page-title" data-shell-page-title>' + escapeHtml(topbarPageTitle()) + '</span>' +
             '</div>' +
             '<div class="topbar-actions">' +
                 '<div class="topbar-reminders-wrap">' +
@@ -14539,6 +14583,7 @@ function renderLogsDayView(project, logs) {
         var label = qs('[data-project-cover-label]', cover);
         var note = qs('[data-project-cover-note]', cover);
         if (!photo) {
+            cover.hidden = true;
             image.src = projectFallbackCoverUrl(project);
             image.alt = '';
             cover.dataset.projectCoverState = 'fallback';
@@ -14553,6 +14598,7 @@ function renderLogsDayView(project, logs) {
             return;
         }
         image.src = projectDocumentImageUrl(photo);
+        cover.hidden = false;
         image.alt = '';
         cover.dataset.projectCoverState = 'uploaded';
         cover.classList.add('has-uploaded-photo');
@@ -14572,7 +14618,7 @@ function renderLogsDayView(project, logs) {
                 '<div class="object-identity-layout">' +
                     '<div class="object-identity-copy">' +
                         '<div class="object-identity-top">' +
-                            '<div><span class="object-kicker">Пульт объекта</span><div class="object-title-row"><h2>' + escapeHtml(project.title || 'Без названия') + '</h2><span class="object-status-badge">' + escapeHtml(project.status || 'Подготовка') + '</span></div>' +
+                            '<div><h3>Об объекте</h3>' +
                             '<p class="object-address"><i data-lucide="map-pin" aria-hidden="true"></i><span>' + escapeHtml(project.address || 'Адрес не указан') + '</span></p></div>' +
                             '<div class="object-identity-progress"><div class="object-progress-copy"><span>Готовность объекта</span><strong>' + safeProgress + '%</strong></div><span class="object-progress-track"><span style="width:' + safeProgress + '%"></span></span>' +
                             '<span class="object-progress-deadline ' + (deadlineTone ? ('is-' + deadlineTone) : '') + '">' + escapeHtml(overviewDeadline ? (projectOverviewDeadlineHintV2(overviewDeadline) + ' · до ' + formatDisplayDate(overviewDeadline)) : 'Укажите срок объекта') + '</span></div>' +
@@ -14583,7 +14629,7 @@ function renderLogsDayView(project, logs) {
                             '<div class="object-meta-item"><span>Период работ</span><strong>' + escapeHtml((overviewStart ? formatDisplayDate(overviewStart) : 'без даты') + ' — ' + (overviewDeadline ? formatDisplayDate(overviewDeadline) : 'без срока')) + '</strong></div>' +
                         '</div>' +
                     '</div>' +
-                    '<figure class="object-identity-cover ' + (cover.uploaded ? 'has-uploaded-photo' : 'is-curated-cover') + '" data-project-cover-state="' + (cover.uploaded ? 'uploaded' : 'fallback') + '">' +
+                    '<figure class="object-identity-cover ' + (cover.uploaded ? 'has-uploaded-photo' : 'is-curated-cover') + '" data-project-cover-state="' + (cover.uploaded ? 'uploaded' : 'fallback') + '"' + (cover.uploaded ? '' : ' hidden') + '>' +
                         '<img data-project-cover-image src="' + escapeHtml(cover.url) + '" alt="" loading="eager" decoding="async">' +
                         '<figcaption><span><i data-lucide="camera" aria-hidden="true"></i><b data-project-cover-label>' + (cover.uploaded ? 'Фото с объекта' : 'Визуальная обложка') + '</b></span>' +
                         '<small data-project-cover-note>' + escapeHtml(cover.uploaded ? cover.title : 'Загрузите фотоотчёт — свежий снимок станет обложкой.') + '</small></figcaption>' +
@@ -14749,7 +14795,7 @@ function renderLogsDayView(project, logs) {
         var financeTone = finance.overdue.length || estimateAnomaly ? 'danger' : (finance.pending.length || !finance.items.length ? 'warning' : '');
         var documentTone = docsForReview.length ? 'warning' : '';
         var snapshots = [
-            renderObjectSnapshotV3('hammer', 'Работы', percent(project.progress) + '%', startedStages.length + ' из ' + stages.length + ' этапов начаты', 'schedule', lateNotStartedStage ? 'danger' : ''),
+            renderObjectSnapshotV3('hammer', 'Работы и материалы', percent(project.progress) + '%', startedStages.length + ' из ' + stages.length + ' этапов начаты', 'schedule', lateNotStartedStage ? 'danger' : ''),
             renderObjectSnapshotV3('boxes', 'Материалы', criticalMaterials.length ? (criticalMaterials.length + ' критично') : (onSiteMaterials.length + ' на объекте'), soonMaterials.length ? ('Скоро нужно: ' + soonMaterials.length) : 'Поставки без срочных сигналов', 'warehouse-control', supplyTone),
             renderObjectSnapshotV3('folder-check', 'Документы', String(documents.length), docsForReview.length ? ('Разобрать: ' + docsForReview.length) : 'Папка в порядке', 'documents', documentTone)
         ];
@@ -14860,6 +14906,7 @@ function renderLogsDayView(project, logs) {
     if (typeof daysBetween === 'function') PMBI.app.daysBetween = daysBetween;
     if (typeof signedDaysBetween === 'function') PMBI.app.signedDaysBetween = signedDaysBetween;
     if (typeof stat === 'function') PMBI.app.stat = stat;
+    if (typeof dataItem === 'function') PMBI.app.dataItem = dataItem;
     if (typeof renderStages === 'function') PMBI.app.renderStages = renderStages;
     if (typeof renderTaskCreateModal === 'function') PMBI.app.renderTaskCreateModal = renderTaskCreateModal;
     if (typeof normalizeTaskTitle === 'function') PMBI.app.normalizeTaskTitle = normalizeTaskTitle;
@@ -14986,6 +15033,7 @@ function renderLogsDayView(project, logs) {
     var appStarted = false;
 
     function cleanupBeforeRouteChange() {
+        projectsLoadToken += 1;
         if (PMBI.operations && typeof PMBI.operations.flushReportDrafts === 'function') PMBI.operations.flushReportDrafts();
         if (PMBI.operations && typeof PMBI.operations.disposeReportDrafts === 'function') PMBI.operations.disposeReportDrafts();
         if (PMBI.autobot && typeof PMBI.autobot.cleanup === 'function') PMBI.autobot.cleanup();

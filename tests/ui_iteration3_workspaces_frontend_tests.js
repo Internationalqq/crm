@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -68,7 +69,7 @@ assert.match(workspaceCss, /Warehouse simplification: physical inventory first/)
 assert.match(procurementJs, /<th>Что на складе<\/th><th>Остаток<\/th><th><\/th>/);
 assert.match(procurementJs, /Сейчас в наличии/);
 assert.match(procurementJs, /Ничего не найдено/);
-assert.match(appCss, /ui-projects\.css\?v=[^"\n]*ui-project-schedule-cleanup-4/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assertVersionedAsset(appCss, 'css/ui-projects.css');
+assertVersionedAsset(baseHtml, 'app.css');
 
 console.log('ui_iteration3_workspaces_frontend_ok');

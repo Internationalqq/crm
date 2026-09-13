@@ -38,6 +38,13 @@
         return prefix + ':' + Date.now() + ':' + Math.random().toString(16).slice(2);
     }
 
+    function operationPayload(form, prefix, payload) {
+        // Keep the attempt even if fields change after an uncertain response.
+        // The server can then report a conflict instead of creating a second move.
+        if (!form._operationKey) form._operationKey = requestKey(prefix);
+        return Object.assign({}, payload, {idempotencyKey: form._operationKey});
+    }
+
     function quantity(value) {
         var number = Number(value || 0);
         if (!Number.isFinite(number)) return '0';
@@ -77,6 +84,8 @@
             bad_stock_move_values: 'Проверь количество материала.',
             bad_estimate_item_id: 'Выбери материал.',
             bad_qty: 'Количество должно быть больше нуля.',
+            stock_move_key_conflict: 'Эта попытка уже записана с другими данными. Обновите историю операций.',
+            work_fact_idempotency_conflict: 'Этот объём уже записан с другими данными. Обновите историю работ перед новой записью.',
             estimate_item_project_mismatch: 'Материал не найден в этом объекте.'
         };
         return labels[code] || code || fallback;
@@ -118,7 +127,7 @@
                 '</div>' +
                 '<label><span>Комментарий <small>необязательно</small></span><input name="comment" maxlength="500" placeholder="Накладная, поставщик или пояснение"></label>' +
                 '<div class="warehouse-control-operation-preview" data-stock-move-preview>Введите количество — покажем результат до сохранения.</div>' +
-                '<div class="form-error" data-stock-move-error></div>' +
+                '<div class="form-error" data-stock-move-error role="alert" aria-live="polite"></div>' +
                 '<button class="primary warehouse-control-submit" type="submit" data-stock-move-submit><i data-lucide="check"></i><span>Добавить приход</span></button>' +
             '</form>' +
         '</section>';
@@ -137,7 +146,7 @@
                     '</div>' +
                     '<label><span>Комментарий <small>необязательно</small></span><input name="comment" maxlength="1000" placeholder="Например: уложили плитку в секции А"></label>' +
                     '<div class="warehouse-control-preview" data-work-fact-preview><span>Выбери работу и объём — покажем, что спишется со склада.</span></div>' +
-                    '<div class="form-error" data-work-fact-error></div>' +
+                    '<div class="form-error" data-work-fact-error role="alert" aria-live="polite"></div>' +
                     '<button class="primary" type="submit">Записать выполненный объём</button>' +
                 '</form>' +
             '</div>' +
@@ -499,6 +508,7 @@
 
         function closeWarehouseDialog(dialog) {
             if (!dialog) return;
+            if (qs('form[data-submit-locked="1"]', dialog)) return;
             dialog.hidden = true;
             document.body.classList.remove('warehouse-control-dialog-open');
             qsa('[data-warehouse-dialog-open]', panel).forEach(function (button) {
@@ -818,6 +828,7 @@
             });
             stockForm.onsubmit = function (event) {
                 event.preventDefault();
+                if (stockForm.dataset.submitLocked === '1') return;
                 var errorNode = qs('[data-stock-move-error]', stockForm);
                 if (errorNode) errorNode.classList.remove('active');
                 var moveType = stockForm.elements.move_type.value;
@@ -829,20 +840,23 @@
                     if (pickerInput) pickerInput.focus();
                     return;
                 }
-                api('/api/projects/' + projectId + '/stock-moves', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        estimate_item_id: Number(stockForm.elements.estimate_item_id.value),
-                        move_type: moveType,
-                        qty: Number(stockForm.elements.qty.value),
-                        price: 0,
-                        comment: stockForm.elements.comment.value.trim()
-                    }),
-                    loaderText: moveType === 'purchase' ? 'Записываем заказ...' : (moveType === 'receipt' ? 'Добавляем материал на объект...' : 'Списываем материал...')
-                }).then(function () {
-                    showAppNotice(moveType === 'purchase' ? 'Заказ записан. Склад изменится только после прихода.' : (moveType === 'receipt' ? 'Приход добавлен. Остаток обновлён.' : 'Материал списан. Остаток обновлён.'), 'success');
-                    if (PMBI.app && typeof PMBI.app.refreshReminderBell === 'function') PMBI.app.refreshReminderBell();
-                    return load(projectId, true);
+                var submission = operationPayload(stockForm, 'stock-move', {
+                    estimate_item_id: Number(stockForm.elements.estimate_item_id.value),
+                    move_type: moveType,
+                    qty: Number(stockForm.elements.qty.value),
+                    price: 0,
+                    comment: stockForm.elements.comment.value.trim()
+                });
+                return PMBI.withSubmitLock(stockForm, function () {
+                    return api('/api/projects/' + projectId + '/stock-moves', {
+                        method: 'POST',
+                        body: JSON.stringify(submission),
+                        loaderText: moveType === 'purchase' ? 'Записываем заказ...' : (moveType === 'receipt' ? 'Добавляем материал на объект...' : 'Списываем материал...')
+                    }).then(function () {
+                        showAppNotice(moveType === 'purchase' ? 'Заказ записан. Склад изменится только после прихода.' : (moveType === 'receipt' ? 'Приход добавлен. Остаток обновлён.' : 'Материал списан. Остаток обновлён.'), 'success');
+                        if (PMBI.app && typeof PMBI.app.refreshReminderBell === 'function') PMBI.app.refreshReminderBell();
+                        return load(projectId, true);
+                    });
                 }).catch(function (error) {
                     if (errorNode) {
                         errorNode.textContent = errorText(error, 'Не удалось сохранить движение материала.');
@@ -884,21 +898,24 @@
             factFormNode.elements.quantity.addEventListener('input', function () { refreshFactPreview(factFormNode, payload); });
             factFormNode.onsubmit = function (event) {
                 event.preventDefault();
+                if (factFormNode.dataset.submitLocked === '1') return;
                 var errorNode = qs('[data-work-fact-error]', factFormNode);
                 if (errorNode) errorNode.classList.remove('active');
-                api('/api/projects/' + projectId + '/warehouse-control/facts', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        workItemId: Number(factFormNode.elements.work_item_id.value),
-                        reportDate: factFormNode.elements.report_date.value,
-                        quantity: Number(factFormNode.elements.quantity.value),
-                        comment: factFormNode.elements.comment.value.trim(),
-                        idempotencyKey: requestKey('work-fact')
-                    }),
-                    loaderText: 'Записываем выполненный объём...'
-                }).then(function (next) {
-                    applyPayload(projectId, next);
-                    showAppNotice('Работа записана, склад обновлён.', 'success');
+                var submission = operationPayload(factFormNode, 'work-fact', {
+                    workItemId: Number(factFormNode.elements.work_item_id.value),
+                    reportDate: factFormNode.elements.report_date.value,
+                    quantity: Number(factFormNode.elements.quantity.value),
+                    comment: factFormNode.elements.comment.value.trim()
+                });
+                return PMBI.withSubmitLock(factFormNode, function () {
+                    return api('/api/projects/' + projectId + '/warehouse-control/facts', {
+                        method: 'POST',
+                        body: JSON.stringify(submission),
+                        loaderText: 'Записываем выполненный объём...'
+                    }).then(function (next) {
+                        applyPayload(projectId, next);
+                        showAppNotice('Работа записана, склад обновлён.', 'success');
+                    });
                 }).catch(function (error) {
                     if (errorNode) {
                         errorNode.textContent = errorText(error, 'Не удалось сохранить факт.');

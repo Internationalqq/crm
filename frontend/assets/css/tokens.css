@@ -11,7 +11,7 @@
     --text-md: 14px;
     --text-lg: 16px;
     --text-xl: 18px;
-    --text-page-title: 28px;
+    --text-page-title: 26px;
     --line-tight: 1.2;
     --line-normal: 1.45;
 
@@ -28,23 +28,23 @@
     --space-lg: var(--space-5);
 
     /* Blue-graphite product palette */
-    --color-canvas: #f3f6fb;
+    --color-canvas: #f5f6f8;
     --color-surface: #ffffff;
-    --color-surface-subtle: #f8fafc;
+    --color-surface-subtle: #f8f9fb;
     --color-surface-accent: #eff6ff;
     --color-surface-selected: #e8f1ff;
-    --color-text: #172033;
-    --color-text-secondary: #64748b;
+    --color-text: #242a35;
+    --color-text-secondary: #707887;
     --color-text-inverse: #ffffff;
-    --color-border: #dfe7f1;
-    --color-border-strong: #cbd7e6;
+    --color-border: #e5e8ed;
+    --color-border-strong: #d5dae2;
     --color-accent: #2563eb;
     --color-accent-hover: #1d4ed8;
     --color-accent-strong: #173f78;
     --color-accent-soft: #eaf2ff;
-    --color-sidebar: #f7f9fc;
-    --color-sidebar-deep: #ffffff;
-    --color-sidebar-active: #e8f1ff;
+    --color-sidebar: #202630;
+    --color-sidebar-deep: #202630;
+    --color-sidebar-active: #343e4d;
 
     /* Semantic states. Warm hues are reserved for actual warnings only. */
     --color-success: #15803d;
@@ -65,11 +65,11 @@
     --radius-xl: 16px;
     --control-height: 38px;
     --control-height-sm: 34px;
-    --shadow-card: 0 1px 2px rgba(15, 23, 42, .045);
-    --shadow-card-hover: 0 10px 24px rgba(15, 23, 42, .08);
+    --shadow-card: none;
+    --shadow-card-hover: 0 3px 12px rgba(15, 23, 42, .05);
     --shadow-floating: 0 18px 44px rgba(15, 23, 42, .14), 0 2px 8px rgba(15, 23, 42, .06);
     --focus-ring: 0 0 0 3px rgba(37, 99, 235, .16);
-    --motion-reveal-duration: 420ms;
+    --motion-reveal-duration: 180ms;
     --motion-reveal-easing: cubic-bezier(.4, 0, .2, 1);
 
     /* Legacy aliases used throughout the current feature styles. */

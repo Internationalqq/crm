@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -54,7 +55,8 @@ assert.match(fadeKeyframes[1], /opacity:\s*0/);
 assert.match(fadeKeyframes[1], /opacity:\s*1/);
 assert.doesNotMatch(fadeKeyframes[1], /transform:/, 'Page reveals must use opacity without movement');
 assert.match(overridesCss, /body\.login-page \.login-card/);
-assert.match(tokensCss, /--motion-reveal-duration:\s*420ms/);
+const revealDuration = tokensCss.match(/--motion-reveal-duration:\s*(\d+)ms/);
+assert.ok(revealDuration && Number(revealDuration[1]) <= 250, 'Workspace transitions must not delay routine navigation');
 assert.match(tokensCss, /--motion-reveal-easing:\s*cubic-bezier\(\.4, 0, \.2, 1\)/);
 
 assert.ok(
@@ -111,10 +113,10 @@ for (const legacyDecorativeColor of [
   );
 }
 
-assert.match(appCss, /ui-qa\.css\?v=20260821-ui-final-qa-1/);
-assert.match(appCss, /overrides\.css\?v=20260821-mist-fade-2/);
-assert.match(appCss, /skeletons\.css\?v=20260821-crm-skeletons-1/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
+assertVersionedAsset(appCss, 'css/ui-qa.css');
+assertVersionedAsset(appCss, 'css/overrides.css');
+assertVersionedAsset(appCss, 'css/skeletons.css');
+assertVersionedAsset(baseHtml, 'app.css');
 assert.doesNotMatch(loginHtml, /assets\/app\.css/);
 assert.match(loginHtml, /assets\/css\/ui-system\.css/);
 assert.match(loginHtml, /assets\/css\/ui-final\.css/);

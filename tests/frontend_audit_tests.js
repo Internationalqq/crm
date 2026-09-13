@@ -215,8 +215,10 @@ test('Production schedule has a project tab, editable cells, and a sticky day ta
   assert.match(projectsHtml, /data-panel="production-schedule"/);
   assert.match(coreJs, /productionScheduleByProject/);
   assert.match(appJs, /loadSelectedProjectProductionSchedule/);
-  assert.match(planningJs, /data-production-cell/);
-  assert.match(planningJs, /action: 'set_cell'/);
+  assert.match(planningJs, /data-production-day/);
+  assert.match(planningJs, /action: 'set_day'/);
+  assert.match(planningJs, /day_number: Number\(button\.dataset\.dayNumber\)/);
+  assert.match(planningJs, /is_filled: nextFilled/);
   assert.match(planningJs, /action: 'recalculate'/);
   assert.match(planningJs, /preserve_manual: true/);
   for (const action of ['add_operation', 'update_operation', 'delete_operation', 'split_operation', 'reorder_operations', 'save_template']) {
@@ -244,7 +246,7 @@ test('Production schedule has a project tab, editable cells, and a sticky day ta
   assert.match(planningJs, /Связано со сметой/);
   assert.match(planningJs, /Вне сметы/);
   assert.match(planningJs, /Требует проверки/);
-  assert.match(planningJs, /data-slot-number/);
+  assert.match(planningJs, /data-day-number/);
   assert.match(planningJs, /data-production-duration-step="-0\.5"/);
   assert.match(planningJs, /data-production-duration-step="0\.5"/);
   assert.match(planningJs, /Объём работ/);

@@ -14,15 +14,15 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        app: '/assets/js/app.js?v=20260904-public-project-covers-3-credential-guest-22-report-calendar-project-start-1-calendar-month-nav-1',
+        app: '/assets/js/app.js?v=20260913-design-c965f07b',
         autobot: '/assets/js/autobot.js?v=20260824-autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1-foreman-crm-bridge-2-multi-estimate-bundle-1',
-        daily_tasks: '/assets/js/daily-tasks.js?v=20260817-standup-inline-1',
-        planning: '/assets/js/planning.js?v=20260903-public-portfolio-1-production-print-scale-live-2-schedule-health-1-production-scroll-wheel-fix-1-production-print-pdf-2-production-print-scale-1-production-sections-1-production-full-edit-1-production-context-edit-1-production-section-volume-start-1-production-delete-section-1-production-column-controls-duration-1-production-parallel-start-add-fix-1-production-day-grid-add-section-1-production-override-outline-fix-1',
+        daily_tasks: '/assets/js/daily-tasks.js?v=20260913-design-c965f07b',
+        planning: '/assets/js/planning.js?v=20260913-design-c965f07b',
         procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1-foreman-flow-1-warehouse-modal-a11y-2-safe-supplier-url-3-modal-listener-4-modal-focus-5-warehouse-error-retry-6-procurement-evidence-personal-2',
-        estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260821-estimate-reconciliation-1-crm-skeletons-1-estimate-repair-1',
-        warehouse_control: '/assets/js/warehouse-control.js?v=20260824-object-inventory-register-2-dialogs-3-portal-a11y-4-order-semantics-5-foreman-flow-6-position-editor-1-material-flow-7-inventory-head-cleanup-8-material-section-groups-9-row-click-10-row-actions-removed-11-modal-icons-12-fill-max-13-stock-move-reversal-14-procurement-evidence-personal-2-material-use-correction-1',
+        estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260913-design-c965f07b',
+        warehouse_control: '/assets/js/warehouse-control.js?v=20260824-object-inventory-register-2-dialogs-3-portal-a11y-4-order-semantics-5-foreman-flow-6-position-editor-1-material-flow-7-inventory-head-cleanup-8-material-section-groups-9-row-click-10-row-actions-removed-11-modal-icons-12-fill-max-13-stock-move-reversal-14-procurement-evidence-personal-2-material-use-correction-1-20260913-retry-2',
         economics_management: '/assets/js/economics-management.js?v=20260821-economics-workspace-1-crm-skeletons-1-finance-workspace-1',
-        operations: '/assets/js/operations.js?v=20260826-project-navigation-1-price-table-1-crm-skeletons-1-project-reports-workspace-1-project-report-modal-1-report-modal-cool-2-report-modal-native-3-report-create-plus-5-report-submit-fix-6-object-control-1-reports-wording-7-report-refresh-8-report-calendar-9-report-calendar-apple-10-report-load-12-foreman-actions-13-smart-daily-report-14-foreman-flow-16-report-live-suggestions-16-report-entry-hierarchy-17-report-action-history-18-estimate-repair-1-report-rich-shifts-21-credential-guest-22-guest-access-modal-fix-23-report-draft-autosave-24-project-company-filter-25-report-flow-cleanup-27-report-quantity-actions-29-drawer-a11y-30-report-icon-minimal-32-report-sheet-minimal-34-report-final-structured-36-report-saved-structured-37-report-browser-qa-39-report-touch-qa-40-report-unit-fallback-qa-43-report-manual-quantity-qa-44-report-copy-spacing-qa-45-report-backdrop-click-qa-46-report-mobile-sheet-qa-47-report-layering-qa-48-report-mobile-header-qa-49-report-manual-sync-qa-50-report-work-limit-qa-51-report-target-floor-qa-52-report-unified-ready-53-report-description-first-55-report-input-label-hidden-56-report-compact-fields-57-reminder-day-focus-4-report-corrections-59-procurement-evidence-1-procurement-role-3-password-policy-1-report-ux-60-autobot-origin-1-report-calendar-project-start-1-calendar-month-nav-1'
+        operations: '/assets/js/operations.js?v=20260913-design-c965f07b'
     };
 
     var PAGE_MODULES = {
@@ -55,6 +55,7 @@
             script.onload = resolve;
             script.onerror = function () {
                 delete scriptPromises[key];
+                script.remove();
                 reject(new Error('script_load_failed:' + key));
             };
             document.head.appendChild(script);
@@ -99,14 +100,41 @@
     function startAppIfReady() {
         if (appStarted || !appBoot) return;
         appStarted = true;
+        var notice = contentRoot && contentRoot.querySelector('[data-route-load-error]');
+        if (notice) notice.remove();
         appBoot();
+    }
+
+    function showBootError(error) {
+        console.error('PM.bi app initialization failed', error);
+        if (!contentRoot || appStarted || contentRoot.querySelector('[data-route-load-error]')) return;
+        var notice = document.createElement('section');
+        notice.className = 'card';
+        notice.setAttribute('data-route-load-error', '');
+        notice.setAttribute('role', 'alert');
+        var message = document.createElement('p');
+        message.textContent = 'Не удалось загрузить интерфейс. Попробуйте ещё раз.';
+        var retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'primary';
+        retry.textContent = 'Повторить загрузку';
+        retry.addEventListener('click', function () {
+            retry.disabled = true;
+            ensureScriptsForPage(PMBI.page || pageFromPath(location.pathname)).then(function () {
+                notice.remove();
+                startAppIfReady();
+            }).catch(function () {
+                retry.disabled = false;
+            });
+        });
+        notice.appendChild(message);
+        notice.appendChild(retry);
+        contentRoot.prepend(notice);
     }
 
     function registerApp(boot) {
         appBoot = boot;
-        ensureScriptsForPage(PMBI.page || pageFromPath(location.pathname)).then(startAppIfReady).catch(function (error) {
-            console.error('PM.bi app initialization failed', error);
-        });
+        ensureScriptsForPage(PMBI.page || pageFromPath(location.pathname)).then(startAppIfReady).catch(showBootError);
     }
 
     function setRouteLoading(loading) {
@@ -139,6 +167,8 @@
         PMBI.page = nextPage;
         currentRouteUrl = new URL(url.href);
         if (doc.title) document.title = doc.title;
+        var shellTitle = document.querySelector("[data-shell-page-title]");
+        if (shellTitle) shellTitle.textContent = (doc.title || "PM.bi").replace(/ — PM\.bi$/, "");
         if (window.scrollTo) window.scrollTo(0, 0);
         if (PMBI.app && typeof PMBI.app.setPage === 'function') PMBI.app.setPage(nextPage);
         if (PMBI.refreshLucideIcons) PMBI.refreshLucideIcons(contentRoot);
@@ -150,7 +180,15 @@
 
     function navigate(url, pushState) {
         if (!url || url.origin !== location.origin || !isAppPath(url.pathname)) return;
-        if (currentRouteUrl.href === url.href) return;
+        if (currentRouteUrl.href === url.href) {
+            if (activeRequest) {
+                navigationToken += 1;
+                activeRequest.abort();
+                activeRequest = null;
+                setRouteLoading(false);
+            }
+            return;
+        }
         if (isHashOnlyNavigation(url)) {
             currentRouteUrl = new URL(url.href);
             return;
@@ -176,6 +214,7 @@
                 replaceContent(doc, url);
             });
         }).catch(function (error) {
+            if (token !== navigationToken) return;
             if (error && error.name === 'AbortError') return;
             console.error('SPA navigation failed', error);
             fallbackNavigation(url);
@@ -231,7 +270,5 @@
     });
 
     PMBI.page = document.body.dataset.page || pageFromPath(location.pathname);
-    ensureScriptsForPage(PMBI.page).then(startAppIfReady).catch(function (error) {
-        console.error('PM.bi script initialization failed', error);
-    });
+    ensureScriptsForPage(PMBI.page).then(startAppIfReady).catch(showBootError);
 })();

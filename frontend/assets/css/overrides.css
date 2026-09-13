@@ -1138,9 +1138,6 @@ body[data-page="companies"].counterparty-create-open {
     font-size: 9px !important;
 }
 
-.material-calendar-preview {
-    display: none !important;
-}
 
 .cell-materials-dropdown {
     width: 100%;
@@ -1929,7 +1926,7 @@ button:hover svg.lucide {
 .finance-form-modal {
     position: fixed;
     inset: 0;
-    z-index: 1200;
+    z-index: 10030;
     display: grid;
     place-items: center;
     padding: 24px;
@@ -1985,7 +1982,8 @@ button:hover svg.lucide {
     border-radius: 10px;
     background: #fff;
     color: #475569;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+    box-shadow: none;
+    font-size: 24px;
     cursor: pointer;
 }
 
@@ -1996,6 +1994,16 @@ button:hover svg.lucide {
 
 .finance-form-pane {
     padding: 18px;
+}
+
+.finance-form-pane .card-head > div {
+    display: grid;
+    gap: 6px;
+    padding-right: 42px;
+}
+
+.finance-form-pane .card-head {
+    margin-bottom: 16px;
 }
 
 .finance-form-dialog .finance-income-card,
@@ -3269,7 +3277,7 @@ body.drawer-open [data-auto-schedule-drawer] {
 }
 
 .material-calendar-preview {
-    display: grid !important;
+    display: grid;
     gap: 3px !important;
     width: 100%;
     align-content: start;
@@ -4305,7 +4313,7 @@ body.reports-drawer-open {
 [data-project-detail] .material-calendar-grid,
 [data-project-detail] .material-calendar-grid.is-week {
     display: grid !important;
-    grid-template-columns: repeat(7, minmax(88px, 1fr)) !important;
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
     gap: 3px !important;
     max-height: none !important;
     overflow: visible !important;
@@ -4380,15 +4388,30 @@ body.reports-drawer-open {
     white-space: nowrap;
 }
 
+.material-calendar-count { display: none; }
+.material-calendar-day[role="button"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 @media (max-width: 760px) {
+    .material-calendar-day .material-calendar-preview { display: none; }
+    .material-calendar-day .material-calendar-count {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
+        background: var(--color-surface-selected);
+        color: var(--color-accent);
+        font-size: 11px;
+        font-weight: 600;
+    }
+
     [data-project-detail] .material-calendar-grid,
     [data-project-detail] .material-calendar-grid.is-week {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
     }
 
     [data-project-detail] .material-calendar-day,
     [data-project-detail] .material-calendar-grid.is-week .material-calendar-day {
-        min-height: 62px !important;
+        min-height: 56px !important;
     }
 }
 
@@ -5004,9 +5027,10 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
 }
 
 .daily-task-page-head h1 {
-    margin: 8px 0 4px;
-    font-size: clamp(24px, 3vw, 34px);
-    line-height: 1.1;
+    margin: 0 0 6px;
+    font-size: var(--text-page-title);
+    font-weight: 600;
+    line-height: var(--line-tight);
 }
 
 .daily-task-page-head p {
@@ -5659,12 +5683,10 @@ body:not(.sortable-unselectable):not(:has(.daily-sortable-drag)) .daily-task-car
     align-items: center;
     width: max-content;
     max-width: 100%;
-    border-radius: var(--radius-sm);
-    padding: 4px 10px;
-    background: var(--blue-soft);
-    color: var(--blue);
-    font-size: 24px;
-    font-weight: 900;
+    padding: 0;
+    color: var(--color-text);
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .daily-task-create-dialog form {
@@ -6117,7 +6139,8 @@ body.daily-archive-opened {
 .calendar-modal-overlay .calendar-modal-card {
     width: min(860px, calc(100vw - 28px)) !important;
     max-width: 980px !important;
-    height: min(720px, calc(100vh - 36px)) !important;
+    height: auto;
+    overflow: auto;
     max-height: min(720px, calc(100vh - 36px)) !important;
     display: grid !important;
     grid-template-rows: auto minmax(0, 1fr) !important;
@@ -6126,7 +6149,7 @@ body.daily-archive-opened {
 
 .calendar-modal-overlay [data-calendar-modal-content] {
     min-height: 0;
-    height: 100%;
+    height: auto;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
 }
@@ -6571,7 +6594,7 @@ body.cal-modal-open .profile-modal-card {
 
     .calendar-modal-overlay .calendar-modal-card {
         width: calc(100vw - 18px) !important;
-        height: calc(100vh - 18px) !important;
+        height: auto;
         max-height: calc(100vh - 18px) !important;
         padding: 14px !important;
     }

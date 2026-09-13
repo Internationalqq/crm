@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -69,10 +70,8 @@ assert.match(projectsCss, /:has\(\[data-panel="schedule"\]\.active \.project-pri
 assert.match(projectsCss, /:has\(\[data-panel="schedule"\]\.active \.project-price-tables\)\s*\{[^}]*position: relative[^}]*z-index: 20/s);
 assert.match(projectsCss, /@media \(max-width: 720px\)[\s\S]*?\.project-price-tables\s*\{[^}]*position: static[^}]*height: auto/s);
 
-assert.match(routerJs, /planning\.js\?v=[^']*price-table-4/);
-assert.match(routerJs, /planning\.js\?v=[^']*sticky-viewport-1/);
-assert.match(routerJs, /operations\.js\?v=[^']*price-table-1/);
-assert.match(appCss, /ui-projects\.css\?v=[^"\n]*price-table-4/);
-assert.match(appCss, /ui-projects\.css\?v=[^"\n]*sticky-viewport-3/);
+assertVersionedAsset(routerJs, 'js/planning.js');
+assertVersionedAsset(routerJs, 'js/operations.js');
+assertVersionedAsset(appCss, 'css/ui-projects.css');
 
 console.log('project_price_table_frontend_ok');

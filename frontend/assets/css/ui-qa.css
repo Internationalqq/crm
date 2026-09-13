@@ -32,7 +32,7 @@
 }
 
 :is(.projects-grid, .materials-list, .timeline, .users-list) {
-    background: var(--color-surface-subtle) !important;
+    background: transparent !important;
 }
 
 .accent-card {

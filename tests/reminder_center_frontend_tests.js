@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,21 +15,14 @@ const baseHtml = read('frontend/templates/base.html');
 const appCss = read('frontend/assets/app.css');
 const reminderCss = read('frontend/assets/css/reminders.css');
 
-const reminderImport = '@import "./css/reminders.css?v=20260824-reminder-center-2-reminder-object-orders-3-motion-1-reminder-day-focus-4";';
-assert.equal(appCss.trim().split(/\r?\n/).at(-1), reminderImport);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*reminder-day-focus-4/);
-assert.match(routerJs, /operations\.js\?v=[^'\s]*reminder-day-focus-4/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*procurement-evidence-1/);
-assert.match(routerJs, /operations\.js\?v=[^'\s]*procurement-evidence-1/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*procurement-evidence-personal-2/);
-assert.match(routerJs, /planning\.js\?v=[^'\s]*procurement-evidence-personal-2/);
-assert.match(routerJs, /procurement\.js\?v=[^'\s]*procurement-evidence-personal-2/);
-assert.match(routerJs, /warehouse-control\.js\?v=[^'\s]*procurement-evidence-personal-2/);
-assert.match(routerJs, /app\.js\?v=[^'\s]*procurement-role-3/);
-assert.match(routerJs, /planning\.js\?v=[^'\s]*procurement-role-3/);
-assert.match(routerJs, /operations\.js\?v=[^'\s]*procurement-role-3/);
+assertVersionedAsset(appCss.trim().split(/\r?\n/).at(-1), 'css/reminders.css');
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(baseHtml, 'js/router.js');
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(routerJs, 'js/operations.js');
+assertVersionedAsset(routerJs, 'js/planning.js');
+assertVersionedAsset(routerJs, 'js/procurement.js');
+assertVersionedAsset(routerJs, 'js/warehouse-control.js');
 for (const stockMoveUi of [planningJs, procurementJs, warehouseControlJs]) {
   assert.match(stockMoveUi, /PMBI\.app\.refreshReminderBell\(\)/);
 }

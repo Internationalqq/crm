@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from business_time import today_iso
+
 import cgi
 import gzip
 import hashlib
@@ -51,6 +53,7 @@ from auth import (
     generate_temporary_password,
     hash_password,
     guest_api_allowed,
+    public_api_allowed,
     normalize_role,
     normalize_permissions,
     payload_has_procurement_prices,
@@ -62,6 +65,7 @@ from auth import (
     user_can_open,
     user_can_manage_roles,
     user_can_manage_schedule,
+    user_can_manage_suppliers,
     user_can_manage_users,
     user_can_access_autobot,
     user_can_submit_procurement_price,
@@ -93,6 +97,7 @@ from projects import (
     project_has_protected_operational_history,
     project_portfolio_company_code,
     project_schedule_payload,
+    project_status_label,
     require_project_access as projects_require_project_access,
     serialize_project,
     set_project_foremen as projects_set_project_foremen,
@@ -426,7 +431,6 @@ def now_ts() -> int:
 
 
 APP_TIMEZONE = timezone(timedelta(hours=int(os.environ.get("PMBI_TZ_OFFSET_HOURS", "5"))))
-TODAY_ISO = datetime.now(APP_TIMEZONE).date().isoformat()
 
 
 def estimate_code_text_kind(value: object) -> str | None:
@@ -5544,18 +5548,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def handle_api(self, method: str, path: str) -> None:
         try:
-            public_read = method == "GET" and (
-                path in {"/api/auth/me", "/api/projects"}
-                or bool(re.fullmatch(r"/api/documents/\d+/view", path))
-                or bool(re.fullmatch(r"/api/projects/\d+", path))
-                or bool(re.fullmatch(r"/api/projects/\d+/(?:daily-logs|production-schedule)", path))
-            )
+            public_read = public_api_allowed(method, path)
+            self._public_viewer_request = False
             if hasattr(self, "headers") and request_is_cross_site_mutation(method, self.headers):
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_forbidden"})
                 return
             if hasattr(self, "headers"):
                 viewer = self.current_user()
-                self._public_viewer_request = not viewer and public_read
+                # current_user has already cached Clerk's result for this request.
+                # Invalid credentials must retain their error, not become anonymous.
+                auth_error = getattr(self, "_pmbi_clerk_auth_result", (None, None))[1]
+                self._public_viewer_request = not viewer and not auth_error and public_read
                 if user_is_guest(viewer) and not guest_api_allowed(method, path):
                     self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_forbidden"})
                     return
@@ -7267,6 +7270,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         ).fetchall()
 
     def api_daily_tasks(self) -> None:
+        today = today_iso()
         user = self.require_user()
         if not user:
             return
@@ -7301,11 +7305,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 "tasks": [self.daily_task_payload(row) for row in rows],
                 "users": users,
                 "canSeeAll": can_see_all,
-                "today": TODAY_ISO,
+                "today": today,
             },
         )
 
     def api_create_daily_task(self) -> None:
+        today = today_iso()
         user = self.require_user()
         if not user:
             return
@@ -7331,7 +7336,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_user_id"})
                     return
-        task_date = str(payload.get("date") or TODAY_ISO).strip() or TODAY_ISO
+        task_date = str(payload.get("date") or today).strip() or today
         status = str(payload.get("status") or "planned").strip()
         if status not in {"planned", "in_progress", "done", "archived"}:
             status = "planned"
@@ -7358,6 +7363,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.CREATED, {"tasks": [self.daily_task_payload(row) for row in rows]})
 
     def api_update_daily_task(self, path: str) -> None:
+        today = today_iso()
         user = self.require_user()
         if not user:
             return
@@ -7387,7 +7393,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if not text:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "empty_task"})
                 return
-            task_date = str(payload.get("date", row["task_date"]) or TODAY_ISO).strip() or TODAY_ISO
+            task_date = str(payload.get("date", row["task_date"]) or today).strip() or today
             target_user_id = int(row["user_id"])
             raw_target_user_id = payload.get("userId", payload.get("user_id"))
             if raw_target_user_id is not None and str(raw_target_user_id).strip():
@@ -7488,16 +7494,17 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, {"ok": True, "id": task_id})
 
     def api_daily_standup(self) -> None:
+        today = today_iso()
         user = self.require_user()
         if not user:
             return
         if user_has_any_role(user, {"admin", "customer", "client"}):
-            self.send_json(HTTPStatus.OK, {"shouldShow": False, "carryover": [], "today": TODAY_ISO})
+            self.send_json(HTTPStatus.OK, {"shouldShow": False, "carryover": [], "today": today})
             return
         with db() as con:
             existing = con.execute(
                 "SELECT 1 FROM daily_standups WHERE user_id = ? AND report_date = ?",
-                (user["id"], TODAY_ISO),
+                (user["id"], today),
             ).fetchone()
             rows = con.execute(
                 """
@@ -7507,18 +7514,19 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 WHERE t.user_id = ? AND t.status IN ('planned','in_progress') AND t.task_date < ?
                 ORDER BY t.task_date ASC, t.id ASC
                 """,
-                (user["id"], TODAY_ISO),
+                (user["id"], today),
             ).fetchall()
         self.send_json(
             HTTPStatus.OK,
             {
                 "shouldShow": not bool(existing),
                 "carryover": [self.daily_task_payload(row) for row in rows],
-                "today": TODAY_ISO,
+                "today": today,
             },
         )
 
     def api_save_daily_standup(self) -> None:
+        today = today_iso()
         user = self.require_user()
         if not user:
             return
@@ -7540,11 +7548,11 @@ class PMBIHandler(BaseHTTPRequestHandler):
             con.execute("BEGIN IMMEDIATE")
             existing = con.execute(
                 "SELECT 1 FROM daily_standups WHERE user_id = ? AND report_date = ?",
-                (user["id"], TODAY_ISO),
+                (user["id"], today),
             ).fetchone()
             if existing:
                 rows = self.daily_task_rows(con, user, archive=False)
-                self.send_json(HTTPStatus.OK, {"ok": True, "today": TODAY_ISO, "alreadySaved": True, "tasks": [self.daily_task_payload(row) for row in rows]})
+                self.send_json(HTTPStatus.OK, {"ok": True, "today": today, "alreadySaved": True, "tasks": [self.daily_task_payload(row) for row in rows]})
                 return
             for item in carryover:
                 if not isinstance(item, dict):
@@ -7567,7 +7575,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         SET status = 'planned', task_date = ?, completed_at = NULL, archived_at = NULL, updated_at = ?
                         WHERE id = ?
                         """,
-                        (TODAY_ISO, now_ts(), task_id),
+                        (today, now_ts(), task_id),
                     )
                 elif action == "archive":
                     con.execute(
@@ -7584,20 +7592,21 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     INSERT INTO daily_tasks (user_id, text, status, task_date, created_by, created_at, updated_at)
                     VALUES (?, ?, 'planned', ?, ?, ?, ?)
                     """,
-                    (user["id"], text, TODAY_ISO, user["id"], now_ts(), now_ts()),
+                    (user["id"], text, today, user["id"], now_ts(), now_ts()),
                 )
             con.execute(
                 """
                 INSERT OR IGNORE INTO daily_standups (user_id, report_date, created_at)
                 VALUES (?, ?, ?)
                 """,
-                (user["id"], TODAY_ISO, now_ts()),
+                (user["id"], today, now_ts()),
             )
             con.commit()
             rows = self.daily_task_rows(con, user, archive=False)
-        self.send_json(HTTPStatus.OK, {"ok": True, "today": TODAY_ISO, "tasks": [self.daily_task_payload(row) for row in rows]})
+        self.send_json(HTTPStatus.OK, {"ok": True, "today": today, "tasks": [self.daily_task_payload(row) for row in rows]})
 
     def api_dashboard(self) -> None:
+        today = today_iso()
         user = self.require_user()
         if not user:
             return
@@ -7788,7 +7797,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                         if fresh_forecast_rows else None
                     ),
                 }
-            active = sum(1 for row in projects if "работ" in str(row["status"]).lower())
+            active = sum(1 for row in projects if project_status_label(row["status"]) == "В работе")
             shortages = 0
             critical_items = []
             for project in projects:
@@ -7809,7 +7818,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
                             "stageTitle": item.get("stageTitle") or "",
                             "needByDate": item.get("needByDate") or "",
                             "workDate": work_date,
-                            "daysUntilWork": (parsed_work_date - parse_iso_date(TODAY_ISO)).days if parsed_work_date and parse_iso_date(TODAY_ISO) else None,
+                            "daysUntilWork": (parsed_work_date - parse_iso_date(today)).days if parsed_work_date and parse_iso_date(today) else None,
                         })
             open_tasks = 0
             if project_ids:
@@ -8057,9 +8066,6 @@ class PMBIHandler(BaseHTTPRequestHandler):
         can_manage_snapshots = user_is_main_admin(user) or user_has_any_role(user, {"admin", "director"})
         with db() as con:
             payload = build_reconciliation(con, project_id, user_can_view_procurement_prices(user))
-            payload["liveItemCount"] = int(
-                con.execute("SELECT COUNT(*) FROM estimate_items WHERE project_id = ?", (project_id,)).fetchone()[0]
-            )
         payload.update(
             {
                 "canManageSnapshots": can_manage_snapshots,
@@ -8296,6 +8302,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.CREATED if created else HTTPStatus.OK, result)
 
     def api_create_project_work_fact(self, path: str) -> None:
+        today = today_iso()
         project_id = parse_path_int(path, 2)
         if not project_id:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
@@ -8313,7 +8320,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_work_fact"})
             return
-        report_date = str(payload.get("reportDate", payload.get("report_date", ""))).strip() or TODAY_ISO
+        report_date = str(payload.get("reportDate", payload.get("report_date", ""))).strip() or today
         idempotency_key = str(payload.get("idempotencyKey", payload.get("idempotency_key", ""))).strip() or f"work-fact-{secrets.token_hex(16)}"
         try:
             with db() as con:
@@ -9777,7 +9784,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
         user = self.require_project_access(project_id)
         if not user:
             return
-        if user["role"] == "customer":
+        if user_is_guest(user) or user["role"] == "customer" or not user_can_manage_suppliers(user):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
             return
         payload = self.read_json()
@@ -9795,15 +9802,35 @@ class PMBIHandler(BaseHTTPRequestHandler):
         if estimate_item_id <= 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_estimate_item_id"})
             return
-        if qty <= 0:
+        if not math.isfinite(qty) or qty <= 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_qty"})
             return
-        if price < 0:
+        if not math.isfinite(price) or price < 0:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_price"})
             return
+        comment = str(payload.get("comment", "")).strip()
+        request_key = str(payload.get("idempotencyKey", payload.get("idempotency_key", "")) or "").strip()
+        if request_key and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", request_key):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_stock_move_key"})
+            return
+        source_key = f"manual:{user['id']}:{request_key}" if request_key else None
         with db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            if source_key:
+                previous = con.execute(
+                    "SELECT * FROM stock_moves WHERE project_id = ? AND source_type = 'manual' AND source_key = ?",
+                    (project_id, source_key),
+                ).fetchone()
+                if previous:
+                    matches = (previous["estimate_item_id"] == estimate_item_id
+                               and previous["move_type"] == move_type and float(previous["qty"]) == qty
+                               and float(previous["price"]) == price and (previous["comment"] or "") == comment)
+                    con.rollback()
+                    self.send_json(HTTPStatus.OK if matches else HTTPStatus.CONFLICT,
+                                   {"id": previous["id"], "idempotentReplay": True} if matches else {"error": "stock_move_key_conflict"})
+                    return
             estimate_item = con.execute(
-                "SELECT id FROM estimate_items WHERE id = ? AND project_id = ?",
+                "SELECT id FROM estimate_items WHERE id = ? AND project_id = ? AND COALESCE(is_deleted, 0) = 0",
                 (estimate_item_id, project_id),
             ).fetchone()
             if not estimate_item:
@@ -9813,9 +9840,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 """
                 INSERT INTO stock_moves (
                     project_id, estimate_item_id, move_type, qty, price, comment,
-                    created_by, created_at, source_type
+                    created_by, created_at, source_type, source_key
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
                 """,
                 (
                     project_id,
@@ -9823,13 +9850,14 @@ class PMBIHandler(BaseHTTPRequestHandler):
                     move_type,
                     qty,
                     price,
-                    str(payload.get("comment", "")).strip(),
+                    comment,
                     user["id"],
                     now_ts(),
+                    source_key,
                 ),
             )
             con.commit()
-        self.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid})
+        self.send_json(HTTPStatus.CREATED, {"id": cur.lastrowid, "idempotentReplay": False})
 
     def api_reverse_stock_move(self, path: str) -> None:
         project_id = parse_path_int(path, 2)
@@ -10034,7 +10062,7 @@ class PMBIHandler(BaseHTTPRequestHandler):
             status_badge = (
                 '<span class="badge success">Завершен</span>'
                 if completed
-                else f'<span class="badge">{esc(row["status"] or "В работе")}</span>'
+                else f'<span class="badge">{esc(project_status_label(row["status"]))}</span>'
             )
             cards.append(
                 f'<article class="project-card {"project-completed" if completed else ""}" data-project-id="{esc(row["id"])}">'

@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -17,15 +18,14 @@ const deleteStart = documentsWorkspaceJs.indexOf('function deleteDocument(doc, r
 const deleteEnd = documentsWorkspaceJs.indexOf('function onRootContextMenu', deleteStart);
 const deleteDocumentJs = documentsWorkspaceJs.slice(deleteStart, deleteEnd);
 
-assert.match(appCss, /documents\.css\?v=20260823-documents-workspace-1/);
+assertVersionedAsset(appCss, 'css/documents.css');
 assert.ok(
   appCss.indexOf('documents.css') > appCss.indexOf('finance-redesign.css'),
   'Document styles must be the final feature layer in the cascade',
 );
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(appCss, /documents-context-actions-2/);
-assert.match(routerJs, /documents-context-actions-2/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(baseHtml, 'js/router.js');
 
 assert.match(appJs, /function renderDocumentsWorkspace\(projectId, docs, executive\)/);
 assert.match(appJs, /class="documents-hero"/);

@@ -38,7 +38,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-workspace-kicker {
     margin-bottom: 7px;
     color: var(--color-accent);
     font-size: var(--text-xs);
-    font-weight: 900;
+    font-weight: 600;
     letter-spacing: .065em;
     text-transform: uppercase;
 }
@@ -52,7 +52,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-workspace-title h2 {
     margin: 0;
     color: var(--color-text);
     font-size: 23px;
-    font-weight: 850;
+    font-weight: 600;
     letter-spacing: -.025em;
     line-height: 1.18;
 }
@@ -108,7 +108,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-progress-copy {
 body[data-page="projects"] [data-panel="tasks"] .task-progress-copy > span {
     color: var(--color-text);
     font-size: var(--text-sm);
-    font-weight: 800;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="tasks"] .task-progress-copy strong {
@@ -116,7 +116,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-progress-copy strong {
     grid-column: 2;
     color: var(--color-accent);
     font-size: 25px;
-    font-weight: 850;
+    font-weight: 600;
     letter-spacing: -.035em;
     line-height: 1;
 }
@@ -197,7 +197,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-metric small {
     overflow: hidden;
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 750;
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -206,7 +206,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-metric strong {
     margin-top: 2px;
     color: var(--color-text);
     font-size: 19px;
-    font-weight: 850;
+    font-weight: 600;
     line-height: 1.1;
 }
 
@@ -347,7 +347,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-filter-result {
     padding: 0 5px;
     color: var(--color-text-secondary);
     font-size: var(--text-xs);
-    font-weight: 750;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -415,7 +415,7 @@ body[data-page="projects"] [data-panel="tasks"] .tasks-column-head h3 {
     overflow: hidden !important;
     color: var(--color-text) !important;
     font-size: 13px !important;
-    font-weight: 850 !important;
+    font-weight: 600 !important;
     line-height: 1.2 !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
@@ -446,7 +446,7 @@ body[data-page="projects"] [data-panel="tasks"] .tasks-column-count {
     background: var(--color-surface) !important;
     color: var(--color-text-secondary) !important;
     font-size: 11px !important;
-    font-weight: 850 !important;
+    font-weight: 600 !important;
 }
 
 body[data-page="projects"] [data-panel="tasks"] .tasks-column-list {
@@ -503,7 +503,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-column-empty svg {
 body[data-page="projects"] [data-panel="tasks"] .task-column-empty span {
     color: var(--color-text);
     font-size: var(--text-sm);
-    font-weight: 800;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="tasks"] .task-column-empty small {
@@ -606,7 +606,7 @@ body[data-page="projects"] [data-panel="tasks"] :is(.task-priority, .task-overdu
     border: 1px solid transparent;
     border-radius: 999px !important;
     font-size: 9px;
-    font-weight: 850;
+    font-weight: 600;
     line-height: 1;
     white-space: nowrap;
 }
@@ -646,7 +646,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-card-body h4 {
     margin: 0 !important;
     color: var(--color-text);
     font-size: 14px !important;
-    font-weight: 800 !important;
+    font-weight: 600 !important;
     line-height: 1.35 !important;
     overflow-wrap: anywhere;
 }
@@ -682,7 +682,7 @@ body[data-page="projects"] [data-panel="tasks"] :is(.task-assignee, .task-deadli
     gap: 5px !important;
     color: var(--color-text-secondary);
     font-size: 10px !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     white-space: nowrap;
 }
 
@@ -717,7 +717,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-avatar {
     background: var(--color-surface-accent);
     color: var(--color-accent-strong);
     font-size: 8px;
-    font-weight: 900;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="tasks"] .task-avatar img {
@@ -742,7 +742,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-quick-status {
     background: #f7faff;
     color: var(--color-accent-hover);
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -789,7 +789,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-editor-grid label.wide { g
 body[data-page="projects"] [data-panel="tasks"] .task-editor-grid label > span {
     color: var(--color-text-secondary);
     font-size: 9px;
-    font-weight: 850;
+    font-weight: 600;
     letter-spacing: .03em;
     text-transform: uppercase;
 }
@@ -835,7 +835,7 @@ body[data-page="projects"] [data-panel="tasks"] :is(.task-editor-error, .task-cr
     background: var(--color-danger-soft);
     color: var(--color-danger);
     font-size: var(--text-xs);
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="tasks"] .task-card.is-task-drag-saving {
@@ -896,7 +896,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-access-state b {
     margin: 0;
     color: var(--color-text);
     font-size: var(--text-lg);
-    font-weight: 850;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="tasks"] .task-zero-state p,
@@ -1009,7 +1009,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-access-state span {
 .task-create-head > div > span {
     color: var(--color-accent) !important;
     font-size: 9px !important;
-    font-weight: 900 !important;
+    font-weight: 600 !important;
     letter-spacing: .07em;
     text-transform: uppercase;
 }
@@ -1018,7 +1018,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-access-state span {
     margin: 2px 0 0 !important;
     color: var(--color-text) !important;
     font-size: 19px !important;
-    font-weight: 850 !important;
+    font-weight: 600 !important;
 }
 
 .task-create-head p {
@@ -1041,7 +1041,7 @@ body[data-page="projects"] [data-panel="tasks"] .task-access-state span {
     min-width: 0;
     color: var(--color-text-secondary) !important;
     font-size: var(--text-xs) !important;
-    font-weight: 800 !important;
+    font-weight: 600 !important;
 }
 
 .task-create-grid label.wide { grid-column: 1 / -1; }

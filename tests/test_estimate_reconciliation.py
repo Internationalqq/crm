@@ -271,6 +271,13 @@ class EstimateReconciliationTests(unittest.TestCase):
         payload = build_reconciliation(self.con, 10, True)
         self.assertEqual(payload["originalSnapshot"]["sourceLabel"], "Текущая утверждённая смета")
         self.assertFalse(payload["ready"])
+        self.assertEqual(payload["liveItemCount"], 1)
+        capture_live_snapshot(self.con, 10, "ai", 1, 101, "Test import")
+        ready = build_reconciliation(self.con, 10, False)
+        self.assertTrue(ready["ready"])
+        self.assertEqual(ready["liveItemCount"], 1)
+        self.con.execute("UPDATE estimate_items SET is_deleted = 1 WHERE project_id = 10")
+        self.assertEqual(build_reconciliation(self.con, 10, False)["liveItemCount"], 0)
 
 
 if __name__ == "__main__":

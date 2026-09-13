@@ -18,7 +18,7 @@
             } catch (error) {}
         })();
     </script>
-<link rel="stylesheet" href="/assets/app.css?v=20260904-public-project-covers-3-report-ux-r1-production-scroll-wheel-fix-1-production-sections-1-calendar-month-nav-1-production-full-edit-1-production-context-edit-1-production-section-volume-start-1-production-delete-section-1-production-column-controls-duration-1-production-parallel-start-add-fix-1-production-day-grid-add-section-1-production-override-outline-fix-1">
+<link rel="stylesheet" href="/assets/app.css?v=20260913-design-c965f07b">
     <style>
         .style-health-notice {
             position: fixed;
@@ -60,8 +60,8 @@
     <script defer src="/assets/js/style-health.js?v=20260902-report-ux-r1"></script>
     <script defer src="/assets/vendor/lucide.min.js?v=1.41.0"></script>
     <script defer src="/assets/vendor/sortable.min.js?v=1.15.2"></script>
-    <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1-horizontal-wheel-3-sidebar-motion-2-documents-permissions-2-loader-cleanup-31-production-sections-1"></script>
-  <script defer src="/assets/js/router.js?v=20260903-report-ux-r1-public-portfolio-1-production-print-scale-live-2-production-print-pdf-2-production-print-scale-1-production-scroll-wheel-fix-1-production-sections-1-report-calendar-project-start-1-calendar-month-nav-1-production-full-edit-1-production-context-edit-1-production-section-volume-start-1-production-delete-section-1-production-column-controls-duration-1-production-parallel-start-add-fix-1-production-day-grid-add-section-1-production-override-outline-fix-1"></script>
+    <script defer src="/assets/js/core.js?v=20260913-design-c965f07b"></script>
+  <script defer src="/assets/js/router.js?v=20260913-design-c965f07b"></script>
 </head>
 <body class="{{body_class}}" data-page="{{page}}">
     <a class="skip-link" href="#main-content">К основному содержимому</a>
@@ -80,16 +80,16 @@
                     </span>
                 </button>
             </div>
-            <nav class="nav">
-                <a href="/app/dashboard" data-nav="dashboard"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Панель</span></a>
-                <a href="/app/daily-tasks" data-nav="daily_tasks"><i data-lucide="list-checks" aria-hidden="true"></i><span>Задачи сотрудников</span></a>
-                <a href="/app/projects" data-nav="projects"><i data-lucide="building-2" aria-hidden="true"></i><span>Объекты</span></a>
-                <a href="/app/autobot" data-nav="autobot"><i data-lucide="bot" aria-hidden="true"></i><span>AutoBot</span></a>
-                <a href="/app/schedule" data-nav="schedule"><i data-lucide="calendar-days" aria-hidden="true"></i><span>График работ</span></a>
-                <a href="/app/logs" data-nav="logs"><i data-lucide="clipboard-list" aria-hidden="true"></i><span>Журнал работ</span></a>
-                <a href="/app/warehouse" data-nav="warehouse"><i data-lucide="warehouse" aria-hidden="true"></i><span>Склад</span></a>
-                <a href="/app/suppliers" data-nav="suppliers"><i data-lucide="handshake" aria-hidden="true"></i><span>Контрагенты</span></a>
-                <a href="/app/users" data-nav="users"><i data-lucide="users" aria-hidden="true"></i><span>Наша Команда</span></a>
+            <nav class="nav" aria-label="Разделы CRM">
+                <a href="/app/dashboard" data-nav="dashboard" aria-label="Панель"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Панель</span></a>
+                <a href="/app/daily-tasks" data-nav="daily_tasks" aria-label="Задачи сотрудников"><i data-lucide="list-checks" aria-hidden="true"></i><span>Задачи сотрудников</span></a>
+                <a href="/app/projects" data-nav="projects" aria-label="Объекты"><i data-lucide="building-2" aria-hidden="true"></i><span>Объекты</span></a>
+                <a href="/app/autobot" data-nav="autobot" aria-label="AutoBot"><i data-lucide="bot" aria-hidden="true"></i><span>AutoBot</span></a>
+                <a href="/app/schedule" data-nav="schedule" aria-label="График работ"><i data-lucide="calendar-days" aria-hidden="true"></i><span>График работ</span></a>
+                <a href="/app/logs" data-nav="logs" aria-label="Журнал работ"><i data-lucide="clipboard-list" aria-hidden="true"></i><span>Журнал работ</span></a>
+                <a href="/app/warehouse" data-nav="warehouse" aria-label="Склад"><i data-lucide="warehouse" aria-hidden="true"></i><span>Склад</span></a>
+                <a href="/app/suppliers" data-nav="suppliers" aria-label="Контрагенты"><i data-lucide="handshake" aria-hidden="true"></i><span>Контрагенты</span></a>
+                <a href="/app/users" data-nav="users" aria-label="Наша Команда"><i data-lucide="users" aria-hidden="true"></i><span>Наша Команда</span></a>
             </nav>
         </aside>
 
@@ -102,6 +102,7 @@
                     <img src="/assets/logo.png?v=20260728-textfix2" alt="">
                     <span>PM.bi</span>
                 </a>
+                <span class="topbar-page-title" data-shell-page-title>{{title}}</span>
                 <div class="topbar-spacer" aria-hidden="true"></div>
                 <div class="topbar-actions">
                     <div class="topbar-reminders-wrap">

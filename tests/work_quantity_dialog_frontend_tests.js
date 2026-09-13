@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -85,10 +86,10 @@ assert.match(objectControlCss, /\.work-quantity-dialog \{[\s\S]*?position: fixed
 assert.match(objectControlCss, /@media \(max-width: 720px\)[\s\S]*?\.work-quantity-dialog-card \{[\s\S]*?width: 100%;/);
 assert.match(objectControlCss, /\.work-quantity-dialog-head > button,[\s\S]*?min-height: 44px/);
 
-assert.match(routerJs, /app\.js\?v=[^'\"]*works-quantity-dialog-18/);
-assert.match(routerJs, /planning\.js\?v=[^'\"]*works-quantity-dialog-18/);
-assert.match(appCss, /object-control\.css\?v=[^"\n]*works-quantity-dialog-18/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(routerJs, 'js/planning.js');
+assertVersionedAsset(appCss, 'css/object-control.css');
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(baseHtml, 'js/router.js');
 
 console.log('work_quantity_dialog_frontend_ok');

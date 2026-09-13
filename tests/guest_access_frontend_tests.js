@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -37,14 +38,14 @@ assert.match(uiFinalCss, /body\.role-guest \.topbar-profile-wrap/);
 assert.match(uiFinalCss, /body\.role-guest \.sidebar[\s\S]*?display:\s*none\s*!important/);
 assert.match(uiFinalCss, /body\.role-guest \.main[\s\S]*?margin-left:\s*0\s*!important/);
 assert.match(baseHtml, /class="guest-topbar-brand" href="\/app\/projects"/);
-assert.match(baseHtml, /router\.js\?v=20260903-[^"]*public-portfolio-1/);
-assert.match(routerJs, /app: '[^'\s]*credential-guest-22[^'\s]*'/);
-assert.match(routerJs, /operations: '[^'\s]*credential-guest-22[^'\s]*'/);
+assertVersionedAsset(baseHtml, 'js/router.js');
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(routerJs, 'js/operations.js');
 assert.doesNotMatch(loginHtml, /\/assets\/(?:app\.css|js\/app\.js)(?:\?|["'])/);
 assert.match(loginHtml, /<a class="login-brand" href="\/" data-login-home aria-label="[^"]+">[\s\S]*?<strong>PM\.bi<\/strong>[\s\S]*?<\/a>/);
 assert.match(loginHtml, /<form data-login-form>[\s\S]*?name="login"[\s\S]*?name="password" type="password"[\s\S]*?<button type="submit">/);
 assert.match(loginHtml, /Введите выданный логин и пароль/);
-assert.match(appCss, /guest-access\.css\?v=20260826-guest-access-modal-fix-2/);
+assertVersionedAsset(appCss, 'css/guest-access.css');
 assert.match(uiFinalCss, /\.login-brand \{[\s\S]*?linear-gradient[\s\S]*?box-shadow:/);
 assert.match(uiFinalCss, /\.login-brand img \{[\s\S]*?width:\s*74px/);
 assert.match(uiFinalCss, /\.login-brand strong \{[\s\S]*?font-size:\s*clamp\(/);
@@ -207,7 +208,13 @@ assert.match(guestScheduleHtml, /Смета благоустройства/);
 assert.match(guestScheduleHtml, /Подготовительные работы/);
 assert.match(guestScheduleHtml, /production-section-summary-row/);
 assert.match(guestScheduleHtml, /data-production-view="sections"[^>]*aria-pressed="true"/);
-assert.match(guestScheduleHtml, /data-production-cell[^>]* disabled/);
+const guestCells = [...guestScheduleHtml.matchAll(/<button\b[^>]*data-production-day\b[^>]*>/g)];
+assert.ok(guestCells.length > 0, 'the public chart contains day cells');
+for (const [cell] of guestCells) {
+    assert.match(cell, /\bdisabled\b/, 'guests cannot edit a day cell');
+    assert.match(cell, /aria-pressed="(?:true|false)"/, 'pressed state is a complete HTML attribute');
+    assert.match(cell, /aria-label="[^"]+"/, 'each day cell has a separate accessible label');
+}
 assert.doesNotMatch(guestScheduleHtml, /data-production-operation-form/);
 assert.doesNotMatch(guestScheduleHtml, /data-production-rename-(?:estimate|section)/);
 assert.doesNotMatch(guestScheduleHtml, /data-production-context-kind|data-production-group-editor-form/);

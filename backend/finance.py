@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from business_time import today_iso
+
 import io
 import json
 import mimetypes
@@ -23,7 +25,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DOCUMENTS_DIR = DATA_DIR / "documents"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
-TODAY_ISO = date.today().isoformat()
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 FINANCE_INVOICE_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".xlsx", ".xls"}
 FINANCE_EXCEL_PARSE_ERROR = "\u041e\u0448\u0438\u0431\u043a\u0430: \u0424\u043e\u0440\u043c\u0430\u0442 \u0444\u0430\u0439\u043b\u0430 \u043d\u0435 \u0441\u043e\u043e\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0448\u0430\u0431\u043b\u043e\u043d\u0443 \u043e\u0442\u0447\u0435\u0442\u0430"
@@ -723,6 +724,7 @@ def api_delete_finance_entry(handler, path: str) -> None:
 
 
 def api_pay_invoice(handler) -> None:
+    today = today_iso()
     payer = handler.require_role({"admin", "director"})
     if not payer:
         return
@@ -732,7 +734,7 @@ def api_pay_invoice(handler) -> None:
     except (TypeError, ValueError):
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_finance_id"})
         return
-    paid_date = str(payload.get("paid_date", payload.get("paidDate", TODAY_ISO))).strip() or TODAY_ISO
+    paid_date = str(payload.get("paid_date", payload.get("paidDate", today))).strip() or today
     with db() as con:
         row = con.execute("SELECT * FROM finance_entries WHERE id = ?", (finance_id,)).fetchone()
         if not row:

@@ -720,7 +720,8 @@
         if (method === 'GET' && cacheKey && cacheTtl > 0) {
             var cached = apiMemoryCache[cacheKey];
             if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cloneApiValue(cached.value));
-            if (apiInFlight[cacheKey]) return apiInFlight[cacheKey];
+            var pending = apiInFlight[cacheKey];
+            if (pending && (!pending.signal || !pending.signal.aborted)) return pending.promise;
         }
         if (requestGroup) {
             if (apiRequestGroups[requestGroup]) apiRequestGroups[requestGroup].abort();
@@ -742,6 +743,11 @@
             if (requestOptions.body && !requestOptions.headers['Content-Type']) requestOptions.headers['Content-Type'] = 'application/json';
             return fetch(path, requestOptions).then(function (response) {
                 return response.json().catch(function () { return {}; }).then(function (payload) {
+                    if (requestOptions.signal && requestOptions.signal.aborted) {
+                        var aborted = new Error('Request cancelled');
+                        aborted.name = 'AbortError';
+                        throw aborted;
+                    }
                     if (!response.ok) {
                         var error = new Error(payload.error || 'request_failed');
                         error.status = response.status;
@@ -760,9 +766,11 @@
         }).finally(function () {
             if (useLoader && typeof window.hideLoader === 'function') window.hideLoader();
             if (requestGroup && apiRequestGroups[requestGroup] === requestController) delete apiRequestGroups[requestGroup];
-            if (cacheKey && apiInFlight[cacheKey] === requestPromise) delete apiInFlight[cacheKey];
+            if (cacheKey && apiInFlight[cacheKey] && apiInFlight[cacheKey].promise === requestPromise) delete apiInFlight[cacheKey];
         });
-        if (method === 'GET' && cacheKey && cacheTtl > 0) apiInFlight[cacheKey] = requestPromise;
+        if (method === 'GET' && cacheKey && cacheTtl > 0) {
+            apiInFlight[cacheKey] = { promise: requestPromise, signal: requestOptions.signal };
+        }
         return requestPromise;
     }
 
@@ -797,6 +805,42 @@
 
     function money(value) {
         return new Intl.NumberFormat('ru-RU').format(Number(value) || 0) + ' ₽';
+    }
+
+    function isTimelineStageStarted(stage) {
+        var progress = percent(stage.progress);
+        var status = String(stage.status_code || '').trim();
+        return progress > 0 ||
+            ['started', 'in_progress', 'blocked', 'overdue', 'completed', 'approved'].indexOf(status) !== -1 ||
+            Boolean(stage.fact_start || stage.fact_end);
+    }
+
+    function timelineStageKindClass(stage) {
+        var stageKind = String(stage.stage_kind || '').trim().toLowerCase();
+        if (stageKind === 'section') return ' timeline-row-section';
+        if (stageKind === 'subsection') return ' timeline-row-subsection';
+        return '';
+    }
+
+    function timelineStageKindLabel(stage) {
+        var stageKind = String(stage.stage_kind || '').trim().toLowerCase();
+        if (stageKind === 'section') return 'Раздел';
+        if (stageKind === 'subsection') return 'Подраздел';
+        return 'Работа';
+    }
+
+    function renderTimelineProgressCell(stage) {
+        var progress = percent(stage.progress);
+        var status = String(stage.status_code || '').trim();
+        var isDone = progress >= 100 || status === 'approved' || status === 'completed';
+        if (!isTimelineStageStarted(stage) && !isDone) {
+            return '<div class="timeline-progress timeline-progress-idle"><span class="timeline-progress-hint">Нет факта</span></div>' +
+                '<strong class="timeline-progress-value timeline-progress-value-idle">Старт</strong>';
+        }
+        var progressTrackClass = progress <= 0 && !isDone ? ' timeline-progress-empty' : '';
+        var width = isDone ? 100 : progress;
+        return '<div class="timeline-progress' + progressTrackClass + '">' + (width > 0 ? '<i style="width:' + width + '%"></i>' : '') + '</div>' +
+            '<strong class="timeline-progress-value">' + (isDone ? '100%' : (progress + '%')) + '</strong>';
     }
 
     function percent(value) {
@@ -1219,6 +1263,10 @@
         apiFormData: apiFormData,
         money: money,
         percent: percent,
+        isTimelineStageStarted: isTimelineStageStarted,
+        timelineStageKindClass: timelineStageKindClass,
+        timelineStageKindLabel: timelineStageKindLabel,
+        renderTimelineProgressCell: renderTimelineProgressCell,
         progressSectionId: progressSectionId,
         canonicalEstimateSectionTitle: canonicalEstimateSectionTitle,
         canonicalEstimateSectionId: canonicalEstimateSectionId,

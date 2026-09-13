@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -124,10 +125,10 @@ assert.match(motionCss, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.s
 assert.doesNotMatch(shellCss, /sidebar-toggle[^}]*transform:\s*rotate\(180deg\)/);
 assert.match(shellCss, /body\.sidebar-collapsed \.brand,[\s\S]*?visibility: hidden;[\s\S]*?transition-delay: 0s, 0s, \.12s;/);
 
-assert.match(appCss, /shell\.css\?v=[^"\n]*sidebar-motion-2/);
-assert.match(appCss, /overrides\.css\?v=[^"\n]*sidebar-motion-2/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(baseHtml, /core\.js\?v=[^"\n]*sidebar-motion-2/);
+assertVersionedAsset(appCss, 'css/shell.css');
+assertVersionedAsset(appCss, 'css/overrides.css');
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(baseHtml, 'js/core.js');
 assert.match(baseHtml, /matchMedia\('\(min-width: 901px\)'\)\.matches/);
 
 console.log('sidebar_animation_frontend_ok');

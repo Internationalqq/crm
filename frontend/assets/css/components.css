@@ -1053,7 +1053,7 @@ body[data-page="autobot"] .autobot-embed {
 
 .card-head .search,
 .card-head select.search {
-    flex: 0 1 360px;
+    flex: 0 1 auto;
 }
 
 .section-label {

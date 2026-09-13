@@ -26,18 +26,8 @@ body[data-page="projects"] [data-panel="documents"] .documents-hero {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--space-4);
     overflow: hidden;
-    padding: 20px;
-    background:
-        radial-gradient(circle at 92% 0%, rgba(37, 99, 235, .11), transparent 31%),
-        linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
-}
-
-body[data-page="projects"] [data-panel="documents"] .documents-hero::before {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 3px;
-    background: var(--color-accent);
-    content: "";
+    padding: 16px;
+    background: var(--color-surface);
 }
 
 body[data-page="projects"] [data-panel="documents"] .documents-hero-main {
@@ -152,7 +142,7 @@ body[data-page="projects"] [data-panel="documents"] .document-stat small {
     overflow: hidden;
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: .04em;
     text-overflow: ellipsis;
     text-transform: uppercase;
@@ -316,7 +306,7 @@ body[data-page="projects"] [data-panel="documents"] .document-dropzone-action {
     color: var(--color-accent);
     background: #fff;
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="documents"] .document-upload-grid {
@@ -331,7 +321,7 @@ body[data-page="projects"] [data-panel="documents"] .document-field {
     min-width: 0;
     color: var(--color-text-secondary);
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="documents"] .document-field-wide {
@@ -535,7 +525,7 @@ body[data-page="projects"] [data-panel="documents"] .document-filter {
 body[data-page="projects"] [data-panel="documents"] .document-filter > span {
     color: var(--color-text-secondary);
     font-size: 9px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: .05em;
     text-transform: uppercase;
 }
@@ -562,7 +552,7 @@ body[data-page="projects"] [data-panel="documents"] .document-filter-reset {
     color: var(--color-text-secondary);
     background: transparent;
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="documents"] .document-filter-reset[hidden] {
@@ -669,7 +659,7 @@ body[data-page="projects"] [data-panel="documents"] .document-file-visual span {
     color: #fff;
     background: var(--color-accent);
     font-size: 8px;
-    font-weight: 850;
+    font-weight: 600;
     letter-spacing: .04em;
     text-align: center;
     text-overflow: ellipsis;
@@ -705,7 +695,7 @@ body[data-page="projects"] [data-panel="documents"] .document-card-title h4 {
     overflow: hidden;
     color: var(--color-text);
     font-size: 14px;
-    font-weight: 750;
+    font-weight: 600;
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -732,7 +722,7 @@ body[data-page="projects"] [data-panel="documents"] .document-status {
     color: #58677b;
     background: #f4f6f9;
     font-size: 9px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: .03em;
     text-transform: uppercase;
 }
@@ -821,7 +811,7 @@ body[data-page="projects"] [data-panel="documents"] .document-action {
     color: var(--color-text-secondary);
     background: #fff;
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 600;
     text-decoration: none;
     transition: color .16s ease, border-color .16s ease, background-color .16s ease;
 }
@@ -860,7 +850,7 @@ body[data-page="projects"] [data-panel="documents"] .document-no-file {
     align-items: center;
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -1040,7 +1030,7 @@ body[data-page="projects"] .document-editor-modal .document-field {
     min-width: 0;
     color: var(--color-text-secondary);
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] .document-editor-modal .document-field-wide {
@@ -1305,7 +1295,7 @@ body[data-page="projects"] [data-panel="documents"] .executive-summary-progress 
     color: var(--color-warning);
     background: var(--color-warning-soft);
     font-size: 10px;
-    font-weight: 850;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="documents"] .executive-summary-progress.is-complete {
@@ -1443,7 +1433,7 @@ body[data-page="projects"] [data-panel="documents"] .executive-stage-title small
 body[data-page="projects"] [data-panel="documents"] .executive-stage-progress {
     color: var(--color-accent);
     font-size: 11px;
-    font-weight: 850;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="documents"] .executive-progress-track {

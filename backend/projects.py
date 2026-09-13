@@ -32,6 +32,19 @@ PROJECT_PORTFOLIO_COMPANIES = (
 )
 
 
+def project_status_label(value: object) -> str:
+    """Keep legacy/imported status codes consistent with the project UI."""
+    text = str(value or "").strip()
+    labels = {
+        "active": "В работе", "in_progress": "В работе", "в работе": "В работе",
+        "draft": "Подготовка", "planned": "Подготовка", "подготовка": "Подготовка",
+        "paused": "На паузе", "on_hold": "На паузе", "на паузе": "На паузе",
+        "completed": "Завершен", "done": "Завершен",
+        "завершен": "Завершен", "завершён": "Завершен",
+    }
+    return labels.get(text.casefold(), text or "Подготовка")
+
+
 def project_portfolio_company_code(value: object) -> str | None:
     normalized = "".join(character for character in str(value or "").casefold() if character.isalnum())
     aliases = {
@@ -318,7 +331,11 @@ def project_list_serialization_metadata(
                 SELECT photo.project_id, document.id, document.title
                 FROM daily_log_photos photo
                 JOIN documents document ON document.id = photo.document_id
+                JOIN daily_logs log ON log.id = photo.daily_log_id
                 WHERE photo.project_id IN ({placeholders})
+                  AND document.project_id = photo.project_id
+                  AND log.project_id = photo.project_id
+                  AND log.is_client_visible = 1
                   AND document.is_client_visible = 1
                   AND document.storage_path IS NOT NULL
                   AND TRIM(document.storage_path) <> ''
@@ -407,7 +424,7 @@ def serialize_project(
         return {
             "id": int(row["id"]),
             "title": str(row["title"] or ""),
-            "status": str(row["status"] or ""),
+            "status": project_status_label(row["status"]),
             "progress": int(row["progress"] or 0),
             "started_at": row["started_at"],
             "cover_photo_url": f"/api/documents/{cover_photo['id']}/view" if cover_photo else None,
@@ -417,11 +434,12 @@ def serialize_project(
         return {
             "id": int(row["id"]),
             "title": str(row["title"] or ""),
-            "status": str(row["status"] or ""),
+            "status": project_status_label(row["status"]),
             "progress": int(row["progress"] or 0),
             "started_at": row["started_at"],
         }
     data = dict(row)
+    data["status"] = project_status_label(data.get("status"))
     data["description"] = normalize_project_description(data.get("description"))
     data["portfolio_company"] = None
     data["portfolio_company_label"] = None

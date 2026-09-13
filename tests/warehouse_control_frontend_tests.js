@@ -22,13 +22,13 @@ assert.match(router, /warehouse_control:\s*'\/assets\/js\/warehouse-control\.js/
 assert.match(router, /projects:\s*\[[^\]]*'warehouse_control'/);
 assert.match(app, /tabName === 'warehouse-control'/);
 assert.match(app, /PMBI\.warehouseControl\.loadSelectedProject/);
-assert.match(app, /'warehouse-control': hasRole\('customer'\)/);
+assert.match(app, /tabName === 'warehouse-control'\) && hasRole\('customer'\)/);
 assert.match(app, /projectReportEffectsByProject\[projectId\] = \{ works: \{\}, materials: \{\} \}/);
 assert.match(moduleSource, /\/warehouse-control\/norms/);
 assert.match(moduleSource, /\/warehouse-control\/facts'/);
 assert.match(moduleSource, /\/warehouse-control\/facts\/' \+ factId \+ '\/reverse/);
 assert.match(moduleSource, /\/api\/projects\/' \+ projectId \+ '\/stock-moves/);
-assert.match(moduleSource, /idempotencyKey: requestKey\('work-fact'\)/);
+assert.match(moduleSource, /operationPayload\(factFormNode, 'work-fact'/);
 assert.match(moduleSource, /data-stock-move-form/);
 assert.match(moduleSource, /Записать движение/);
 assert.match(moduleSource, /Заказали/);

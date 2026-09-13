@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest, user_is_public_viewer
+from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest
 from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from schedule_tasks import (
@@ -36,7 +36,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DOCUMENTS_DIR = DATA_DIR / "documents"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
-TODAY_ISO = date.today().isoformat()
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 DOCUMENT_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 DOCUMENT_TYPES = frozenset({
@@ -557,7 +556,10 @@ def attach_daily_log_photos(
         SELECT link.daily_log_id, d.id, d.title, d.original_name, d.mime_type, d.size_bytes
         FROM daily_log_photos link
         JOIN documents d ON d.id = link.document_id
+        JOIN daily_logs log ON log.id = link.daily_log_id
         WHERE link.daily_log_id IN ({placeholders})
+          AND d.project_id = link.project_id
+          AND log.project_id = link.project_id
           {visibility_sql}
         ORDER BY link.id
         """,
@@ -2217,24 +2219,7 @@ def api_project_daily_logs(handler, path: str) -> None:
     if not user:
         return
     with db() as con:
-        if user_is_public_viewer(user):
-            rows = con.execute(
-                """
-                SELECT l.id, l.project_id, l.report_date, l.title, l.work_done,
-                       l.workers_count, l.equipment, l.blockers, l.next_steps,
-                       l.progress_percent, l.raw_input, l.is_client_visible,
-                       l.workers_json, l.equipment_json,
-                       l.created_at, l.updated_at,
-                       'Команда объекта' AS author_name,
-                       0 AS has_applied_actions,
-                       1 AS _is_authored_report
-                FROM daily_logs l
-                WHERE l.project_id = ?
-                ORDER BY l.report_date DESC, l.id DESC
-                """,
-                (project_id,),
-            ).fetchall()
-        elif user_is_guest(user):
+        if user_is_guest(user):
             rows = con.execute(
                 """
                 SELECT l.id, l.project_id, l.report_date, l.title, l.work_done,

@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -48,7 +49,7 @@ assert.match(
 assert.doesNotMatch(setupBlock, /title:\s*['"]Ответственные['"]/);
 assert.doesNotMatch(setupBlock, /complete:\s*hasForeman\s*&&\s*hasBuyer/);
 
-assert.match(routerJs, /app\.js\?v=[^'\n]*project-responsibles-1/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(baseHtml, 'js/router.js');
 
 console.log('project_responsibles_frontend_ok');

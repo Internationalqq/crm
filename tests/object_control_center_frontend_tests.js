@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +12,7 @@ const planningJs = read('frontend/assets/js/planning.js');
 const appCss = read('frontend/assets/app.css');
 const controlCss = read('frontend/assets/css/object-control.css');
 
-assert.match(appCss, /object-control\.css\?v=20260824-object-control-1/);
+assertVersionedAsset(appCss, 'css/object-control.css');
 assert.match(projectsHtml, /data-tab="overview"[^>]*aria-current="page"[^>]*>[\s\S]*?<span>Сводка<\/span>/);
 assert.match(projectsHtml, /data-tab="warehouse-control"[^>]*>[\s\S]*?<span>Материалы<\/span>/);
 assert.match(projectsHtml, /data-tab="finance"[^>]*>[\s\S]*?<span>Деньги<\/span>/);
@@ -26,8 +27,7 @@ assert.match(projectsHtml, /data-project-quick-action="material"/);
 assert.match(projectsHtml, /data-project-quick-action="document" data-document-type="photo_report"/);
 assert.doesNotMatch(projectsHtml, /project-more-menu|data-project-more-menu/);
 assert.match(projectsHtml, /class="project-tab-cluster"[\s\S]*?data-tab="reports"[\s\S]*?data-tab="estimate-reconciliation"/);
-assert.match(controlCss, /\.project-tab-cluster\s*\{[\s\S]*?gap: 4px/);
-assert.match(controlCss, /\.project-tab-cluster\s*\{[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow: hidden;/);
+assert.match(projectsHtml, /<select data-project-section-select aria-label="Раздел объекта"/);
 
 assert.match(appJs, /function objectControlFinanceOverviewV3/);
 assert.match(appJs, /config\.quickAction === 'invoice' && canSeeFinances\(\)/);
@@ -101,7 +101,7 @@ assert.equal(scheduleProcurementTiming({ daysUntilOrder: 0, isPersonalResponsibi
 assert.equal(scheduleProcurementTiming({ daysUntilOrder: 0, isSupervisorView: true, responsibleUserName: 'Никита Прораб' }), 'Никита Прораб: заказ сегодня');
 assert.equal(scheduleProcurementTiming({ daysUntilOrder: 2, isSupervisorView: true, needsAssignment: true }), 'ответственный не назначен • заказ в течение 2 дн.');
 const scheduleBadgeStart = operationsJs.indexOf('function scheduleProcurementBadge');
-const scheduleBadgeEnd = operationsJs.indexOf('function isTimelineStageStarted', scheduleBadgeStart);
+const scheduleBadgeEnd = operationsJs.indexOf('function getProjectTabMode', scheduleBadgeStart);
 const scheduleProcurementBadge = new Function(`${operationsJs.slice(scheduleBadgeStart, scheduleBadgeEnd)}; return scheduleProcurementBadge;`)();
 assert.equal(scheduleProcurementBadge({ daysUntilOrder: 0, isPersonalResponsibility: true }), 'Вам заказать сегодня');
 assert.equal(scheduleProcurementBadge({ daysUntilOrder: 0, isSupervisorView: true }), 'Заказ сегодня');

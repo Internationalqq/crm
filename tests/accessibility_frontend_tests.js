@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -103,11 +104,11 @@ for (const directory of ['frontend/pages', 'frontend/templates']) {
   }
 }
 
-assert.match(routerJs, /tabs-a11y-30/);
-assert.match(routerJs, /drawer-a11y-30/);
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(routerJs, 'js/operations.js');
 assert.match(routerJs, /warehouse-modal-a11y-2/);
 assert.match(routerJs, /safe-supplier-url-3/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(baseHtml, 'js/router.js');
 
 console.log('frontend_accessibility_contract_ok');

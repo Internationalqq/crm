@@ -66,6 +66,7 @@
                 '<button class="ghost compact" type="button" data-reconciliation-use-current="original"' + currentDisabled + '>Текущая смета = оригинал</button>' +
                 '<button class="ghost compact" type="button" data-reconciliation-use-current="ai"' + currentDisabled + '>Текущие позиции = ИИ-версия</button>' +
             '</div>' +
+            '<details class="reconciliation-manual-import"><summary>Загрузить версию вручную</summary>' +
             '<form class="reconciliation-snapshot-form" data-reconciliation-snapshot-form>' +
                 '<div class="reconciliation-form-grid">' +
                     '<label><span>Тип версии</span><select name="source_kind"><option value="original">Оригинальная смета</option><option value="ai">Выгрузка ИИ</option></select></label>' +
@@ -74,7 +75,7 @@
                 '<label><span>JSON позиций</span><textarea name="json" rows="7" placeholder=\'{"items":[{"title":"Плитка","unit":"м2","plannedQty":100,"plannedPrice":900,"itemKind":"material"}]}\' required></textarea></label>' +
                 '<div class="form-error" data-reconciliation-snapshot-error></div>' +
                 '<button class="primary compact" type="submit">Создать снимок</button>' +
-            '</form>' +
+            '</form></details>' +
         '</details>';
     }
 
@@ -130,8 +131,8 @@
         if (!payload.canReview) return '';
         var review = row.review || {};
         return '<form class="reconciliation-review-form" data-reconciliation-review-form data-row-key="' + escapeHtml(row.rowKey) + '">' +
-            '<select name="status">' + reviewOptions(review.status || (row.status === 'exact' ? 'confirmed' : 'needs_correction')) + '</select>' +
-            '<input name="comment" maxlength="1000" value="' + escapeHtml(review.comment || '') + '" placeholder="Комментарий к решению">' +
+            '<select name="status" aria-label="Решение по строке">' + reviewOptions(review.status || (row.status === 'exact' ? 'confirmed' : 'needs_correction')) + '</select>' +
+            '<input name="comment" aria-label="Комментарий к решению" maxlength="1000" value="' + escapeHtml(review.comment || '') + '" placeholder="Комментарий к решению">' +
             '<button class="ghost compact" type="submit">Сохранить</button>' +
             (review.reviewedByName ? '<small>Последнее решение: ' + escapeHtml(review.reviewedByName) + ' · ' + escapeHtml(snapshotDate(review.reviewedAt)) + '</small>' : '') +
         '</form>';
@@ -146,14 +147,14 @@
             ? '<span class="reconciliation-difference is-price">цена' + (row.priceDelta == null ? '' : ': ' + (Number(row.priceDelta) > 0 ? '+' : '') + money(row.priceDelta)) + '</span>'
             : '';
         return '<tr class="reconciliation-row is-' + escapeHtml(row.status) + '">' +
-            '<td><span class="badge ' + status[1] + '">' + status[0] + '</span></td>' +
-            '<td>' + estimateItemCell(row.original, 'Нет в оригинале') + '</td>' +
-            '<td>' + estimateItemCell(row.ai, 'Нет в ИИ-выгрузке') + '</td>' +
-            '<td><div class="reconciliation-differences">' +
+            '<td data-label="Статус"><span class="badge ' + status[1] + '">' + status[0] + '</span></td>' +
+            '<td data-label="Оригинал">' + estimateItemCell(row.original, 'Нет в оригинале') + '</td>' +
+            '<td data-label="Импорт">' + estimateItemCell(row.ai, 'Нет в ИИ-выгрузке') + '</td>' +
+            '<td data-label="Расхождения"><div class="reconciliation-differences">' +
                 (differences.length ? differences.map(function (item) { return '<span class="reconciliation-difference">' + escapeHtml(item) + '</span>'; }).join('') : '<span class="muted">По объёму и реквизитам совпадает</span>') +
                 priceNote +
             '</div></td>' +
-            '<td>' + reviewCell(row, payload) + '</td>' +
+            '<td data-label="Решение">' + reviewCell(row, payload) + '</td>' +
         '</tr>';
     }
 
@@ -175,7 +176,7 @@
               '</tbody></table></div>'
             : emptyState(payload);
         return '<section class="reconciliation-workspace">' +
-            '<div class="reconciliation-head"><div><span class="section-label">Контроль импорта</span><h3>Оригинальная смета ↔ выгрузка ИИ</h3><p>Прораб сверяет материалы, работы, единицы и объёмы. Цены доступны только Директору и Админу.</p></div><button class="ghost compact" type="button" data-reconciliation-refresh><i data-lucide="refresh-cw"></i> Обновить</button></div>' +
+            '<div class="reconciliation-head"><div><h3>Сверка сметы</h3><p>Прораб сверяет материалы, работы, единицы и объёмы. Цены доступны только Директору и Админу.</p></div><button class="ghost compact" type="button" data-reconciliation-refresh><i data-lucide="refresh-cw"></i> Обновить</button></div>' +
             '<article class="reconciliation-source-card is-empty" role="note"><span>Важно</span><strong>Это сравнение неизменяемых версий</strong><small>Решения здесь не редактируют рабочие строки сметы и не меняют бюджет. Исправляйте объёмы и цены в табличном виде раздела «Работы».</small></article>' +
             '<div class="reconciliation-sources">' +
                 snapshotCard(payload.originalSnapshot, 'Оригинальная смета', 'Её фиксирует Директор или Админ') +

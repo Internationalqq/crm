@@ -18,6 +18,11 @@
     var api = PMBI.api;
     var money = PMBI.money;
     var percent = PMBI.percent;
+    var isTimelineStageStarted = PMBI.isTimelineStageStarted;
+    var timelineStageKindClass = PMBI.timelineStageKindClass;
+    var timelineStageKindLabel = PMBI.timelineStageKindLabel;
+    var renderTimelineProgressCell = PMBI.renderTimelineProgressCell;
+
     var canonicalEstimateSectionTitle = PMBI.canonicalEstimateSectionTitle;
     var canonicalEstimateSectionId = PMBI.canonicalEstimateSectionId;
     var progressSelectorValue = PMBI.progressSelectorValue;
@@ -54,6 +59,7 @@
     function daysBetween() { return appCall('daysBetween', arguments); }
     function signedDaysBetween() { return appCall('signedDaysBetween', arguments); }
     function stat() { return appCall('stat', arguments); }
+    function dataItem() { return appCall('dataItem', arguments); }
     function renderStages() { return appCall('renderStages', arguments); }
     function renderTaskCreateModal() { return appCall('renderTaskCreateModal', arguments); }
     function normalizeTaskTitle() { return appCall('normalizeTaskTitle', arguments); }
@@ -1163,13 +1169,13 @@
             register({
                 key: 'missing-report',
                 kind: 'warn',
-                title: 'Нет дневного отчета за 26.07.2026',
+                title: 'Нет дневного отчета за ' + formatDisplayDate(APP_TODAY),
                 meta: 'Нужен факт по объекту, иначе график будет жить без свежего отчета.',
                 projectId: project.id,
                 taskPayload: {
                     projectId: project.id,
                     title: 'Запросить дневной отчет по объекту',
-                    description: 'По объекту "' + project.title + '" нет дневного отчета за 26.07.2026. Нужно запросить факт работ у ответственного.',
+                    description: 'По объекту "' + project.title + '" нет дневного отчета за ' + formatDisplayDate(APP_TODAY) + '. Нужно запросить факт работ у ответственного.',
                     priority: 'high',
                     due_at: APP_TODAY
                 }
@@ -1545,7 +1551,7 @@
         }
         var cards = [];
         if (notifications.missingDailyReport) {
-            cards.push('<article class="notice-card notice-warn"><b>Сегодняшний отчет еще не сдан</b><small>На 26.07.2026 по объекту нет дневного отчета.</small></article>');
+            cards.push('<article class="notice-card notice-warn"><b>Сегодняшний отчет еще не сдан</b><small>На ' + escapeHtml(formatDisplayDate(APP_TODAY)) + ' по объекту нет дневного отчета.</small></article>');
         }
         if (notifications.blockerLogs && notifications.blockerLogs.length) {
             var latestBlocker = notifications.blockerLogs[0];
@@ -2240,7 +2246,7 @@
             ? ('Последний отчет: ' + notifications.latestDailyLog.report_date)
             : (notifications && notifications.missingDailyReport ? 'Нет свежего отчета' : 'Раскройте объект для деталей');
         return '<div class="schedule-project-summary schedule-project-summary-compact">' +
-            stat('Готовность', String(progress.percent || 0) + '%') +
+            stat(summary ? 'Работы' : 'Работы и материалы', String(progress.percent || 0) + '%') +
             stat('Статус', project.status || 'В работе') +
             stat('Старт', project.started_at || '-') +
             stat('Дедлайн', project.deadline_at || '-') +
@@ -2262,7 +2268,7 @@
             dataItem('Заказчик', project.client_name || 'Не указан') +
             dataItem('Адрес', project.address || 'Не указан') +
             dataItem('Договор', project.contract_no || '-') +
-            dataItem('Готовность объекта', percent(project.progress) + '%') +
+            dataItem('Работы и материалы', percent(project.progress) + '%') +
             dataItem('Старт', project.started_at || '-') +
             dataItem('Дедлайн', project.deadline_at || '-') +
         '</section>';
@@ -2328,7 +2334,8 @@
             });
             state.scheduleProjectLoadingByProject[String(projectId)] = false;
             renderSchedulePage();
-        }).catch(function () {
+        }).catch(function (error) {
+            console.error('Schedule details failed', error);
             state.scheduleProjectLoadingByProject[String(projectId)] = false;
             var target = scheduleProjectBody(projectId);
             if (target) target.innerHTML = '<div class="section-schedule-empty">Не удалось загрузить данные объекта.</div>';
@@ -2740,7 +2747,6 @@
                 stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
                 stat('Пора платить', String(summary.warning || 0), summary.warning ? 'warn' : '') +
                 stat('Закуплено', String(summary.purchased || 0), summary.purchased ? 'success' : '') +
-                stat('Сегодня', schedule.today || APP_TODAY) +
             '</div>' +
             '<div class="material-schedule-legend"><span><i class="is-neutral"></i>В плане</span><span><i class="is-warning"></i>Внимание</span><span><i class="is-overdue"></i>Просрочено</span><span><i class="is-done"></i>Закуплено</span></div>' +
             renderMaterialScheduleScale(range) +
@@ -3036,9 +3042,10 @@
             previewItems.map(function (item) { return renderMaterialCalendarCard(item, true); }).join('') +
             renderMaterialCalendarOverflow(allItems.length - previewItems.length) +
         '</div>' : '';
-        return '<div class="' + cls + '" data-material-calendar-day="' + escapeHtml(day) + '" data-project-id="' + escapeHtml(projectId) + '">' +
+        var interaction = allItems.length ? ' role="button" tabindex="0" aria-label="' + escapeHtml(formatDisplayDate(day) + ': материалов ' + allItems.length) + '"' : '';
+        return '<div' + interaction + ' class="' + cls + '" data-material-calendar-day="' + escapeHtml(day) + '" data-project-id="' + escapeHtml(projectId) + '">' +
             '<div class="material-calendar-date"><b class="calendar-day-number ' + (day === APP_TODAY ? 'is-today' : '') + '">' + escapeHtml(String(Number(day.slice(8, 10)))) + '</b><span>' + escapeHtml(formatDisplayDate(day)) + '</span></div>' +
-            previewHtml +
+            previewHtml + (allItems.length ? '<span class="material-calendar-count" aria-hidden="true">' + allItems.length + '</span>' : '') +
         '</div>';
     }
 
@@ -3066,13 +3073,12 @@
         var toggleMode = view.mode === 'week' ? 'month' : 'week';
         var toggleText = view.mode === 'week' ? '↕ Развернуть в месяц' : '↕ Свернуть в неделю';
         return '<section class="card material-schedule-card" data-material-schedule="' + escapeHtml(projectId) + '">' +
-            '<div class="card-head"><div><h3>Календарь закупок</h3></div></div>' +
+            '<div class="card-head"><div><h3>Календарь закупок</h3></div><span class="muted">Сегодня, ' + escapeHtml(formatDisplayDate(schedule.today || APP_TODAY)) + '</span></div>' +
             '<div class="execution-summary material-schedule-summary">' +
                 stat('Всего', String(summary.total || items.length)) +
                 stat('Просрочено', String(summary.overdue || 0), summary.overdue ? 'danger' : '') +
                 stat('Закажи сейчас', String(summary.warning || 0), summary.warning ? 'warn' : '') +
                 stat('Закуплено/в пути', String(summary.purchased || 0), summary.purchased ? 'success' : '') +
-                stat('Сегодня', schedule.today || APP_TODAY) +
             '</div>' +
             '<div class="material-calendar-toolbar">' +
                 '<div class="material-calendar-nav"><button class="ghost compact material-calendar-arrow' + prevAlertClass + '" type="button" data-material-calendar-nav data-direction="-1" data-project-id="' + escapeHtml(projectId) + '"' + (prevAlertClass ? ' title="' + escapeHtml(alertTitle) + '" aria-label="' + escapeHtml(alertTitle) + '" data-material-calendar-alert="1"' : '') + '>&lt;</button><strong>' + escapeHtml(materialCalendarTitle(projectId)) + '</strong><button class="ghost compact material-calendar-arrow' + nextAlertClass + '" type="button" data-material-calendar-nav data-direction="1" data-project-id="' + escapeHtml(projectId) + '"' + (nextAlertClass ? ' title="' + escapeHtml(alertTitle) + '" aria-label="' + escapeHtml(alertTitle) + '" data-material-calendar-alert="1"' : '') + '>&gt;</button></div>' +
@@ -3415,6 +3421,12 @@
         qsa('.material-calendar-day.has-materials', root || document).forEach(function (cell) {
             if (cell.dataset.materialCalendarCellBound === '1') return;
             cell.dataset.materialCalendarCellBound = '1';
+            cell.addEventListener('keydown', function (event) {
+                if (event.target === cell && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    cell.click();
+                }
+            });
             cell.addEventListener('click', function (event) {
                 if (event.target && event.target.closest && event.target.closest('[data-material-schedule-item], button, a, input, select, textarea')) return;
                 event.preventDefault();
@@ -3463,6 +3475,7 @@
         if (!state.selectedProject || hasRole('customer') || !isSelectedProjectScheduleTabActive()) return;
         var projectId = state.selectedProject.id;
         bindAutoScheduleForm(projectId);
+        bindMaterialScheduleTimeline();
         replaceSelectedProjectMaterialCalendar(projectId);
         loadMaterialSchedule(projectId, function () {
             if (!state.selectedProject || Number(state.selectedProject.id) !== Number(projectId) || !isSelectedProjectScheduleTabActive()) return;
@@ -3734,6 +3747,121 @@
         return current;
     }
 
+    function productionCalendarStorageKey(projectId) {
+        var user = state.currentUser || state.user || {};
+        return 'pmbi.production-calendar.v1.' + String(user.id || user.role || 'public') + '.' + String(projectId);
+    }
+
+    function productionCalendarView(projectId) {
+        state.productionCalendarByProject = state.productionCalendarByProject || {};
+        var key = productionCalendarStorageKey(projectId);
+        if (!state.productionCalendarByProject[key]) {
+            var saved = {};
+            try { saved = JSON.parse(window.localStorage.getItem(key) || '{}') || {}; } catch (error) {}
+            state.productionCalendarByProject[key] = {
+                date: productionScheduleIsoDate(saved.date),
+                days: [7, 14, 28].indexOf(Number(saved.days)) >= 0 ? Number(saved.days) : (window.innerWidth <= 560 ? 7 : 14),
+                details: saved.details === true,
+                mode: saved.mode === 'works' ? 'works' : 'sections',
+                query: ''
+            };
+        }
+        return state.productionCalendarByProject[key];
+    }
+
+    function setProductionCalendarView(projectId, patch) {
+        var view = productionCalendarView(projectId);
+        Object.keys(patch).forEach(function (key) { view[key] = patch[key]; });
+        try {
+            window.localStorage.setItem(productionCalendarStorageKey(projectId), JSON.stringify({
+                date: view.date, days: view.days, details: view.details, mode: view.mode
+            }));
+        } catch (error) {}
+        return view;
+    }
+
+    function productionCalendarRange(project, schedule) {
+        var view = productionCalendarView(project.id);
+        var start = productionScheduleStartDate(project, schedule);
+        var date = view.date || start;
+        date = date < '1900-01-01' ? '1900-01-01' : (date > '2200-12-04' ? '2200-12-04' : date);
+        var firstDay = Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86400000) + 1;
+        return { date: date, firstDay: firstDay, lastDay: firstDay + view.days - 1, days: view.days };
+    }
+
+    function productionCalendarSearch(items, query) {
+        var normalize = function (value) { return String(value || '').toLowerCase().replace(/ё/g, 'е'); };
+        var terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+        if (!terms.length) return items;
+        return items.filter(function (item) {
+            var group = productionScheduleGroupInfo(item);
+            var text = normalize([item.title, group.estimateTitle, group.sectionTitle].join(' '));
+            return terms.every(function (term) { return text.indexOf(term) >= 0; });
+        });
+    }
+
+    function bindProductionCalendarControls(projectId, panel) {
+        var menus = qsa('.production-more-actions, .production-period-picker', panel);
+        menus.forEach(function (menu) {
+            menu.addEventListener('keydown', function (event) {
+                if (event.key !== 'Escape' || !menu.open) return;
+                event.preventDefault();
+                menu.open = false;
+                qs('summary', menu).focus({ preventScroll: true });
+            });
+            menu.addEventListener('toggle', function () {
+                if (menu.open) menus.forEach(function (other) { if (other !== menu) other.open = false; });
+            });
+        });
+        var update = function (patch, focusSelector) {
+            setProductionCalendarView(projectId, patch);
+            renderSelectedProjectProductionSchedule({ resetHorizontal: true });
+            var control = focusSelector && qs(focusSelector, panel);
+            if (control) control.focus({ preventScroll: true });
+        };
+        qsa('[data-production-period-move]', panel).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var view = productionCalendarView(projectId);
+                var range = productionCalendarRange(state.selectedProject, state.productionScheduleByProject[projectId]);
+                update({ date: productionScheduleAddDays(range.date, Number(button.dataset.productionPeriodMove) * view.days) }, '[data-production-period-move="' + button.dataset.productionPeriodMove + '"]');
+            });
+        });
+        qsa('[data-production-period-jump]', panel).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var schedule = state.productionScheduleByProject[projectId];
+                var date = button.dataset.productionPeriodJump === 'today' ? productionScheduleTodayIso(schedule) : productionScheduleStartDate(state.selectedProject, schedule);
+                update({ date: date }, '[data-production-period-jump="' + button.dataset.productionPeriodJump + '"]');
+            });
+        });
+        var dateInput = qs('[data-production-period-date]', panel);
+        if (dateInput) dateInput.addEventListener('change', function () {
+            var date = productionScheduleIsoDate(dateInput.value);
+            if (!date || date !== dateInput.value || date < dateInput.min || date > dateInput.max) {
+                dateInput.value = productionCalendarRange(state.selectedProject, state.productionScheduleByProject[projectId]).date;
+                return;
+            }
+            update({ date: date }, '.production-period-picker > summary');
+        });
+        var period = qs('[data-production-period-days]', panel);
+        if (period) period.addEventListener('change', function () {
+            var days = Number(period.value);
+            if ([7, 14, 28].indexOf(days) >= 0) update({ days: days }, '[data-production-period-days]');
+        });
+        var details = qs('[data-production-details]', panel);
+        if (details) details.addEventListener('click', function () {
+            update({ details: !productionCalendarView(projectId).details }, '[data-production-details]');
+        });
+        var search = qs('[data-production-search]', panel);
+        if (search) search.addEventListener('input', function () {
+            var position = search.selectionStart;
+            update({ query: search.value }, '[data-production-search]');
+            var next = qs('[data-production-search]', panel);
+            if (next && next.setSelectionRange) next.setSelectionRange(position, position);
+        });
+        var clear = qs('[data-production-search-clear]', panel);
+        if (clear) clear.addEventListener('click', function () { update({ query: '' }, '[data-production-search]'); });
+    }
+
     function syncProductionScheduleScroll(scroller) {
         if (!scroller) return;
         var shell = scroller.closest ? scroller.closest('[data-production-table-shell]') : null;
@@ -4003,7 +4131,7 @@
     }
 
     function productionScheduleDayMeta(startDate, dayNumber, todayIso) {
-        var isoDate = productionScheduleAddDays(startDate, Number(dayNumber || 1) - 1);
+        var isoDate = productionScheduleAddDays(startDate, (dayNumber == null ? 1 : Number(dayNumber)) - 1);
         var parts = isoDate.split('-').map(Number);
         var value = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
         var monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
@@ -4061,7 +4189,8 @@
 
     function productionScheduleViewMode(projectId) {
         state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
-        return state.productionScheduleViewByProject[projectId] === 'works' ? 'works' : 'sections';
+        var view = productionCalendarView(projectId);
+        return view.query.trim() ? 'works' : (state.productionScheduleViewByProject[projectId] || view.mode);
     }
 
     function productionScheduleHiddenColumnSet(schedule) {
@@ -4727,29 +4856,30 @@
         if (!project) return '';
         if (!schedule) return skeletonMarkup('table', 1);
         if (schedule.error) return '<section class="card production-schedule-card"><div class="section-schedule-empty">' + escapeHtml(schedule.error) + '</div></section>';
-        var items = Array.isArray(schedule.items) ? schedule.items : [];
+        var allItems = Array.isArray(schedule.items) ? schedule.items : [];
+        var calendar = productionCalendarView(project.id);
+        var period = productionCalendarRange(project, schedule);
+        var items = productionCalendarSearch(allItems, calendar.query);
         var viewMode = productionScheduleViewMode(project.id);
         var scheduleGroups = productionScheduleGroups(items);
-        var visibleDays = productionScheduleVisibleDays(project.id, schedule);
+        var visibleDays = period.days;
         var canEditSchedule = canEditProductionSchedule();
         var guestView = hasRole('guest');
         var canSaveTemplate = isMainAdminRole() || hasRole('admin') || hasRole('director');
         var hiddenColumns = productionScheduleHiddenColumnSet(schedule);
         var showEstimateLabel = schedule.showEstimateLabel !== false;
         var visibleOptionalColumnCount = ['people', 'shifts', 'brigades'].filter(function (key) { return !hiddenColumns[key]; }).length;
-        var fixedColumnCount = 4 + visibleOptionalColumnCount;
+        var fixedColumnCount = calendar.details ? 4 + visibleOptionalColumnCount : 2;
         var startDate = productionScheduleStartDate(project, schedule);
         var todayIso = productionScheduleTodayIso(schedule);
-        var dayOneMeta = productionScheduleDayMeta(startDate, 1, todayIso);
         var startDateControl = canEditSchedule
-            ? '<div class="production-start-date-control" aria-label="Дата начала графика">' +
-                '<span>Начало графика</span>' +
+            ? '<div class="production-start-date-control" aria-label="Дата начала графика" title="Сдвигает календарь целиком, работы остаются на своих местах.">' +
+                '<span>Начало всего графика</span>' +
                 '<div class="production-start-date-inputs">' +
                     '<button type="button" data-production-start-shift="-1" title="Сдвинуть график на день назад" aria-label="Сдвинуть график на день назад">←</button>' +
                     '<input type="date" min="1900-01-01" max="2200-12-31" value="' + escapeHtml(startDate) + '" data-production-start-date aria-label="Дата начала графика">' +
                     '<button type="button" data-production-start-shift="1" title="Сдвинуть график на день вперёд" aria-label="Сдвинуть график на день вперёд">→</button>' +
                 '</div>' +
-                '<small>Сдвигает календарь целиком, работы остаются на своих местах.</small>' +
                 (String(schedule.startDateSource || '') === 'manual' ? '<button class="production-start-date-reset" type="button" data-production-start-reset>По дате объекта</button>' : '') +
             '</div>'
             : '';
@@ -4765,11 +4895,11 @@
                 '</div>' +
             '</details>'
             : '';
-        var monthHeaders = productionScheduleMonthGroups(startDate, 1, visibleDays, todayIso).map(function (group) {
+        var monthHeaders = productionScheduleMonthGroups(startDate, period.firstDay, period.lastDay, todayIso).map(function (group) {
             return '<th class="production-month-head" colspan="' + String(group.dayCount) + '">' + escapeHtml(group.label) + '</th>';
         }).join('');
         var dayHeaders = '';
-        for (var day = 1; day <= visibleDays; day += 1) {
+        for (var day = period.firstDay; day <= period.lastDay; day += 1) {
             var dayMeta = productionScheduleDayMeta(startDate, day, todayIso);
             dayHeaders += '<th class="production-day-head production-date-head' + (dayMeta.isWeekend ? ' is-weekend' : '') + (dayMeta.isToday ? ' is-today' : '') + '" title="' + escapeHtml('День ' + day + ' · ' + dayMeta.iso) + '"' + (dayMeta.isToday ? ' aria-current="date"' : '') + '><span>' + String(dayMeta.calendarDay) + '</span><small>' + escapeHtml(dayMeta.weekday) + '</small></th>';
         }
@@ -4777,7 +4907,7 @@
             (hiddenColumns.shifts ? '' : '<th class="production-shifts-cell" rowspan="2" data-production-column-header="shifts" data-production-column-label="Количество смен" tabindex="0" title="Правая кнопка мыши — скрыть колонку">Кол-во<br>смен</th>') +
             (hiddenColumns.brigades ? '' : '<th class="production-brigades-cell" rowspan="2" data-production-column-header="brigades" data-production-column-label="Количество бригад" tabindex="0" title="Правая кнопка мыши — скрыть колонку">Кол-во<br>бригад</th>');
         var tableHeader = '<thead><tr>' +
-            '<th class="production-number-cell" rowspan="2">№<br>п/п</th><th class="production-work-title" rowspan="2">' + (viewMode === 'sections' ? 'Раздел сметы' : 'Наименование работ') + '</th><th class="production-volume-cell" rowspan="2">Объём работ</th>' + optionalColumnHeaders + '<th class="production-duration-cell" rowspan="2">Продолжи-<br>тельность,<br>дн</th>' + monthHeaders +
+            '<th class="production-number-cell" rowspan="2">№</th><th class="production-work-title" rowspan="2">' + (viewMode === 'sections' ? 'Раздел сметы' : 'Наименование работ') + '</th>' + (calendar.details ? '<th class="production-volume-cell" rowspan="2">Объём работ</th>' + optionalColumnHeaders + '<th class="production-duration-cell" rowspan="2">Продолжи-<br>тельность,<br>дн</th>' : '') + monthHeaders +
         '</tr><tr>' + dayHeaders + '</tr></thead>';
         var rows = [];
         var displayEntries = [];
@@ -4837,7 +4967,7 @@
             var automatic = productionScheduleDaySet(item.autoFilledSlots);
             var overridden = productionScheduleDaySet(item.overriddenSlots);
             var cells = '';
-            for (var cellDay = 1; cellDay <= visibleDays; cellDay += 1) {
+            for (var cellDay = period.firstDay; cellDay <= period.lastDay; cellDay += 1) {
                 var cellDateMeta = productionScheduleDayMeta(startDate, cellDay, todayIso);
                 var firstSlotNumber = (cellDay - 1) * 2 + 1;
                 var secondSlotNumber = firstSlotNumber + 1;
@@ -4846,7 +4976,8 @@
                 var isPartial = filledSlotCount === 1;
                 var isAutomatic = !!automatic[String(firstSlotNumber)] || !!automatic[String(secondSlotNumber)];
                 var isOverridden = !!overridden[String(firstSlotNumber)] || !!overridden[String(secondSlotNumber)];
-                cells += '<td class="production-day-cell' + (cellDay % 2 === 1 ? ' is-first-of-pair' : ' is-second-of-pair') + (cellDateMeta.isWeekend ? ' is-weekend' : '') + (cellDateMeta.isToday ? ' is-today' : '') + '"><button type="button" class="production-cell-toggle' + (isFilled ? ' is-filled' : '') + (isPartial ? ' is-partial' : '') + (isAutomatic ? ' is-auto' : '') + (isOverridden ? ' is-overridden' : '') + '" data-production-day' + (isSectionSummary ? ' data-production-summary-cell' : ' data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" data-day-number="' + cellDay + '"') + ' aria-pressed="' + (filledSlotCount === 2 ? 'true' : 'false') + ' aria-label="' + escapeHtml((item.title || 'Работа') + ', ' + cellDateMeta.shortLabel + ', день ' + cellDay + (isPartial ? ', занята половина дня' : '') + '. Статус: ' + health.label) + '"' + (canEditSchedule && !isSectionSummary ? '' : ' disabled') + '></button></td>';
+                var validDay = cellDay >= 1 && cellDay <= 3650;
+                cells += '<td class="production-day-cell' + (cellDay % 2 === 1 ? ' is-first-of-pair' : ' is-second-of-pair') + (cellDateMeta.isWeekend ? ' is-weekend' : '') + (cellDateMeta.isToday ? ' is-today' : '') + '"><button type="button" class="production-cell-toggle' + (isFilled ? ' is-filled' : '') + (isPartial ? ' is-partial' : '') + (isAutomatic ? ' is-auto' : '') + (isOverridden ? ' is-overridden' : '') + '" data-production-day' + (isSectionSummary ? ' data-production-summary-cell' : ' data-project-id="' + escapeHtml(project.id) + '" data-operation-id="' + escapeHtml(operationId) + '" data-day-number="' + cellDay + '"') + ' aria-pressed="' + (filledSlotCount === 2 ? 'true' : 'false') + '" aria-label="' + escapeHtml((item.title || 'Работа') + ', ' + cellDateMeta.shortLabel + (validDay ? ', день ' + cellDay : ', вне периода планирования') + (isPartial ? ', занята половина дня' : '') + '. Статус: ' + health.label) + '"' + (canEditSchedule && !isSectionSummary && validDay ? '' : ' disabled') + '></button></td>';
             }
             var effectiveLabel = !isSectionSummary && Number(item.effectiveDays || 0) !== Number(item.durationDays || 0)
                 ? '<small>закрашено: ' + escapeHtml(String(item.effectiveDays || 0)) + '</small>'
@@ -4869,10 +5000,11 @@
                 ? ' disabled title="Для разделения нужна длительность не меньше 1 дня"'
                 : (placementIsManual ? ' disabled title="Сначала верните автоматическую раскладку этой работы"' : ' title="Разделить на две работы"');
             var rowActions = canEditSchedule && !isSectionSummary ? '<span class="production-row-actions">' +
+                '<button type="button" data-production-edit-operation data-operation-id="' + escapeHtml(operationId) + '" title="Редактировать работу" aria-label="' + escapeHtml('Редактировать работу: ' + item.title) + '">✎</button>' +
                 '<button type="button" data-production-split-operation data-operation-id="' + escapeHtml(operationId) + '"' + splitAttributes + ' aria-label="Разделить работу">⑂</button>' +
                 '<button type="button" class="is-danger" data-production-delete-operation data-operation-id="' + escapeHtml(operationId) + '" title="Удалить" aria-label="Удалить работу">×</button>' +
             '</span>' : '';
-            var dragHandle = canEditSchedule && !isSectionSummary
+            var dragHandle = canEditSchedule && !isSectionSummary && !calendar.query.trim()
                 ? '<span class="production-drag-handle" data-production-drag-handle title="Перетащить работу" aria-label="Перетащить работу" tabindex="0">⋮⋮</span>'
                 : '';
             var rowContext = '';
@@ -4890,50 +5022,68 @@
                 '</div>' + durationReset + effectiveLabel;
             var volumeMarkup = isSectionSummary || !canEditSchedule
                 ? escapeHtml(volume)
-                : '<label class="production-volume-editor"><span class="sr-only">Объём работы</span><input type="text" inputmode="decimal" value="' + escapeHtml(rawVolume == null ? '' : String(rawVolume)) + '" placeholder="—" data-production-volume data-operation-id="' + escapeHtml(operationId) + '" aria-label="' + escapeHtml('Объём работы: ' + (item.title || 'Работа')) + '"><small>' + escapeHtml(volumePlan.unit || item.unit || 'ед.') + '</small></label>';
+                : '<label class="production-volume-editor"><span class="visually-hidden">Объём работы</span><input type="text" inputmode="decimal" value="' + escapeHtml(rawVolume == null ? '' : String(rawVolume)) + '" placeholder="—" data-production-volume data-operation-id="' + escapeHtml(operationId) + '" aria-label="' + escapeHtml('Объём работы: ' + (item.title || 'Работа')) + '"><small>' + escapeHtml(volumePlan.unit || item.unit || 'ед.') + '</small></label>';
             rows.push('<tr class="production-work-row' + (isSectionSummary ? ' production-section-summary-row' : '') + ' production-health-' + health.key + '"' + (isSectionSummary ? '' : ' data-production-operation-row data-operation-id="' + escapeHtml(operationId) + '"') + rowContext + ' aria-label="' + escapeHtml((item.title || 'Работа') + '. Статус: ' + health.label) + '">' +
                 '<td class="production-number-cell">' + dragHandle + '<span data-production-row-number>' + String(itemIndex + 1) + '</span></td>' +
-                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + rowActions + '</span><span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
-                '<td class="production-volume-cell">' + volumeMarkup + '</td>' +
+                '<th class="production-work-title"><span class="production-work-heading"><b>' + escapeHtml(item.title || 'Работа') + '</b>' + rowActions + (isSectionSummary && rowContext ? '<span class="production-row-actions"><button type="button" data-production-edit-group aria-label="' + escapeHtml('Редактировать раздел: ' + item.title) + '">✎</button></span>' : '') + '</span>' +
+                (!calendar.details ? '<span class="production-compact-meta">' + escapeHtml(quantityText(durationDays)) + ' дн. · ' + escapeHtml(volume) + '</span>' : '') +
+                '<span class="production-work-meta"><small class="production-origin-label">' + escapeHtml(operationMeta.originLabel) + '</small><small class="production-link-label is-' + operationMeta.linkKind + '">' + escapeHtml(operationMeta.linkLabel) + '</small><small class="production-health-label is-' + health.key + '">' + escapeHtml(health.label) + '</small>' + confirmOperation + '</span></th>' +
+                (calendar.details ? '<td class="production-volume-cell">' + volumeMarkup + '</td>' +
                 (hiddenColumns.people ? '' : '<td class="production-people-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.peopleCount || item.crewSize || 1))) + '</td>') +
                 (hiddenColumns.shifts ? '' : '<td class="production-shifts-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.shiftCount || 1))) + '</td>') +
                 (hiddenColumns.brigades ? '' : '<td class="production-brigades-cell">' + (isSectionSummary ? '—' : escapeHtml(String(item.brigadeCount || 1))) + '</td>') +
-                '<td class="production-duration-cell">' + durationMarkup + '</td>' +
+                '<td class="production-duration-cell">' + durationMarkup + '</td>' : '') +
                 cells + '</tr>');
         });
         if (!rows.length) {
-            rows.push('<tr class="production-empty-row"><td colspan="' + String(fixedColumnCount + visibleDays) + '"><b>График пока пуст</b><span>' + (guestView ? 'Опубликованные работы пока не добавлены.' : 'Добавьте первую работу или раздел вручную либо пересчитайте черновик по смете.') + '</span></td></tr>');
+            rows.push('<tr class="production-empty-row"><td colspan="' + String(fixedColumnCount + visibleDays) + '"><b>' + (calendar.query.trim() ? 'Работы не найдены' : 'График пока пуст') + '</b><span>' + (calendar.query.trim() ? 'Попробуйте другое название работы, сметы или раздела.' : (guestView ? 'Опубликованные работы пока не добавлены.' : 'Добавьте первую работу или раздел вручную либо пересчитайте черновик по смете.')) + '</span></td></tr>');
         }
-        return '<section class="card production-schedule-card" data-production-schedule-card data-project-id="' + escapeHtml(project.id) + '">' +
-            '<div class="production-schedule-head"><div><span class="eyebrow">Приложение к графику работ</span><h3>График производства работ</h3><p>' + (viewMode === 'sections' ? 'Сводный план по сметам и разделам. Продолжительность раздела рассчитана по входящим в него работам.' : (guestView ? 'Подробная последовательность всех работ по объекту.' : 'Подробный план: работы сгруппированы по сметам и разделам и доступны для редактирования.')) + ' Каждая половина клетки — 0,5 дня. День 1 — ' + escapeHtml(dayOneMeta.shortLabel + ' (' + dayOneMeta.weekday + ')') + '.</p></div>' +
+        var periodEndMeta = productionScheduleDayMeta(startDate, period.lastDay, todayIso);
+        var periodStartMeta = productionScheduleDayMeta(startDate, period.firstDay, todayIso);
+        return '<section class="card production-schedule-card' + (calendar.details ? ' is-detailed' : ' is-compact') + '" data-production-schedule-card data-project-id="' + escapeHtml(project.id) + '">' +
+            '<div class="production-schedule-head"><div class="production-schedule-heading"><h3>График производства</h3><span>Шаг 0,5 дня · ' + String(allItems.length) + ' работ</span></div>' +
                 '<div class="production-schedule-actions">' +
-                    startDateControl +
-                    columnSettingsControl +
-                    '<div class="production-view-switch" role="group" aria-label="Детализация графика"><button type="button" data-production-view="sections" aria-pressed="' + (viewMode === 'sections' ? 'true' : 'false') + '"><i data-lucide="layout-list" aria-hidden="true"></i><span>По разделам</span></button><button type="button" data-production-view="works" aria-pressed="' + (viewMode === 'works' ? 'true' : 'false') + '"><i data-lucide="list-tree" aria-hidden="true"></i><span>Все работы</span></button></div>' +
-                    (canEditSchedule && viewMode === 'sections' ? '<button class="primary compact production-edit-schedule-button" type="button" data-production-edit-schedule><span>Редактировать график</span></button>' : '') +
-                    (canEditSchedule ? '<div class="production-add-controls"><button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Работа</button><button class="ghost compact" type="button" data-production-add-section data-project-id="' + escapeHtml(project.id) + '">+ Раздел</button></div>' : '') +
-                    '<button class="ghost compact production-print-button" type="button" data-production-print data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="printer" aria-hidden="true"></i><span>Распечатать в PDF</span></button>' +
-                    '<button class="ghost compact" type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">+ 7 дней</button>' +
-                    (canSaveTemplate ? '<button class="ghost compact" type="button" data-production-save-template data-project-id="' + escapeHtml(project.id) + '">Сохранить шаблон</button>' : '') +
-                    (canEditSchedule ? '<button class="ghost compact" type="button" data-production-reset-cells data-project-id="' + escapeHtml(project.id) + '">Вернуть авто-раскладку</button>' : '') +
-                    (canEditSchedule ? '<button class="ghost compact" type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
+                    '<div class="production-view-switch" role="group" aria-label="Детализация графика"><button type="button" data-production-view="sections" aria-pressed="' + (viewMode === 'sections' ? 'true' : 'false') + '"><span>По разделам</span></button><button type="button" data-production-view="works" aria-pressed="' + (viewMode === 'works' ? 'true' : 'false') + '"><span>Все работы</span></button></div>' +
+                    '<div class="production-toolbar-tools"><button class="production-details-toggle" type="button" data-production-details aria-pressed="' + (calendar.details ? 'true' : 'false') + '" title="Объёмы, длительности и состав бригад">Параметры</button>' +
+                    (canEditSchedule ? '<button class="primary compact" type="button" data-production-add-operation data-project-id="' + escapeHtml(project.id) + '">+ Работа</button>' : '') +
+                    '<details class="production-more-actions"><summary>Ещё</summary><div class="production-more-menu">' + columnSettingsControl +
+                    (canEditSchedule ? '<button type="button" data-production-add-section data-project-id="' + escapeHtml(project.id) + '">+ Раздел</button>' : '') +
+                    (canEditSchedule && viewMode === 'sections' ? '<button class="production-edit-schedule-button" type="button" data-production-edit-schedule><span>Редактировать график</span></button>' : '') +
+                    '<button class="production-print-button" type="button" data-production-print data-project-id="' + escapeHtml(project.id) + '"><i data-lucide="printer" aria-hidden="true"></i><span>Распечатать в PDF</span></button>' +
+                    '<button type="button" data-production-add-days data-project-id="' + escapeHtml(project.id) + '">К концу графика + 7 дней</button>' +
+                    (canSaveTemplate ? '<button type="button" data-production-save-template data-project-id="' + escapeHtml(project.id) + '">Сохранить шаблон</button>' : '') +
+                    (canEditSchedule ? '<button type="button" data-production-reset-cells data-project-id="' + escapeHtml(project.id) + '">Вернуть авто-раскладку</button>' : '') +
+                    (canEditSchedule ? '<button type="button" data-production-recalculate data-project-id="' + escapeHtml(project.id) + '">Пересчитать автоматически</button>' : '') +
+                    (guestView ? '' : '<p class="production-recalculate-note">Параметры открывают объём и длительность в таблице. Кнопка ✎ — настройки работы или раздела.</p>') +
+                    (canEditSchedule ? '<div class="production-plan-start-settings">' + startDateControl + '<small>Меняет даты всех работ. Для просмотра другой недели используйте стрелки над календарём.</small></div>' : '') +
+                    '</div></details></div>' +
                 '</div></div>' +
-            (guestView ? '' : '<div class="production-recalculate-note">' + (canEditSchedule && viewMode === 'sections' ? '<b>Редактирование:</b> нажмите правой кнопкой мыши по смете или разделу — там меняются название и сводный объём. Для полной настройки работ откройте «Все работы».' : '<b>Редактирование:</b> нажмите правой кнопкой мыши по работе, смете или разделу. Объём и длительность также меняются прямо в таблице.') + '</div>') +
+            '<div class="production-calendar-toolbar">' +
+                '<div class="production-period-controls" role="group" aria-label="Период просмотра">' +
+                    '<button type="button" data-production-period-move="-1" aria-label="Предыдущий период"' + (period.date <= '1900-01-01' ? ' disabled' : '') + '>‹</button>' +
+                    '<details class="production-period-picker"><summary title="Выбрать дату просмотра"><span data-production-period-label>' + escapeHtml(periodStartMeta.shortLabel + ' — ' + periodEndMeta.shortLabel + ' ' + periodEndMeta.monthKey.slice(0, 4)) + '</span></summary><label>Показать с даты<input type="date" min="1900-01-01" max="2200-12-04" value="' + escapeHtml(period.date) + '" data-production-period-date aria-label="Показать график с даты"></label></details>' +
+                    '<button type="button" data-production-period-move="1" aria-label="Следующий период"' + (period.date >= '2200-12-04' ? ' disabled' : '') + '>›</button>' +
+                    '<button type="button" data-production-period-jump="today">Сегодня</button>' +
+                    '<button type="button" data-production-period-jump="start" title="Показать начало графика">К началу</button>' +
+                    '<select data-production-period-days aria-label="Дней в календаре">' + [7, 14, 28].map(function (count) { return '<option value="' + count + '"' + (calendar.days === count ? ' selected' : '') + '>' + count + ' дней</option>'; }).join('') + '</select>' +
+                '</div>' +
+                '<div class="production-search"><input type="text" data-production-search value="' + escapeHtml(calendar.query) + '" placeholder="Найти работу…" aria-label="Найти работу или раздел" autocomplete="off">' + (calendar.query ? '<button type="button" data-production-search-clear aria-label="Сбросить поиск">×</button>' : '') + '</div>' +
+            '</div>' +
+            (calendar.query.trim() ? '<div class="production-search-result" role="status">Найдено работ: ' + String(items.length) + ' из ' + String(allItems.length) + '</div>' : '') +
             productionScheduleLegendMarkup('production-health-legend') +
-            '<div class="production-scroll-hint" aria-hidden="true">Колесо — вверх/вниз · Shift + колесо — по дням</div>' +
             '<div class="production-table-shell" data-production-table-shell>' +
-                '<div class="production-table-scroll" data-production-table-scroll role="region" aria-label="График производства по дням" tabindex="0"><table class="production-schedule-table">' + tableHeader + '<tbody>' + rows.join('') + '</tbody></table></div>' +
+                '<div class="production-table-scroll" data-production-table-scroll role="region" aria-label="График производства по дням" title="Колесо — вверх/вниз · Shift + колесо — по дням" tabindex="0"><table class="production-schedule-table">' + tableHeader + '<tbody>' + rows.join('') + '</tbody></table></div>' +
             '</div>' +
             (canEditSchedule ? '<div class="production-column-context-menu" data-production-column-context-menu hidden><strong data-production-column-context-title>Колонка</strong><button type="button" data-production-hide-column><i data-lucide="eye-off" aria-hidden="true"></i><span>Скрыть колонку</span></button></div>' : '') +
         '</section>' + (canEditSchedule ? renderProductionOperationEditor(project, schedule) : '');
     }
 
-    function renderSelectedProjectProductionSchedule() {
+    function renderSelectedProjectProductionSchedule(options) {
         var project = state.selectedProject;
         var panel = qs('[data-panel="production-schedule"]');
         if (!project || !panel) return;
         var scroll = qs('[data-production-table-scroll]', panel);
-        var scrollLeft = scroll ? scroll.scrollLeft : 0;
+        var scrollLeft = options && options.resetHorizontal ? 0 : (scroll ? scroll.scrollLeft : 0);
         var scrollTop = scroll ? scroll.scrollTop : 0;
         safeReplaceChildren(panel, renderProductionSchedule(project, state.productionScheduleByProject[project.id] || null));
         bindProductionScheduleInteractions(project.id);
@@ -5346,6 +5496,7 @@
         var panel = qs('[data-panel="production-schedule"]');
         if (!panel) return;
         bindProductionScheduleScroll(qs('[data-production-table-scroll]', panel));
+        bindProductionCalendarControls(projectId, panel);
         qsa('[data-production-view]', panel).forEach(function (button) {
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
@@ -5354,6 +5505,7 @@
                 state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
                 if (productionScheduleViewMode(projectId) === nextMode) return;
                 state.productionScheduleViewByProject[projectId] = nextMode;
+                setProductionCalendarView(projectId, { mode: nextMode, query: '' });
                 renderSelectedProjectProductionSchedule();
             });
         });
@@ -5458,6 +5610,7 @@
             button.addEventListener('click', function () {
                 state.productionScheduleViewByProject = state.productionScheduleViewByProject || {};
                 state.productionScheduleViewByProject[projectId] = 'works';
+                setProductionCalendarView(projectId, { mode: 'works' });
                 renderSelectedProjectProductionSchedule();
             });
         });
@@ -5471,6 +5624,8 @@
                 }
             };
             target.addEventListener('contextmenu', openContextEditor);
+            var groupEdit = qs('[data-production-edit-group]', target);
+            if (groupEdit) groupEdit.addEventListener('click', openContextEditor);
             target.addEventListener('keydown', function (event) {
                 if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
                 openContextEditor(event);
@@ -5487,6 +5642,7 @@
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
+                if (button.disabled || !canEditProductionSchedule() || button.hasAttribute('data-production-summary-cell')) return;
                 var nextFilled = button.getAttribute('aria-pressed') !== 'true';
                 saveProductionScheduleAction(projectId, {
                     action: 'set_day',
@@ -5543,8 +5699,11 @@
             if (button.dataset.bound === '1') return;
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
-                state.productionScheduleVisibleDaysByProject[projectId] = productionScheduleVisibleDays(projectId, state.productionScheduleByProject[projectId]) + 7;
-                renderSelectedProjectProductionSchedule();
+                var schedule = state.productionScheduleByProject[projectId];
+                var endDay = productionScheduleVisibleDays(projectId, schedule);
+                setProductionCalendarView(projectId, { date: productionScheduleAddDays(productionScheduleStartDate(state.selectedProject, schedule), Math.max(0, endDay - 7)), days: 7 });
+                state.productionScheduleVisibleDaysByProject[projectId] = endDay + 7;
+                renderSelectedProjectProductionSchedule({ resetHorizontal: true });
             });
         });
         qsa('[data-production-recalculate]', panel).forEach(function (button) {
@@ -5564,6 +5723,9 @@
             });
         });
 
+        qsa('[data-production-edit-operation]', panel).forEach(function (button) {
+            button.addEventListener('click', function () { openProductionOperationEditor(projectId, button.dataset.operationId); });
+        });
         qsa('[data-production-add-operation]', panel).forEach(function (button) {
             button.addEventListener('click', function () { openProductionOperationEditor(projectId, null); });
         });

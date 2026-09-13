@@ -50,7 +50,7 @@ class AuthResponseHandler:
         return self.request_payload
 
 
-class PageHandler(AuthResponseHandler):
+class PageHandler(AuthResponseHandler, server.PMBIHandler):
     def __init__(self, path: str, cookie: str = "") -> None:
         super().__init__(cookie)
         self.path = path
@@ -253,23 +253,20 @@ class GuestAccessTests(unittest.TestCase):
             row = con.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return auth.user_payload(row)
 
-    def test_public_entry_has_login_only_and_creates_no_session(self) -> None:
+    def test_public_entry_redirects_to_portfolio_without_creating_session(self) -> None:
         for path in ("/", "/index.html", "/?next=/app/projects"):
             with self.subTest(path=path):
                 handler = PageHandler(path)
                 server.PMBIHandler.do_GET(handler)
-                body = handler.wfile.getvalue().decode("utf-8")
-                self.assertEqual(handler.status, HTTPStatus.OK)
-                self.assertIn("public-entry-window", body)
-                self.assertIn("Войти", body)
-                self.assertNotIn("Смотреть объекты без входа", body)
+                self.assertEqual(handler.status, HTTPStatus.FOUND)
+                self.assertIn(("Location", "/app/projects"), handler.response_headers)
                 self.assertFalse(any(name == "Set-Cookie" for name, _ in handler.response_headers))
         with server.db() as con:
             self.assertEqual(int(con.execute("SELECT COUNT(*) FROM guest_sessions").fetchone()[0]), 0)
             self.assertEqual(int(con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]), 0)
 
-    def test_anonymous_app_redirects_to_public_entry(self) -> None:
-        for path in ("/app/projects", "/app/dashboard", "/app/users"):
+    def test_anonymous_private_pages_redirect_to_public_entry(self) -> None:
+        for path in ("/app/dashboard", "/app/users"):
             with self.subTest(path=path):
                 handler = PageHandler(path)
                 server.PMBIHandler.do_GET(handler)
@@ -277,6 +274,83 @@ class GuestAccessTests(unittest.TestCase):
                 location = next(value for name, value in handler.response_headers if name == "Location")
                 self.assertEqual(location, f"/?next={path}")
                 self.assertFalse(any(name == "Set-Cookie" for name, _ in handler.response_headers))
+
+    def test_anonymous_portfolio_renders_without_private_project_fields(self) -> None:
+        handler = PageHandler('/app/projects')
+        server.PMBIHandler.do_GET(handler)
+        body = handler.wfile.getvalue().decode('utf-8')
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertIn('role-guest', body)
+        self.assertIn('data-projects-list', body)
+        self.assertNotIn('Закрытый адрес', body)
+        self.assertFalse(any(name == 'Set-Cookie' for name, _ in handler.response_headers))
+
+    def test_public_reports_exclude_internal_records_and_worker_names(self) -> None:
+        with server.db() as con:
+            con.execute("UPDATE daily_logs SET workers_json = ? WHERE project_id = ?", (
+                json.dumps([{'specialty': 'Монтажник', 'count': 1, 'hours': 8, 'names': ['Частное имя']}]),
+                self.assigned_project_id,
+            ))
+            con.commit()
+        handler = JsonHandler(auth.public_viewer())
+        communications_docs.api_project_daily_logs(handler, f'/api/projects/{self.assigned_project_id}/daily-logs')
+        self.assertEqual(handler.status, HTTPStatus.OK)
+        self.assertEqual([log['title'] for log in handler.payload['logs']], ['Публичный отчёт'])
+        serialized = json.dumps(handler.payload, ensure_ascii=False)
+        for private in ('Внутренний отчёт', 'Скрытая запись', 'raw_input', 'created_by', 'Частное имя'):
+            self.assertNotIn(private, serialized)
+
+    def test_customer_reads_only_assigned_projects_and_published_reports(self) -> None:
+        customer = self.create_role_user('customer-acl', 'customer', 'Заказчик')
+        with server.db() as con:
+            con.execute('INSERT INTO user_project_access (user_id, project_id) VALUES (?, ?)',
+                        (customer['id'], self.assigned_project_id))
+            con.commit()
+        handler = JsonHandler(customer)
+        projects.api_projects(handler)
+        self.assertEqual([project['id'] for project in handler.payload['projects']], [self.assigned_project_id])
+        for project in handler.payload['projects']:
+            for private in ('budget', 'paid', 'spent', 'economics'):
+                self.assertNotIn(private, project)
+        reports = JsonHandler(customer)
+        communications_docs.api_project_daily_logs(reports, f'/api/projects/{self.assigned_project_id}/daily-logs')
+        self.assertEqual([log['title'] for log in reports.payload['logs']], ['Публичный отчёт'])
+        denied = JsonHandler(customer)
+        communications_docs.api_project_daily_logs(denied, f'/api/projects/{self.other_project_id}/daily-logs')
+        self.assertEqual(denied.status, HTTPStatus.FORBIDDEN)
+
+    def test_public_photos_require_published_report_and_consistent_project(self) -> None:
+        with server.db() as con:
+            logs = {int(row['is_client_visible']): int(row['id']) for row in con.execute(
+                'SELECT id, is_client_visible FROM daily_logs WHERE project_id = ?', (self.assigned_project_id,))}
+            photos = []
+            for title, log_id, document_project_id, visible in (
+                ('Открытое фото', logs[1], self.assigned_project_id, 1),
+                ('Фото внутреннего отчёта', logs[0], self.assigned_project_id, 1),
+                ('Чужое фото', logs[1], self.other_project_id, 1),
+                ('Скрытое фото', logs[1], self.assigned_project_id, 0),
+            ):
+                document_id = int(con.execute(
+                    "INSERT INTO documents (project_id, title, doc_type, status, storage_path, mime_type, is_client_visible, created_at) "
+                    "VALUES (?, ?, 'photo', 'ready', 'fixture.jpg', 'image/jpeg', ?, ?)",
+                    (document_project_id, title, visible, server.now_ts()),
+                ).lastrowid)
+                con.execute('INSERT INTO daily_log_photos (daily_log_id, project_id, document_id, created_at) VALUES (?, ?, ?, ?)',
+                            (log_id, self.assigned_project_id, document_id, server.now_ts()))
+                photos.append(document_id)
+            con.commit()
+        listing = JsonHandler(auth.public_viewer())
+        projects.api_projects(listing)
+        project = next(item for item in listing.payload['projects'] if item['id'] == self.assigned_project_id)
+        self.assertEqual(project['cover_photo_url'], f'/api/documents/{photos[0]}/view')
+        self.assertEqual(project['cover_photo_title'], 'Открытое фото')
+        reports = JsonHandler(auth.public_viewer())
+        communications_docs.api_project_daily_logs(reports, f'/api/projects/{self.assigned_project_id}/daily-logs')
+        self.assertEqual([photo['id'] for log in reports.payload['logs'] for photo in log['photos']], [photos[0]])
+        for document_id in photos[1:]:
+            denied = JsonHandler(auth.public_viewer())
+            communications_docs.api_document_file(denied, f'/api/documents/{document_id}/view', inline=True)
+            self.assertEqual(denied.status, HTTPStatus.FORBIDDEN)
 
     def test_retired_anonymous_guest_endpoint_is_not_found(self) -> None:
         handler = JsonHandler(None)
@@ -511,8 +585,8 @@ class GuestAccessTests(unittest.TestCase):
         self.assertIsNone(auth.current_user(AuthResponseHandler(f"{auth.SESSION_COOKIE}={token}")))
         page = PageHandler("/")
         server.PMBIHandler.do_GET(page)
-        self.assertEqual(page.status, HTTPStatus.OK)
-        self.assertIn("public-entry-window", page.wfile.getvalue().decode("utf-8"))
+        self.assertEqual(page.status, HTTPStatus.FOUND)
+        self.assertIn(("Location", "/app/projects"), page.response_headers)
         self.assertFalse(any(name == "Set-Cookie" for name, _ in page.response_headers))
 
 

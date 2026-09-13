@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +42,36 @@ class FakeDailyTaskHandler:
 
 
 class DailyTaskManagementTests(unittest.TestCase):
+    def test_daily_tasks_use_current_date_after_midnight(self) -> None:
+        user = self.user(1, "foreman")
+        for day in ("2026-09-12", "2026-09-13"):
+            with mock.patch.object(server, "today_iso", return_value=day):
+                response = self.list_tasks(user)
+                self.assertEqual(response.response["today"], day)
+                handler = FakeDailyTaskHandler(user, {"text": "Задача " + day})
+                server.PMBIHandler.api_create_daily_task(handler)
+                self.assertEqual(handler.status, HTTPStatus.CREATED)
+            with server.db() as con:
+                row = con.execute("SELECT task_date FROM daily_tasks WHERE text = ?", ("Задача " + day,)).fetchone()
+                self.assertEqual(row["task_date"], day)
+
+    def test_standup_is_idempotent_per_day_and_available_next_day(self) -> None:
+        with server.db() as con:
+            con.execute("CREATE TABLE daily_standups (user_id INTEGER, report_date TEXT, created_at INTEGER, UNIQUE(user_id, report_date))")
+        user = self.user(1, "foreman")
+        for day in ("2026-09-12", "2026-09-13"):
+            with mock.patch.object(server, "today_iso", return_value=day):
+                for attempt in range(2):
+                    handler = FakeDailyTaskHandler(user, {"tasks": ["План " + day]})
+                    server.PMBIHandler.api_save_daily_standup(handler)
+                    self.assertEqual(handler.status, HTTPStatus.OK)
+                    self.assertEqual(handler.response["today"], day)
+                    self.assertEqual(bool(handler.response.get("alreadySaved")), attempt == 1)
+        with server.db() as con:
+            dates = [row[0] for row in con.execute("SELECT report_date FROM daily_standups ORDER BY report_date")]
+            self.assertEqual(dates, ["2026-09-12", "2026-09-13"])
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM daily_tasks WHERE text LIKE 'План %'").fetchone()[0], 2)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_db_path = server.DB_PATH

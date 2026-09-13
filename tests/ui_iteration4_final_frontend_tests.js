@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -59,8 +60,8 @@ for (const legacyDecorativeColor of [
   );
 }
 
-assert.match(appCss, /ui-final\.css\?v=20260821-ui-iteration-4-final/);
-assert.match(baseHtml, /app\.css\?v=20260902-report-ux-r1/);
-assert.match(loginHtml, /ui-iteration-4-final/);
+assertVersionedAsset(appCss, 'css/ui-final.css');
+assertVersionedAsset(baseHtml, 'app.css');
+assertVersionedAsset(loginHtml, 'css/ui-final.css');
 
 console.log('ui_iteration4_final_frontend_ok');

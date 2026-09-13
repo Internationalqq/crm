@@ -60,7 +60,7 @@ body[data-page="projects"] [data-panel="reports"] .report-pane-kicker {
     gap: 7px;
     color: var(--color-accent);
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 600;
     letter-spacing: .055em;
     line-height: 1.2;
     text-transform: uppercase;
@@ -76,7 +76,7 @@ body[data-page="projects"] [data-panel="reports"] .report-workspace-heading h3 {
     margin: 7px 0 5px;
     color: var(--color-text);
     font-size: 23px;
-    font-weight: 780;
+    font-weight: 600;
     letter-spacing: -.025em;
     line-height: 1.16;
 }
@@ -161,7 +161,7 @@ body[data-page="projects"] [data-panel="reports"] .report-attention-item strong 
     margin-bottom: 2px;
     color: var(--color-text);
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-attention-item small {
@@ -249,7 +249,7 @@ body[data-page="projects"] [data-panel="reports"] .report-kpi small {
     overflow: hidden;
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: .035em;
     text-overflow: ellipsis;
     text-transform: uppercase;
@@ -261,7 +261,7 @@ body[data-page="projects"] [data-panel="reports"] .report-kpi strong {
     overflow: hidden;
     color: var(--color-text);
     font-size: 18px;
-    font-weight: 780;
+    font-weight: 600;
     letter-spacing: -.02em;
     line-height: 1.15;
     text-overflow: ellipsis;
@@ -325,7 +325,7 @@ body[data-page="projects"] [data-panel="reports"] .report-selected-day-head h3 {
     margin: 4px 0 0;
     color: var(--color-text);
     font-size: 16px;
-    font-weight: 760;
+    font-weight: 600;
     letter-spacing: -.015em;
     line-height: 1.25;
 }
@@ -347,7 +347,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-count {
     background: var(--color-surface-subtle);
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.2;
     white-space: nowrap;
 }
@@ -369,7 +369,7 @@ body[data-page="projects"] [data-panel="reports"] .report-calendar-month-copy {
 body[data-page="projects"] [data-panel="reports"] .report-calendar-month-copy > strong {
     color: var(--color-text);
     font-size: 22px;
-    font-weight: 720;
+    font-weight: 600;
     letter-spacing: -.035em;
     line-height: 1.2;
 }
@@ -640,7 +640,7 @@ body[data-page="projects"] [data-panel="reports"] .report-selected-day-empty str
 body[data-page="projects"] [data-panel="reports"] .report-archive-empty b {
     color: var(--color-text);
     font-size: 14px;
-    font-weight: 760;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-selected-day-empty p,
@@ -719,7 +719,7 @@ body[data-page="projects"] [data-panel="reports"] .report-author-avatar {
     background: var(--color-accent-soft);
     color: var(--color-accent-strong);
     font-size: 10px !important;
-    font-weight: 780;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-author-block > div,
@@ -741,7 +741,7 @@ body[data-page="projects"] [data-panel="reports"] .report-author-block strong,
 body[data-page="projects"] [data-panel="reports"] .report-author-inline strong {
     color: var(--color-text);
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-author-block small,
@@ -769,7 +769,7 @@ body[data-page="projects"] [data-panel="reports"] .report-meta-chip {
     background: var(--color-surface-subtle);
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.15;
     white-space: nowrap;
 }
@@ -851,7 +851,7 @@ body[data-page="projects"] [data-panel="reports"] .report-fact-row span {
     margin-bottom: 2px;
     color: var(--color-text-secondary);
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: .035em;
     text-transform: uppercase;
 }
@@ -871,7 +871,7 @@ body[data-page="projects"] [data-panel="reports"] .report-source-note {
 body[data-page="projects"] [data-panel="reports"] .report-source-note summary {
     width: max-content;
     color: var(--color-accent);
-    font-weight: 700;
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -923,7 +923,7 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-locked {
     background: var(--color-surface-subtle);
     color: var(--color-text-secondary);
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -998,7 +998,7 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history-copy {
 body[data-page="projects"] [data-panel="reports"] .report-actions-history-copy strong {
     color: var(--color-text);
     font-size: 14px;
-    font-weight: 760;
+    font-weight: 600;
     line-height: 1.3;
 }
 
@@ -1055,7 +1055,7 @@ body[data-page="projects"] [data-panel="reports"] .report-history-month strong {
     overflow: hidden;
     color: var(--color-text-secondary);
     font-size: 10px;
-    font-weight: 750;
+    font-weight: 600;
     text-overflow: ellipsis;
     text-transform: capitalize;
     white-space: nowrap;
@@ -1071,7 +1071,7 @@ body[data-page="projects"] [data-panel="reports"] .report-history-month span {
     background: var(--color-surface-selected);
     color: var(--color-accent-hover);
     font-size: 9px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-history-entry {
@@ -1115,7 +1115,7 @@ body[data-page="projects"] [data-panel="reports"] .report-history-date small {
 body[data-page="projects"] [data-panel="reports"] .report-history-date strong {
     color: var(--color-text);
     font-size: 18px;
-    font-weight: 780;
+    font-weight: 600;
     line-height: 1;
 }
 
@@ -1123,7 +1123,7 @@ body[data-page="projects"] [data-panel="reports"] .report-history-date span {
     margin-top: 3px;
     color: var(--color-accent);
     font-size: 9px;
-    font-weight: 750;
+    font-weight: 600;
     text-transform: uppercase;
 }
 
@@ -1235,7 +1235,7 @@ body[data-page="projects"] [data-panel="reports"] .report-entry-type {
     border: 1px solid var(--color-border);
     border-radius: 999px;
     font-size: 10px;
-    font-weight: 750;
+    font-weight: 600;
     line-height: 1.15;
     white-space: nowrap;
 }
@@ -1344,7 +1344,8 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-modal-header {
     position: relative;
     z-index: 2;
-    display: flex !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: flex-start !important;
     justify-content: space-between !important;
     gap: 24px;
@@ -1462,7 +1463,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     margin: 0 0 4px;
     color: #2563eb;
     font-size: 10px;
-    font-weight: 750;
+    font-weight: 600;
     letter-spacing: .055em;
     text-transform: uppercase;
 }
@@ -1480,7 +1481,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     margin: 0 0 4px;
     color: var(--color-text);
     font-size: 22px;
-    font-weight: 760;
+    font-weight: 600;
     letter-spacing: -.025em;
 }
 
@@ -1574,7 +1575,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-form-section-head b {
     color: #1e293b;
     font-size: 13px;
-    font-weight: 750;
+    font-weight: 600;
     line-height: 1.25;
 }
 
@@ -1596,7 +1597,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #f3f7fd;
     color: #2563eb;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
     line-height: 1;
 }
 
@@ -1612,7 +1613,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #f8fafc;
     color: #64748b;
     font-size: 9px;
-    font-weight: 750;
+    font-weight: 600;
     letter-spacing: .025em;
     line-height: 1;
     text-transform: uppercase;
@@ -1643,7 +1644,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     margin-bottom: 6px;
     color: #475569 !important;
     font-size: 11px !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     letter-spacing: .01em;
     text-transform: none;
 }
@@ -1763,7 +1764,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-live-assist-head b {
     color: #1e293b;
     font-size: 12px;
-    font-weight: 760;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-live-assist-head span {
@@ -1780,7 +1781,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #eaf2ff;
     color: #1d4ed8;
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -1823,7 +1824,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #eaf2ff;
     color: #1d4ed8;
     font-size: 9px;
-    font-weight: 760;
+    font-weight: 600;
     line-height: 1;
 }
 
@@ -1848,7 +1849,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-live-copy b {
     color: #243247;
     font-size: 11px;
-    font-weight: 720;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-live-copy small {
@@ -1891,7 +1892,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-live-picked-item small {
     color: #2563eb;
     font-size: 8px;
-    font-weight: 780;
+    font-weight: 600;
     text-transform: uppercase;
 }
 
@@ -1989,7 +1990,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #eef4ff !important;
     color: #1d4ed8 !important;
     font-size: 11px !important;
-    font-weight: 780 !important;
+    font-weight: 600 !important;
 }
 
 .reports-drawer-frame .report-voice-button.is-primary:hover,
@@ -2052,7 +2053,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 
 .reports-drawer-frame .report-extra-fields > summary b {
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-extra-fields > summary small {
@@ -2253,7 +2254,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     grid-area: label;
     color: #64748b;
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-effect-quantity > input {
@@ -2266,7 +2267,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #fff !important;
     color: #0f172a !important;
     font-size: 12px !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
 }
 
 .reports-drawer-frame .report-effect-quantity > em {
@@ -2319,7 +2320,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     overflow: hidden;
     color: #64748b;
     font-size: 8px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: .035em;
     line-height: 1.2;
     text-overflow: ellipsis;
@@ -2335,7 +2336,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     overflow: hidden;
     color: #0f172a;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 600;
     line-height: 1.2;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2346,7 +2347,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #64748b;
     font-size: 9px;
     font-style: normal;
-    font-weight: 700;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -2362,7 +2363,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #ffffff !important;
     color: #0f172a !important;
     font-size: 12px !important;
-    font-weight: 800 !important;
+    font-weight: 600 !important;
 }
 
 .reports-drawer-frame .report-effect-metrics .report-effect-quantity {
@@ -2404,7 +2405,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #eff6ff;
     color: #1d4ed8;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-effect-copy,
@@ -2511,7 +2512,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #2563eb;
     font-family: Arial, sans-serif;
     font-size: 17px;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1;
 }
 
@@ -2523,7 +2524,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-confirm-heading b {
     color: var(--color-text);
     font-size: 13px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-confirm-heading small {
@@ -2568,7 +2569,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #ffffff !important;
     color: var(--color-text) !important;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: none !important;
 }
 
@@ -2588,7 +2589,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-confirm > span b {
     color: #1e293b;
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-confirm > span small {
@@ -2618,46 +2619,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #15803d !important;
     font-family: Arial, sans-serif;
     font-size: 12px !important;
-    font-weight: 700;
-}
-
-.reports-drawer-frame .report-intake-actions {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: var(--space-3) !important;
-    margin: 2px -20px -22px !important;
-    padding: 14px 20px 18px;
-    border-top: 1px solid #e0e8f1;
-    background: rgba(255, 255, 255, .96);
-    box-shadow: 0 -10px 24px rgba(15, 23, 42, .045);
-    backdrop-filter: blur(10px);
-}
-
-.reports-drawer-frame .report-intake-actions > small {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 280px;
-    color: var(--color-text-secondary);
-    font-size: 11px;
-    line-height: 1.35;
-}
-
-.reports-drawer-frame .report-intake-actions > small::before {
-    content: "✓";
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 18px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #ecfdf3;
-    color: #15803d;
-    font-family: Arial, sans-serif;
-    font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-submit-button {
@@ -2675,12 +2637,6 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     white-space: nowrap;
 }
 
-.reports-drawer-frame .report-submit-group {
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-}
 
 .reports-drawer-frame .report-only-button {
     min-height: 42px !important;
@@ -2836,29 +2792,10 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
         justify-self: stretch;
     }
 
-    .reports-drawer-frame .report-intake-actions {
-        margin: 2px -14px -20px !important;
-        padding: 13px 14px 16px;
-    }
-
-    .reports-drawer-frame .report-intake-actions {
-        align-items: stretch !important;
-        flex-direction: column;
-    }
-
-    .reports-drawer-frame .report-intake-actions > small {
-        max-width: none;
-    }
-
     .reports-drawer-frame .report-submit-button {
         width: 100% !important;
     }
 
-    .reports-drawer-frame .report-submit-group {
-        width: 100%;
-        display: grid;
-        grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
-    }
 
     .reports-drawer-frame .report-only-button {
         width: 100%;
@@ -3638,7 +3575,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .report-text-editor::backdrop { background: rgba(15, 23, 42, .44); backdrop-filter: blur(4px); }
 .report-text-editor-card { display: grid; gap: 14px; padding: 20px; }
 .report-text-editor-card label { display: grid; gap: 6px; }
-.report-text-editor-card label > span { color: #475569; font-size: 11px; font-weight: 700; }
+.report-text-editor-card label > span { color: #475569; font-size: 11px; font-weight: 600; }
 .report-text-editor-card textarea,
 .report-text-editor-card input { width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 10px; font: inherit; }
 .report-text-editor-head,
@@ -3678,9 +3615,6 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
         justify-content: center;
     }
 
-    .reports-drawer-frame .report-submit-group {
-        grid-template-columns: minmax(0, 1fr) !important;
-    }
 }
 
 /* Local report draft feedback. Kept compact so it remains visible at the top
@@ -3702,7 +3636,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     box-shadow: 0 5px 16px rgba(15, 23, 42, .05);
     backdrop-filter: blur(10px);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-draft-status-dot {
@@ -3815,7 +3749,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #1d4ed8;
     background: #eff6ff;
     font-size: 13px;
-    font-weight: 900;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .is-equipment .report-resource-symbol {
@@ -3857,7 +3791,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
 .reports-drawer-frame .report-resource-total > small {
     color: #64748b;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-resource-total > small {
@@ -3891,7 +3825,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     overflow: hidden;
     color: #64748b;
     font-size: 9px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: 0.035em;
     text-overflow: ellipsis;
     text-transform: uppercase;
@@ -3946,7 +3880,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #1d4ed8;
     background: #eff6ff;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -4012,7 +3946,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     background: #f8fafc;
     color: #334155;
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 600;
     line-height: 1;
 }
 
@@ -4116,7 +4050,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #166534;
     background: #dcfce7;
     font-size: 15px;
-    font-weight: 800;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-daily-form.is-photo-retry .report-form-section:not(.report-photos-section) {
@@ -4169,7 +4103,7 @@ body[data-page="projects"] [data-panel="reports"] .report-day-loading {
     color: #4338ca;
     background: #e0e7ff;
     font-size: 9px;
-    font-weight: 900;
+    font-weight: 600;
     text-transform: uppercase;
 }
 
@@ -4212,7 +4146,7 @@ body[data-page="projects"] [data-panel="reports"] .report-shift-group-head > spa
     color: #1d4ed8;
     background: #dbeafe;
     font-size: 10px;
-    font-weight: 900;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-shift-group.is-equipment .report-shift-group-head > span {
@@ -4279,7 +4213,7 @@ body[data-page="projects"] [data-panel="reports"] .report-shift-row > b {
 body[data-page="projects"] [data-panel="reports"] .report-shift-row > b span {
     color: #64748b;
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-entry-photos {
@@ -4355,7 +4289,7 @@ body[data-page="projects"] [data-panel="reports"] .report-photo-tile > span {
     color: #ffffff;
     background: rgba(15, 23, 42, 0.72);
     font-size: 9px;
-    font-weight: 800;
+    font-weight: 600;
 }
 
 .report-photo-viewer {
@@ -4681,7 +4615,7 @@ body[data-page="projects"] [data-panel="reports"] .report-photo-tile > span {
 .reports-drawer-frame .report-form-section-head b {
     color: var(--color-text);
     font-size: 13px;
-    font-weight: 760;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-form-section-head small,
@@ -4936,7 +4870,7 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
 .reports-drawer-frame .report-preview-title-copy strong {
     color: var(--color-text);
     font-size: 12px;
-    font-weight: 760;
+    font-weight: 600;
 }
 
 .reports-drawer-frame .report-preview-title-copy small {
@@ -5072,17 +5006,6 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
 .reports-drawer-frame .report-confirm-ready-mark svg {
     width: 20px;
     height: 20px;
-}
-
-.reports-drawer-frame .report-intake-actions {
-    border-top-color: var(--color-border);
-    background: rgba(255, 255, 255, .96);
-    box-shadow: 0 -6px 18px rgba(15, 23, 42, .04);
-}
-
-.reports-drawer-frame .report-intake-actions > small::before {
-    content: none;
-    display: none;
 }
 
 .reports-drawer-frame .report-only-button {
@@ -5251,11 +5174,6 @@ body[data-page="projects"] [data-panel="reports"] .report-photo-tile > span svg 
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .reports-drawer-frame .report-submit-group {
-        display: flex;
-        flex-direction: column-reverse;
-        width: 100%;
-    }
 
     .reports-drawer-frame .report-submit-button,
     .reports-drawer-frame .report-only-button {
@@ -5477,7 +5395,7 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
 .reports-drawer-frame .report-daily-form label.report-photo-picker > .report-photo-picker-copy b {
     color: var(--color-text);
     font-size: 13px;
-    font-weight: 760;
+    font-weight: 600;
     line-height: 1.3;
 }
 
@@ -5506,7 +5424,7 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
     background: var(--report-accent);
     color: #ffffff !important;
     font-size: 12px !important;
-    font-weight: 720 !important;
+    font-weight: 600 !important;
     letter-spacing: -.01em;
     line-height: 1;
     text-align: center;
@@ -5682,8 +5600,8 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
     font-size: 11px !important;
     font-weight: 500 !important;
     line-height: 1.3 !important;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
 }
 
 .reports-drawer-frame .report-modal-project::before {
@@ -5724,7 +5642,7 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
     display: grid !important;
     gap: 0 !important;
     padding: 0 !important;
-    overflow: hidden;
+    overflow: clip;
     border: 1px solid var(--report-separator) !important;
     border-radius: 18px !important;
     background: var(--report-surface) !important;
@@ -7056,37 +6974,44 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
     color: #b42318 !important;
 }
 
+/* One footer for report saving, including mobile and photo-retry states. */
 .reports-drawer-frame .report-intake-actions {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 12px !important;
-    margin: 0 !important;
-    padding: 14px 20px max(16px, env(safe-area-inset-bottom)) !important;
-    border: 0 !important;
-    border-top: 1px solid var(--report-separator-soft) !important;
-    background: rgba(255, 255, 255, .96) !important;
-    box-shadow: none !important;
-    backdrop-filter: blur(18px);
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-3) var(--space-4) max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--report-separator-soft);
+    background: var(--report-surface);
 }
-
 .reports-drawer-frame .report-intake-actions > small {
-    max-width: 270px !important;
-    color: var(--report-secondary) !important;
-    font-size: 10px !important;
-    line-height: 1.35 !important;
+    flex: 1 1 220px;
+    max-width: 320px;
+    color: var(--report-secondary);
+    font-size: var(--text-xs);
+    line-height: 1.4;
 }
-
-.reports-drawer-frame .report-intake-actions > small::before {
-    content: none !important;
-    display: none !important;
-}
-
 .reports-drawer-frame .report-submit-group {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: flex-end !important;
-    gap: 8px !important;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+@media (max-width: 720px) {
+    .reports-drawer-frame .report-intake-actions > small { max-width: none; }
+    .reports-drawer-frame .report-submit-group {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        width: 100%;
+    }
+    .reports-drawer-frame .report-submit-group:has(.report-only-button[hidden]) {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .reports-drawer-frame .report-only-button {
@@ -7233,19 +7158,6 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
         border-top: 1px solid var(--report-separator-soft) !important;
     }
 
-    .reports-drawer-frame .report-intake-actions {
-        align-items: stretch !important;
-        padding: 13px 16px max(16px, env(safe-area-inset-bottom)) !important;
-    }
-
-    .reports-drawer-frame .report-intake-actions > small {
-        display: none !important;
-    }
-
-    .reports-drawer-frame .report-submit-group {
-        width: 100% !important;
-    }
-
     .reports-drawer-frame .report-submit-button {
         flex: 1 1 auto !important;
     }
@@ -7298,13 +7210,14 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
     }
 
     .reports-drawer-frame .report-daily-textarea-field textarea {
-        min-height: 164px !important;
-        padding-right: 112px !important;
+        min-height: 196px !important;
+        padding: 14px 14px 58px !important;
     }
 
     .reports-drawer-frame .report-voice-button.is-primary {
         position: absolute !important;
-        top: 8px !important;
+        top: auto !important;
+        bottom: 8px !important;
         right: 8px !important;
         width: auto !important;
         min-width: 96px !important;
@@ -7406,15 +7319,6 @@ body[data-page="projects"] [data-panel="reports"] .report-actions-history > summ
 
     .reports-drawer-frame .report-final-message-head > small {
         max-width: 125px;
-    }
-
-    .reports-drawer-frame .report-submit-group {
-        display: grid !important;
-        grid-template-columns: auto minmax(0, 1fr) !important;
-    }
-
-    .reports-drawer-frame .report-submit-group:has(.report-only-button[hidden]) {
-        grid-template-columns: minmax(0, 1fr) !important;
     }
 
     .reports-drawer-frame .report-only-button,
@@ -7959,7 +7863,7 @@ body[data-page="projects"] [data-panel="reports"] .report-calendar-report-total 
     background: rgba(255, 255, 255, .72);
     color: var(--color-text-secondary);
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 body[data-page="projects"] [data-panel="reports"] .report-calendar-legend {
@@ -8065,7 +7969,7 @@ body[data-page="projects"] [data-panel="reports"] .report-calendar-period > span
     overflow: visible;
     color: #6d7c93;
     font-size: 9px;
-    font-weight: 720;
+    font-weight: 600;
     letter-spacing: .09em;
     line-height: 1.15;
     text-transform: uppercase;
@@ -8077,7 +7981,7 @@ body[data-page="projects"] [data-panel="reports"] .report-calendar-period > stro
     overflow: hidden;
     color: var(--color-accent-strong);
     font-size: 17px;
-    font-weight: 760;
+    font-weight: 600;
     letter-spacing: -.02em;
     line-height: 1.2;
     text-overflow: ellipsis;

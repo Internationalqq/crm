@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from business_time import today_iso
+
 import hashlib
 import json
 import math
@@ -15,6 +17,7 @@ from auth import (
     display_user_name,
     user_can_manage_documents,
     user_can_manage_schedule,
+    user_can_manage_suppliers,
     user_has_any_role,
     user_is_guest,
     user_is_main_admin,
@@ -32,7 +35,6 @@ from warehouse import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "pmbi.sqlite3"
-TODAY_ISO = date.today().isoformat()
 SCHEDULE_SHIFT_HOURS = 9
 
 
@@ -469,6 +471,7 @@ def update_project_schedule_status(
     schedule_type: str,
     action: str,
 ) -> sqlite3.Row | None:
+    today = today_iso()
     project = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     if not project:
         return None
@@ -484,7 +487,7 @@ def update_project_schedule_status(
 
     updates: list[str] = []
     params: list[object] = []
-    approved_at = TODAY_ISO
+    approved_at = today
     if schedule_type in {"internal", "both"}:
         updates.extend(["internal_schedule_status = ?", "internal_schedule_approved_at = ?"])
         params.extend(["approved", approved_at])
@@ -645,6 +648,7 @@ def material_summary_rows(
     include_supplier_selection: bool = False,
     include_procurement_details: bool = False,
 ) -> list[dict]:
+    today = today_iso()
     include_procurement_evidence = bool(
         include_procurement_evidence or include_procurement_details
     )
@@ -968,7 +972,7 @@ def material_summary_rows(
             else None
         )
         selected_supplier = selected_supplier_by_item.get(material_id)
-        soon_threshold = (parse_iso_date(TODAY_ISO) + timedelta(days=13)).isoformat()
+        soon_threshold = (parse_iso_date(today) + timedelta(days=13)).isoformat()
         if missing <= 0:
             if received >= planned:
                 supply_status = "in_stock"
@@ -976,7 +980,7 @@ def material_summary_rows(
             else:
                 supply_status = "ordered"
                 supply_label = "Заказано, ждём поставку"
-        elif need_by_date and need_by_date < TODAY_ISO:
+        elif need_by_date and need_by_date < today:
             supply_status = "required"
             supply_label = "Требуется"
         elif need_by_date and need_by_date <= soon_threshold:
@@ -4229,6 +4233,7 @@ def api_project_auto_schedule(handler, path: str) -> None:
 
 
 def _api_project_auto_schedule(handler, path: str) -> None:
+    today = today_iso()
     project_id = parse_path_int(path, 2)
     if not project_id:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
@@ -4328,7 +4333,7 @@ def _api_project_auto_schedule(handler, path: str) -> None:
                 "UPDATE projects SET started_at = ?, deadline_at = ?, updated_at = ? WHERE id = ?",
                 (plan["project_start"], plan["project_end"], now_ts(), project_id),
             )
-        mark_project_schedule_draft(con, project_id, generated_at=TODAY_ISO)
+        mark_project_schedule_draft(con, project_id, generated_at=today)
         material_schedule = build_material_schedule_payload(con, project_id)
         material_schedule["saved"] = True
         material_schedule["savedAt"] = now_ts()
@@ -6050,7 +6055,7 @@ def api_update_estimate_item_completion(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if user["role"] == "customer":
+    if user_is_guest(user) or user["role"] == "customer":
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
@@ -6061,22 +6066,22 @@ def api_update_estimate_item_completion(handler, path: str) -> None:
     try:
         item_id = int(item_id) if item_id not in (None, "", 0, "0") else None
     except (TypeError, ValueError):
-        item_id = None
+        handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_item_id"})
+        return
     with db() as con:
         row = None
         if item_id:
-            row = con.execute("SELECT * FROM estimate_items WHERE id = ? AND project_id = ?", (item_id, project_id)).fetchone()
-        if not row:
+            row = con.execute(f"SELECT * FROM estimate_items WHERE id = ? AND project_id = ? AND {live_estimate_items_where(con, '')}", (item_id, project_id)).fetchone()
+        else:
             title = str(payload.get("title", "") or "").strip()
             unit = str(payload.get("unit", "") or "").strip()
             item_kind = normalize_estimate_item_kind(payload.get("kind", payload.get("itemKind", "")))
             candidates = con.execute(
-                """
+                f"""
                 SELECT *
                 FROM estimate_items
-                WHERE project_id = ? AND lower(title) = lower(?) AND (? = '' OR unit = ?)
+                WHERE project_id = ? AND lower(title) = lower(?) AND (? = '' OR unit = ?) AND {live_estimate_items_where(con, '')}
                 ORDER BY CASE WHEN lower(COALESCE(section_title, '')) = lower(?) THEN 0 ELSE 1 END, id
-                LIMIT 1
                 """,
                 (project_id, title, unit, unit, section_title),
             ).fetchall() if title else []
@@ -6084,14 +6089,21 @@ def api_update_estimate_item_completion(handler, path: str) -> None:
         if not row:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "estimate_item_not_found"})
             return
-        planned_qty = float(row["planned_qty"] or 0)
+        is_work = normalize_estimate_item_kind(resolved_estimate_item_kind(row)) == "work"
+        if not (user_can_manage_schedule(user) if is_work else user_can_manage_suppliers(user)):
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+            return
+        planned_qty = operational_quantity_plan(row["planned_qty"], row["unit"])["total_qty"]
         try:
-            actual_value = float(actual_qty) if actual_qty not in (None, "") else (planned_qty if is_completed else 0.0)
+            actual_value = float(str(actual_qty).replace(',', '.')) if actual_qty not in (None, "") else (planned_qty if is_completed else 0.0)
         except (TypeError, ValueError):
-            actual_value = planned_qty if is_completed else 0.0
+            actual_value = float('nan')
+        if not math.isfinite(actual_value) or actual_value < 0:
+            handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_actual_qty"})
+            return
         actual_value = max(0.0, min(actual_value, planned_qty if planned_qty > 0 else actual_value))
-        if planned_qty > 0 and actual_value >= planned_qty:
-            is_completed = 1
+        if planned_qty > 0:
+            is_completed = int(actual_value >= planned_qty)
         con.execute(
             "UPDATE estimate_items SET is_completed = ?, actual_qty = ?, updated_at = ? WHERE id = ?",
             (is_completed, actual_value, now_ts(), row["id"]),
@@ -6100,9 +6112,10 @@ def api_update_estimate_item_completion(handler, path: str) -> None:
         progress = recalc_project_progress(con, project_id, section_name)
         project_row = con.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         items = material_summary_rows(con, project_id)
-        create_audit(con, user["id"], "update_progress_item", "estimate_item", int(row["id"]), {"project_id": project_id, "completed": bool(is_completed), "section_id": progress["section"]["sectionId"] if progress["section"] else None})
+        if int(row["is_completed"] or 0) != is_completed or float(row["actual_qty"] or 0) != actual_value:
+            create_audit(con, user["id"], "update_progress_item", "estimate_item", int(row["id"]), {"project_id": project_id, "completed": bool(is_completed), "actual_qty": actual_value, "section_id": progress["section"]["sectionId"] if progress["section"] else None})
         con.commit()
-    handler.send_json(HTTPStatus.OK, {"id": int(row["id"]), "items": items, "progress": progress, "project": serialize_project(project_row, user)})
+    handler.send_json(HTTPStatus.OK, {"id": int(row["id"]), "actualQty": actual_value, "isCompleted": bool(is_completed), "items": items, "progress": progress, "project": serialize_project(project_row, user)})
 
 
 def table_columns(con: sqlite3.Connection, table: str) -> set[str]:
@@ -6110,6 +6123,7 @@ def table_columns(con: sqlite3.Connection, table: str) -> set[str]:
 
 
 def api_project_section_bulk_complete(handler, path: str) -> None:
+    today = today_iso()
     project_id = parse_path_int(path, 2)
     if not project_id:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_project_id"})
@@ -6117,7 +6131,7 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
     user = handler.require_project_access(project_id)
     if not user:
         return
-    if user["role"] == "customer":
+    if user_is_guest(user) or user["role"] == "customer":
         handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     payload = handler.read_json()
@@ -6130,6 +6144,9 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
     }.get(str(raw_item_kind or "").strip().lower())
     if not item_kind:
         handler.send_json(HTTPStatus.BAD_REQUEST, {"error": "bad_bulk_item_kind"})
+        return
+    if not (user_can_manage_schedule(user) if item_kind == "work" else user_can_manage_suppliers(user)):
+        handler.send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         return
     path_parts = path.strip("/").split("/")
     path_section_raw = ""
@@ -6244,8 +6261,11 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
         selected_target_ids = [int(row["id"]) for row in target_rows]
         purchased_status = "\u0417\u0430\u043a\u0443\u043f\u043b\u0435\u043d\u043e"
 
+        def completed_actual(row: sqlite3.Row) -> float:
+            return operational_quantity_plan(row["planned_qty"], row["unit"])["total_qty"] if completed else 0.0
+
         def row_needs_update(row: sqlite3.Row) -> bool:
-            expected_actual = float(row["planned_qty"] or 0) if completed else 0.0
+            expected_actual = completed_actual(row)
             if int(row["is_completed"] or 0) != completed:
                 return True
             if abs(float(row["actual_qty"] or 0) - expected_actual) > 0.000001:
@@ -6264,11 +6284,11 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
                     """
                     UPDATE estimate_items
                     SET is_completed = ?,
-                        actual_qty = CASE WHEN ? = 1 THEN planned_qty ELSE 0 END,
+                        actual_qty = ?,
                         updated_at = ?
                     WHERE id = ? AND project_id = ?
                     """,
-                    (completed, completed, timestamp, item_id, project_id),
+                    (completed, completed_actual(row_by_id[item_id]), timestamp, item_id, project_id),
                 )
         material_update_ids = target_ids if item_kind == "material" else []
         for item_id in sorted(set(material_update_ids)):
@@ -6276,12 +6296,12 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
                 """
                 UPDATE estimate_items
                 SET is_completed = ?,
-                    actual_qty = CASE WHEN ? = 1 THEN planned_qty ELSE 0 END,
+                    actual_qty = ?,
                     procurement_status = CASE WHEN ? = 1 THEN ? ELSE procurement_status END,
                     updated_at = ?
                 WHERE id = ? AND project_id = ?
                 """,
-                (completed, completed, completed, "Закуплено", now_ts(), item_id, project_id),
+                (completed, completed_actual(row_by_id[item_id]), completed, "Закуплено", now_ts(), item_id, project_id),
             )
         update_hidden_section_state = not (item_kind == "work" and item_ids_explicit)
         stage_update_ids = matched_stage_ids if update_hidden_section_state else set()
@@ -6368,7 +6388,7 @@ def api_project_section_bulk_complete(handler, path: str) -> None:
             """,
             (
                 project_id,
-                TODAY_ISO,
+                today,
                 "Групповое закрытие раздела" if completed else "Раздел снят с выполнения",
                 f"Раздел «{section_title}»: {'выполнены/закуплены' if completed else 'сняты с выполнения'} все позиции ({len(target_ids)} шт.).",
                 0,

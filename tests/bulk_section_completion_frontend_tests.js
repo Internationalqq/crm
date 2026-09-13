@@ -1,3 +1,4 @@
+const { assertVersionedAsset } = require('./asset_contract');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -43,10 +44,8 @@ assert.match(planningJs, /data-work-quantity-open/);
 assert.doesNotMatch(planningJs.slice(planningJs.indexOf('function renderSectionScheduleRow'), planningJs.indexOf('function renderSectionScheduleForecast')), /data-section-work-check|data-bulk-section-check/);
 assert.match(planningJs, /if \(forcedOpen\) return false;\s*if \(item && \(item\.isCompleted \|\| item\.is_completed\)\) return true/);
 assert.match(planningJs, /entry\.isCompleted = !!isDone/);
-assert.match(routerJs, /app\.js\?v=[^']*bulk-section-completion-1/);
-assert.match(routerJs, /planning\.js\?v=[^']*bulk-section-completion-1/);
-assert.match(routerJs, /app\.js\?v=[^']*works-bulk-right-1/);
-assert.match(routerJs, /planning\.js\?v=[^']*works-bulk-right-1/);
-assert.match(baseHtml, /router\.js\?v=20260903-report-ux-r1/);
+assertVersionedAsset(routerJs, 'js/app.js');
+assertVersionedAsset(routerJs, 'js/planning.js');
+assertVersionedAsset(baseHtml, 'js/router.js');
 
 console.log('bulk_section_completion_frontend_ok');

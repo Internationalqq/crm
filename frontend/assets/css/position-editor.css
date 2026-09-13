@@ -18,7 +18,7 @@ body.position-editor-open {
 .position-editor-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1700;
+    z-index: 10030;
     display: grid;
     place-items: center;
     padding: 24px;
@@ -35,7 +35,7 @@ body.position-editor-open {
     max-height: min(760px, calc(100dvh - 48px));
     overflow: auto;
     border: 1px solid rgba(148, 163, 184, .3);
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
     background: #fff;
     box-shadow: 0 24px 70px rgba(15, 23, 42, .2), 0 2px 8px rgba(15, 23, 42, .08);
     animation: position-editor-in .18s ease-out both;
@@ -51,7 +51,7 @@ body.position-editor-open {
     align-items: center;
     justify-content: space-between;
     gap: 18px;
-    padding: 20px 22px 16px;
+    padding: 16px;
     border-bottom: 1px solid var(--color-border, #e2e8f0);
 }
 
@@ -92,7 +92,7 @@ body.position-editor-open {
     margin-bottom: 2px;
     color: var(--color-text-secondary, #64748b);
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: .07em;
     text-transform: uppercase;
 }
@@ -125,7 +125,7 @@ body.position-editor-open {
 }
 
 .position-editor-form {
-    padding: 20px 22px 22px;
+    padding: 16px;
 }
 
 .position-editor-kind {
@@ -140,7 +140,7 @@ body.position-editor-open {
     padding: 0;
     color: #475569;
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .position-editor-kind-switch {
@@ -179,7 +179,7 @@ body.position-editor-open {
     border-radius: 9px;
     color: #64748b;
     font-size: 13px;
-    font-weight: 750;
+    font-weight: 600;
     transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
 }
 
@@ -237,7 +237,7 @@ body.position-editor-open {
 .position-editor-field > span {
     color: #475569;
     font-size: 12px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .position-editor-field input {
@@ -297,7 +297,7 @@ body.position-editor-open {
 .position-editor-duration > header small {
     color: #73818c;
     font-size: 10px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .position-editor-duration > header strong {
@@ -334,7 +334,7 @@ body.position-editor-open {
     background: #fff;
     box-shadow: none;
     font: inherit;
-    font-weight: 800;
+    font-weight: 600;
     text-align: center;
 }
 
@@ -383,7 +383,7 @@ body.position-editor-open {
     background: #fff;
     box-shadow: none;
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 600;
 }
 
 .position-editor-duration-auto:hover:not(:disabled),
@@ -403,7 +403,7 @@ body.position-editor-open {
     min-height: 14px;
     color: #55746e;
     font-size: 10px;
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .position-editor-duration-status.is-error {

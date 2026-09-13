@@ -22,6 +22,11 @@
     var apiFormData = PMBI.apiFormData;
     var money = PMBI.money;
     var percent = PMBI.percent;
+    var isTimelineStageStarted = PMBI.isTimelineStageStarted;
+    var timelineStageKindClass = PMBI.timelineStageKindClass;
+    var timelineStageKindLabel = PMBI.timelineStageKindLabel;
+    var renderTimelineProgressCell = PMBI.renderTimelineProgressCell;
+
     var normalizeRole = PMBI.normalizeRole;
     var hasRole = PMBI.hasRole;
     var isGuestRole = PMBI.isGuestRole || function () { return hasRole('guest'); };
@@ -2585,42 +2590,6 @@
         if (Number(alert.daysUntilOrder) <= 3) return 'Срочно';
         if (Number(alert.daysUntilOrder) <= 10) return 'Скоро заказ';
         return 'Подготовка';
-    }
-
-    function isTimelineStageStarted(stage) {
-        var progress = percent(stage.progress);
-        var status = String(stage.status_code || '').trim();
-        return progress > 0 ||
-            ['started', 'in_progress', 'blocked', 'overdue', 'completed', 'approved'].indexOf(status) !== -1 ||
-            Boolean(stage.fact_start || stage.fact_end);
-    }
-
-    function timelineStageKindClass(stage) {
-        var stageKind = String(stage.stage_kind || '').trim().toLowerCase();
-        if (stageKind === 'section') return ' timeline-row-section';
-        if (stageKind === 'subsection') return ' timeline-row-subsection';
-        return '';
-    }
-
-    function timelineStageKindLabel(stage) {
-        var stageKind = String(stage.stage_kind || '').trim().toLowerCase();
-        if (stageKind === 'section') return 'Раздел';
-        if (stageKind === 'subsection') return 'Подраздел';
-        return 'Работа';
-    }
-
-    function renderTimelineProgressCell(stage) {
-        var progress = percent(stage.progress);
-        var status = String(stage.status_code || '').trim();
-        var isDone = progress >= 100 || status === 'approved' || status === 'completed';
-        if (!isTimelineStageStarted(stage) && !isDone) {
-            return '<div class="timeline-progress timeline-progress-idle"><span class="timeline-progress-hint">Нет факта</span></div>' +
-                '<strong class="timeline-progress-value timeline-progress-value-idle">Старт</strong>';
-        }
-        var progressTrackClass = progress <= 0 && !isDone ? ' timeline-progress-empty' : '';
-        var width = isDone ? 100 : progress;
-        return '<div class="timeline-progress' + progressTrackClass + '">' + (width > 0 ? '<i style="width:' + width + '%"></i>' : '') + '</div>' +
-            '<strong class="timeline-progress-value">' + (isDone ? '100%' : (progress + '%')) + '</strong>';
     }
 
     function getProjectTabMode(projectId, tab) {
@@ -6156,7 +6125,6 @@
                     '<div class="report-modal-title-copy">' +
                         '<div class="report-drawer-caption"><span>Журнал объекта</span></div>' +
                         '<h3 id="project-report-modal-title">Отчёт за день</h3>' +
-                        '<span class="muted">Надиктуйте события дня — система разложит данные по разделам отчёта.</span>' +
                         '<span class="report-modal-project">' + escapeHtml(project.title || 'Объект') + '</span>' +
                     '</div>' +
                 '</div>' +
@@ -6234,7 +6202,7 @@
                 '</section>' +
                 '<div class="form-error" data-log-error role="alert" aria-atomic="true"></div>' +
                 '<div class="report-intake-actions">' +
-                    '<small>Работы и материалы будут учтены при сохранении отчёта.</small>' +
+                    '<small>«Только отчёт» сохраняет запись. «Сохранить и учесть» также применяет выбранные работы и материалы.</small>' +
                     '<span class="report-submit-group"><button class="ghost report-only-button" type="submit" data-report-only-submit' + reportSubmitDisabled + '><span>Только отчёт</span></button><button class="primary report-submit-button" type="submit"' + reportSubmitDisabled + '><span>Сохранить и учесть</span></button></span>' +
                 '</div>' +
             '</form>' +
