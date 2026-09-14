@@ -4919,6 +4919,7 @@ def parse_market_view_html(html_text: str, market_type: str) -> list[dict]:
     articles = re.findall(r"<article class=\"item\">(.*?)</article>", html_text, flags=re.S | re.I)
     rows: list[dict] = []
     for article in articles:
+        calculation_verified = 'data-market-contract="1"' in article
         title_match = re.search(r"<div class=\"item-title\">(.*?)</div>", article, flags=re.S | re.I)
         index_match = re.search(r"<div class=\"item-index\">(.*?)</div>", article, flags=re.S | re.I)
         meta_match = re.search(r"<div class=\"meta\">(.*?)</div>", article, flags=re.S | re.I)
@@ -4969,9 +4970,12 @@ def parse_market_view_html(html_text: str, market_type: str) -> list[dict]:
         estimate_unit_price = parse_money_value(meta_map.get("смета за ед.") or meta_map.get("смета за ед"))
         estimate_total = parse_money_value(meta_map.get("смета всего"))
         market_price = parse_money_value(meta_map.get("рынок"))
-        if market_price is None:
-            offer_prices = [offer["price"] for offer in offers if offer.get("price") is not None]
-            market_price = min(offer_prices) if offer_prices else None
+        if not calculation_verified:
+            # Historical HTML can contain candidates and title-derived prices.
+            # Preserve sources for inspection, but do not persist a fresh price.
+            market_price = None
+        for offer in offers:
+            offer["verification"] = "verified" if calculation_verified else "candidate"
 
         rows.append(
             {
@@ -4985,6 +4989,7 @@ def parse_market_view_html(html_text: str, market_type: str) -> list[dict]:
                 "estimateUnitPrice": estimate_unit_price,
                 "estimateTotal": estimate_total,
                 "marketPrice": market_price,
+                "calculationVerified": calculation_verified,
                 "marketPriceText": meta_map.get("рынок", ""),
                 "offers": offers,
                 "statusNote": strip_html_fragment(status_match.group(1) if status_match else ""),
@@ -5038,23 +5043,24 @@ def build_project_market_analysis(
     else:
         items = [item for item in items if normalize_estimate_item_kind(item.get("itemKind")) != "work"]
 
-    market_by_index: dict[int, dict] = {}
-    market_by_title: dict[str, dict] = {}
-    for row in market_rows:
-        if row.get("positionIndex"):
-            market_by_index[int(row["positionIndex"])] = row
-        market_by_title[row["titleKey"]] = row
+    from autobot_market_matching import match_market_positions
+
+    item_identities = [
+        {
+            "titleKey": normalize_market_title_key(str(item.get("title") or "")),
+            "unit": item.get("unit"),
+            "positionIndex": estimate_position_from_notes(str(item.get("notes") or ""), estimate_id),
+        }
+        for item in items
+    ]
+    matched_market_rows = match_market_positions(item_identities, market_rows)
 
     stored_snapshots = latest_market_price_snapshots(con, project_id, kind)
     merged_rows: list[dict] = []
-    for item in items:
+    for item, matched_market in zip(items, matched_market_rows):
         position_index = estimate_position_from_notes(str(item.get("notes") or ""), estimate_id)
         title_key = normalize_market_title_key(str(item.get("title") or ""))
-        market_row = None
-        if kind == "work" and position_index and position_index in market_by_index:
-            market_row = market_by_index[position_index]
-        if not market_row and title_key and title_key in market_by_title:
-            market_row = market_by_title[title_key]
+        market_row = matched_market
         offers = list((market_row or {}).get("offers") or [])
         fresh_market_price = (market_row or {}).get("marketPrice")
         stored_snapshot = stored_snapshots.get(int(item.get("id") or 0))

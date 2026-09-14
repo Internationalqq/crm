@@ -35,6 +35,7 @@ class AutoBotMarketClientTests(unittest.TestCase):
     def test_market_html_contract_keeps_successful_offers_without_status_note(self) -> None:
         html = """
         <article class="item">
+          <span data-market-contract="1" hidden></span>
           <div class="item-head">
             <div><div class="item-index">7</div><div class="item-title">Щебень 20-40</div></div>
             <span class="tag">Материалы</span>
@@ -44,7 +45,7 @@ class AutoBotMarketClientTests(unittest.TestCase):
             <span class="tag">Ед.: м3</span>
             <span class="tag">Смета за ед.: 2 500 руб.</span>
             <span class="tag">Смета всего: 30 000 руб.</span>
-            <span class="tag">Рынок: 1 890; 2 050</span>
+            <span class="tag">Рынок: 1 970</span>
           </div>
           <div class="offers">
             <div class="offer">
@@ -63,9 +64,34 @@ class AutoBotMarketClientTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["positionIndex"], 7)
         self.assertEqual(rows[0]["estimateUnitPrice"], 2500)
-        self.assertEqual(rows[0]["marketPrice"], 1890)
+        self.assertEqual(rows[0]["marketPrice"], 1970)
         self.assertEqual(rows[0]["offers"][0]["url"], "https://supplier.example/scheben")
         self.assertEqual(rows[0]["offers"][0]["price"], 1890)
+
+        legacy = server.parse_market_view_html(html.replace('data-market-contract="1"', ''), "material")
+        self.assertIsNone(legacy[0]["marketPrice"])
+        self.assertEqual(legacy[0]["offers"][0]["verification"], "candidate")
+
+    def test_empty_verified_summary_does_not_take_cheapest_base_unit_offer(self) -> None:
+        html = '''<article class="item"><span data-market-contract="1"></span>
+        <div class="item-title">Работа за 100 м2</div><div class="meta"><span class="tag">Рынок: —</span></div>
+        <div class="offers"><div class="offer"><div class="num">10 руб.</div></div></div></article>'''
+        self.assertIsNone(server.parse_market_view_html(html, "work")[0]["marketPrice"])
+
+    def test_same_title_cannot_copy_cubic_price_to_tonnes(self) -> None:
+        from autobot_market_matching import match_market_positions
+
+        items = [{"titleKey": "щебень", "unit": "м³"}, {"titleKey": "щебень", "unit": "т"}]
+        market = [{"titleKey": "щебень", "unitText": "м3", "marketPrice": 2500}]
+        self.assertEqual(match_market_positions(items, market), [market[0], None])
+        self.assertEqual(match_market_positions([items[0], items[0]], market), [None, None])
+
+    def test_positions_with_same_name_and_unit_use_their_own_index(self) -> None:
+        from autobot_market_matching import match_market_positions
+
+        items = [{"titleKey": "щебень", "unit": "м3", "positionIndex": i} for i in (2, 1)]
+        market = [{"titleKey": "щебень", "unitText": "м3", "positionIndex": i, "marketPrice": i * 1000} for i in (1, 2)]
+        self.assertEqual([r["marketPrice"] for r in match_market_positions(items, market)], [2000, 1000])
 
     @patch("server.urllib.request.urlopen")
     def test_market_fetch_uses_internal_docker_url_and_encodes_path(self, urlopen) -> None:

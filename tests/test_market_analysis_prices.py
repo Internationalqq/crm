@@ -192,6 +192,8 @@ class MarketAnalysisPriceTests(unittest.TestCase):
                 "title": "Tile",
                 "titleKey": server.normalize_market_title_key("Tile"),
                 "marketType": "material",
+                "unitText": "m2",
+                "calculationVerified": True,
                 "marketPrice": 80,
                 "marketPriceText": "80",
                 "offers": [
