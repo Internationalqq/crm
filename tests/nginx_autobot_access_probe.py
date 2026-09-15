@@ -117,7 +117,7 @@ def run():
                         raise
                     time.sleep(0.05)
             try:
-                for uri in ('/estimates', '/tenders/123', '/merge-report/123', '/research', '/autobot/estimates', '/autobot/data/private.xlsx', '/api/tenders/123', '/autobot/api/tenders/123'):
+                for uri in ('/estimates', '/tenders/123', '/tenders/search-profiles.js', '/api/tender-search-profiles', '/api/tender-search/start', '/merge-report/123', '/research', '/autobot/estimates', '/autobot/data/private.xlsx', '/api/tenders/123', '/autobot/api/tenders/123'):
                     assert request(uri)[0] == 401, uri
                 assert not bot_calls
                 for role in ('guest', 'customer', 'worker'):
@@ -125,9 +125,15 @@ def run():
                 assert not bot_calls
                 for role in ('main_admin', 'admin', 'director', 'foreman'):
                     assert request('/estimates', role=role) == (200, b'isolated-autobot-result')
+                    assert request('/tenders/search-profiles.js', role=role) == (200, b'isolated-autobot-result')
+                    assert bot_calls[-1]['path'] == '/tenders/search-profiles.js'
+                    assert request('/api/tender-search-profiles', role=role) == (200, b'isolated-autobot-result')
+                    assert bot_calls[-1]['path'] == '/api/tender-search-profiles'
                 assert request('/autobot/tenders/123', role='foreman')[0] == 200
                 assert bot_calls[-1]['path'] == '/tenders/123'
                 body = b'{"tender_id":"123","limit":5}'
+                assert request('/api/tender-search/start', 'POST', 'director', headers={'Origin':'http://crm.example'}, body=body)[0] == 200
+                assert bot_calls[-1] == {'method':'POST','path':'/api/tender-search/start','body':body}
                 assert request('/api/generate-merge-site-one', 'POST', 'foreman', headers={'Origin': 'http://crm.example', 'Sec-Fetch-Site': 'same-origin'}, body=body)[0] == 200
                 assert bot_calls[-1]['body'] == body and bot_calls[-1]['method'] == 'POST'
                 assert all(item == {'method': 'GET', 'body': b''} for item in auth_calls)
