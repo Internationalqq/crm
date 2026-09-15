@@ -82,7 +82,7 @@ def run():
                 sock.bind(('127.0.0.1', 0))
                 port = sock.getsockname()[1]
             locations = []
-            for location in ('/autobot/', '/estimates', '/tenders', '/merge-report', '/research', '~ ^/api/(estimates|tender|generate)', '= /static/embed_bridge.js'):
+            for location in ('/autobot/', '/estimates', '/tenders', '/merge-report', '/research', '~ ^/api/(estimates|export|parse|merge|reports|push|generate|tender|avito)', '= /static/embed_bridge.js'):
                 suffix = '/' if location == '/autobot/' else ''
                 locations.append('location ' + location + ' {\nproxy_pass http://127.0.0.1:8765' + suffix + ';\nproxy_set_header Host $host;\n}')
             config = ('worker_processes 1;\npid ' + str(temporary / 'nginx.pid') + ';\nerror_log ' + str(temporary / 'error.log') + ';\n'
@@ -117,11 +117,15 @@ def run():
                         raise
                     time.sleep(0.05)
             try:
-                for uri in ('/estimates', '/tenders/123', '/tenders/search-profiles.js', '/api/tender-search-profiles', '/api/tender-search/start', '/merge-report/123', '/research', '/autobot/estimates', '/autobot/data/private.xlsx', '/api/tenders/123', '/autobot/api/tenders/123'):
+                a7_routes = ('/api/reports/rebuild', '/api/reports/rebuild-all', '/api/tenders/storage-overview',
+                             '/api/tenders/crm/projects', '/research/items', '/research/client.js', '/tenders/market-audit')
+                for uri in ('/estimates', '/tenders/123', '/tenders/search-profiles.js', '/api/tender-search-profiles', '/api/tender-search/start', '/merge-report/123', '/research', '/autobot/estimates', '/autobot/data/private.xlsx', '/api/tenders/123', '/autobot/api/tenders/123', *a7_routes):
                     assert request(uri)[0] == 401, uri
                 assert not bot_calls
                 for role in ('guest', 'customer', 'worker'):
                     assert request('/estimates', role=role)[0] == 403
+                    for uri in a7_routes:
+                        assert request(uri, role=role)[0] == 403
                 assert not bot_calls
                 for role in ('main_admin', 'admin', 'director', 'foreman'):
                     assert request('/estimates', role=role) == (200, b'isolated-autobot-result')
@@ -129,11 +133,17 @@ def run():
                     assert bot_calls[-1]['path'] == '/tenders/search-profiles.js'
                     assert request('/api/tender-search-profiles', role=role) == (200, b'isolated-autobot-result')
                     assert bot_calls[-1]['path'] == '/api/tender-search-profiles'
+                    for uri in a7_routes:
+                        assert request(uri, role=role) == (200, b'isolated-autobot-result')
+                        assert bot_calls[-1]['path'] == uri
                 assert request('/autobot/tenders/123', role='foreman')[0] == 200
                 assert bot_calls[-1]['path'] == '/tenders/123'
                 body = b'{"tender_id":"123","limit":5}'
                 assert request('/api/tender-search/start', 'POST', 'director', headers={'Origin':'http://crm.example'}, body=body)[0] == 200
                 assert bot_calls[-1] == {'method':'POST','path':'/api/tender-search/start','body':body}
+                for uri in ('/api/reports/rebuild', '/api/reports/rebuild-all', '/research/items'):
+                    assert request(uri, 'POST', 'director', headers={'Origin': 'http://crm.example'}, body=body)[0] == 200
+                    assert bot_calls[-1] == {'method': 'POST', 'path': uri, 'body': body}
                 assert request('/api/generate-merge-site-one', 'POST', 'foreman', headers={'Origin': 'http://crm.example', 'Sec-Fetch-Site': 'same-origin'}, body=body)[0] == 200
                 assert bot_calls[-1]['body'] == body and bot_calls[-1]['method'] == 'POST'
                 assert all(item == {'method': 'GET', 'body': b''} for item in auth_calls)
