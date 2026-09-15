@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from business_time import today_iso
+import tender_scenarios
 
 import cgi
 import gzip
@@ -5586,6 +5587,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_autobot_access_check()
             elif method == "GET" and path == "/api/autobot/projects":
                 self.api_autobot_projects()
+            elif tender_scenarios.handle(self, method, path, PMBI_AUTOBOT_INTERNAL_URL):
+                pass
             elif method == "POST" and re.fullmatch(
                 r"/api/autobot/projects/\d+/estimate-import", path
             ):

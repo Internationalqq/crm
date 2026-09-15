@@ -1,0 +1,41 @@
+.tender-scenarios { margin: 16px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); color: var(--ink); }
+.tender-scenarios > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 20px; cursor: pointer; list-style: none; }
+.tender-scenarios > summary::-webkit-details-marker { display: none; }
+.tender-scenarios > summary > span:first-child { display: grid; gap: 4px; }
+.tender-scenarios > summary strong { font-size: 18px; }
+.tender-scenarios > summary small, .tender-scenarios > summary > span:last-child { font-size: 12px; color: var(--muted); }
+.tender-scenarios > summary b { margin-left: 10px; }
+.scenario-body { padding: 0 20px 20px; }
+.scenario-intro, .scenario-reference p, .scenario-vat p, .scenario-result p, .scenario-history p { margin: 8px 0; font-size: 13px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.scenario-reference { padding: 12px 14px; margin: 14px 0; border-radius: 8px; background: #f5f7fa; }
+.scenario-reference strong { font-size: 13px; }
+.scenario-select-label { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; font-size: 13px; font-weight: 700; }
+.scenario-select-label select { padding: 9px 34px 9px 12px; min-height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font: inherit; }
+.scenario-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.scenario-income { max-width: 440px; margin-bottom: 20px; }
+.scenario-fields label, .scenario-income label, .scenario-note-label { display: grid; align-content: start; gap: 6px; min-width: 0; color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+.scenario-money-input { display: flex; align-items: center; gap: 7px; border: 1px solid #cbd5e1; border-radius: 8px; padding-right: 12px; background: #fff; }
+.scenario-money-input input { border: 0; background: transparent; padding: 11px; width: 100%; min-width: 0; min-height: 42px; font: inherit; color: var(--ink); }
+.scenario-money-input input:focus { outline-offset: -2px; }
+.scenario-money-input > span { color: var(--muted); font-weight: 400; }
+.tender-scenarios fieldset { padding: 0; margin: 0; min-width: 0; border: 0; }
+.tender-scenarios legend { margin-bottom: 12px; font-size: 15px; font-weight: 700; }
+.scenario-vat { margin: 20px 0; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+.scenario-vat > summary, .scenario-history > summary { padding: 8px 0; cursor: pointer; font-size: 13px; font-weight: 700; }
+.scenario-vat .scenario-fields { margin-top: 10px; }
+.scenario-note-label textarea { width: 100%; min-height: 86px; resize: vertical; padding: 11px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; font-weight: 400; line-height: 1.4; box-sizing: border-box; }
+.scenario-confirm { display: flex; align-items: flex-start; gap: 10px; margin: 15px 0; color: var(--ink-soft); font-size: 13px; line-height: 1.45; }
+.scenario-confirm input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; }
+.scenario-result { padding: 16px; border-radius: 9px; border: 1px solid var(--line); background: #f8fafc; }
+.scenario-result dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.scenario-result dt { margin-bottom: 7px; font-size: 12px; color: var(--muted); }
+.scenario-result dd { margin: 0; font-size: 19px; font-weight: 800; overflow-wrap: anywhere; }
+.scenario-result .scenario-loss { color: #a32335; }
+.scenario-result .scenario-vat-summary { margin-top: 10px; font-size: 12px; }
+.scenario-save { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.scenario-save > span { flex: 1 1 220px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.scenario-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; padding: 14px; border: 1px solid #e8c28c; border-radius: 8px; background: #fff9ee; font-size: 13px; line-height: 1.5; }
+.scenario-history ul { margin: 0; padding: 0; list-style: none; }
+.scenario-history li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 12px; }
+@media (max-width: 900px) { .scenario-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scenario-result dl { grid-template-columns: 1fr; gap: 14px; } }
+@media (max-width: 520px) { .tender-scenarios > summary { padding: 16px; align-items: flex-start; } .tender-scenarios > summary > span:last-child { max-width: 110px; text-align: right; } .scenario-body { padding: 0 16px 16px; } .scenario-fields { grid-template-columns: 1fr; } .scenario-save .btn { width: 100%; } }
