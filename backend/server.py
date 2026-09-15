@@ -5582,6 +5582,8 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.api_me()
             elif method == "GET" and path == "/api/autobot/health":
                 self.api_autobot_health()
+            elif method == "GET" and path == "/api/autobot/access-check":
+                self.api_autobot_access_check()
             elif method == "GET" and path == "/api/autobot/projects":
                 self.api_autobot_projects()
             elif method == "POST" and re.fullmatch(
@@ -5939,6 +5941,24 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
         PMBIHandler.write_response_body(self, response_body)
+
+    def api_autobot_access_check(self) -> None:
+        """Authorize Nginx's body-free subrequest with the existing CRM session.
+
+        AutoBot pages and actions use one permission. Treat the browser origin
+        as a write request here: the auth subrequest itself is always GET.
+        This route never forwards data or reveals a user/session identifier.
+        """
+        if request_is_cross_site_mutation("POST", self.headers):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_forbidden"})
+            return
+        user = self.require_user()
+        if not user:
+            return
+        if not user_can_access_autobot(user):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "autobot_forbidden"})
+            return
+        self.send_json(HTTPStatus.OK, {"ok": True})
 
     def api_autobot_health(self) -> None:
         """Expose a same-origin, authenticated and non-sensitive health check."""
