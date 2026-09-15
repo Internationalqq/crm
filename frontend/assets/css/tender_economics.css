@@ -6,6 +6,32 @@
 .tender-scenarios > summary small, .tender-scenarios > summary > span:last-child { font-size: 12px; color: var(--muted); }
 .tender-scenarios > summary b { margin-left: 10px; }
 .scenario-body { padding: 0 20px 20px; }
+.scenario-cashflow { margin: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 0; }
+.scenario-cashflow > summary { cursor: pointer; font-weight: 700; line-height: 1.5; }
+.scenario-cashflow > summary small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+.scenario-cashflow p { font-size: 13px; line-height: 1.5; color: var(--muted); margin: 10px 0; }
+.scenario-cashflow label:not(.scenario-confirm) { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
+.scenario-cashflow input:not([type="checkbox"]), .scenario-cashflow select { width: 100%; min-width: 0; height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); font: inherit; }
+.scenario-cashflow input:focus-visible, .scenario-cashflow select:focus-visible, .cash-remove:focus-visible, .cash-table-wrap:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.cash-opening { max-width: 300px; margin: 14px 0; }
+.cash-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.cash-row-note { grid-column: span 2; min-width: 0; }
+.cash-remove { justify-self: end; align-self: end; min-height: 38px; border: 0; background: transparent; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; font-size: 12px; }
+.cash-add-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.cash-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
+.cash-summary dt { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.cash-summary dd { margin: 5px 0 0; font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.cash-table-wrap { overflow-x: auto; max-width: 100%; }
+.cash-table-wrap table { width: 100%; min-width: 560px; border-collapse: collapse; table-layout: auto; font-size: 12px; font-variant-numeric: tabular-nums; }
+.cash-table-wrap table th { width: 25%; }
+.cash-table-wrap th, .cash-table-wrap td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-size: 12px; }
+.cash-table-wrap th:first-child, .cash-table-wrap td:first-child { text-align: left; }
+@media (max-width: 680px) {
+  .cash-row, .cash-summary { grid-template-columns: minmax(0, 1fr); }
+  .cash-row-note { grid-column: auto; }
+  .scenario-cashflow > summary small { display: block; margin-left: 0; }
+  .cash-opening { max-width: none; }
+}
 .scenario-intro, .scenario-reference p, .scenario-vat p, .scenario-result p, .scenario-history p { margin: 8px 0; font-size: 13px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .scenario-reference { padding: 12px 14px; margin: 14px 0; border-radius: 8px; background: #f5f7fa; }
 .scenario-reference strong { font-size: 13px; }
@@ -30,7 +56,7 @@
 .scenario-result dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; }
 .scenario-result dt { margin-bottom: 7px; font-size: 12px; color: var(--muted); }
 .scenario-result dd { margin: 0; font-size: 19px; font-weight: 800; overflow-wrap: anywhere; }
-.scenario-result .scenario-loss { color: #a32335; }
+.tender-scenarios .scenario-loss { color: #a32335; }
 .scenario-result .scenario-vat-summary { margin-top: 10px; font-size: 12px; }
 .scenario-save { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .scenario-save > span { flex: 1 1 220px; color: var(--muted); font-size: 13px; line-height: 1.45; }

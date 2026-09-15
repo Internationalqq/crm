@@ -48,7 +48,7 @@ def money(value):
 
 
 def normalize(payload):
-    allowed = {*MONEY_FIELDS, 'scope_confirmed', 'tax_basis_confirmed', 'basis_note'}
+    allowed = {*MONEY_FIELDS, 'scope_confirmed', 'tax_basis_confirmed', 'basis_note', 'cash_flow'}
     if not isinstance(payload, dict) or set(payload) - allowed:
         raise ScenarioError('unknown_condition')
     result = {key: money(payload.get(key)) for key in MONEY_FIELDS}
@@ -60,6 +60,12 @@ def normalize(payload):
     if not isinstance(note, str) or len(note) > 4000:
         raise ScenarioError('bad_basis_note')
     result['basis_note'] = note.strip()
+    if 'cash_flow' in payload:
+        from tender_cash_flow import normalize as normalize_cash_flow, CashFlowError
+        try:
+            result['cash_flow'] = normalize_cash_flow(payload['cash_flow'], money=money)
+        except CashFlowError as error:
+            raise ScenarioError(str(error)) from None
     return result
 
 
@@ -85,6 +91,10 @@ def calculate(conditions, *, source_current=True):
         result['revenue_gross_kopecks'] = conditions['revenue'] + conditions['output_vat']
     if all(conditions[key] is not None for key in COST_FIELDS) and conditions['input_vat'] is not None:
         result['cost_gross_kopecks'] = known + conditions['input_vat']
+    from tender_cash_flow import calculate as calculate_cash_flow
+    result['cash_flow'] = calculate_cash_flow(conditions.get('cash_flow'),
+        revenue_gross=result['revenue_gross_kopecks'], cost_gross=result['cost_gross_kopecks'],
+        conditions_ready=not missing)
     return result
 
 
@@ -164,9 +174,21 @@ def save(tender_id, user_id, payload, source):
             return {'saved_version': previous['version'], 'duplicate': True}
         if payload.get('source_version') != source['version']:
             raise ScenarioError('source_changed', 409)
-        version = con.execute('SELECT COALESCE(MAX(version),0) FROM tender_scenario_versions WHERE tender_id=? AND scenario=?', (tender_id, scenario)).fetchone()[0]
+        latest = con.execute('SELECT version, conditions_json, source_json FROM tender_scenario_versions WHERE tender_id=? AND scenario=? ORDER BY version DESC LIMIT 1', (tender_id, scenario)).fetchone()
+        version = latest['version'] if latest else 0
         if version != expected:
             raise ScenarioError('version_conflict', 409)
+        # Older clients do not know this optional block. Omission keeps it;
+        # an explicit null clears it in a new version, with history preserved.
+        if 'cash_flow' not in conditions and latest:
+            saved_conditions = json.loads(latest['conditions_json'])
+            if 'cash_flow' in saved_conditions:
+                conditions['cash_flow'] = saved_conditions['cash_flow']
+                if conditions['cash_flow'] and (
+                    any(conditions[key] != saved_conditions.get(key) for key in conditions if key != 'cash_flow')
+                    or json.loads(latest['source_json'])['version'] != source['version']
+                ):
+                    conditions['cash_flow']['confirmed'] = False
         con.execute('INSERT INTO tender_scenario_versions VALUES (?,?,?,?,?,?,?,?,?,?)',
                     (tender_id, scenario, version + 1, operation, digest, user_id, today_iso(), int(time.time()),
                      canonical(conditions), canonical(source)))
