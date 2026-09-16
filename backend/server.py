@@ -5380,6 +5380,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.clean_path()
+        if path in {"/presentation", "/presentation/"}:
+            self.send_html(self.render_template("presentation.html", {}))
+            return
         if path in {"/", "/index.html"}:
             user = self.current_user()
             if user:
