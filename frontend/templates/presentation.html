@@ -3,128 +3,150 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f7faff">
-    <meta name="description" content="PM.bi — CRM для строительной команды. Объекты, сметы, сроки, фотоотчёты, снабжение и деньги в одной системе. Познакомьтесь с продуктом и обсудите внедрение.">
-    <meta property="og:title" content="PM.bi — стройка под контролем">
-    <meta property="og:description" content="Видеть, что происходит на объектах. Понимать, куда уходят деньги. Управлять командой без бесконечных переписок.">
+    <meta name="theme-color" content="#fafaf7">
+    <meta name="description" content="PM.bi — управление строительными проектами. Сметы, график работ, материалы, деньги и фотоотчёты по каждому объекту. Познакомьтесь с системой и обсудите внедрение.">
+    <meta property="og:title" content="PM.bi — Стройка перед глазами">
+    <meta property="og:description" content="От сметы до отчёта со стройки. Рабочая система для руководителя, прораба и заказчика.">
     <meta property="og:type" content="website">
-    <title>PM.bi — стройка под контролем</title>
+    <title>PM.bi — Стройка перед глазами</title>
     <link rel="icon" type="image/png" href="/assets/logo.png?v=20260728-textfix2">
-    <link rel="stylesheet" href="/assets/css/tokens.css?v=20260917-light-1">
-    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260917-light-1">
+    <link rel="preload" href="/assets/fonts/GolosText-Variable.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260917-editorial-1">
     <script defer src="/assets/js/presentation.js?v=20260917-1"></script>
 </head>
 <body>
     <a class="skip-link" href="#main">Перейти к содержимому</a>
     <header class="site-header">
         <div class="container header-inner">
-            <a class="brand" href="/presentation" aria-label="PM.bi — начало презентации"><span class="brand-mark" aria-hidden="true">p</span><span>PM<span class="brand-dot">.</span>bi</span></a>
+            <a class="brand" href="/presentation" aria-label="PM.bi — начало презентации">PM<span>.</span>bi</a>
             <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>Меню <span aria-hidden="true">☰</span></button>
             <nav id="site-nav" class="site-nav" aria-label="Основная навигация">
-                <a href="#possibilities">Возможности</a><a href="#autobot">Автобот</a><a href="#plans">Внедрение</a><a href="#future">Что дальше</a>
+                <a href="#possibilities">Возможности</a><a href="#autobot">Автобот</a><a href="#plans">Внедрение</a>
             </nav>
             <a class="header-login" href="/login">Войти в CRM <span aria-hidden="true">↗</span></a>
         </div>
     </header>
-
     <main id="main">
-        <section class="hero">
-            <div class="container hero-grid">
-                <div class="hero-copy">
-                    <p class="eyebrow">Система управления строительством</p>
-                    <h1>Стройка<br>под контролем<span class="accent-dot">.</span></h1>
-                    <p class="hero-subtitle">Даже когда вас нет на объекте.</p>
-                    <p class="hero-description">Работы, люди, материалы и деньги — в одной системе. Чтобы руководить бизнесом, а не собирать его по перепискам.</p>
-                    <div class="hero-actions"><a class="button button-primary" href="#demo">Посмотреть, как работает <span aria-hidden="true">↗</span></a><a class="hero-secondary" href="#start">Обсудить внедрение <span aria-hidden="true">→</span></a></div>
-                    <div class="hero-footnote"><span>Для подрядчиков и строительных команд</span><span>На компьютере и телефоне</span></div>
-                </div>
-                <div class="hero-visual">
-                    <img class="hero-photo" src="/assets/images/project-cover-exterior.webp" alt="Строительная площадка общественного здания при дневном свете" width="1200" height="720" fetchpriority="high">
-                    <div class="visual-caption"><span>Площадка работает.</span><strong>Вы видите главное.</strong></div>
-                    <div class="project-preview">
-                        <div class="preview-topline"><span class="mini-label">Объект / 01</span><span class="status">В работе</span></div>
-                        <h2>Деловой центр «Горизонт»</h2>
-                        <div class="preview-progress-title"><span>Выполнение работ</span><strong>68<span>%</span></strong></div>
-                        <div class="progress-track" role="img" aria-label="Выполнение работ: 68 процентов"><span style="width:68%"></span></div>
-                        <div class="preview-stats"><div><span>На площадке</span><strong>12 человек</strong></div><div><span>Следующий этап</span><strong>Монтаж фасада</strong></div></div>
-                        <div class="preview-report"><span class="report-check" aria-hidden="true">✓</span><div><strong>Отчёт прораба добавлен</strong><span>Объём работ · фотографии · материалы</span></div></div>
-                    </div>
-                    <p class="visual-note">Иллюстрация сценария. Данные для примера.</p>
+        <section class="hero container" aria-labelledby="hero-title">
+            <div class="hero-heading">
+                <div><p class="section-label">Для тех, кто строит</p><h1 id="hero-title">Стройка<br>перед глазами.</h1></div>
+                <div class="hero-intro">
+                    <p>Что сделано на объекте.<br>Кто за это отвечает.<br>Сколько это стоит.</p>
+                    <p class="hero-description">PM.bi собирает сметы, работы и отчёты в одной системе — от первого расчёта до сдачи объекта.</p>
+                    <a class="button button-primary" href="#demo">Посмотреть систему <span aria-hidden="true">↓</span></a>
                 </div>
             </div>
-            <div class="hero-bottom"><div class="container module-strip"><span>Весь объект — в одной связке</span><div>Смета <b aria-hidden="true">/</b> Работы <b aria-hidden="true">/</b> Снабжение <b aria-hidden="true">/</b> Финансы</div></div></div>
+            <figure class="hero-visual"><img src="/assets/images/project-cover-exterior.webp" alt="Строительные работы у светлого общественного здания: леса, техника и благоустройство" width="1200" height="720" fetchpriority="high"></figure>
+            <ul class="module-strip" aria-label="Основные разделы системы"><li>Сметы и финансы</li><li>График и задачи</li><li>Материалы</li><li>Фотоотчёты</li></ul>
         </section>
 
-        <section class="section container" id="possibilities" aria-labelledby="possibilities-title">
-            <div class="section-heading"><div><p class="eyebrow">Знакомая ситуация?</p><h2 id="possibilities-title">Объектов больше.<br>Ясности должно быть тоже.</h2></div><p class="section-intro">Смета — в таблице. Фото — в чате. Договорённости — в голове. PM.bi собирает работу вокруг конкретного объекта.</p></div>
-            <div class="benefits-grid">
-                <article class="benefit"><span class="index">01 / ДЕНЬГИ</span><h3>Понимать, что<br>зарабатывает объект</h3><p>Смета, плановые затраты, факт и движение денег. Видно, где изменился прогноз и что уже оплачено.</p><span class="benefit-footer">План ≠ факт ≠ деньги на счёте</span></article>
-                <article class="benefit"><span class="index">02 / ПРОИЗВОДСТВО</span><h3>Видеть ход работ<br>без десяти звонков</h3><p>График, выполненные объёмы, задачи и отчёты с фотографиями. У каждого решения есть контекст.</p><span class="benefit-footer">От общего графика до конкретной работы</span></article>
-                <article class="benefit"><span class="index">03 / КОМАНДА</span><h3>Дать каждому<br>понятную зону работы</h3><p>Руководителю — картина по объектам. Прорабу — работа на площадке. Заказчику — доступные ему результаты.</p><span class="benefit-footer">Доступ зависит от роли и объекта</span></article>
-            </div>
-        </section>
-
-        <section class="demo-section" id="demo" aria-labelledby="demo-title">
-            <div class="container">
-                <div class="section-heading"><div><p class="eyebrow">Посмотрите на своём месте</p><h2 id="demo-title">Одна система.<br>Каждый видит своё.</h2></div><p class="section-intro">Переключите роль и посмотрите, какие вопросы помогает закрыть CRM.</p></div>
-                <div class="demo-tabs" role="tablist" aria-label="Роль в строительной команде">
-                    <button type="button" role="tab" id="tab-owner" aria-controls="panel-owner" aria-selected="true" data-role="owner">Руководитель</button>
-                    <button type="button" role="tab" id="tab-foreman" aria-controls="panel-foreman" aria-selected="false" tabindex="-1" data-role="foreman">Прораб</button>
-                    <button type="button" role="tab" id="tab-customer" aria-controls="panel-customer" aria-selected="false" tabindex="-1" data-role="customer">Заказчик</button>
+        <section class="section container product-section" id="possibilities" aria-labelledby="product-title">
+            <div class="section-heading"><h2 id="product-title">От сметы<br>до отчёта со стройки.</h2><p>Открываете объект и видите работы, затраты и последние отчёты. У каждого участника — свой доступ и свои задачи.</p></div>
+            <div id="demo" class="product-demo">
+                <div class="demo-heading">
+                    <div class="demo-tabs" role="tablist" aria-label="Роль в строительной команде">
+                        <button type="button" role="tab" id="tab-owner" aria-controls="panel-owner" aria-selected="true" data-role="owner">Руководитель</button>
+                        <button type="button" role="tab" id="tab-foreman" aria-controls="panel-foreman" aria-selected="false" tabindex="-1" data-role="foreman">Прораб</button>
+                        <button type="button" role="tab" id="tab-customer" aria-controls="panel-customer" aria-selected="false" tabindex="-1" data-role="customer">Заказчик</button>
+                    </div>
+                    <p class="demo-label">Демонстрационные данные</p>
                 </div>
-                <div class="demo-frame">
-                    <div class="demo-bar"><span class="demo-brand">PM.bi <span>/ Деловой центр «Горизонт»</span></span><span class="demo-label">Демонстрационные данные</span></div>
-                    <div class="demo-panel" id="panel-owner" role="tabpanel" aria-labelledby="tab-owner" tabindex="0">
-                        <div class="demo-copy"><span class="role-label">Обзор руководителя</span><h3>Что с объектом.<br>И что с деньгами.</h3><p>Сопоставляйте стоимость контракта, прогноз затрат и факт. Открывайте детали, когда показатель требует внимания.</p><ul class="check-list"><li>Экономика каждого объекта</li><li>Прогресс и ближайшие этапы</li><li>Счета, оплаты и обязательства</li></ul></div>
-                        <div class="demo-workspace"><div class="workspace-title"><h4>Экономика объекта</h4><span class="badge">Пример</span></div><div class="finance-tiles"><div><span>Контракт</span><strong>12,8 <small>млн ₽</small></strong></div><div><span>Прогноз затрат</span><strong>10,1 <small>млн ₽</small></strong></div><div class="finance-result"><span>Прогноз результата</span><strong>2,7 <small>млн ₽</small></strong></div></div><div class="workspace-subtitle">Ближайшие работы <span>План → факт</span></div><div class="work-row"><span>Подготовка площадки</span><span class="work-bar"><i style="width:100%"></i></span><b>100%</b></div><div class="work-row"><span>Монолитные работы</span><span class="work-bar"><i style="width:68%"></i></span><b>68%</b></div><div class="work-row"><span>Монтаж фасада</span><span class="work-bar"><i style="width:24%"></i></span><b>24%</b></div><p class="workspace-note">Прогноз результата не равен остатку денег на счетах.</p></div>
-                    </div>
-                    <div class="demo-panel" id="panel-foreman" role="tabpanel" aria-labelledby="tab-foreman" tabindex="0" hidden>
-                        <div class="demo-copy"><span class="role-label">Рабочий день прораба</span><h3>Сделали.<br>Зафиксировали.</h3><p>Объёмы, люди, техника, материалы и фотографии остаются в журнале объекта. К отчёту можно вернуться позже.</p><ul class="check-list"><li>Задачи и график производства</li><li>Отчёт с площадки с телефона</li><li>Фотографии рядом с выполненной работой</li></ul></div>
-                        <div class="demo-workspace"><div class="workspace-title"><h4>Дневной отчёт</h4><span class="badge">Пример</span></div><div class="report-facts"><div><span>Выполнено</span><strong>Монтаж перегородок</strong></div><div><span>Объём</span><strong>42 м²</strong></div><div><span>На площадке</span><strong>12 человек</strong></div></div><img class="report-photo" src="/assets/images/project-cover-interior.webp" alt="Иллюстрация отделочных работ внутри здания" width="1200" height="720" loading="lazy"><div class="report-bottom"><span class="report-check" aria-hidden="true">✓</span><span>Работы и фотографии собраны в одном отчёте</span></div></div>
-                    </div>
-                    <div class="demo-panel" id="panel-customer" role="tabpanel" aria-labelledby="tab-customer" tabindex="0" hidden>
-                        <div class="demo-copy"><span class="role-label">Взгляд заказчика</span><h3>Результат виден.<br>Доверие растёт.</h3><p>Заказчик видит доступные ему объекты и опубликованные для него материалы. Внутренняя информация команды остаётся под контролем прав.</p><ul class="check-list"><li>Понятный ход строительства</li><li>Доступные отчёты и фотографии</li><li>Разделение внутренней и клиентской информации</li></ul></div>
-                        <div class="demo-workspace customer-workspace"><img class="customer-photo" src="/assets/images/project-cover-exterior.webp" alt="Иллюстрация строящегося общественного здания" width="1200" height="720" loading="lazy"><div class="customer-body"><span class="badge">Доступ заказчика · пример</span><h4>Ваш объект движется вперёд</h4><div class="customer-stage"><span>Благоустройство территории</span><strong>В работе</strong></div><div class="progress-track"><span style="width:68%"></span></div><p>Отчёты, которые команда открыла заказчику, доступны в карточке объекта.</p></div></div>
+                <div class="demo-panel" id="panel-owner" role="tabpanel" aria-labelledby="tab-owner" tabindex="0">
+                    <div class="demo-copy"><h3>Понимать, что<br>зарабатывает объект.</h3><p>Смета, прогноз затрат, выполненные работы и оплаты — рядом. Можно увидеть отклонение и разобраться в его причине.</p><ul class="plain-list"><li>Экономика по объектам</li><li>План и выполненные объёмы</li><li>Счета и движение денег</li></ul></div>
+                    <div class="demo-workspace">
+                        <div class="workspace-header"><span>Деловой центр «Горизонт»</span><span class="status">В работе</span></div>
+                        <div class="finance-tiles"><div><span>Контракт</span><strong>12,8 <small>млн ₽</small></strong></div><div><span>Прогноз затрат</span><strong>10,1 <small>млн ₽</small></strong></div><div><span>Прогноз результата</span><strong class="amount-accent">2,7 <small>млн ₽</small></strong></div></div>
+                        <h4 class="workspace-subtitle">Выполнение работ</h4>
+                        <div class="work-row"><span>Подготовка площадки</span><span class="work-bar"><i style="width:100%"></i></span><b>100%</b></div>
+                        <div class="work-row"><span>Монолитные работы</span><span class="work-bar"><i style="width:68%"></i></span><b>68%</b></div>
+                        <div class="work-row"><span>Монтаж фасада</span><span class="work-bar"><i style="width:24%"></i></span><b>24%</b></div>
+                        <p class="workspace-note">Прогноз результата и деньги на счёте учитываются отдельно.</p>
                     </div>
                 </div>
-                <p class="demo-disclaimer">Это интерактивная иллюстрация возможностей, не рабочая база. Состав экранов зависит от прав доступа.</p>
-                <noscript><p class="demo-disclaimer">Чтобы переключать роли, включите JavaScript. Сейчас показан пример для руководителя.</p></noscript>
+                <div class="demo-panel" id="panel-foreman" role="tabpanel" aria-labelledby="tab-foreman" tabindex="0" hidden>
+                    <div class="demo-copy"><h3>Зафиксировать работу.<br>Прямо на площадке.</h3><p>Прораб добавляет объёмы, людей, материалы и фотографии. Руководитель видит отчёт в карточке объекта.</p><ul class="plain-list"><li>Задачи на рабочий день</li><li>Отчёт с телефона</li><li>История работ и фотографий</li></ul></div>
+                    <div class="demo-workspace report-workspace">
+                        <div class="workspace-header"><span>Дневной отчёт</span><span>Отделочные работы</span></div>
+                        <img class="report-photo" src="/assets/images/project-cover-interior.webp" alt="Иллюстрация отделочных работ: перегородки и материалы внутри здания" width="1200" height="720" loading="lazy">
+                        <div class="report-facts"><div><span>Выполнено</span><strong>Перегородки</strong></div><div><span>Объём</span><strong>42 м²</strong></div><div><span>На площадке</span><strong>12 человек</strong></div></div>
+                    </div>
+                </div>
+                <div class="demo-panel" id="panel-customer" role="tabpanel" aria-labelledby="tab-customer" tabindex="0" hidden>
+                    <div class="demo-copy"><h3>Показать заказчику,<br>как идёт стройка.</h3><p>Заказчик открывает доступные ему объекты, фотографии и отчёты. Внутренние финансы защищены правами доступа.</p><ul class="plain-list"><li>Ход работ по объекту</li><li>Отчёты с фотографиями</li><li>Доступ к согласованным разделам</li></ul></div>
+                    <div class="demo-workspace report-workspace">
+                        <div class="workspace-header"><span>Деловой центр «Горизонт»</span><span>Доступ заказчика</span></div>
+                        <img class="report-photo" src="/assets/images/project-cover-exterior.webp" alt="Иллюстрация текущего состояния фасада и территории объекта" width="1200" height="720" loading="lazy">
+                        <div class="customer-stage"><h4>Благоустройство территории</h4><span class="status">В работе</span></div>
+                        <p class="workspace-note">Здесь видны материалы, которые команда открыла заказчику.</p>
+                    </div>
+                </div>
+                <noscript><p class="demo-note">Показан пример руководителя. Для переключения ролей включите JavaScript.</p></noscript>
             </div>
-        </section>
-
-        <section class="section container workflow-section" aria-labelledby="workflow-title">
-            <div class="section-heading"><div><p class="eyebrow">От сметы до результата</p><h2 id="workflow-title">Не просто хранить данные.<br>Работать с ними каждый день.</h2></div><a class="text-link" href="/app/projects">Открыть публичные объекты <span aria-hidden="true">↗</span></a></div>
-            <div class="workflow"><article><span>01</span><h3>Подготовить объект</h3><p>Собрать смету, документы, этапы и команду в одной карточке.</p></article><article><span>02</span><h3>Организовать работу</h3><p>Вести график, задачи и потребность в материалах.</p></article><article><span>03</span><h3>Зафиксировать факт</h3><p>Добавлять объёмы, фотоотчёты, поступления и расходы.</p></article><article><span>04</span><h3>Принять решение</h3><p>Сверять план с фактом и понимать, что требует внимания.</p></article></div>
+            <div class="product-bottom"><p>Работает в браузере — на компьютере и телефоне.</p><a class="text-link" href="/app/projects">Открыть публичные объекты <span aria-hidden="true">↗</span></a></div>
         </section>
 
         <section class="autobot-section" id="autobot" aria-labelledby="autobot-title">
-            <div class="container autobot-grid">
-                <div class="autobot-copy"><p class="eyebrow">Автобот / помощник для смет и закупок</p><h2 id="autobot-title">Меньше ручного разбора.<br><span>Больше ясности<br>до закупки.</span></h2><p>Загрузите документы, проверьте распознанные позиции и изучите найденные предложения. Исходники и источники цен помогают проверить результат.</p><div class="autobot-capabilities"><span>Разбор смет и документов</span><span>Поиск предложений</span><span>Проверка перед импортом в CRM</span></div><a class="button button-primary" href="#start">Обсудить Автобота <span aria-hidden="true">↗</span></a></div>
-                <div class="autobot-visual"><div class="autobot-document"><div class="autobot-file"><span class="autobot-filetype" aria-hidden="true">XLSX</span><div><strong>Смета объекта.xlsx</strong><p>Пример исходного документа</p></div></div><p>Позиции, объёмы и единицы измерения — с возможностью свериться с оригиналом.</p></div><div class="autobot-process"><div><span>01</span><p>Документ<strong>Загружаете исходную смету</strong></p></div><div><span>02</span><p>Разбор и поиск<strong>Проверяете строки и источники</strong></p></div><div><span>03</span><p>Ваше решение<strong>Подтверждаете данные для CRM</strong></p></div></div></div>
-            </div><div class="container"><p class="autobot-note">Автобот готовит данные для решения. Сотрудник проверяет распознавание, источник цены и условия поставки. Полнота предложений зависит от доступности источников.</p></div>
+            <div class="container section">
+                <div class="autobot-grid">
+                    <div class="autobot-copy"><p class="section-label">Автобот</p><h2 id="autobot-title">Смету —<br>в работу.</h2><p class="section-lead">Загрузите документ. Автобот поможет разобрать позиции и найти предложения по материалам.</p><p>Вы проверяете объёмы, единицы и источники цен, затем подтверждаете данные для CRM.</p><a class="text-link" href="#start">Обсудить Автобота <span aria-hidden="true">↗</span></a></div>
+                    <div class="estimate-preview" aria-label="Пример разбора сметы Автоботом">
+                        <div class="estimate-top"><span>Смета_объекта.xlsx</span><span>Пример разбора</span></div>
+                        <table><caption>Позиции из документа</caption><thead><tr><th scope="col">Материал</th><th scope="col">Объём</th></tr></thead><tbody><tr><th scope="row">Бетон В25</th><td>86 м³</td></tr><tr><th scope="row">Арматура А500</th><td>12 т</td></tr><tr><th scope="row">Опалубка</th><td>240 м²</td></tr></tbody></table>
+                        <div class="estimate-result"><span class="source-symbol" aria-hidden="true">↗</span><p>Исходный документ и источники предложений остаются под рукой.</p></div>
+                    </div>
+                </div>
+                <ol class="autobot-steps"><li><span>01</span>Загрузить документ</li><li><span>02</span>Проверить результат</li><li><span>03</span>Подтвердить для CRM</li></ol>
+            </div>
         </section>
 
-        <section class="section container" id="plans" aria-labelledby="plans-title">
-            <div class="section-heading"><div><p class="eyebrow">Формат под вашу команду</p><h2 id="plans-title">Начать с одного объекта.<br>Масштабировать, когда удобно.</h2></div><p class="section-intro">На встрече определим состав системы, настройку и сопровождение. Стоимость согласуем под ваш объём работы.</p></div>
-            <div class="plans-grid">
-                <article class="plan"><span class="plan-kicker">Проверить на практике</span><h3>Пилот</h3><p class="plan-description">Один объект и конкретный процесс, который хочется привести в порядок.</p><ul class="check-list"><li>Разбираем ваш рабочий сценарий</li><li>Определяем участников и доступ</li><li>Согласуем критерии результата</li></ul><a class="button button-outline" href="#start" data-plan="Пилот">Обсудить пилот <span aria-hidden="true">↗</span></a><small>Объём и условия — до старта</small></article>
-                <article class="plan plan-featured"><span class="plan-kicker">Для постоянной работы</span><h3>Подписка</h3><p class="plan-description">CRM для команды с согласованным сопровождением и развитием.</p><ul class="check-list"><li>Объекты, сотрудники и роли</li><li>Обновления и поддержка по договору</li><li>Автобот — в согласованном составе</li></ul><a class="button button-primary" href="#start" data-plan="Подписка">Подобрать подписку <span aria-hidden="true">↗</span></a><small>Период и стоимость — по объёму</small></article>
-                <article class="plan"><span class="plan-kicker">Под процессы бизнеса</span><h3>Отдельное внедрение</h3><p class="plan-description">Индивидуальная конфигурация, если типового рабочего процесса мало.</p><ul class="check-list"><li>Разбираем структуру компании</li><li>Согласуем доработки и интеграции</li><li>Определяем размещение и поддержку</li></ul><a class="button button-outline" href="#start" data-plan="Отдельное внедрение">Обсудить решение <span aria-hidden="true">↗</span></a><small>Состав работ — по отдельной оценке</small></article>
+        <section class="section container plans-section" id="plans" aria-labelledby="plans-title">
+            <div class="section-heading"><h2 id="plans-title">Начните<br>с одного объекта.</h2><p>Покажем систему на вашем процессе, поможем с настройкой и выберем подходящий формат работы.</p></div>
+            <div class="plan-list">
+                <article class="plan"><span class="plan-number" aria-hidden="true">01</span><h3>Пилот</h3><p>Один объект, небольшая команда и конкретная задача. Проверим, как система впишется в вашу работу.</p><a class="text-link" href="#start" data-plan="Пилот">Начать с пилота <span aria-hidden="true">↗</span></a></article>
+                <article class="plan plan-featured"><span class="plan-number" aria-hidden="true">02</span><h3>Подписка</h3><p>Система для постоянной работы команды. Состав поддержки, обновлений и подключение Автобота согласуем заранее.</p><a class="text-link" href="#start" data-plan="Подписка">Обсудить подписку <span aria-hidden="true">↗</span></a></article>
+                <article class="plan"><span class="plan-number" aria-hidden="true">03</span><h3>Своя версия</h3><p>Отдельное внедрение под процессы компании. Обсудим доработки, размещение и дальнейшее сопровождение.</p><a class="text-link" href="#start" data-plan="Отдельное внедрение">Обсудить внедрение <span aria-hidden="true">↗</span></a></article>
             </div>
-            <p class="section-note">Это варианты сотрудничества. Конкретные функции, сроки, стоимость и условия фиксируются после обсуждения.</p>
+            <p class="section-note">Стоимость зависит от числа объектов, участников и задач внедрения. Условия согласуем до начала работы.</p>
         </section>
 
         <section class="future-section" id="future" aria-labelledby="future-title">
-            <div class="container"><div class="section-heading"><div><p class="eyebrow">Куда развиваем продукт</p><h2 id="future-title">От контроля стройки —<br>к ежедневному помощнику.</h2></div><div class="future-disclaimer"><span class="badge badge-outline">Планируемые возможности</span><p>Направления развития, а не обещание готовых функций. Приоритеты и сроки определим с первыми командами.</p></div></div>
-                <div class="roadmap"><article><span class="roadmap-number">01</span><div><h3>Площадка — в Telegram</h3><p>Фото, голосовое сообщение или короткий отчёт → черновик в CRM → проверка и подтверждение. Меньше ввода с телефона.</p></div><span class="roadmap-tag">В планах</span></article><article><span class="roadmap-number">02</span><div><h3>Чеки и документы без повторного ввода</h3><p>Распознавание, поиск дублей и связь расхода с объектом. Исходный документ остаётся рядом, финансовое действие подтверждает человек.</p></div><span class="roadmap-tag">В планах</span></article><article><span class="roadmap-number">03</span><div><h3>Помощник по снабжению</h3><p>Собрать потребность, предложить варианты и подготовить закупку. Сотрудник проверяет комплект и выбирает поставщика.</p></div><span class="roadmap-tag">В планах</span></article></div>
-                <div class="network-concept"><div><p class="eyebrow">Ещё одно направление</p><h3>Та же ясность.<br>Для сети клубов и других точек.</h3><p>Сломалось оборудование, нужна закупка или ремонт? Идея отдельного решения: фото проблемы → ответственный → срок → подтверждение выполнения. Владелец видит состояние каждой точки.</p><span class="concept-label">Концепция отдельного модуля · пока не входит в CRM</span></div><div class="ticket-example"><div class="ticket-head"><span>Пример будущего сценария</span><span aria-hidden="true">↗</span></div><h4>Заменить крепление монитора</h4><p>Клуб «Центр» · рабочее место 12</p><div class="ticket-line"><span>Ответственный</span><strong>Технический специалист</strong></div><div class="ticket-line"><span>Статус</span><strong class="ticket-status">Нужна закупка</strong></div><div class="ticket-steps"><span>Фото</span><i aria-hidden="true">→</i><span>Заявка</span><i aria-hidden="true">→</i><span>Результат</span></div></div></div>
+            <div class="container section">
+                <div class="section-heading"><div><p class="section-label">Дальнейшее развитие</p><h2 id="future-title">Ближе<br>к работе на месте.</h2></div><p>Эти сценарии пока в планах. Приоритеты и сроки определим вместе с командами, которые будут пользоваться системой.</p></div>
+                <div class="future-grid">
+                    <article><h3>Отчёты через Telegram</h3><p>Отправить фото и результат работы в бота. Привязать сообщение к объекту и задаче, получить напоминание.</p></article>
+                    <article><h3>Чеки и закупки</h3><p>Распознать чек, подготовить список материалов, собрать предложения. Сотрудник проверяет и подтверждает.</p></article>
+                    <article class="future-network"><h3>Обслуживание<br>клубов и сетей</h3><div><p>Сломался стол, нужна замена оборудования, закончились расходники. Сотрудник оставляет заявку с фотографией, ответственный организует работу и отмечает результат.</p><p>Та же логика объектов и задач — для повседневной работы сети.</p></div></article>
+                </div>
             </div>
         </section>
 
-        <section class="section container faq-section" aria-labelledby="faq-title"><div><p class="eyebrow">До первого показа</p><h2 id="faq-title">По делу.</h2></div><div class="faq-list"><details><summary>Подойдёт небольшой бригаде?<span aria-hidden="true">+</span></summary><p>Можно начать с одного объекта и нескольких участников. На показе выберем нужный процесс: задачи, отчёты, график или контроль затрат. Подключать весь набор сразу необязательно.</p></details><details><summary>Прораб сможет работать с телефона?<span aria-hidden="true">+</span></summary><p>Да, CRM открывается в браузере телефона. Рабочие экраны адаптированы для небольшого дисплея: задачи, график и фотоотчёты доступны прямо на площадке при подключении к интернету.</p></details><details><summary>Заказчик увидит внутренние цифры?<span aria-hidden="true">+</span></summary><p>Состав доступных данных определяется ролью и доступом к объекту. Клиентский доступ отделён от внутренних финансов. Перед внедрением согласуем, кому и какие разделы нужны.</p></details><details><summary>Автобот всё сделает самостоятельно?<span aria-hidden="true">+</span></summary><p>Автобот помогает разобрать документы и найти предложения. Распознанные данные, цены, единицы измерения и условия поставки проверяет сотрудник. Итоговое решение и подтверждение остаются за человеком.</p></details><details><summary>Сколько стоит и как начать?<span aria-hidden="true">+</span></summary><p>Сначала обсудим число объектов, участников, нужные процессы и Автобота. После этого согласуем пилот, подписку или отдельное внедрение. Стоимость, состав работ и условия будут понятны до начала сотрудничества.</p></details></div></section>
+        <section class="section container faq-section" aria-labelledby="faq-title">
+            <h2 id="faq-title">До начала<br>работы.</h2>
+            <div class="faq-list">
+                <details><summary>Подойдёт небольшой бригаде?<span aria-hidden="true">+</span></summary><p>Да. Можно начать с одного объекта и нескольких участников. На показе выберем нужный процесс: задачи, отчёты, график или затраты.</p></details>
+                <details><summary>Прораб сможет работать с телефона?<span aria-hidden="true">+</span></summary><p>Да, через браузер телефона при подключении к интернету. Рабочие экраны адаптированы для задач, графика и отчётов с площадки.</p></details>
+                <details><summary>Заказчик увидит внутренние цифры?<span aria-hidden="true">+</span></summary><p>Доступ зависит от роли и объекта. Перед внедрением согласуем, кому нужны отчёты, а кому — внутренние финансовые разделы.</p></details>
+                <details><summary>Автобот работает без проверки?<span aria-hidden="true">+</span></summary><p>Результат проверяет сотрудник: распознавание документа, единицы измерения, источник цены и условия поставки. Найденные предложения зависят от доступности источников.</p></details>
+            </div>
+        </section>
 
-        <section class="start-section" id="start" aria-labelledby="start-title"><div class="container start-grid"><div><p class="eyebrow">Начнём с вашей задачи</p><h2 id="start-title">Покажем на объекте.<br>Обсудим на языке<br>вашего бизнеса.</h2><p class="start-description">Расскажите, где сейчас теряются время и информация. На демонстрации пройдём этот сценарий и определим первый шаг.</p><div class="start-expectations"><span>Ваш процесс</span><span>Показ системы</span><span>План внедрения</span></div></div><div class="request-card"><h3>С чего хотите начать?</h3><p>Подготовьте короткий запрос и отправьте человеку, который поделился этой презентацией.</p><div class="request-fields"><label for="request-plan">Формат сотрудничества</label><select id="request-plan"><option>Пилот</option><option selected>Подписка</option><option>Отдельное внедрение</option><option>Пока хочу познакомиться</option></select><label for="request-scale">Количество объектов</label><select id="request-scale"><option>1–3 объекта</option><option>4–10 объектов</option><option>Больше 10 объектов</option><option>Сеть клубов или других точек</option></select></div><label class="message-label" for="request-message">Сообщение для отправки</label><textarea id="request-message" rows="4" spellcheck="false">Здравствуйте! Хочу посмотреть PM.bi. Интересует подписка, 1–3 объекта. Давайте обсудим рабочий сценарий и условия внедрения.</textarea><button class="button button-primary copy-request" type="button" hidden>Скопировать запрос <span aria-hidden="true">↗</span></button><p class="request-status" id="request-status" role="status" aria-live="polite">Здесь ничего не отправляется автоматически.</p></div></div></section>
+        <section class="start-section" id="start" aria-labelledby="start-title">
+            <div class="container section start-grid">
+                <div class="start-copy"><h2 id="start-title">Разберём<br>ваш объект.</h2><p>Расскажите, как сейчас устроена работа. Покажем нужные разделы и обсудим первый шаг внедрения.</p><a class="text-link" href="/app/projects">Сначала посмотреть CRM <span aria-hidden="true">↗</span></a></div>
+                <div class="request-card">
+                    <h3>Подготовить запрос</h3><p>Выберите формат, скопируйте сообщение и отправьте тому, кто поделился презентацией.</p>
+                    <div class="request-fields"><div><label for="request-plan">Формат работы</label><select id="request-plan"><option>Пилот</option><option selected>Подписка</option><option>Отдельное внедрение</option><option value="Пока хочу познакомиться">Знакомство</option></select></div><div><label for="request-scale">Масштаб</label><select id="request-scale"><option>1–3 объекта</option><option>4–10 объектов</option><option>Больше 10 объектов</option><option value="Сеть клубов или других точек">Клубы и другие точки</option></select></div></div>
+                    <label class="message-label" for="request-message">Ваше сообщение</label>
+                    <textarea id="request-message" rows="5" spellcheck="false">Здравствуйте! Хочу посмотреть PM.bi. Интересует подписка, 1–3 объекта. Давайте обсудим рабочий сценарий и условия внедрения.</textarea>
+                    <button class="button button-primary copy-request" type="button" hidden>Скопировать запрос</button>
+                    <p class="request-status" id="request-status" role="status" aria-live="polite">Здесь ничего не отправляется автоматически.</p>
+                </div>
+            </div>
+        </section>
     </main>
-    <footer class="site-footer"><div class="container footer-inner"><a class="brand" href="/presentation" aria-label="PM.bi — начало презентации"><span class="brand-mark" aria-hidden="true">p</span><span>PM<span class="brand-dot">.</span>bi</span></a><span>Порядок в работе. Ясность в решениях.</span><a href="/login">Войти в CRM <span aria-hidden="true">↗</span></a></div><div class="container footer-bottom"><span>© 2026 PM.bi</span><span>В примерах используются условные данные и иллюстрации.</span><a href="#main">Наверх ↑</a></div></footer>
+    <footer class="site-footer container">
+        <div class="footer-top"><a class="brand" href="/presentation" aria-label="PM.bi — начало презентации">PM<span>.</span>bi</a><p>Управление строительными проектами</p><a class="text-link" href="#main">Наверх <span aria-hidden="true">↑</span></a></div>
+        <div class="footer-bottom"><span>© 2026 PM.bi</span><p>В примерах — условные данные и иллюстрации.</p><a href="#future">Что дальше</a></div>
+    </footer>
 </body>
 </html>
