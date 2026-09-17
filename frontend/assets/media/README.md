@@ -12,7 +12,7 @@ Edits: clip 4010 seconds 0.3–5.3 followed by clip 42333 seconds 1–6.5 with a
 - `construction-mobile.mp4`: smaller portrait loop.
 - `construction-poster.webp`, `construction-poster-mobile.webp`: static fallback for no JavaScript, Save-Data, unavailable video or denied autoplay.
 
-The 17 September follow-up requests a continuous film: it does not pause on scroll or automatically opt out under reduced motion. Manual pause remains available, and a hidden browser tab pauses playback. The separate four-scene CRM demonstration does respect reduced motion and stops when outside the viewport. This supersedes the previous shared motion policy.
+The 17 September follow-up requests a continuous film: it does not pause on scroll or automatically opt out under reduced motion. The clarified brief removes manual pause/play controls; a hidden browser tab still suspends playback. The separate four-scene CRM demonstration begins with the photo report and loops continuously; selecting a tab restarts its interval without pausing. It respects reduced motion and suspends while outside the viewport. This supersedes the previous shared motion policy.
 
 ## Demonstration illustrations
 

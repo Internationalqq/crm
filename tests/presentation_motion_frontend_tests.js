@@ -22,12 +22,6 @@ class Element {
     querySelectorAll(name) { return this.children[name] || []; }
     focus() { this.focused = true; }
 }
-const control = () => {
-    const element = new Element();
-    element.children.span = new Element();
-    element.children.use = new Element();
-    return element;
-};
 const source = fs.readFileSync(path.join(__dirname, '../frontend/assets/js/presentation-motion.js'), 'utf8');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -52,12 +46,12 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     };
     video.pause = () => { video.paused = true; video.emit('pause'); };
     status.hidden = true;
-    const filmButton = control(), storyButton = control(), story = new Element();
-    const tabs = Array.from({length: 4}, () => new Element());
+    const story = new Element();
+    const tabs = [2, 0, 1, 3].map(id => { const tab = new Element(); tab.dataset.storyStep = String(id); return tab; });
     const panels = Array.from({length: 4}, () => new Element());
     panels.forEach((panel, i) => { panel.hidden = i !== 0; });
     story.children = {'[data-story-step]': tabs, '.story-panel': panels};
-    doc.children = {'#construction-film': video, '.film-toggle': filmButton, '.film-status': status, '.work-story': story, '.story-toggle': storyButton};
+    doc.children = {'#construction-film': video, '.film-status': status, '.work-story': story};
     const observations = new Map(), frames = new Map();
     let nextFrame = 1, time = 0;
     class IntersectionObserver {
@@ -69,7 +63,7 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
         requestAnimationFrame: callback => { const id = nextFrame++; frames.set(id, callback); return id; },
         cancelAnimationFrame: id => frames.delete(id)};
     vm.runInNewContext(source, context);
-    return {doc, reduced, connection, video, film, poster, finishFonts, status, filmButton, story, storyButton, tabs, panels, frames,
+    return {doc, reduced, connection, video, film, poster, finishFonts, status, story, tabs, panels, frames,
         visible(element, value) { observations.get(element)?.([{isIntersecting: value}]); },
         advance(milliseconds) {
             for (let passed = 0; passed < milliseconds; passed += 50) {
@@ -87,8 +81,9 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
         await flush();
         assert.equal(h.video.src, preference.saveData ? null : '/desktop.mp4', 'Save-Data defers film; reduced motion stops the story but the requested continuous film remains available');
         assert.equal(h.frames.size, 0);
-        h.storyButton.emit('click');
-        assert.equal(h.frames.size, 1, 'Explicit playback is available');
+        h.tabs[2].emit('click');
+        assert.equal(h.story.dataset.scene, '1', 'Manual tab selection still works with motion preferences');
+        assert.equal(h.frames.size, 0, 'Manual selection preserves the motion preference');
     }
 
     const h = setup({mobile: true});
@@ -104,22 +99,18 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     h.doc.hidden = false; h.doc.emit('visibilitychange');
     h.visible(h.film, true); await flush();
     assert.equal(h.video.paused, false);
-    h.filmButton.emit('click');
-    h.visible(h.film, false); h.visible(h.film, true); await flush();
-    assert.equal(h.video.paused, true, 'Manual pause survives leaving and returning');
     h.reduced.matches = true; h.reduced.emit('change');
     h.reduced.matches = false; h.reduced.emit('change'); await flush();
-    assert.equal(h.video.paused, true, 'Preference changes do not override manual pause');
+    assert.equal(h.video.paused, false, 'Film keeps playing while the story preference changes');
     h.video.emit('error');
     assert(!h.film.classes.has('is-ready'));
-    assert.equal(h.filmButton.hidden, true);
     assert.equal(h.status.hidden, false);
 
     const denied = setup({rejected: true});
     denied.visible(denied.film, true); await flush();
     assert.equal(denied.video.paused, true);
-    assert.equal(denied.filmButton.children.span.textContent, 'Включить видео');
-    assert.equal(denied.filmButton.hidden, false);
+    denied.video.emit('loadeddata');
+    assert(!denied.film.classes.has('is-ready'), 'Denied autoplay preserves the visible poster');
 
     const loading = setup({posterLoaded: false, fontPending: true});
     loading.visible(loading.film, true); await flush();
@@ -128,13 +119,11 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     assert.equal(loading.video.src, null, 'The font still has priority');
     loading.finishFonts(); await flush();
     assert.equal(loading.video.paused, false);
-    const explicit = setup({posterLoaded: false, fontPending: true});
-    explicit.visible(explicit.film, true); explicit.filmButton.emit('click'); await flush();
-    assert.equal(explicit.video.paused, false, 'Explicit play does not wait for font loading');
 
     const s = setup();
+    assert.equal(s.story.dataset.scene, '2', 'Photo report is the initial scene');
     s.visible(s.story, true); s.advance(6800);
-    assert.equal(s.story.dataset.scene, '1');
+    assert.equal(s.story.dataset.scene, '0', 'Estimate follows the photo report');
     assert.equal(s.panels[1].hidden, false);
     s.doc.hidden = true; s.doc.emit('visibilitychange');
     const before = s.story.attributes['--scene-progress'];
@@ -142,21 +131,22 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     assert.equal(s.story.attributes['--scene-progress'], before, 'Hidden tabs freeze the story');
     s.doc.hidden = false; s.doc.emit('visibilitychange');
     s.advance(20000);
-    assert.equal(s.story.dataset.scene, '3');
-    assert.equal(s.frames.size, 0, 'The show stops after one complete pass');
-    assert.equal(s.storyButton.children.span.textContent, 'Повторить показ');
-    s.storyButton.emit('click');
-    assert.equal(s.story.dataset.scene, '0');
-    assert.equal(s.frames.size, 1);
+    assert.equal(s.story.dataset.scene, '2', 'The complete cycle returns to the photo report');
+    assert.equal(s.frames.size, 1, 'The show keeps running after a complete cycle');
     let prevented = false;
     s.tabs[0].emit('keydown', {key: 'End', preventDefault: () => { prevented = true; }});
     assert(prevented && s.tabs[3].focused);
     assert.equal(s.tabs[3].attributes['aria-selected'], 'true');
     assert.equal(s.panels.filter(panel => !panel.hidden).length, 1);
-    assert.equal(s.frames.size, 0, 'Choosing a scene pauses automatic changes');
+    assert.equal(s.frames.size, 1, 'Choosing a scene keeps automatic changes running');
+    s.advance(6800);
+    assert.equal(s.story.dataset.scene, '2', 'Automatic progression continues after keyboard selection');
     s.visible(s.story, false); s.visible(s.story, true);
-    assert.equal(s.frames.size, 0);
+    assert.equal(s.frames.size, 1);
     s.tabs[3].emit('keydown', {key: 'ArrowRight', preventDefault() {}});
-    assert.equal(s.story.dataset.scene, '0');
-    console.log('Presentation motion: preferences, source choice, pause, failure, visibility, timeline and keyboard passed.');
+    assert.equal(s.story.dataset.scene, '2');
+    s.tabs[1].emit('click');
+    s.advance(6800);
+    assert.equal(s.story.dataset.scene, '1', 'Click selection does not pause the show either');
+    console.log('Presentation motion: photo-first looping, continued playback after selection, preferences, video fallback and keyboard passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
