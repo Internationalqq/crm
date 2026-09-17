@@ -70,7 +70,7 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
         cancelAnimationFrame: id => frames.delete(id)};
     vm.runInNewContext(source, context);
     return {doc, reduced, connection, video, film, poster, finishFonts, status, filmButton, story, storyButton, tabs, panels, frames,
-        visible(element, value) { observations.get(element)([{isIntersecting: value}]); },
+        visible(element, value) { observations.get(element)?.([{isIntersecting: value}]); },
         advance(milliseconds) {
             for (let passed = 0; passed < milliseconds; passed += 50) {
                 time += 50;
@@ -84,7 +84,8 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     for (const preference of [{reduce: true}, {saveData: true}]) {
         const h = setup(preference);
         h.visible(h.film, true); h.visible(h.story, true);
-        assert.equal(h.video.src, null, 'No video bytes before explicit consent with reduced motion/data saver');
+        await flush();
+        assert.equal(h.video.src, preference.saveData ? null : '/desktop.mp4', 'Save-Data defers film; reduced motion stops the story but the requested continuous film remains available');
         assert.equal(h.frames.size, 0);
         h.storyButton.emit('click');
         assert.equal(h.frames.size, 1, 'Explicit playback is available');
@@ -97,7 +98,10 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     h.video.emit('loadeddata');
     assert(h.film.classes.has('is-ready'));
     h.visible(h.film, false);
-    assert.equal(h.video.paused, true);
+    assert.equal(h.video.paused, false, 'Scrolling away does not stop the continuous film');
+    h.doc.hidden = true; h.doc.emit('visibilitychange');
+    assert.equal(h.video.paused, true, 'A hidden browser tab saves playback work');
+    h.doc.hidden = false; h.doc.emit('visibilitychange');
     h.visible(h.film, true); await flush();
     assert.equal(h.video.paused, false);
     h.filmButton.emit('click');

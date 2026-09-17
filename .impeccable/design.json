@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-17T08:22:49Z",
+  "generatedAt": "2026-09-17T09:21:55.581Z",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -106,7 +106,7 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Главный заголовок публичной презентации; мобильные размеры описаны в DESIGN.md Layout."
+        "purpose": "Главный h1 над четырьмя сценами рабочего процесса; мобильные размеры описаны в DESIGN.md Layout."
       },
       "headline": {
         "displayName": "Headline",
@@ -114,7 +114,7 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Заголовки смысловых блоков и открытых строк."
+        "purpose": "Заголовки смысловых блоков; h2 описания сцены и h3 рабочего документа имеют отдельные размеры в DESIGN.md."
       },
       "body": {
         "displayName": "Body",
@@ -154,12 +154,17 @@
       {
         "name": "visibility-threshold",
         "value": "0.1",
-        "purpose": "IntersectionObserver приостанавливает показ вне области видимости; скрытая вкладка документа также ставит движение на паузу."
+        "purpose": "IntersectionObserver приостанавливает только показ сцен вне области видимости; скрытая вкладка также ставит его на паузу."
       },
       {
-        "name": "automatic-motion-policy",
+        "name": "automatic-scene-policy",
         "value": "!reduced.matches && !connection?.saveData",
-        "purpose": "Начальное автоматическое движение выключено при reduced motion или Save-Data. Явный ручной запуск возможен; переход к reduced motion останавливает текущий явный запуск. Save-Data не отменяет уже выраженное намерение играть."
+        "purpose": "Автоматический показ сцен выключен при reduced motion или Save-Data. Явный ручной запуск возможен; переход к reduced motion останавливает текущий явный запуск сцен. Save-Data не отменяет ручной запуск."
+      },
+      {
+        "name": "film-playback-policy",
+        "value": "visible && !failed && (intent ?? !connection?.saveData) && (firstPaintReady || intent === true)",
+        "purpose": "Непрерывный фильм не останавливается при прокрутке или reduced motion. Ручная пауза и скрытая вкладка останавливают его; Save-Data блокирует автоматический старт, сохраняя ручной запуск. Начальный автозапуск ждёт постер и шрифт."
       },
       {
         "name": "reduced-motion-css",
@@ -191,17 +196,17 @@
       "name": "Основная кнопка",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Главное действие смыслового блока; синий фон, SVG-стрелка, клавиатурный фокус.",
-      "html": "<a class=\"ds-primary\" href=\"#workflow\">Посмотреть систему <svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3v17m-7-7 7 7 7-7\"/></svg></a>",
-      "css": ".ds-primary{display:inline-flex;justify-content:space-between;align-items:center;gap:32px;min-height:58px;padding:15px 23px;border:1px solid transparent;border-radius:2px;font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;font-weight:500;line-height:1.4;background:var(--blue,#1550c4);color:var(--paper,#ffffff);text-decoration:none;transition:background .18s}.ds-primary:hover{background:var(--blue-hover,#103f9d)}.ds-primary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}.ds-icon{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}@media(max-width:600px){.ds-primary{min-height:56px;padding-inline:20px;font-size:17px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+      "description": "Главное действие без декоративной стрелки; синий фон, клавиатурный фокус и прямая ссылка в публичную CRM.",
+      "html": "<a class=\"ds-primary\" href=\"/app/projects\">Открыть PM.bi</a>",
+      "css": ".ds-primary{display:inline-flex;justify-content:center;align-items:center;gap:32px;min-height:58px;padding:15px 23px;border:1px solid transparent;border-radius:2px;font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;font-weight:500;line-height:1.4;background:var(--blue,#1550c4);color:var(--paper,#ffffff);text-decoration:none;transition:background .18s}.ds-primary:hover{background:var(--blue-hover,#103f9d)}.ds-primary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-primary{min-height:56px;padding-inline:20px;font-size:17px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
     },
     {
       "name": "Рабочая сцена",
       "kind": "custom",
       "refersTo": "story-screen",
-      "description": "Белая рабочая плоскость с открытыми строками, табличными цифрами и ясным результатом.",
-      "html": "<div class=\"ds-story\"><div class=\"ds-story-top\"><span>Деловой центр «Горизонт»</span><span>Смета</span></div><h4 class=\"ds-story-title\">Отделка первого этажа</h4><div class=\"ds-story-row\"><span>Перегородки</span><span>120 м²</span><b>162 000 ₽</b></div><div class=\"ds-story-total\"><span>Итого по смете</span><strong>348 600 ₽</strong></div></div>",
-      "css": ".ds-story{min-width:0;padding:28px 32px;background:var(--paper,#ffffff);color:var(--ink,#222b33);font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;line-height:1.55;font-variant-numeric:tabular-nums}.ds-story-top{display:flex;justify-content:space-between;gap:20px;color:var(--muted,#586570);font-size:16px;padding-bottom:22px;margin-bottom:23px;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-title{margin:0 0 22px;font-size:26px;font-weight:500;line-height:1.1;letter-spacing:-.035em;text-wrap:balance}.ds-story-row{display:grid;grid-template-columns:1fr 65px 110px;align-items:center;gap:16px;font-size:17px;padding:16px 0;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-row b{text-align:right;font-weight:500;white-space:nowrap}.ds-story-row>span:nth-child(2){color:var(--muted,#586570)}.ds-story-total{display:flex;justify-content:space-between;align-items:center;gap:18px;padding-top:25px;font-size:17px}.ds-story-total strong{font-size:30px;font-weight:500;color:var(--blue,#1550c4);white-space:nowrap}@media(max-width:600px){.ds-story{padding:20px}.ds-story-top{gap:10px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:20px}.ds-story-title{font-size:24px}.ds-story-row{grid-template-columns:1fr 95px;gap:5px 12px;font-size:16px;padding-block:13px}.ds-story-row>span:nth-child(2){grid-row:2}.ds-story-row b{grid-column:2;grid-row:1/3}.ds-story-total{flex-wrap:wrap;gap:7px;padding-top:20px;font-size:16px}.ds-story-total strong{font-size:28px;margin-left:auto}}"
+      "description": "Светло-синий рабочий документ первого экрана: открытые строки, табличные цифры и ясный результат.",
+      "html": "<div class=\"ds-story\"><div class=\"ds-story-top\"><span>Деловой центр «Горизонт»</span><span>Смета</span></div><h3 class=\"ds-story-title\">Отделка первого этажа</h3><div class=\"ds-story-row\"><span>Перегородки</span><span>120 м²</span><b>162 000 ₽</b></div><div class=\"ds-story-total\"><span>Итого по смете</span><strong>348 600 ₽</strong></div></div>",
+      "css": ".ds-story{align-self:stretch;min-width:0;padding:26px 30px;display:flex;flex-direction:column;justify-content:center;background:var(--soft-blue,#edf3fa);color:var(--ink,#222b33);font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;line-height:1.55;font-variant-numeric:tabular-nums}.ds-story-top{display:flex;justify-content:space-between;gap:20px;color:var(--muted,#586570);font-size:16px;padding-bottom:22px;margin-bottom:23px;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-title{margin:0 0 22px;font-size:26px;font-weight:500;line-height:1.1;letter-spacing:-.035em;text-wrap:balance}.ds-story-row{display:grid;grid-template-columns:1fr 65px 110px;align-items:center;gap:16px;font-size:17px;padding:16px 0;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-row b{text-align:right;font-weight:500;white-space:nowrap}.ds-story-row>span:nth-child(2){color:var(--muted,#586570)}.ds-story-total{display:flex;justify-content:space-between;align-items:center;gap:18px;padding-top:25px;font-size:17px}.ds-story-total strong{font-size:30px;font-weight:500;color:var(--blue,#1550c4);white-space:nowrap}@media(max-width:1100px){.ds-story-row{grid-template-columns:1fr 60px 100px;gap:12px;font-size:16px}}@media(max-width:900px){.ds-story{padding:24px}.ds-story-row{grid-template-columns:1fr 58px 98px;gap:8px;font-size:16px}}@media(max-width:600px){.ds-story{padding:20px;min-height:400px}.ds-story-top{gap:10px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:20px}.ds-story-title{font-size:24px}.ds-story-row{grid-template-columns:1fr 95px;gap:5px 12px;font-size:16px;padding-block:13px}.ds-story-row>span:nth-child(2){grid-row:2}.ds-story-row b{grid-column:2;grid-row:1/3}.ds-story-total{flex-wrap:wrap;gap:7px;padding-top:20px;font-size:16px}.ds-story-total strong{font-size:28px;margin-left:auto}}"
     }
   ],
   "narrative": {
@@ -233,7 +238,7 @@
     "dos": [
       "**Do** применяйте этот визуальный мир только к публичной презентации PM.bi и сохраняйте отдельную систему рабочей CRM.",
       "**Do** стройте иерархию крупным набором, свободным пространством и одним главным действием в смысловом блоке.",
-      "**Do** сохраняйте видимые подписи управления движением, клавиатурный фокус, ручной выбор сцены и статичное состояние.",
+      "**Do** сохраняйте доступные названия управления движением, клавиатурный фокус, ручной выбор сцены и статичное состояние.",
       "**Do** отмечайте демонстрационные данные рядом с примерами, а будущие возможности — в явно обозначенном разделе планов.",
       "**Do** используйте строительные фото и видео с зафиксированным происхождением в `frontend/assets/media/README.md`."
     ],

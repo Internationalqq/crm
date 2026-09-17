@@ -10,10 +10,19 @@ Edits: clip 4010 seconds 0.3–5.3 followed by clip 42333 seconds 1–6.5 with a
 
 - `construction-1440.mp4`: desktop loop.
 - `construction-mobile.mp4`: smaller portrait loop.
-- `construction-poster.webp`, `construction-poster-mobile.webp`: static and reduced-motion fallback.
+- `construction-poster.webp`, `construction-poster-mobile.webp`: static fallback for no JavaScript, Save-Data, unavailable video or denied autoplay.
+
+The 17 September follow-up requests a continuous film: it does not pause on scroll or automatically opt out under reduced motion. Manual pause remains available, and a hidden browser tab pauses playback. The separate four-scene CRM demonstration does respect reduced motion and stops when outside the viewport. This supersedes the previous shared motion policy.
 
 ## Demonstration illustrations
 
 `demo-interior.webp` and `demo-exterior.webp` reuse the project's existing ImageGen illustrations, originally `frontend/assets/images/project-cover-interior.webp` and `project-cover-exterior.webp`. Generation prompts are recorded in that directory's README. They are explicitly labelled as illustrations in the presentation and are not evidence of customer projects. The copies carry provenance in JSON sidecars; the original CRM assets are untouched.
 
 `pmbi-icon.png` is a copy of the existing `frontend/assets/logo.png` brand asset, with its origin recorded in PNG metadata. WebP provenance uses the Impeccable tool's `.webp.json` sidecars; source assets remain unchanged.
+
+## Site photography
+
+- `site-planning.webp`: [Mikael Blomkvist, Pexels 8961133](https://www.pexels.com/photo/a-man-and-a-woman-with-ppe-s-looking-at-a-blue-print-8961133/), specialists reviewing plans at a construction site. Original 7719×5146; resized to 1400 px wide, WebP quality 82.
+- `site-team.webp`: [This Viktọ, Pexels 10202865](https://www.pexels.com/photo/construction-workers-on-the-building-site-10202865/), construction team at work. Original 6015×3739; resized to 1600 px wide, WebP quality 82.
+
+Downloaded through each photo's official download link on 17 September 2026. [Pexels License](https://www.pexels.com/license/) permits website and commercial promotional use and resizing. No endorsement, affiliation, customer relationship or project ownership is claimed. These are illustrative stock photographs, not PM.bi case studies. JSON sidecars retain source and conversion details. The two source JPEGs remain in ignored QA storage; no generated edits were made.

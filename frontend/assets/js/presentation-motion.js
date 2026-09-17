@@ -7,6 +7,8 @@
     const setControl = (button, playing, label) => {
         button.querySelector('span').textContent = label;
         button.querySelector('use').setAttribute('href', playing ? '#icon-pause' : '#icon-play');
+        button.setAttribute('aria-label', label);
+        button.title = label;
     };
     const watchVisibility = (element, changed) => {
         let visible = false;
@@ -29,12 +31,13 @@
     if (video && filmButton) {
         const frame = video.closest('.hero-film');
         const status = document.querySelector('.film-status');
-        let visible = false;
+        let visible = !document.hidden;
         let intent = null;
         let starting = false;
         let failed = false;
         let firstPaintReady = false;
-        const wantsPlayback = () => visible && !failed && (intent ?? automaticMotion()) && (firstPaintReady || intent === true);
+        // The film is continuous by the presentation brief; the interactive demo respects reduced motion.
+        const wantsPlayback = () => visible && !failed && (intent ?? !connection?.saveData) && (firstPaintReady || intent === true);
         const updateControl = () => setControl(filmButton, !video.paused, video.paused ? 'Включить видео' : 'Пауза видео');
         const sync = () => {
             if (!wantsPlayback()) {
@@ -83,8 +86,7 @@
             firstPaintReady = true;
             sync();
         });
-        watchVisibility(frame, value => { visible = value; sync(); });
-        reduced.addEventListener('change', () => { if (reduced.matches && intent === true) intent = false; sync(); });
+        document.addEventListener('visibilitychange', () => { visible = !document.hidden; sync(); });
         connection?.addEventListener('change', sync);
     }
 
