@@ -4677,15 +4677,6 @@ body[data-page="warehouse"] .section-schedule-chevron:last-child {
         overflow: hidden;
     }
 
-    body.menu-open::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: 900;
-        background: rgba(15, 23, 42, .52);
-        backdrop-filter: blur(2px);
-    }
-
     .app-shell,
     body.sidebar-collapsed .app-shell {
         display: block !important;

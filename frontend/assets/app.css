@@ -1,14 +1,14 @@
-@import "./css/tokens.css?v=20260913-design-c965f07b";
+@import "./css/tokens.css?v=20260917-light-1";
 @import "./css/base.css?v=20260913-design-c965f07b";
-@import "./css/shell.css?v=20260913-design-c965f07b";
+@import "./css/shell.css?v=20260917-light-1";
 @import "./css/components.css?v=20260913-design-c965f07b";
 @import "./css/projects.css?v=20260913-design-c965f07b";
-@import "./css/planning.css?v=20260913-design-c965f07b";
+@import "./css/planning.css?v=20260917-light-1";
 @import "./css/procurement.css?v=20260913-design-c965f07b";
 @import "./css/economics.css?v=20260913-design-c965f07b";
 @import "./css/operations.css?v=20260913-design-c965f07b";
 @import "./css/overrides.css?v=20260913-design-c965f07b";
-@import "./css/ui-system.css?v=20260913-design-c965f07b";
+@import "./css/ui-system.css?v=20260917-light-1";
 @import "./css/ui-projects.css?v=20260913-design-c965f07b";
 @import "./css/ui-workspaces.css?v=20260913-design-c965f07b";
 @import "./css/ui-final.css?v=20260913-design-c965f07b";
@@ -24,4 +24,4 @@
 @import "./css/position-editor.css?v=20260913-design-c965f07b";
 @import "./css/public-entry.css?v=20260913-design-c965f07b";
 @import "./css/guest-access.css?v=20260913-design-c965f07b";
-@import "./css/reminders.css?v=20260913-design-c965f07b";
+@import "./css/reminders.css?v=20260917-light-1";

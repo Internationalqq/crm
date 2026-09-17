@@ -27,8 +27,8 @@
     --space-md: var(--space-4);
     --space-lg: var(--space-5);
 
-    /* Blue-graphite product palette */
-    --color-canvas: #f5f6f8;
+    /* Light product surfaces with blue accents. */
+    --color-canvas: #f8f9fb;
     --color-surface: #ffffff;
     --color-surface-subtle: #f8f9fb;
     --color-surface-accent: #eff6ff;
@@ -42,9 +42,9 @@
     --color-accent-hover: #1d4ed8;
     --color-accent-strong: #173f78;
     --color-accent-soft: #eaf2ff;
-    --color-sidebar: #202630;
-    --color-sidebar-deep: #202630;
-    --color-sidebar-active: #343e4d;
+    --color-sidebar: #ffffff;
+    --color-sidebar-deep: #f8f9fb;
+    --color-sidebar-active: #eaf2ff;
 
     /* Semantic states. Warm hues are reserved for actual warnings only. */
     --color-success: #15803d;
