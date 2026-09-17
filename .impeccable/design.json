@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-17T08:22:49Z",
+  "title": "Design System: PM.bi — презентация",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Белая плоскость",
+        "tonalRamp": [
+          "oklch(15% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95% 0.00000 0.00)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Графит",
+        "tonalRamp": [
+          "oklch(15% 0.01939 245.38)",
+          "oklch(26.43% 0.01939 245.38)",
+          "oklch(37.86% 0.01939 245.38)",
+          "oklch(49.29% 0.01939 245.38)",
+          "oklch(60.71% 0.01939 245.38)",
+          "oklch(72.14% 0.01939 245.38)",
+          "oklch(83.57% 0.01939 245.38)",
+          "oklch(95% 0.01939 245.38)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Сланцевый текст",
+        "tonalRamp": [
+          "oklch(15% 0.02374 243.76)",
+          "oklch(26.43% 0.02374 243.76)",
+          "oklch(37.86% 0.02374 243.76)",
+          "oklch(49.29% 0.02374 243.76)",
+          "oklch(60.71% 0.02374 243.76)",
+          "oklch(72.14% 0.02374 243.76)",
+          "oklch(83.57% 0.02374 243.76)",
+          "oklch(95% 0.02374 243.76)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Холодная линия",
+        "tonalRamp": [
+          "oklch(15% 0.01194 239.92)",
+          "oklch(26.43% 0.01194 239.92)",
+          "oklch(37.86% 0.01194 239.92)",
+          "oklch(49.29% 0.01194 239.92)",
+          "oklch(60.71% 0.01194 239.92)",
+          "oklch(72.14% 0.01194 239.92)",
+          "oklch(83.57% 0.01194 239.92)",
+          "oklch(95% 0.01194 239.92)"
+        ]
+      },
+      "blue": {
+        "role": "primary",
+        "displayName": "Рабочий синий",
+        "tonalRamp": [
+          "oklch(15% 0.19085 262.01)",
+          "oklch(26.43% 0.19085 262.01)",
+          "oklch(37.86% 0.19085 262.01)",
+          "oklch(49.29% 0.19085 262.01)",
+          "oklch(60.71% 0.19085 262.01)",
+          "oklch(72.14% 0.19085 262.01)",
+          "oklch(83.57% 0.19085 262.01)",
+          "oklch(95% 0.19085 262.01)"
+        ]
+      },
+      "blue-hover": {
+        "role": "primary",
+        "displayName": "Глубокий синий",
+        "tonalRamp": [
+          "oklch(15% 0.16108 262.13)",
+          "oklch(26.43% 0.16108 262.13)",
+          "oklch(37.86% 0.16108 262.13)",
+          "oklch(49.29% 0.16108 262.13)",
+          "oklch(60.71% 0.16108 262.13)",
+          "oklch(72.14% 0.16108 262.13)",
+          "oklch(83.57% 0.16108 262.13)",
+          "oklch(95% 0.16108 262.13)"
+        ]
+      },
+      "soft-blue": {
+        "role": "primary",
+        "displayName": "Светлый синий фон",
+        "tonalRamp": [
+          "oklch(15% 0.01138 252.09)",
+          "oklch(26.43% 0.01138 252.09)",
+          "oklch(37.86% 0.01138 252.09)",
+          "oklch(49.29% 0.01138 252.09)",
+          "oklch(60.71% 0.01138 252.09)",
+          "oklch(72.14% 0.01138 252.09)",
+          "oklch(83.57% 0.01138 252.09)",
+          "oklch(95% 0.01138 252.09)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Главный заголовок публичной презентации; мобильные размеры описаны в DESIGN.md Layout."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Основные заголовки разделов публичной презентации."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Заголовки смысловых блоков и открытых строк."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Основной читаемый текст."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Подписи, состояние и служебные пояснения обычного регистра."
+      },
+      "action": {
+        "displayName": "Action",
+        "purpose": "Надпись основной кнопки."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "button-background",
+        "value": "background .18s",
+        "purpose": "Переход фона основной кнопки; отключён при reduced motion."
+      },
+      {
+        "name": "scene-enter",
+        "value": ".6s cubic-bezier(.16, 1, .3, 1) both",
+        "purpose": "Рабочая плоскость сцены: opacity .6 → 1, translateY(14px) → translateY(0)."
+      },
+      {
+        "name": "volume-enter",
+        "value": "1.1s cubic-bezier(.16, 1, .3, 1) both",
+        "purpose": "Полоса результата: scaleX(.15) → scaleX(1)."
+      },
+      {
+        "name": "scene-duration",
+        "value": "6500ms",
+        "purpose": "Время одной сцены автоматического показа. После последней сцены показ останавливается."
+      },
+      {
+        "name": "visibility-threshold",
+        "value": "0.1",
+        "purpose": "IntersectionObserver приостанавливает показ вне области видимости; скрытая вкладка документа также ставит движение на паузу."
+      },
+      {
+        "name": "automatic-motion-policy",
+        "value": "!reduced.matches && !connection?.saveData",
+        "purpose": "Начальное автоматическое движение выключено при reduced motion или Save-Data. Явный ручной запуск возможен; переход к reduced motion останавливает текущий явный запуск. Save-Data не отменяет уже выраженное намерение играть."
+      },
+      {
+        "name": "reduced-motion-css",
+        "value": "scroll-behavior: auto; transition: none; animation: none",
+        "purpose": "Убирает плавную прокрутку, переход фона кнопки и обе анимации сцен. Save-Data не меняет эти CSS-состояния."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop",
+        "value": "1100px"
+      },
+      {
+        "name": "tablet",
+        "value": "900px"
+      },
+      {
+        "name": "mobile",
+        "value": "600px"
+      },
+      {
+        "name": "narrow-mobile",
+        "value": "360px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Основная кнопка",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Главное действие смыслового блока; синий фон, SVG-стрелка, клавиатурный фокус.",
+      "html": "<a class=\"ds-primary\" href=\"#workflow\">Посмотреть систему <svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3v17m-7-7 7 7 7-7\"/></svg></a>",
+      "css": ".ds-primary{display:inline-flex;justify-content:space-between;align-items:center;gap:32px;min-height:58px;padding:15px 23px;border:1px solid transparent;border-radius:2px;font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;font-weight:500;line-height:1.4;background:var(--blue,#1550c4);color:var(--paper,#ffffff);text-decoration:none;transition:background .18s}.ds-primary:hover{background:var(--blue-hover,#103f9d)}.ds-primary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}.ds-icon{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}@media(max-width:600px){.ds-primary{min-height:56px;padding-inline:20px;font-size:17px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "Рабочая сцена",
+      "kind": "custom",
+      "refersTo": "story-screen",
+      "description": "Белая рабочая плоскость с открытыми строками, табличными цифрами и ясным результатом.",
+      "html": "<div class=\"ds-story\"><div class=\"ds-story-top\"><span>Деловой центр «Горизонт»</span><span>Смета</span></div><h4 class=\"ds-story-title\">Отделка первого этажа</h4><div class=\"ds-story-row\"><span>Перегородки</span><span>120 м²</span><b>162 000 ₽</b></div><div class=\"ds-story-total\"><span>Итого по смете</span><strong>348 600 ₽</strong></div></div>",
+      "css": ".ds-story{min-width:0;padding:28px 32px;background:var(--paper,#ffffff);color:var(--ink,#222b33);font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;line-height:1.55;font-variant-numeric:tabular-nums}.ds-story-top{display:flex;justify-content:space-between;gap:20px;color:var(--muted,#586570);font-size:16px;padding-bottom:22px;margin-bottom:23px;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-title{margin:0 0 22px;font-size:26px;font-weight:500;line-height:1.1;letter-spacing:-.035em;text-wrap:balance}.ds-story-row{display:grid;grid-template-columns:1fr 65px 110px;align-items:center;gap:16px;font-size:17px;padding:16px 0;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-row b{text-align:right;font-weight:500;white-space:nowrap}.ds-story-row>span:nth-child(2){color:var(--muted,#586570)}.ds-story-total{display:flex;justify-content:space-between;align-items:center;gap:18px;padding-top:25px;font-size:17px}.ds-story-total strong{font-size:30px;font-weight:500;color:var(--blue,#1550c4);white-space:nowrap}@media(max-width:600px){.ds-story{padding:20px}.ds-story-top{gap:10px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:20px}.ds-story-title{font-size:24px}.ds-story-row{grid-template-columns:1fr 95px;gap:5px 12px;font-size:16px;padding-block:13px}.ds-story-row>span:nth-child(2){grid-row:2}.ds-story-row b{grid-column:2;grid-row:1/3}.ds-story-total{flex-wrap:wrap;gap:7px;padding-top:20px;font-size:16px}.ds-story-total strong{font-size:28px;margin-left:auto}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Документальный монтаж",
+    "overview": "Светлая белая плоскость, крупный графитовый набор и строительный кадр задают характер публичной презентации PM.bi. Изображение узнаваемой стройки соседствует с открытыми строками, рабочими таблицами и ясными действиями. Синий выделяет действие и результат; масштаб текста и свободное пространство создают иерархию.\n\nОбласть действия этого документа — только `/presentation`. Он описывает реализованные `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation-motion.js` и `frontend/assets/js/presentation.js`. Это не замена дизайн-системы рабочей CRM: её оболочка, компактность, токены и компоненты сохраняются. Подтверждённый визуальный мир и композиция страницы записаны отдельно в `.impeccable/surfaces/frontend-templates-presentation-html.md`; обязательства продукта — в `PRODUCT.md`.",
+    "keyCharacteristics": [
+      "Очень светлые поверхности и крупная кириллическая типографика.",
+      "Один основной синий акцент, графитовый текст и спокойные разделители.",
+      "Прямоугольные кадры, открытые строки и плоские рабочие примеры.",
+      "Движение под контролем читателя; смысл остаётся доступен в статичном состоянии."
+    ],
+    "rules": [
+      {
+        "name": "The One Blue Rule",
+        "body": "Синий остаётся единственным основным цветом действий и визуального выделения на презентации. Служебный зелёный статус, локальные оттенки фона секций и цвета фотографий не образуют вторую фирменную палитру.",
+        "section": "colors"
+      },
+      {
+        "name": "The Reading Scale Rule",
+        "body": "Различайте заголовок, пояснение и действие масштабом и отступом. Не переносите плотность рабочих таблиц CRM в презентационные заголовки и не уменьшайте её служебные подписи ниже реализованного мобильного уровня (`16px`).",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Plane Rule",
+        "body": "Разделяйте уровни тоном, линией и отступом. Для элементов этой презентации не добавляйте тени, стеклянные подложки и плавающие декоративные карточки.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** применяйте этот визуальный мир только к публичной презентации PM.bi и сохраняйте отдельную систему рабочей CRM.",
+      "**Do** стройте иерархию крупным набором, свободным пространством и одним главным действием в смысловом блоке.",
+      "**Do** сохраняйте видимые подписи управления движением, клавиатурный фокус, ручной выбор сцены и статичное состояние.",
+      "**Do** отмечайте демонстрационные данные рядом с примерами, а будущие возможности — в явно обозначенном разделе планов.",
+      "**Do** используйте строительные фото и видео с зафиксированным происхождением в `frontend/assets/media/README.md`."
+    ],
+    "donts": [
+      "**Don't** переносите светлую презентационную композицию, её крупный масштаб и интервалы на рабочие экраны CRM без отдельной задачи.",
+      "**Don't** добавляйте второй основной акцент, декоративные тени, мелкие надзаголовки или символы шрифта вместо используемых SVG-иконок.",
+      "**Don't** превращайте служебный статус, единичные оттенки границ и оттенки отдельных секций в новые общие токены.",
+      "**Don't** скрывайте основной смысл или действие за autoplay, прокруткой или доступностью видео.",
+      "**Don't** выдавайте иллюстрации, условные числа и планы за подтверждённые кейсы, цены, отзывы или действующие функции."
+    ]
+  }
+}

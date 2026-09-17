@@ -10206,6 +10206,15 @@ class PMBIHandler(BaseHTTPRequestHandler):
         content_type = "image/webp" if candidate.suffix.lower() == ".webp" else (mimetypes.guess_type(str(candidate))[0] or "application/octet-stream")
         if candidate.suffix.lower() in {".html", ".js", ".css", ".json", ".txt"}:
             content_type += "; charset=utf-8"
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlsplit(self.path).query,
+            keep_blank_values=True,
+        )
+        versioned = any(str(value).strip() for value in query.get("v", []))
+        cache_control = "public, max-age=31536000, immutable" if versioned else "no-cache"
+        if candidate.suffix.lower() in {".mp4", ".webm"}:
+            self.serve_video_asset(candidate, content_type, cache_control)
+            return
         body = candidate.read_bytes()
         compressible = (
             len(body) >= 1024
@@ -10226,17 +10235,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
             content_encoding = "gzip"
         else:
             content_encoding = ""
-        query = urllib.parse.parse_qs(
-            urllib.parse.urlsplit(self.path).query,
-            keep_blank_values=True,
-        )
-        versioned = any(str(value).strip() for value in query.get("v", []))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header(
             "Cache-Control",
-            "public, max-age=31536000, immutable" if versioned else "no-cache",
+            cache_control,
         )
         if compressible:
             self.send_header("Vary", "Accept-Encoding")
@@ -10245,6 +10249,53 @@ class PMBIHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         PMBIHandler.write_response_body(self, body)
+
+    def serve_video_asset(self, candidate: Path, content_type: str, cache_control: str) -> None:
+        """Stream an already validated public asset; support one byte range for media players."""
+        size = candidate.stat().st_size
+        start, end = 0, size - 1
+        status = HTTPStatus.OK
+        requested = str(self.headers.get("Range", "") or "").strip()
+        # No validators are issued here: an If-Range condition cannot be verified.
+        # Ignore unsupported/malformed ranges and ranges on HEAD, as for a normal GET.
+        match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested) if len(requested) <= 200 else None
+        if self.command == "GET" and not self.headers.get("If-Range") and match and any(match.groups()):
+            first, last = match.groups()
+            if first:
+                start = int(first)
+                end = min(int(last), size - 1) if last else size - 1
+            else:
+                start = max(0, size - int(last))
+            status = HTTPStatus.PARTIAL_CONTENT
+            if start >= size or end < start:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                return
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(max(0, end - start + 1)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        with candidate.open("rb") as source:
+            source.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = source.read(min(65536, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def accepts_gzip(self) -> bool:
         qualities: dict[str, float] = {}
