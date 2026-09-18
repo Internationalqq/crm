@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T12:27:43.395Z",
+  "generatedAt": "2026-09-18T14:29:00.012Z",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -8,209 +8,260 @@
         "role": "neutral",
         "displayName": "Белая плоскость",
         "tonalRamp": [
-          "oklch(15% 0.00000 0.00)",
+          "oklch(15.00% 0.00000 0.00)",
           "oklch(26.43% 0.00000 0.00)",
           "oklch(37.86% 0.00000 0.00)",
           "oklch(49.29% 0.00000 0.00)",
           "oklch(60.71% 0.00000 0.00)",
           "oklch(72.14% 0.00000 0.00)",
           "oklch(83.57% 0.00000 0.00)",
-          "oklch(95% 0.00000 0.00)"
+          "oklch(95.00% 0.00000 0.00)"
         ]
       },
       "ink": {
         "role": "neutral",
         "displayName": "Графит",
         "tonalRamp": [
-          "oklch(15% 0.01939 245.38)",
-          "oklch(26.43% 0.01939 245.38)",
-          "oklch(37.86% 0.01939 245.38)",
-          "oklch(49.29% 0.01939 245.38)",
-          "oklch(60.71% 0.01939 245.38)",
-          "oklch(72.14% 0.01939 245.38)",
-          "oklch(83.57% 0.01939 245.38)",
-          "oklch(95% 0.01939 245.38)"
+          "oklch(15.00% 0.01656 259.78)",
+          "oklch(26.43% 0.01656 259.78)",
+          "oklch(37.86% 0.01656 259.78)",
+          "oklch(49.29% 0.01656 259.78)",
+          "oklch(60.71% 0.01656 259.78)",
+          "oklch(72.14% 0.01656 259.78)",
+          "oklch(83.57% 0.01656 259.78)",
+          "oklch(95.00% 0.01656 259.78)"
         ]
       },
       "muted": {
         "role": "neutral",
         "displayName": "Сланцевый текст",
         "tonalRamp": [
-          "oklch(15% 0.02374 243.76)",
-          "oklch(26.43% 0.02374 243.76)",
-          "oklch(37.86% 0.02374 243.76)",
-          "oklch(49.29% 0.02374 243.76)",
-          "oklch(60.71% 0.02374 243.76)",
-          "oklch(72.14% 0.02374 243.76)",
-          "oklch(83.57% 0.02374 243.76)",
-          "oklch(95% 0.02374 243.76)"
+          "oklch(15.00% 0.02724 256.17)",
+          "oklch(26.43% 0.02724 256.17)",
+          "oklch(37.86% 0.02724 256.17)",
+          "oklch(49.29% 0.02724 256.17)",
+          "oklch(60.71% 0.02724 256.17)",
+          "oklch(72.14% 0.02724 256.17)",
+          "oklch(83.57% 0.02724 256.17)",
+          "oklch(95.00% 0.02724 256.17)"
         ]
       },
       "line": {
         "role": "neutral",
         "displayName": "Холодная линия",
         "tonalRamp": [
-          "oklch(15% 0.01194 239.92)",
-          "oklch(26.43% 0.01194 239.92)",
-          "oklch(37.86% 0.01194 239.92)",
-          "oklch(49.29% 0.01194 239.92)",
-          "oklch(60.71% 0.01194 239.92)",
-          "oklch(72.14% 0.01194 239.92)",
-          "oklch(83.57% 0.01194 239.92)",
-          "oklch(95% 0.01194 239.92)"
+          "oklch(15.00% 0.00977 252.82)",
+          "oklch(26.43% 0.00977 252.82)",
+          "oklch(37.86% 0.00977 252.82)",
+          "oklch(49.29% 0.00977 252.82)",
+          "oklch(60.71% 0.00977 252.82)",
+          "oklch(72.14% 0.00977 252.82)",
+          "oklch(83.57% 0.00977 252.82)",
+          "oklch(95.00% 0.00977 252.82)"
         ]
       },
       "blue": {
         "role": "primary",
         "displayName": "Рабочий синий",
         "tonalRamp": [
-          "oklch(15% 0.19085 262.01)",
-          "oklch(26.43% 0.19085 262.01)",
-          "oklch(37.86% 0.19085 262.01)",
-          "oklch(49.29% 0.19085 262.01)",
-          "oklch(60.71% 0.19085 262.01)",
-          "oklch(72.14% 0.19085 262.01)",
-          "oklch(83.57% 0.19085 262.01)",
-          "oklch(95% 0.19085 262.01)"
+          "oklch(15.00% 0.20203 263.37)",
+          "oklch(26.43% 0.20203 263.37)",
+          "oklch(37.86% 0.20203 263.37)",
+          "oklch(49.29% 0.20203 263.37)",
+          "oklch(60.71% 0.20203 263.37)",
+          "oklch(72.14% 0.20203 263.37)",
+          "oklch(83.57% 0.20203 263.37)",
+          "oklch(95.00% 0.20203 263.37)"
         ]
       },
       "blue-hover": {
         "role": "primary",
         "displayName": "Глубокий синий",
         "tonalRamp": [
-          "oklch(15% 0.16108 262.13)",
-          "oklch(26.43% 0.16108 262.13)",
-          "oklch(37.86% 0.16108 262.13)",
-          "oklch(49.29% 0.16108 262.13)",
-          "oklch(60.71% 0.16108 262.13)",
-          "oklch(72.14% 0.16108 262.13)",
-          "oklch(83.57% 0.16108 262.13)",
-          "oklch(95% 0.16108 262.13)"
+          "oklch(15.00% 0.17880 263.38)",
+          "oklch(26.43% 0.17880 263.38)",
+          "oklch(37.86% 0.17880 263.38)",
+          "oklch(49.29% 0.17880 263.38)",
+          "oklch(60.71% 0.17880 263.38)",
+          "oklch(72.14% 0.17880 263.38)",
+          "oklch(83.57% 0.17880 263.38)",
+          "oklch(95.00% 0.17880 263.38)"
         ]
       },
       "soft-blue": {
         "role": "primary",
-        "displayName": "Светлый синий фон",
+        "displayName": "Светлый синий выбор",
         "tonalRamp": [
-          "oklch(15% 0.01138 252.09)",
-          "oklch(26.43% 0.01138 252.09)",
-          "oklch(37.86% 0.01138 252.09)",
-          "oklch(49.29% 0.01138 252.09)",
-          "oklch(60.71% 0.01138 252.09)",
-          "oklch(72.14% 0.01138 252.09)",
-          "oklch(83.57% 0.01138 252.09)",
-          "oklch(95% 0.01138 252.09)"
+          "oklch(15.00% 0.01824 269.09)",
+          "oklch(26.43% 0.01824 269.09)",
+          "oklch(37.86% 0.01824 269.09)",
+          "oklch(49.29% 0.01824 269.09)",
+          "oklch(60.71% 0.01824 269.09)",
+          "oklch(72.14% 0.01824 269.09)",
+          "oklch(83.57% 0.01824 269.09)",
+          "oklch(95.00% 0.01824 269.09)"
+        ]
+      },
+      "wash": {
+        "role": "neutral",
+        "displayName": "Лёгкая поверхность",
+        "tonalRamp": [
+          "oklch(15.00% 0.00287 264.54)",
+          "oklch(26.43% 0.00287 264.54)",
+          "oklch(37.86% 0.00287 264.54)",
+          "oklch(49.29% 0.00287 264.54)",
+          "oklch(60.71% 0.00287 264.54)",
+          "oklch(72.14% 0.00287 264.54)",
+          "oklch(83.57% 0.00287 264.54)",
+          "oklch(95.00% 0.00287 264.54)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Рабочий фон",
+        "tonalRamp": [
+          "oklch(15.00% 0.00454 258.32)",
+          "oklch(26.43% 0.00454 258.32)",
+          "oklch(37.86% 0.00454 258.32)",
+          "oklch(49.29% 0.00454 258.32)",
+          "oklch(60.71% 0.00454 258.32)",
+          "oklch(72.14% 0.00454 258.32)",
+          "oklch(83.57% 0.00454 258.32)",
+          "oklch(95.00% 0.00454 258.32)"
         ]
       }
     },
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Главный h1 «Стройка перед глазами» в первом блоке с видео; адаптивные размеры описаны в DESIGN.md Layout."
+        "purpose": "Центрированный главный заголовок над строительным фильмом."
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Основные заголовки разделов публичной презентации."
+        "purpose": "Заголовки разделов; вторые строки используют muted."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Заголовки смысловых блоков; h3 подписи записи имеет отдельный размер в DESIGN.md. Типографика внутри снимков принадлежит рабочему приложению."
+        "purpose": "Повторяющиеся заголовки роли, формата, инструкции и будущего сценария."
+      },
+      "tour-title": {
+        "displayName": "Tour-Title",
+        "purpose": "Заголовок действия над настоящей записью."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Основной читаемый текст."
+        "purpose": "Основной текст публичной презентации."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Подписи, состояние и служебные пояснения обычного регистра."
+        "purpose": "Подписи, маршруты, служебные пояснения и ссылки шапки."
       },
       "action": {
         "displayName": "Action",
         "purpose": "Надпись основной кнопки."
+      },
+      "chapter": {
+        "displayName": "Chapter",
+        "purpose": "Название главы рядом с функциональным SVG."
       }
     },
     "shadows": [
       {
+        "name": "tour-screen",
+        "value": "0 12px 32px -18px #26344940",
+        "purpose": "Мягкая глубина белого медиа внутри canvas."
+      },
+      {
         "name": "concept-receipt",
-        "value": "0 12px 30px #183c641a",
-        "purpose": "Мягкая бумажная тень у иллюстрации чека в явно будущем сценарии, с наклоном -3deg. Не общий стиль карточек; записи интерфейса имеют тонкую границу без презентационной тени."
+        "value": "0 10px 24px -12px #22304933",
+        "purpose": "Предметная тень чека в явно будущем сценарии без наклона."
       }
     ],
     "motion": [
       {
-        "name": "button-background",
-        "value": "background .18s",
-        "purpose": "Переход фона основной кнопки; отключён при reduced motion."
+        "name": "button-feedback",
+        "value": "background .18s,transform .18s",
+        "purpose": "Наведение меняет фон, нажатие смещает кнопку вниз на 1px; reduced motion отключает переход."
       },
       {
-        "name": "film-playback-policy",
-        "value": "visible && !failed && !denied && !connection?.saveData && firstPaintReady",
-        "purpose": "Непрерывный строительный фильм не останавливается при прокрутке или reduced motion. Скрытая вкладка приостанавливает его; Save-Data блокирует начало загрузки и воспроизведение. Первый запуск ждёт постер и шрифт. Запрет autoplay или ошибка оставляют постер; ручного запуска нет. Эта политика относится только к hero."
+        "name": "ease",
+        "value": "cubic-bezier(.16,1,.3,1)",
+        "purpose": "Общее смягчение CSS-появлений."
       },
       {
-        "name": "tour-progress",
-        "value": "currentTime / duration",
-        "purpose": "Синяя полоса выбранной главы имеет высоту 2px, раскрывается от левого края через scaleX и обновляется по timeupdate. Остальные полосы сбрасываются при выборе главы."
-      },
-      {
-        "name": "tour-continuation",
-        "value": "ended -> activate((index + 1) % tabs.length)",
-        "purpose": "Фиксированного таймера нет: запись заканчивается и включает следующую главу. CRM: фотоотчёт, смета, задача, результат. Автобот: разбор сметы, проверка, цены, в объект, тендеры, поиск позиции. После последней главы цикл повторяется. Щелчок или клавиатурный выбор начинает выбранный клип с начала и сохраняет продолжение; автоматическая смена фокус не переводит."
-      },
-      {
-        "name": "tour-visibility-threshold",
-        "value": "0.12",
-        "purpose": "IntersectionObserver наблюдает секцию записи. Вне экрана и в скрытой вкладке выбранное видео приостанавливается."
-      },
-      {
-        "name": "tour-automatic-policy",
-        "value": "visible && !document.hidden && !preference.matches && !connection?.saveData && !dialog?.open",
-        "purpose": "src назначается только выбранной записи при разрешённом воспроизведении; до 600px используется отдельно записанный файл 390x700, иначе 1280x900. Начальная загрузка при reduced motion или Save-Data не запрашивает MP4; ручные главы показывают соответствующие WebP. Запрет autoplay оставляет кадр, ошибка добавляет сообщение. Кнопок паузы, запуска и повтора нет."
-      },
-      {
-        "name": "tour-expanded-policy",
-        "value": "!preference.matches && !connection?.saveData && !document.hidden",
-        "purpose": "Нативный dialog повторяет выбранный локальный клип без смены глав. Открытие приостанавливает встроенные записи; запрещённое движение, ошибка или autoplay оставляют снимок. Закрытие возвращает фокус на кнопку Увеличить и возобновляет допустимое воспроизведение страницы. SVG закрытия: m6 6 12 12M18 6 6 18."
+        "name": "frame-settle",
+        "value": ".45s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Экран выбранной главы: clip-path inset(1% 0 0), translateY(6px), opacity .85 -> inset(0), translateY(0), opacity 1. Требует motion-ready."
       },
       {
         "name": "panel-reveal",
-        "value": ".45s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Панель внедрения и окно будущего концепта: clip-path inset(0 0 4% 0), opacity .6 -> inset(0), opacity 1. Требует motion-ready; роли и продуктовые записи не используют это появление."
+        "value": ".4s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Панель внедрения и окно будущего концепта: opacity .7 -> 1. Требует motion-ready."
       },
       {
         "name": "disclosure-enter",
-        "value": ".35s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Содержимое FAQ, шагов внедрения и результатов будущих концептов: translateY(-8px), opacity .3 -> translateY(0), opacity 1. Требует motion-ready. Нативные раскрытия доступны без JavaScript."
+        "value": ".3s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Содержимое FAQ, шагов внедрения и результатов концепта: translateY(-6px), opacity .7 -> translateY(0), opacity 1. Требует motion-ready."
       },
       {
         "name": "disclosure-icon",
         "value": "transform .25s",
-        "purpose": "SVG-плюс FAQ, шага внедрения и результата концепта поворачивается на 45deg в открытом состоянии; reduced motion отключает переход."
+        "purpose": "SVG-плюс поворачивается на 45deg; reduced motion отключает переход."
       },
       {
-        "name": "new-motion-gate",
+        "name": "motion-gate",
         "value": "body.motion-ready",
-        "purpose": "presentation-tours.js разрешает CSS-появления только без reduced motion и Save-Data. Движение указателя и действий внутри MP4 записано в настоящем приложении, не задаётся презентационными keyframes. Отдельный GIF из записи загрузки и проверки строки (25s, 8fps, ширина 960px, около 3.95MB) доступен только по ссылке для скачивания, не запрашивается при загрузке страницы."
+        "purpose": "CSS-появления разрешены только без reduced motion и Save-Data. Кадры и ручные действия сохраняются."
       },
       {
-        "name": "reduced-motion-css",
-        "value": "scroll-behavior: auto; transition: none",
-        "purpose": "Убирает плавную прокрутку, переход фона основной кнопки и поворот SVG-плюсов; motion-ready отсутствует. Записи показывают соответствующие статичные кадры, а hero сохраняет отдельно согласованную непрерывную политику."
+        "name": "film-playback-policy",
+        "value": "visible && !failed && !denied && !connection?.saveData && firstPaintReady",
+        "purpose": "Отдельно одобренный непрерывный hero играет при прокрутке и reduced motion. Скрытая вкладка приостанавливает его; Save-Data блокирует загрузку и воспроизведение. Первый запуск ждёт постер и шрифт. Запрет autoplay или ошибка оставляют постер; ручного запуска нет."
+      },
+      {
+        "name": "tour-progress",
+        "value": "currentTime / duration",
+        "purpose": "Полоса 2px раскрывается от левого края через scaleX по timeupdate; выбор главы сбрасывает полосы."
+      },
+      {
+        "name": "tour-continuation",
+        "value": "ended -> activate((index + 1) % tabs.length)",
+        "purpose": "Окончание клипа включает следующую главу и замыкает цикл. Ручной выбор начинает клип заново; автоматическая смена не переводит фокус."
+      },
+      {
+        "name": "tour-visibility-threshold",
+        "value": "0.12",
+        "purpose": "Наблюдатель секции приостанавливает встроенную запись вне видимой области."
+      },
+      {
+        "name": "tour-automatic-policy",
+        "value": "visible && !document.hidden && !preference.matches && !connection?.saveData && !dialog?.open",
+        "purpose": "Источник назначается выбранной главе при разрешённом воспроизведении. Встроенный показ предпочитает data-preview/data-preview-mobile; до 600px выбирается отдельная портретная запись. Первые главы имеют дополнительные сфокусированные 900x632 и 390x700 записи; исходные двадцать 1280x900/390x700 сохранены. Reduced motion и Save-Data не запрашивают MP4 при начальной загрузке. Запрет autoplay оставляет WebP, ошибка добавляет сообщение; кнопок паузы, запуска и повтора нет."
+      },
+      {
+        "name": "tour-expanded-policy",
+        "value": "!preference.matches && !connection?.saveData && !document.hidden",
+        "purpose": "Диалог повторяет исходный полный клип из data-src/data-mobile и использует полный постер из data-full/data-full-mobile, если задан. Открытие приостанавливает встроенные записи. Закрытие возвращает фокус и возобновляет допустимое воспроизведение."
       },
       {
         "name": "role-stage-duration",
         "value": "8000ms",
-        "purpose": "Три роли по кругу: руководитель, прораб, заказчик. Щелчок и клавиатурный выбор запускают полный интервал заново, затем цикл продолжается. Автоматическая смена не перемещает фокус; кнопки паузы нет."
+        "purpose": "Три роли меняются по кругу. Ручной выбор начинает полный интервал заново; автоматическая смена фокус не переводит."
       },
       {
         "name": "role-visibility-threshold",
         "value": "0.15",
-        "purpose": "IntersectionObserver наблюдает блок ролей. Вне экрана, при скрытой вкладке или pagehide таймер очищается; возвращение в допустимое состояние запускает полный интервал заново."
+        "purpose": "Вне экрана, при скрытой вкладке и pagehide таймер очищается; возврат запускает полный интервал."
       },
       {
         "name": "role-automatic-policy",
         "value": "visible && !document.hidden && !preference.matches && !connection?.saveData",
-        "purpose": "Reduced motion и Save-Data оставляют текущую роль статичной; ручной выбор доступен. Стрелки, Home и End перемещают фокус только по клавиатурному вводу. Форматы внедрения и будущие сценарии выбираются вручную, без таймера. Без JavaScript показана роль руководителя с настоящим снимком CRM."
+        "purpose": "Reduced motion и Save-Data оставляют роль статичной и доступной вручную. Форматы и будущие сценарии не имеют таймера."
+      },
+      {
+        "name": "reduced-motion-css",
+        "value": "scroll-behavior: auto; transition: none",
+        "purpose": "Отключает плавную прокрутку и переходы кнопки и плюсов; motion-ready отсутствует. Отдельная политика hero сохраняется."
       }
     ],
     "breakpoints": [
@@ -236,91 +287,115 @@
     {
       "name": "Основная кнопка",
       "kind": "button",
-      "refersTo": "button-primary",
-      "description": "Главное действие без декоративной стрелки; синий фон, клавиатурный фокус и прямая ссылка в публичную CRM.",
-      "html": "<a class=\"ds-primary\" href=\"/app/projects\">Открыть PM.bi</a>",
-      "css": ".ds-primary{display:inline-flex;justify-content:center;align-items:center;gap:32px;min-height:58px;padding:15px 23px;border:1px solid transparent;border-radius:2px;font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;font-weight:500;line-height:1.4;background:var(--blue,#1550c4);color:var(--paper,#ffffff);text-decoration:none;transition:background .18s}.ds-primary:hover{background:var(--blue-hover,#103f9d)}.ds-primary:active{transform:translateY(1px)}.ds-primary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-primary{min-height:56px;padding-inline:20px;font-size:17px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+      "description": "Главное действие с мягкими краями, синим наведением и заметным фокусом.",
+      "html": "<a class=\"ds-button ds-primary\" href=\"/app/projects\">Открыть PM.bi</a>",
+      "css": ".ds-button{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-button{text-decoration:none}.ds-button{display: inline-flex; justify-content: center; align-items: center; min-height: 52px; padding: 13px 24px; border: 1px solid transparent; border-radius: 7px; font-size: 18px; font-weight: 500; line-height: 1.4; transition: background .18s,transform .18s;}.ds-primary{background: var(--blue,#2258d6); color: #fff;}.ds-primary:hover{background: var(--blue-hover,#1947b3);}.ds-button:active{transform: translateY(1px);}@media (max-width: 600px){.ds-button{min-height: 52px; font-size: 17px; padding-inline: 20px;}}@media (prefers-reduced-motion: reduce){.ds-button{transition: none;}}.ds-button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "button-primary"
+    },
+    {
+      "name": "Вход в CRM",
+      "kind": "button",
+      "description": "Контурное действие шапки; на телефоне остаётся текстовой ссылкой.",
+      "html": "<a class=\"ds-login\" href=\"/login\">Войти в CRM</a>",
+      "css": ".ds-login{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-login{text-decoration:none}.ds-login{display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 9px 18px; margin-left: auto; border: 1px solid #cdd5df; border-radius: 7px; font-size: 16px;}.ds-login:hover{background: var(--wash,#f7f8fa); border-color: #9ca9bc;}@media (max-width: 900px){.ds-login{margin-left: 0; padding-inline: 14px;}}@media (max-width: 600px){.ds-login{padding-inline: 0; border: 0; font-size: 16px;}}@media print{.ds-login{display: none;}}.ds-login:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "header-login"
     },
     {
       "name": "Текстовая ссылка",
       "kind": "button",
-      "refersTo": "text-link",
-      "description": "Вторичное действие с синей надписью и подчёркиванием при наведении; ведёт в существующую CRM. Ссылка на GIF использует тот же вид и загружает файл только при выборе.",
-      "html": "<a class=\"ds-text-link\" href=\"/app/projects\">Открыть PM.bi</a>",
-      "css": ".ds-text-link{display:inline-flex;align-items:center;justify-content:space-between;gap:25px;color:var(--blue,#1550c4);font:400 18px/1.5 var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);padding:8px 0;text-decoration:none;text-underline-offset:5px}.ds-text-link:hover{text-decoration:underline}.ds-text-link:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-text-link{font-size:17px}}"
+      "description": "Вторичное действие обычного регистра с подчёркиванием при наведении.",
+      "html": "<a class=\"ds-link\" href=\"/app/projects\">Открыть PM.bi</a>",
+      "css": ".ds-link{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-link{text-decoration:none;text-underline-offset:5px}.ds-link{display: inline-flex; align-items: center; color: var(--blue,#2258d6); font-size: 17px; line-height: 1.5; padding-block: 8px;}.ds-link:hover{text-decoration: underline;}.ds-link:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "text-link"
     },
     {
       "name": "Главы записи продукта",
       "kind": "nav",
-      "refersTo": "tour-tab",
-      "description": "Настоящие записи кликов на синтетических данных: четыре главы CRM и шесть Автобота. Текстовые вкладки управляют локальными MP4 и WebP, показывают прогресс; подписи объясняют действия, не выполняя запросы к CRM. Цены, тендеры и поиск позиции показывают настройку, импорт — выбор объекта до подтверждения, результат CRM — планируемый счёт. Происхождение и параметры записаны в frontend/assets/media/README.md и product/recordings.json.",
-      "html": "<div class=\"ds-tour-tabs ds-tour-tabs-bot\" role=\"tablist\" aria-label=\"Сценарии Автобота\"><button type=\"button\" role=\"tab\" aria-selected=\"true\" tabindex=\"0\"><span>Разбор сметы</span><i aria-hidden=\"true\"></i></button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><span>Проверка</span><i aria-hidden=\"true\"></i></button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><span>Цены</span><i aria-hidden=\"true\"></i></button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><span>В объект</span><i aria-hidden=\"true\"></i></button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><span>Тендеры</span><i aria-hidden=\"true\"></i></button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><span>Поиск позиции</span><i aria-hidden=\"true\"></i></button></div>",
-      "css": ".ds-tour-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin-bottom:22px}.ds-tour-tabs-bot{grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}.ds-tour-tabs button{position:relative;min-width:0;padding:17px 0;min-height:58px;border:0;background:transparent;text-align:left;color:var(--muted,#586570);font:400 19px/1.3 var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);cursor:pointer}.ds-tour-tabs button::after,.ds-tour-tabs i{content:\"\";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--line,#d7dfe5)}.ds-tour-tabs i{z-index:1;background:var(--blue,#1550c4);transform:scaleX(var(--tour-progress,0));transform-origin:left}.ds-tour-tabs [aria-selected=\"true\"]{color:var(--blue,#1550c4)}.ds-tour-tabs [aria-selected=\"true\"]::after{background:#a8bfea}.ds-tour-tabs button:hover{color:var(--ink,#222b33)}.ds-tour-tabs button:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:900px){.ds-tour-tabs-bot{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 24px}}@media(max-width:600px){.ds-tour-tabs,.ds-tour-tabs-bot{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 20px;margin-bottom:20px}.ds-tour-tabs button{font-size:18px;padding-block:14px}}"
+      "description": "Боковая навигация 216px с SVG, подсказкой и прогрессом; до 1100px расположена над записью. Код страницы меняет aria-orientation и набор стрелок вместе с раскладкой.",
+      "html": "<div class=\"ds-chapters\" role=\"tablist\" aria-label=\"Сценарии CRM\" aria-orientation=\"vertical\">\n<button type=\"button\" role=\"tab\" aria-selected=\"true\" tabindex=\"0\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M4 6h4l2-3h4l2 3h4v14H4z\"/><circle cx=\"12\" cy=\"12\" r=\"4\"/></svg><span class=\"ds-chapter-copy\"><span>Фотоотчёт</span><small>Что сделано</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M8 8h8M8 12h8M8 16h5\"/></svg><span class=\"ds-chapter-copy\"><span>Смета</span><small>План и факт</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"17\" rx=\"2\"/><path d=\"M8 2v4m8-4v4M8 13l3 3 5-6\"/></svg><span class=\"ds-chapter-copy\"><span>Задача</span><small>Кто отвечает</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4zM20 12h-6v4h6\"/></svg><span class=\"ds-chapter-copy\"><span>Результат</span><small>Что оплатить</small></span><i aria-hidden=\"true\"></i></button>\n</div>",
+      "css": ".ds-chapters{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-chapters{width:216px}.ds-chapters button{font:inherit;cursor:pointer}@media(max-width:1100px){.ds-chapters{width:auto}}.ds-chapters .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-chapters{grid-column: 1; grid-row: 2/4; display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 16px 12px; border-right: 1px solid var(--line,#e0e5eb); background: var(--wash,#f7f8fa);}.ds-chapters button{position: relative; display: flex; align-items: start; gap: 12px; padding: 19px 12px; min-height: 74px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted,#606b7a); text-align: left; line-height: 1.3;}.ds-chapters button > .ds-icon{width: 20px; height: 20px; margin-top: 2px;}.ds-chapter-copy{display: block; min-width: 0;}.ds-chapter-copy > span{display: block; font-size: 18px; font-weight: 500;}.ds-chapter-copy small{display: block; margin-top: 6px; color: var(--muted,#606b7a); font-size: 16px; line-height: 1.4;}.ds-chapters [aria-selected=\"true\"]{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters button:hover{background: #edf0f4; color: var(--ink,#22272f);}.ds-chapters [aria-selected=\"true\"]:hover{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters i{position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: var(--blue,#2258d6); transform: scaleX(var(--tour-progress,0)); transform-origin: left;}@media (max-width: 1100px){.ds-chapters{grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; padding: 10px; border-right: 0; border-bottom: 1px solid var(--line,#e0e5eb);}}@media (max-width: 1100px){.ds-chapters button{padding: 14px; min-height: 68px;}}@media (max-width: 1100px){.ds-chapter-copy small{display: none;}}@media (max-width: 900px){.ds-chapters button{gap: 8px; padding: 12px 10px;}}@media (max-width: 900px){.ds-chapter-copy > span{font-size: 17px;}}@media (max-width: 600px){.ds-chapters{grid-template-columns: repeat(2,minmax(0,1fr)); padding: 8px;}}@media (max-width: 600px){.ds-chapters button{padding: 13px 9px; min-height: 56px; align-items: center; gap: 9px;}}@media (max-width: 600px){.ds-chapters button > .ds-icon{width: 18px; height: 18px; margin-top: 0;}}@media (max-width: 600px){.ds-chapter-copy > span{font-size: 16px;}}@media (max-width: 360px){.ds-chapters button{gap: 6px; padding-inline: 6px;}}@media print{.ds-chapters{display: none;}}.ds-chapters button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "tour-tab"
     },
     {
       "name": "Увеличить запись",
       "kind": "button",
-      "refersTo": "tour-expand",
-      "description": "Текстовое действие с контурным SVG открывает нативный dialog. Белая плоскость шириной min(1460px, calc(100vw - 48px)), на телефоне calc(100vw - 16px); подложка #182938b8. Закреплённая строка содержит заголовок и текст Закрыть с SVG. Медиа сохраняет пропорции через object-fit:contain, повторяет выбранную главу и имеет статичную замену.",
-      "html": "<button class=\"ds-tour-expand\" type=\"button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5\"/></svg>Увеличить</button>",
-      "css": ".ds-tour-expand{display:inline-flex;align-items:center;gap:10px;min-height:44px;border:0;background:transparent;color:var(--blue,#1550c4);padding:8px 0 8px 16px;font:400 17px/1.55 var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);cursor:pointer}.ds-tour-expand svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}.ds-tour-expand:hover{color:var(--blue-hover,#103f9d)}.ds-tour-expand:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-tour-expand{font-size:16px;padding-left:0;gap:7px}.ds-tour-expand svg{width:18px;height:18px}}"
+      "description": "Открывает исходный полный клип и постер главы в нативном светлом dialog, сохраняя контекст сфокусированного встроенного кадра.",
+      "html": "<button class=\"ds-expand\" type=\"button\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5\"/></svg>Увеличить</button>",
+      "css": ".ds-expand{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-expand{cursor:pointer}.ds-expand .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-expand{display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 0 8px 12px; border: 0; background: transparent; color: var(--blue,#2258d6); font-size: 16px; white-space: nowrap;}.ds-expand .ds-icon{width: 20px; height: 20px;}.ds-expand:hover{color: var(--blue-hover,#1947b3);}@media (max-width: 600px){.ds-expand{font-size: 16px;}}@media (max-width: 600px){.ds-expand{gap: 6px; padding-left: 0;}}@media (max-width: 600px){.ds-expand .ds-icon{width: 17px; height: 17px;}}@media print{.ds-expand{display: none;}}.ds-expand:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "tour-expand"
     },
     {
       "name": "Вкладки ролей",
       "kind": "nav",
-      "refersTo": "role-tab",
-      "description": "Текстовые вкладки с синей полосой выбранной роли. Стрелки, Home и End, восьмисекундный цикл после ручного выбора; автоматическая смена фокус не переводит. На широком экране описание слева, настоящий снимок CRM справа; до 900px они идут последовательно. picture выбирает портретный снимок до 600px. Общая область сохраняет высоту; подпись отделяет пример от настройки реальных прав доступа.",
-      "html": "<div class=\"ds-role-tabs\" role=\"tablist\" aria-label=\"Роли в примере\"><button type=\"button\" role=\"tab\" aria-selected=\"true\">Руководитель</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Прораб</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Заказчик</button></div>",
-      "css": ".ds-role-tabs{display:flex;gap:32px;border-bottom:1px solid var(--line,#d7dfe5);font-family:var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif)}.ds-role-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;border-radius:0;color:var(--muted,#586570);padding:18px 0;font:400 20px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);white-space:nowrap;cursor:pointer}.ds-role-tabs button[aria-selected=\"true\"]{color:var(--blue,#1550c4);border-bottom-color:var(--blue,#1550c4)}.ds-role-tabs button:hover{color:var(--blue,#1550c4)}.ds-role-tabs button:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-role-tabs{gap:0;justify-content:space-between}.ds-role-tabs button{padding-block:15px;font-size:16px}}"
+      "description": "Текстовые вкладки с синей нижней полосой выбранной роли и графитовым наведением.",
+      "html": "<div class=\"ds-roles\" role=\"tablist\" aria-label=\"Роль в строительной команде\"><button type=\"button\" role=\"tab\" aria-selected=\"true\">Руководитель</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Прораб</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Заказчик</button></div>",
+      "css": ".ds-roles{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-roles{border-bottom:1px solid var(--line,#e0e5eb)}.ds-roles button{font:inherit;cursor:pointer}.ds-roles{display: flex; gap: 32px;}.ds-roles button{background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--muted,#606b7a); padding: 18px 0; font-size: 18px; white-space: nowrap;}.ds-roles button[aria-selected=\"true\"]{color: var(--blue,#2258d6); border-bottom-color: var(--blue,#2258d6);}.ds-roles button:hover{color: var(--ink,#22272f);}@media (max-width: 600px){.ds-roles{justify-content: space-between; gap: 8px;}}@media (max-width: 600px){.ds-roles button{padding-block: 15px; font-size: 16px;}}.ds-roles button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "role-tab"
+    },
+    {
+      "name": "Форматы внедрения",
+      "kind": "nav",
+      "description": "Три связанных выбора. Выбранный формат имеет светло-синий фон и синюю нижнюю границу; переключение ручное.",
+      "html": "<div class=\"ds-plans\" role=\"tablist\" aria-label=\"Формат внедрения\">\n                <button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><strong>Пилот</strong><span>Один объект</span></button>\n                <button type=\"button\" role=\"tab\" aria-selected=\"true\"><strong>Подписка</strong><span>Для команды</span></button>\n                <button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><strong>Своя версия</strong><span>Под ваши процессы</span></button>\n            </div>",
+      "css": ".ds-plans{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-plans button{font:inherit;cursor:pointer}.ds-plans{display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border: 1px solid var(--line,#e0e5eb); border-radius: 12px 12px 0 0; overflow: hidden;}.ds-plans button{display: flex; flex-direction: column; align-items: start; gap: 7px; padding: 24px 28px; border: 0; border-bottom: 2px solid transparent; background: var(--paper,#fff); color: var(--ink,#22272f); text-align: left;}.ds-plans button + button{border-left: 1px solid var(--line,#e0e5eb);}.ds-plans strong{font-size: 24px; font-weight: 550; line-height: 1.2;}.ds-plans span{font-size: 16px; color: var(--muted,#606b7a);}.ds-plans button:hover{background: var(--wash,#f7f8fa);}.ds-plans button[aria-selected=\"true\"]{background: var(--soft-blue,#edf2ff); border-bottom-color: var(--blue,#2258d6); color: var(--blue,#2258d6);}@media (max-width: 900px){.ds-plans button{padding: 22px;}}@media (max-width: 600px){.ds-plans{grid-template-columns: 1fr;}}@media (max-width: 600px){.ds-plans button{flex-direction: row; justify-content: space-between; align-items: center; gap: 14px; padding: 18px 20px;}}@media (max-width: 600px){.ds-plans button + button{border-left: 0; border-top: 1px solid var(--line,#e0e5eb);}}@media (max-width: 600px){.ds-plans strong{font-size: 23px;}}@media (max-width: 600px){.ds-plans span{max-width: 126px; text-align: right;}}@media (max-width: 360px){.ds-plans strong{font-size: 21px;}}@media (max-width: 360px){.ds-plans span{max-width: 105px;}}.ds-plans button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "plan-option"
+    },
+    {
+      "name": "Окно будущего сценария",
+      "kind": "card",
+      "description": "Белая вложенная плоскость с явной пометкой Пример и ручным раскрытием; иллюстрирует только будущий сценарий.",
+      "html": "<div class=\"ds-concept-window\"><div class=\"ds-concept-header\"><strong>Заявка по клубу</strong><span>Пример</span></div><div class=\"ds-service-scene\"><svg viewBox=\"0 0 320 140\" aria-hidden=\"true\"><rect x=\"112\" y=\"12\" width=\"98\" height=\"64\" rx=\"3\"/><path d=\"M160 76v20m-25 0h50M40 108h240M58 108v23m204-23v23\"/><path class=\"ds-service-mark\" d=\"M43 106h34m-17-17v34\"/></svg><h4>Повреждена кромка стола</h4><p>Зал 1 · рабочее место 8</p></div><details class=\"ds-concept-result\"><summary>Как организовать ремонт<svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><div><dl><div><dt>Сотрудник</dt><dd>Оставляет заявку с фото</dd></div><div><dt>Ответственный</dt><dd>Заказывает материалы и ремонт</dd></div><div><dt>Руководитель</dt><dd>Видит результат и фото после работ</dd></div></dl></div></details></div>",
+      "css": ".ds-concept-window{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-concept-window h4{margin:0;font-weight:550;line-height:1.12;letter-spacing:-.035em;text-wrap:balance}.ds-concept-window p{margin:0}.ds-concept-result summary{cursor:pointer}.ds-concept-result .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-concept-result summary{display: flex; align-items: center; gap: 16px; list-style: none; padding-block: 20px; font-size: 18px; line-height: 1.4;}.ds-concept-result summary::-webkit-details-marker{display: none;}.ds-concept-result summary .ds-icon{margin-left: auto; color: var(--blue,#2258d6); transition: transform .25s;}.ds-concept-result[open] .ds-icon{transform: rotate(45deg);}.ds-concept-result dl{margin: 20px 0 0; font-size: 16px;}.ds-concept-result dl > div{display: grid; grid-template-columns: 1fr 1.4fr; gap: 18px; padding-block: 10px; border-top: 1px solid var(--line,#e0e5eb);}.ds-concept-result dt{color: var(--muted,#606b7a);}.ds-concept-result dd{margin: 0;}.ds-concept-window{padding: 26px; min-width: 0; border: 1px solid var(--line,#e0e5eb); border-radius: 12px; background: var(--paper,#fff);}.ds-concept-header{display: flex; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line,#e0e5eb); font-size: 16px;}.ds-concept-header strong{font-weight: 500;}.ds-concept-header > span{color: var(--muted,#606b7a);}.ds-concept-result{border-top: 1px solid var(--line,#e0e5eb);}.ds-concept-result summary{padding-bottom: 0; color: var(--blue,#2258d6);}.ds-concept-result > div{padding-top: 4px;}.ds-concept-result > div > p{margin-top: 18px; color: var(--muted,#606b7a); font-size: 16px;}.ds-service-scene{margin-block: 24px; padding: 24px; background: var(--wash,#f7f8fa);}.ds-service-scene svg{display: block; width: 100%; max-width: 320px; margin: 0 auto 22px; fill: none; stroke: var(--muted,#606b7a); stroke-width: 2;}.ds-service-scene .ds-service-mark{stroke: var(--blue,#2258d6); stroke-width: 4;}.ds-service-scene h4{font-size: 24px;}.ds-service-scene p{margin-top: 12px; font-size: 16px; color: var(--muted,#606b7a);}@media (max-width: 900px){.ds-concept-window{padding: 20px;}}@media (max-width: 600px){.ds-concept-result dl > div{grid-template-columns: 1fr; gap: 6px;}}@media (max-width: 600px){.ds-concept-header{flex-wrap: wrap; gap: 6px 12px;}}@media (max-width: 600px){.ds-concept-result summary{font-size: 17px;}}@media (max-width: 600px){.ds-service-scene{padding: 20px;}}@media (prefers-reduced-motion: reduce){.ds-concept-result summary .ds-icon{transition: none;}}.ds-concept-result summary:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "refersTo": "concept-window"
     },
     {
       "name": "Нативный шаг внедрения",
       "kind": "custom",
-      "description": "Три раскрытия рядом со снимком выбора объекта в Автоботе объясняют объект, доступ команды и первый сценарий. Первое открыто, общее имя связывает шаги в нативную группу. Та же линия, SVG-плюс и раскрытие результата используются в будущих концептах; ручное управление и содержание доступны без JavaScript.",
-      "html": "<details class=\"ds-launch-step\" name=\"ds-launch-steps\" open><summary><span>01</span>Выберем объект<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><div><p>Возьмём один понятный участок работы: смету, задачи, график или затраты.</p><dl><div><dt>Что понадобится</dt><dd>Описание объекта и текущего процесса</dd></div><div><dt>Что определим</dt><dd>С чего команде удобнее начать</dd></div></dl></div></details>",
-      "css": ".ds-launch-step{border-block:1px solid var(--line,#d7dfe5);color:var(--ink,#222b33);font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif)}.ds-launch-step summary{display:flex;align-items:center;gap:16px;list-style:none;padding-block:22px;font-size:20px;line-height:1.4;cursor:pointer}.ds-launch-step summary::-webkit-details-marker{display:none}.ds-launch-step summary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}.ds-launch-step summary>span{color:var(--blue,#1550c4);font-size:16px;font-variant-numeric:tabular-nums}.ds-launch-step summary svg{margin-left:auto;width:24px;height:24px;fill:none;stroke:var(--blue,#1550c4);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;transition:transform .25s}.ds-launch-step[open] summary svg{transform:rotate(45deg)}.ds-launch-step>div{padding-bottom:24px}.ds-launch-step p{margin:0;color:var(--muted,#586570)}.ds-launch-step dl{margin:20px 0 0;font-size:16px}.ds-launch-step dl>div{display:grid;grid-template-columns:1fr 1.4fr;gap:18px;padding-block:10px;border-top:1px solid var(--line,#d7dfe5)}.ds-launch-step dt{color:var(--muted,#586570)}.ds-launch-step dd{margin:0}@media(max-width:600px){.ds-launch-step summary{gap:12px;font-size:18px}.ds-launch-step dl>div{grid-template-columns:1fr;gap:6px}}@media(prefers-reduced-motion:reduce){.ds-launch-step summary svg{transition:none}}"
+      "description": "Нумерованное раскрытие с тонкими линиями, сланцевым номером и синим SVG-плюсом; работает без JavaScript.",
+      "html": "<details class=\"ds-step\" name=\"ds-launch-steps\" open><summary><span>01</span>Выберем объект<svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><div><p>Возьмём один понятный участок работы: смету, задачи, график или затраты.</p><dl><div><dt>Что понадобится</dt><dd>Описание объекта и текущего процесса</dd></div><div><dt>Что определим</dt><dd>С чего команде удобнее начать</dd></div></dl></div></details>",
+      "css": ".ds-step{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-step p{margin:0}.ds-step summary{cursor:pointer}.ds-step .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-step{border-top: 1px solid var(--line,#e0e5eb);}.ds-step:last-child{border-bottom: 1px solid var(--line,#e0e5eb);}.ds-step summary{display: flex; align-items: center; gap: 16px; list-style: none; padding-block: 20px; font-size: 18px; line-height: 1.4;}.ds-step summary::-webkit-details-marker{display: none;}.ds-step summary > span{color: var(--muted,#606b7a); font-size: 16px; font-variant-numeric: tabular-nums;}.ds-step summary .ds-icon{margin-left: auto; color: var(--blue,#2258d6); transition: transform .25s;}.ds-step[open] .ds-icon{transform: rotate(45deg);}.ds-step > div{padding-bottom: 22px;}.ds-step p{color: var(--muted,#606b7a);}.ds-step dl{margin: 20px 0 0; font-size: 16px;}.ds-step dl > div{display: grid; grid-template-columns: 1fr 1.4fr; gap: 18px; padding-block: 10px; border-top: 1px solid var(--line,#e0e5eb);}.ds-step dt{color: var(--muted,#606b7a);}.ds-step dd{margin: 0;}@media (max-width: 600px){.ds-step summary{gap: 12px;}}@media (max-width: 600px){.ds-step dl > div{grid-template-columns: 1fr; gap: 6px;}}@media (prefers-reduced-motion: reduce){.ds-step summary .ds-icon{transition: none;}}.ds-step summary:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}"
     }
   ],
   "narrative": {
-    "northStar": "Документальный монтаж",
-    "overview": "Светлая белая плоскость, крупный графитовый набор и строительный кадр задают характер публичной презентации PM.bi. Изображение узнаваемой стройки соседствует с открытыми строками, рабочими таблицами и ясными действиями. Синий выделяет действие и результат; масштаб текста и свободное пространство создают иерархию.\n\nОбласть действия этого документа — только `/presentation`. Он описывает реализованные `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation-motion.js`, `frontend/assets/js/presentation-tours.js` и `frontend/assets/js/presentation.js`. Это не замена дизайн-системы рабочей CRM: её оболочка, компактность, токены и компоненты сохраняются. Подтверждённый визуальный мир и композиция страницы записаны отдельно в `.impeccable/surfaces/frontend-templates-presentation-html.md`; обязательства продукта — в `PRODUCT.md`.",
+    "northStar": "Светлая среда просмотра проекта",
+    "overview": "Белая плоскость, холодные нейтральные поверхности и тонкая общая рамка собирают презентацию PM.bi в единую продуктовую среду. Выбранный пользователем ориентир Attio выражен в центрированном крупном наборе, ясной сетке, сдержанных элементах управления и мягких краях рабочих сцен. Строительный фильм и реальные записи действий остаются главными материалами; синий связывает действие, выбранную главу и прогресс.\n\nОбласть действия — только `/presentation`. Источники значений и поведения: `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation.js`, `frontend/assets/js/presentation-motion.js` и `frontend/assets/js/presentation-tours.js`. Рабочая CRM сохраняет собственные токены, плотность и ограничения доступа. Текущий surface brief находится в `.impeccable/surfaces/frontend-templates-presentation-html.md`; продуктовые обязательства — в `PRODUCT.md`. Прежний документальный мир является историей, а не действующим визуальным правилом.",
     "keyCharacteristics": [
-      "Очень светлые поверхности и крупная кириллическая типографика.",
-      "Один основной синий акцент, графитовый текст и спокойные разделители.",
-      "Прямоугольные кадры, открытые строки и записи настоящего рабочего интерфейса.",
-      "Непрерывный фильм и повторяющийся показ с ручным выбором сцены; смысл остаётся доступен в статичном состоянии.",
-      "Записанные клики и видимый указатель связывают исходник, проверку человеком и результат; подпись объясняет показанный сценарий."
+      "Общая светлая рамка, тонкие разделители и последовательные поля от первого экрана до подвала.",
+      "Плотный кириллический Golos Text; вторые строки заголовков спокойнее основного текста.",
+      "Один синий акцент для действий и выбранных состояний; холодные нейтральные рабочие поверхности.",
+      "Реальные записи с главами, подписями и доступом к полному контексту; мягкие края обрамляют полезный рабочий участок.",
+      "Ручной выбор и статичные кадры сохраняют смысл; движение зависит от отдельной политики фильма и продуктовых сцен."
     ],
     "rules": [
       {
         "name": "The One Blue Rule",
-        "body": "Синий остаётся единственным основным цветом действий и визуального выделения на презентации. Служебный зелёный статус, локальные оттенки фона секций и цвета фотографий не образуют вторую фирменную палитру.",
+        "body": "Синий связывает действия и выбранные состояния. Цвета строительного фильма, фотографий и записанной CRM не расширяют палитру презентационной оболочки.",
         "section": "colors"
       },
       {
         "name": "The Reading Scale Rule",
-        "body": "Различайте заголовок, пояснение и действие масштабом и отступом. Не переносите плотность рабочих таблиц CRM в презентационные заголовки и не уменьшайте её служебные подписи ниже реализованного мобильного уровня (`16px`).",
+        "body": "Разделяйте заголовок, пояснение и действие масштабом, цветом и отступом. Служебный текст оболочки сохраняет читаемый мобильный размер не меньше (`16px`); плотность и шрифты внутри настоящих записей принадлежат самим приложениям.",
         "section": "typography"
       },
       {
-        "name": "The Flat Plane Rule",
-        "body": "Разделяйте основные уровни тоном, линией и отступом. Мягкая тень допустима у чека в будущем сценарии; не переносите её на обычные контейнеры, навигацию и кнопки. Стеклянные подложки и плавающие декоративные карточки не относятся к этому миру.",
+        "name": "The Working Depth Rule",
+        "body": "Тень поддерживает вложенный экран или предметный пример. Общая рамка, навигация и действия отделяются линией и тоном; стеклянные подложки и декоративные плавающие карточки в текущую систему не входят.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "**Do** применяйте этот визуальный мир только к публичной презентации PM.bi и сохраняйте отдельную систему рабочей CRM.",
-      "**Do** стройте иерархию крупным набором, свободным пространством и одним главным действием в смысловом блоке.",
-      "**Do** сохраняйте доступные названия вкладок, клавиатурный фокус, ручной выбор сцены и статичное состояние.",
-      "**Do** отмечайте демонстрационные данные рядом с примерами, а будущие возможности — в явно обозначенном разделе планов.",
-      "**Do** используйте строительный фильм и настоящие записи интерфейса с зафиксированным происхождением в `frontend/assets/media/README.md`; сохраняйте отдельный мобильный кадр и статичную замену."
+      "**Do** применяйте эту систему только к публичной презентации; рабочая CRM сохраняет собственный визуальный и ролевой контракт.",
+      "**Do** собирайте страницу общей рамкой, последовательными полями, крупным набором и одним главным действием в смысловом блоке.",
+      "**Do** делайте результат записи понятным по кадру и подписи, сохраняя ручной выбор и доступ к полному контексту.",
+      "**Do** отмечайте демонстрационные данные и будущие концепты рядом с соответствующим материалом.",
+      "**Do** сохраняйте SVG, клавиатурную ориентацию, видимый фокус, отдельные мобильные записи и статичные варианты движения."
     ],
     "donts": [
-      "**Don't** переносите светлую презентационную композицию, её крупный масштаб и интервалы на рабочие экраны CRM без отдельной задачи.",
-      "**Don't** добавляйте второй основной акцент, декоративные тени вне описанного предметного показа, мелкие надзаголовки или символы шрифта вместо используемых SVG-иконок.",
-      "**Don't** превращайте служебный статус, единичные оттенки границ и оттенки отдельных секций в новые общие токены.",
-      "**Don't** скрывайте основной смысл или действие за autoplay, прокруткой или доступностью видео.",
-      "**Don't** выдавайте иллюстрации, условные числа и планы за подтверждённые кейсы, цены, отзывы или действующие функции."
+      "**Don't** переносите крупную презентационную типографику и интервалы на рабочие экраны CRM без отдельной задачи.",
+      "**Don't** вводите вторую акцентную палитру, тёмные секции, декоративные надзаголовки, стеклянные подложки или символы шрифта вместо SVG.",
+      "**Don't** восстанавливайте угловую накладку первого экрана, прямоугольную систему прошлого мира или горизонтальные главы на широком экране по историческим документам.",
+      "**Don't** скрывайте смысл и действия за autoplay, прокруткой или единственным увеличенным просмотром.",
+      "**Don't** выдавайте иллюстрации, условные числа, планы, настройку поиска или выбор объекта за подтверждённые кейсы, платежи, цены, результаты поиска и выполненный импорт."
     ]
   }
 }

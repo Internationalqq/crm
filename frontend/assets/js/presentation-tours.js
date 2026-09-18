@@ -4,6 +4,7 @@
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
     const connection = navigator.connection;
     const compact = window.matchMedia('(max-width: 600px)');
+    const wide = window.matchMedia('(min-width: 1101px)');
     const dialog = document.querySelector('.tour-dialog');
     const players = [];
     let expanded = null;
@@ -16,6 +17,9 @@
         const panels = tabs.map(tab => document.getElementById(tab.getAttribute('aria-controls')));
         const videos = panels.map(panel => panel.querySelector('video'));
         const expand = root.querySelector('[data-tour-expand]');
+        const orient = () => root.querySelector('.tour-tabs').setAttribute('aria-orientation', wide.matches ? 'vertical' : 'horizontal');
+        orient();
+        wide.addEventListener('change', orient);
         const denied = new WeakSet();
         const pending = new WeakSet();
         let selected = 0;
@@ -29,7 +33,7 @@
                     if (!automatic()) poster(video);
                     return;
                 }
-                const source = compact.matches ? video.dataset.mobile : video.dataset.src;
+                const source = compact.matches ? (video.dataset.previewMobile || video.dataset.mobile) : (video.dataset.preview || video.dataset.src);
                 if (video.getAttribute('src') !== source) {
                     denied.delete(video);
                     video.src = source;
@@ -68,8 +72,8 @@
             tab.addEventListener('keydown', event => {
                 const key = event.key;
                 let next;
-                if (key === 'ArrowRight') next = (index + 1) % tabs.length;
-                if (key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+                if (key === (wide.matches ? 'ArrowDown' : 'ArrowRight')) next = (index + 1) % tabs.length;
+                if (key === (wide.matches ? 'ArrowUp' : 'ArrowLeft')) next = (index + tabs.length - 1) % tabs.length;
                 if (key === 'Home') next = 0;
                 if (key === 'End') next = tabs.length - 1;
                 if (next === undefined) return;
@@ -123,7 +127,7 @@
         container.querySelector('video')?.pause();
         const original = expanded.panel.querySelector('.tour-screen img');
         const image = original.cloneNode();
-        image.src = original.currentSrc || original.src;
+        image.src = (compact.matches ? original.dataset.fullMobile : original.dataset.full) || original.currentSrc || original.src;
         image.loading = 'eager';
         container.replaceChildren(image);
         if (!automatic() || document.hidden) return;

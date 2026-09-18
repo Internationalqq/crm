@@ -35,6 +35,12 @@ Suffix `-mobile` identifies a separately recorded portrait walkthrough, not a cr
 
 `autobot-walkthrough.gif` combines the actual Excel upload/parse and row-review recordings: 25 seconds, 8 fps, 960 px wide, 128 colours, infinite loop, about 3.95 MB. It is offered only as a download and is not requested on initial page load. Its JSON sidecar records the origin.
 
+### Action-focused opening scenes
+
+The Attio-direction review added four authentic recordings: `crm-report-focus[−mobile].mp4` and `bot-estimate-focus[−mobile].mp4` (the filenames use an ordinary hyphen). These replay the isolated applications at 900×632 desktop and 390×700 phone. CRM starts inside the report and opens its photograph. AutoBot parses the actual local Excel upload and scrolls to all four resulting positions; on the narrow screen it brings the name column into view. Nothing is mocked or written to production. The original 20 complete recordings remain unchanged, and enlargement retains the original full-context video/poster sources.
+
+The corresponding four `-focus` WebP posters are extracted from the recordings after the photograph opens or the rows become visible. Exact extraction times, dimensions and payload sizes are in `product/recordings.json`; origin text is in their JSON sidecars. The landing loads these focused sources only in the first CRM/AutoBot chapter. Other chapters, the download-only GIF and the continuous construction film keep their original sources.
+
 ## Retained illustration and brand
 
 `demo-interior.webp` reuses the project's existing ImageGen illustration `frontend/assets/images/project-cover-interior.webp`. Its generation origin is recorded in that directory's README and the local JSON sidecar. It is used for the synthetic report photograph and the explicitly future Telegram concept, not as evidence of a customer project. Original CRM assets are untouched.

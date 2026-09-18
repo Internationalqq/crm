@@ -20,9 +20,9 @@ class Element {
 }
 const source = fs.readFileSync(path.join(__dirname, '../frontend/assets/js/presentation-tours.js'), 'utf8');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function setup({reduce = false, mobile = false, saveData = false, reject = false, delayed = false} = {}) {
-    const doc = new Element(), preference = new Element(), compact = new Element(), connection = new Element();
-    preference.matches = reduce; compact.matches = mobile; connection.saveData = saveData;
+function setup({reduce = false, mobile = false, saveData = false, reject = false, delayed = false, focused = false} = {}) {
+    const doc = new Element(), preference = new Element(), compact = new Element(), wide = new Element(), connection = new Element(), tablist = new Element();
+    preference.matches = reduce; compact.matches = mobile; wide.matches = !mobile; connection.saveData = saveData;
     doc.body = new Element(); doc.hidden = false;
     const root = new Element(), panels = [], tabs = [], videos = [], screens = [], statuses = [], promises = [];
     for (let i = 0; i < 4; i++) {
@@ -31,6 +31,7 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
         panel.hidden = i !== 0; status.hidden = true;
         video.paused = true; video.readyState = 1; video.currentTime = 0; video.duration = 10;
         video.dataset = {src: `/scene-${i}.mp4`, mobile: `/scene-${i}-mobile.mp4`};
+        if (focused && i === 0) Object.assign(video.dataset, {preview: '/focus.mp4', previewMobile: '/focus-mobile.mp4'});
         Object.defineProperty(video, 'src', {get: () => video.getAttribute('src'), set: value => video.setAttribute('src', value)});
         video.closest = () => screen;
         video.pause = () => { video.paused = true; };
@@ -42,19 +43,20 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
         panel.children = {'video': video, '.tour-media-status': status};
         panels.push(panel); tabs.push(tab); videos.push(video); screens.push(screen); statuses.push(status);
     }
-    root.children = {'[data-tour-tab]': tabs};
+    root.children = {'[data-tour-tab]': tabs, '.tour-tabs': tablist};
     doc.children = {'[data-tour]': [root]};
     doc.getElementById = id => panels[Number(id.split('-')[1])];
     let observer;
     class IntersectionObserver { constructor(callback) { observer = callback; } observe() {} }
-    vm.runInNewContext(source, {document: doc, navigator: {connection}, window: {IntersectionObserver, matchMedia: q => q.includes('reduced') ? preference : compact}, IntersectionObserver});
-    return {doc, root, preference, compact, connection, panels, tabs, videos, screens, statuses, promises,
+    vm.runInNewContext(source, {document: doc, navigator: {connection}, window: {IntersectionObserver, matchMedia: q => q.includes('reduced') ? preference : q.includes('1101') ? wide : compact}, IntersectionObserver});
+    return {doc, root, preference, compact, wide, tablist, connection, panels, tabs, videos, screens, statuses, promises,
         visible(value) { observer([{isIntersecting: value}]); },
         selected() { return tabs.findIndex(tab => tab.attributes['aria-selected'] === 'true'); }};
 }
 
 (async () => {
     const h = setup();
+    assert.equal(h.tablist.getAttribute('aria-orientation'), 'vertical');
     assert(h.videos.every(v => v.src === null), 'Offscreen tours do not download video');
     h.visible(true); await flush();
     assert.equal(h.videos[0].src, '/scene-0.mp4');
@@ -71,6 +73,17 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     assert(!h.tabs.some(t => t.focused), 'Automatic changes never move keyboard focus');
     h.tabs[0].emit('keydown', {key: 'End', preventDefault() {}}); await flush();
     assert.equal(h.selected(), 3); assert(h.tabs[3].focused);
+    h.tabs[3].emit('keydown', {key: 'ArrowDown', preventDefault() {}}); await flush();
+    assert.equal(h.selected(), 0, 'The vertical rail wraps with ArrowDown'); assert(h.tabs[0].focused);
+    h.tabs[0].emit('keydown', {key: 'ArrowUp', preventDefault() {}}); await flush();
+    assert.equal(h.selected(), 3);
+    h.wide.matches = false; h.wide.emit('change');
+    assert.equal(h.tablist.getAttribute('aria-orientation'), 'horizontal');
+    assert.equal(h.selected(), 3, 'Resizing preserves the selected chapter');
+    h.tabs[3].emit('keydown', {key: 'ArrowRight', preventDefault() {}}); await flush();
+    assert.equal(h.selected(), 0, 'Tablet and phone tabs use horizontal arrow keys');
+    h.tabs[0].emit('keydown', {key: 'ArrowLeft', preventDefault() {}}); await flush();
+    assert.equal(h.selected(), 3);
     h.visible(false); assert(h.videos.every(v => v.paused));
     h.visible(true); await flush();
     h.doc.hidden = true; h.doc.emit('visibilitychange'); assert(h.videos.every(v => v.paused));
@@ -88,6 +101,11 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     }
     const denied = setup({reject: true}); denied.visible(true); await flush();
     assert(!denied.screens[0].classes.has('is-playing'), 'Autoplay denial keeps the poster');
+    const focused = setup({focused: true}); focused.visible(true); await flush();
+    assert.equal(focused.videos[0].src, '/focus.mp4', 'An action-focused recording is used inline');
+    assert.equal(focused.videos[0].dataset.src, '/scene-0.mp4', 'Full-context source remains available for enlargement');
+    focused.compact.matches = true; focused.compact.emit('change'); await flush();
+    assert.equal(focused.videos[0].src, '/focus-mobile.mp4', 'The focused scene has a separate phone recording');
     const failed = setup(); failed.visible(true); await flush(); failed.videos[0].emit('error');
     assert(!failed.screens[0].classes.has('is-playing')); assert.equal(failed.statuses[0].hidden, false);
     const race = setup({delayed: true}); race.visible(true); race.tabs[1].emit('click');

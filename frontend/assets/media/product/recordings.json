@@ -141,5 +141,43 @@
       "width": 1280,
       "height": 900
     }
+  ],
+  "focusedRecordings": [
+    {
+      "file": "crm-report-focus.mp4",
+      "bytes": 233939,
+      "duration": 6.666667,
+      "width": 900,
+      "height": 632,
+      "posterAt": 4.093,
+      "origin": "Actual isolated applications. Focused viewport/scroll, original full-context recordings retained. No mocked interface or results."
+    },
+    {
+      "file": "bot-estimate-focus.mp4",
+      "bytes": 473314,
+      "duration": 13.916667,
+      "width": 900,
+      "height": 632,
+      "posterAt": 11.693,
+      "origin": "Actual isolated applications. Focused viewport/scroll, original full-context recordings retained. No mocked interface or results."
+    },
+    {
+      "file": "crm-report-focus-mobile.mp4",
+      "bytes": 83955,
+      "duration": 6.583333,
+      "width": 390,
+      "height": 700,
+      "posterAt": 3.9680000000000004,
+      "origin": "Actual isolated applications. Focused viewport/scroll, original full-context recordings retained. No mocked interface or results."
+    },
+    {
+      "file": "bot-estimate-focus-mobile.mp4",
+      "bytes": 391830,
+      "duration": 12.291667,
+      "width": 390,
+      "height": 700,
+      "posterAt": 10.03,
+      "origin": "Actual isolated applications. Focused viewport/scroll, original full-context recordings retained. No mocked interface or results."
+    }
   ]
 }
