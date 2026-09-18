@@ -63,6 +63,7 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     h.visible(true); await flush();
     assert.equal(h.videos[0].src, '/scene-0.mp4');
     assert.equal(h.videos[0].paused, false);
+    assert.equal(h.videos[0].playbackRate, 0.85, 'Recorded actions leave time to read the synchronized guide');
     assert(h.screens[0].classes.has('is-playing'));
     assert(h.videos.slice(1).every(v => !v.src));
     h.videos[0].emit('ended'); await flush();

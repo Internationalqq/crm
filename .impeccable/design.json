@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T15:54:55.934953+00:00",
+  "generatedAt": "2026-09-18T17:48:41.952052+00:00",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -146,7 +146,7 @@
       },
       "tour-title": {
         "displayName": "Tour-Title",
-        "purpose": "Заголовок действия над настоящей записью."
+        "purpose": "Заголовок действия перед настоящей записью; в боковом пояснении встроенной сцены от 1101px и на телефоне — 22px."
       },
       "body": {
         "displayName": "Body",
@@ -167,6 +167,10 @@
       "panel-title": {
         "displayName": "Panel title",
         "purpose": "Заголовки роли и формата внедрения."
+      },
+      "tour-step": {
+        "displayName": "Tour step",
+        "purpose": "Нумерованная кнопка перехода к исходному времени шага записи; размер сохраняется при уменьшении видео."
       }
     },
     "shadows": [
@@ -220,7 +224,7 @@
       {
         "name": "tour-progress",
         "value": "currentTime / duration",
-        "purpose": "Полоса 2px раскрывается от левого края через scaleX по timeupdate; выбор главы сбрасывает полосы."
+        "purpose": "Полоса 2px наследует цвет надписи выбранной главы и раскрывается от левого края через scaleX по timeupdate; выбор главы сбрасывает полосы."
       },
       {
         "name": "tour-continuation",
@@ -235,12 +239,27 @@
       {
         "name": "tour-automatic-policy",
         "value": "visible && !document.hidden && !preference.matches && !connection?.saveData && !dialog?.open",
-        "purpose": "Источник назначается выбранной главе при разрешённом воспроизведении. Встроенный показ предпочитает data-preview/data-preview-mobile; до 600px выбирается отдельная портретная запись. Первые главы имеют дополнительные сфокусированные 900x632 и 390x700 записи; исходные двадцать 1280x900/390x700 сохранены. Reduced motion и Save-Data не запрашивают MP4 при начальной загрузке. Запрет autoplay оставляет WebP, ошибка добавляет сообщение; кнопок паузы, запуска и повтора нет."
+        "purpose": "Источник назначается выбранной главе при разрешённом воспроизведении. Встроенный показ предпочитает data-preview/data-preview-mobile; до 600px выбирается отдельная портретная запись. Первые главы имеют дополнительные сфокусированные 900x632 и 390x700 записи; исходные двадцать 1280x900/390x700 сохранены. Reduced motion и Save-Data не запрашивают MP4 при начальной загрузке. Запрет autoplay оставляет WebP, ошибка добавляет сообщение; кнопок паузы, запуска и повтора нет. Возврат к постеру восстанавливает исходные название и маршрут, скрывает нумерованные шаги и рамку цели."
       },
       {
         "name": "tour-expanded-policy",
         "value": "!preference.matches && !connection?.saveData && !document.hidden",
-        "purpose": "Диалог повторяет исходный полный клип из data-src/data-mobile и использует полный постер из data-full/data-full-mobile, если задан. Открытие приостанавливает встроенные записи. Закрытие возвращает фокус и возобновляет допустимое воспроизведение."
+        "purpose": "Диалог повторяет исходный полный клип из data-src/data-mobile и использует полный постер из data-full/data-full-mobile, если задан. Открытие приостанавливает встроенные записи. Закрытие возвращает фокус и возобновляет допустимое воспроизведение. Синхронная подпись, шаги и рамки используют дорожку полного клипа; исходное название главы остаётся в верхней строке. Статичный кадр скрывает подсказки воспроизведения."
+      },
+      {
+        "name": "tour-playback-rate",
+        "value": "0.85",
+        "purpose": "Скорость встроенной и увеличенной записи; временные дорожки и переходы шагов используют исходное время медиа."
+      },
+      {
+        "name": "tour-guide-cues",
+        "value": "currentTime + 0.025 -> last cue at or before time",
+        "purpose": "24 дорожки для существующих полных, мобильных и сфокусированных клипов. Синий HTML-заголовок называет действие, графитовое пояснение — результат или ограничение. timeupdate, seeked, seeking и loadedmetadata обновляют подписи и aria-current=\"step\". Нажатие нумерованной кнопки задаёт currentTime; loadstart, error и возврат к постеру скрывают подсказки и восстанавливают исходные подписи. Допуск 25ms учитывает погрешность декодированного времени после перемотки. При переполнении ленты шагов активная кнопка локально прокручивается в видимую область без перемещения страницы."
+      },
+      {
+        "name": "tour-guide-target",
+        "value": "cue interval + clip percentages -> contained media rectangle",
+        "purpose": "Рамка цели учитывает videoWidth/videoHeight, центрирование object-fit: contain и ResizeObserver. Скрыта при seeking, вне интервала, без заданной цели и в статичном режиме; pointer-events: none и aria-hidden. Рамка 3px blue с внешним контуром 2px paper, скруглением 5px; номер 24x24px с blue-фоном, белым текстом 16px/1 весом 600 и скруглением 3px связывает цель с шагом. Номер размещается вне рамки внутри области записи: слева при запасе 32px, иначе сверху, снизу или справа при наличии места. Если ни одна сторона не вмещает номер, span[hidden] скрывает его; рамка и номер шага в пояснении сохраняются. position() вычисляет left/top для рамки и номера, фиксированных top/left/transform в CSS номера нет."
       },
       {
         "name": "role-stage-duration",
@@ -315,10 +334,18 @@
     {
       "name": "Главы записи продукта",
       "kind": "nav",
-      "description": "Компактный рейл 188px; до 1100px — горизонтальная прокручиваемая лента. Выбранная глава остаётся видна при автоматическом и ручном выборе.",
+      "description": "Компактный рейл 188px; до 1100px — горизонтальная прокручиваемая лента. Синий фон, белые надпись и SVG обозначают выбранную главу; она остаётся видна при автоматическом и ручном выборе.",
       "html": "<div class=\"ds-chapters\" role=\"tablist\" aria-label=\"Сценарии CRM\" aria-orientation=\"vertical\">\n<button type=\"button\" role=\"tab\" aria-selected=\"true\" tabindex=\"0\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M4 6h4l2-3h4l2 3h4v14H4z\"/><circle cx=\"12\" cy=\"12\" r=\"4\"/></svg><span class=\"ds-chapter-copy\"><span>Фотоотчёт</span><small>Что сделано</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M8 8h8M8 12h8M8 16h5\"/></svg><span class=\"ds-chapter-copy\"><span>Смета</span><small>План и факт</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"17\" rx=\"2\"/><path d=\"M8 2v4m8-4v4M8 13l3 3 5-6\"/></svg><span class=\"ds-chapter-copy\"><span>Задача</span><small>Кто отвечает</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4zM20 12h-6v4h6\"/></svg><span class=\"ds-chapter-copy\"><span>Результат</span><small>Что оплатить</small></span><i aria-hidden=\"true\"></i></button>\n</div>",
-      "css": ".ds-chapters{font:18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);width:188px}.ds-chapters button{font:inherit;cursor:pointer}@media(max-width:1100px){.ds-chapters{width:auto}}.ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-chapters{display: none;}.ds-chapters{position: relative; grid-column: 1; grid-row: 2/4; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 12px; border-right: 1px solid var(--line,#e0e5eb); background: var(--wash,#f7f8fa); overflow: auto;}.ds-chapters button{position: relative; display: flex; align-items: center; gap: 10px; padding: 14px 10px; min-height: 52px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted,#606b7a); text-align: left; line-height: 1.3;}.ds-chapters button > .ds-icon{width: 20px; height: 20px; margin-top: 2px;}.ds-chapter-copy{display: block; min-width: 0;}.ds-chapter-copy > span{display: block; font-size: 17px; font-weight: 500;}.ds-chapter-copy small{display: none;}.ds-chapters [aria-selected=\"true\"]{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters button:hover{background: #edf0f4; color: var(--ink,#22272f);}.ds-chapters [aria-selected=\"true\"]:hover{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters i{position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: var(--blue,#2258d6); transform: scaleX(var(--tour-progress,0)); transform-origin: left;}@media (max-width: 1100px){.ds-chapters{grid-column: 1; grid-row: 2; flex-direction: row; gap: 4px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line,#e0e5eb); overflow-x: auto;}}@media (max-width: 1100px){.ds-chapters button{flex: 0 0 auto; padding: 12px; min-height: 44px; white-space: nowrap;}}@media (max-width: 900px){.ds-chapters button{gap: 8px; padding: 12px 10px;}}@media (max-width: 900px){.ds-chapter-copy > span{font-size: 17px;}}@media (max-width: 600px){.ds-chapters button{padding: 12px 10px; min-height: 44px; align-items: center; gap: 8px;}}@media (max-width: 600px){.ds-chapters button > .ds-icon{width: 18px; height: 18px; margin-top: 0;}}@media (max-width: 600px){.ds-chapter-copy > span{font-size: 16px;}}@media (max-width: 360px){.ds-chapters button{gap: 6px; padding-inline: 6px;}}@media print{.ds-chapters{display: none;}}.ds-chapters button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "css": ".ds-chapters{font:18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);width:188px}.ds-chapters button{font:inherit;cursor:pointer}@media(max-width:1100px){.ds-chapters{width:auto}}.ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-chapters{display: none;}.ds-chapters{position: relative; grid-column: 1; grid-row: 2/4; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 12px; border-right: 1px solid var(--line,#e0e5eb); background: var(--wash,#f7f8fa); overflow: auto;}.ds-chapters button{position: relative; display: flex; align-items: center; gap: 10px; padding: 14px 10px; min-height: 52px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted,#606b7a); text-align: left; line-height: 1.3;}.ds-chapters button > .ds-icon{width: 20px; height: 20px; margin-top: 2px;}.ds-chapter-copy{display: block; min-width: 0;}.ds-chapter-copy > span{display: block; font-size: 17px; font-weight: 500;}.ds-chapter-copy small{display: none;}.ds-chapters [aria-selected=\"true\"]{background: var(--blue,#2258d6); color: var(--paper,#fff);}.ds-chapters button:hover{background: #edf0f4; color: var(--ink,#22272f);}.ds-chapters [aria-selected=\"true\"]:hover{background: var(--blue-hover,#1947b3); color: var(--paper,#fff);}.ds-chapters i{position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px; background: currentColor; transform: scaleX(var(--tour-progress,0)); transform-origin: left;}@media (max-width: 1100px){.ds-chapters{grid-column: 1; grid-row: 2; flex-direction: row; gap: 4px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line,#e0e5eb); overflow-x: auto;}}@media (max-width: 1100px){.ds-chapters button{flex: 0 0 auto; padding: 12px; min-height: 44px; white-space: nowrap;}}@media (max-width: 900px){.ds-chapters button{gap: 8px; padding: 12px 10px;}}@media (max-width: 900px){.ds-chapter-copy > span{font-size: 17px;}}@media (max-width: 600px){.ds-chapters button{padding: 12px 10px; min-height: 44px; align-items: center; gap: 8px;}}@media (max-width: 600px){.ds-chapters button > .ds-icon{width: 18px; height: 18px; margin-top: 0;}}@media (max-width: 600px){.ds-chapter-copy > span{font-size: 16px;}}@media (max-width: 360px){.ds-chapters button{gap: 6px; padding-inline: 6px;}}@media print{.ds-chapters{display: none;}}.ds-chapters button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
       "refersTo": "tour-tab"
+    },
+    {
+      "name": "Подпись и шаги записи",
+      "kind": "custom",
+      "description": "Синхронное действие, пояснение результата и нумерованные переходы. От 1101px встроенная сцена делится на пояснение minmax(240px,.8fr) и запись minmax(0,2fr): подпись 22px, шаги колонкой, «О сценарии» последним. До 600px шаги образуют одну прокручиваемую строку с локальным показом активной кнопки. В диалоге подпись остаётся над медиа. Образец показывает встроенное пояснение.",
+      "html": "<div class=\"ds-guide-caption ds-guide-inline\"><div><h3>Нажимаем «Разобрать смету»</h3><p class=\"ds-guide-note\">Файл уже прикреплён. AutoBot получит из него позиции.</p></div><details class=\"ds-guide-explanation\"><summary>О сценарии<svg class=\"ds-guide-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><p>В записи загружаем файл и получаем позиции с объёмами, единицами и суммами. Каждая строка сохраняет ссылку на место в исходнике.</p></details><div class=\"ds-guide-steps\" role=\"group\" aria-label=\"Перейти к шагу записи\"><button type=\"button\" aria-current=\"step\" aria-label=\"Показать шаг 1: Разбор\">1. Разбор</button><button type=\"button\" aria-current=\"false\" aria-label=\"Показать шаг 2: Обработка\">2. Обработка</button><button type=\"button\" aria-current=\"false\" aria-label=\"Показать шаг 3: Позиции\">3. Позиции</button></div></div>",
+      "css": ".ds-guide-caption{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);position:relative;z-index:1;order:-1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:12px 20px;padding:18px 24px;border-bottom:1px solid var(--line,#e0e5eb);background:var(--paper,#fff);color:var(--ink,#22272f)}.ds-guide-caption h3{margin:0;font-size:24px;font-weight:550;line-height:1.2;letter-spacing:-.035em;text-wrap:balance;color:var(--blue,#2258d6)}.ds-guide-note{margin:8px 0 0;font-size:16px;color:var(--ink,#22272f)}.ds-guide-steps{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px}.ds-guide-steps button{font-family:inherit;font-weight:400;min-height:44px;padding:8px 12px;border:1px solid var(--line,#e0e5eb);border-radius:6px;background:var(--paper,#fff);color:var(--ink,#22272f);font-size:16px;line-height:1.3;text-align:left;cursor:pointer}.ds-guide-steps button:hover{background:var(--soft-blue,#edf2ff);color:var(--blue-hover,#1947b3)}.ds-guide-steps [aria-current=\"step\"]{background:var(--blue,#2258d6);border-color:var(--blue,#2258d6);color:var(--paper,#fff)}.ds-guide-steps [aria-current=\"step\"]:hover{background:var(--blue-hover,#1947b3);color:var(--paper,#fff)}.ds-guide-explanation{flex-shrink:0}.ds-guide-explanation summary{display:flex;align-items:center;gap:8px;min-height:44px;color:var(--blue,#2258d6);font-size:16px;list-style:none;cursor:pointer}.ds-guide-explanation summary::-webkit-details-marker{display:none}.ds-guide-icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}.ds-guide-explanation[open] .ds-guide-icon{transform:rotate(45deg)}.ds-guide-explanation>p{position:absolute;z-index:3;top:calc(100% - 1px);left:16px;right:16px;margin:0;padding:20px;border:1px solid var(--line,#e0e5eb);border-radius:0 0 12px 12px;background:var(--paper,#fff);color:var(--muted,#606b7a);font-size:17px}.ds-guide-steps button:focus-visible,.ds-guide-explanation summary:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}@media(min-width:1101px){.ds-guide-inline{grid-column:1;grid-row:1;grid-template-columns:minmax(0,1fr);align-content:start;padding:20px;gap:16px;border-bottom:0;border-right:1px solid var(--line,#e0e5eb)}.ds-guide-inline h3{font-size:22px}.ds-guide-inline .ds-guide-steps{flex-direction:column;order:1}.ds-guide-inline .ds-guide-explanation{order:2}}@media(max-width:600px){.ds-guide-caption{grid-template-columns:minmax(0,1fr);gap:8px;padding:12px 16px}.ds-guide-caption h3{font-size:22px}.ds-guide-caption>div{width:100%}.ds-guide-note{margin-top:6px}.ds-guide-explanation{justify-self:start}.ds-guide-explanation summary{min-height:36px}.ds-guide-steps{position:relative;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding:2px 1px 6px;scrollbar-width:thin}.ds-guide-steps button{flex:0 0 auto;padding-inline:10px;white-space:nowrap}.ds-guide-explanation>p{left:8px;right:8px;padding:16px;font-size:16px}}",
+      "refersTo": "tour-step"
     },
     {
       "name": "Увеличить запись",
@@ -362,12 +389,12 @@
   ],
   "narrative": {
     "northStar": "Светлая среда просмотра проекта",
-    "overview": "Белая плоскость, холодные нейтральные поверхности и тонкая общая рамка собирают презентацию PM.bi в единую продуктовую среду. Выбранный пользователем ориентир Attio выражен в центрированном крупном наборе, ясной сетке, сдержанных элементах управления и мягких краях рабочих сцен. Строительный фильм и реальные записи действий остаются главными материалами; синий связывает действие, выбранную главу и прогресс.\n\nОбласть действия — только `/presentation`. Источники значений и поведения: `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation.js`, `frontend/assets/js/presentation-motion.js` и `frontend/assets/js/presentation-tours.js`. Рабочая CRM сохраняет собственные токены, плотность и ограничения доступа. Текущий surface brief находится в `.impeccable/surfaces/frontend-templates-presentation-html.md`; продуктовые обязательства — в `PRODUCT.md`. Прежний документальный мир является историей, а не действующим визуальным правилом.",
+    "overview": "Белая плоскость, холодные нейтральные поверхности и тонкая общая рамка собирают презентацию PM.bi в единую продуктовую среду. Выбранный пользователем ориентир Attio выражен в центрированном крупном наборе, ясной сетке, сдержанных элементах управления и мягких краях рабочих сцен. Строительный фильм и реальные записи действий остаются главными материалами; синий связывает действие, выбранную главу и прогресс.\n\nОбласть действия — только `/presentation`. Источники значений и поведения: `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation.js`, `frontend/assets/js/presentation-motion.js`, `frontend/assets/js/presentation-tours.js` и `frontend/assets/js/presentation-guide.js`. Рабочая CRM сохраняет собственные токены, плотность и ограничения доступа. Текущий surface brief находится в `.impeccable/surfaces/frontend-templates-presentation-html.md`; продуктовые обязательства — в `PRODUCT.md`. Прежний документальный мир является историей, а не действующим визуальным правилом.",
     "keyCharacteristics": [
       "Общая светлая рамка, тонкие разделители и последовательные поля от первого экрана до подвала.",
       "Плотный кириллический Golos Text; вторые строки заголовков спокойнее основного текста.",
       "Один синий акцент для действий и выбранных состояний; холодные нейтральные рабочие поверхности.",
-      "Реальные записи в компактной рамке по высоте окна; главы, краткие подписи, раскрываемое пояснение и доступ к полному контексту.",
+      "Реальные записи в компактной рамке по высоте окна; главы, синхронные подписи действия и результата, доступные для выбора шаги, раскрываемое пояснение и полный контекст.",
       "Ручной выбор и статичные кадры сохраняют смысл; движение зависит от отдельной политики фильма и продуктовых сцен."
     ],
     "rules": [

@@ -8,6 +8,8 @@
     const dialog = document.querySelector('.tour-dialog');
     const players = [];
     let expanded = null;
+    let expandedGuide = null;
+    let expandedVersion = 0;
     let returnFocus = null;
     const automatic = () => !preference.matches && !connection?.saveData;
     const reflectMotion = () => document.body.classList.toggle('motion-ready', automatic());
@@ -16,6 +18,11 @@
         const tabs = Array.from(root.querySelectorAll('[data-tour-tab]'));
         const panels = tabs.map(tab => document.getElementById(tab.getAttribute('aria-controls')));
         const videos = panels.map(panel => panel.querySelector('video'));
+        const guides = panels.map((panel, index) => window.PMBITourGuide?.create({
+            video: videos[index], screen: panel.querySelector('.tour-screen'),
+            title: panel.querySelector('h3'), description: panel.querySelector('.tour-route'),
+            host: panel.querySelector('.tour-caption')
+        }));
         const expand = root.querySelector('[data-tour-expand]');
         const orient = () => root.querySelector('.tour-tabs').setAttribute('aria-orientation', wide.matches ? 'vertical' : 'horizontal');
         orient();
@@ -25,7 +32,10 @@
         let selected = 0;
         let visible = false;
         const canPlay = () => visible && !document.hidden && automatic() && !dialog?.open;
-        const poster = video => video.closest('.tour-screen').classList.remove('is-playing');
+        const poster = video => {
+            video.closest('.tour-screen').classList.remove('is-playing');
+            guides[videos.indexOf(video)]?.hide();
+        };
         const sync = () => {
             videos.forEach((video, index) => {
                 if (index !== selected || !canPlay() || denied.has(video)) {
@@ -41,6 +51,7 @@
                 if (!video.paused || pending.has(video)) return;
                 pending.add(video);
                 video.muted = true;
+                video.playbackRate = 0.85;
                 video.play().then(() => {
                     if (videos[selected] !== video || !canPlay()) video.pause();
                 }).catch(error => {
@@ -93,7 +104,10 @@
         });
         videos.forEach((video, index) => {
             video.addEventListener('playing', () => {
-                if (index === selected && canPlay()) video.closest('.tour-screen').classList.add('is-playing');
+                if (index === selected && canPlay()) {
+                    video.closest('.tour-screen').classList.add('is-playing');
+                    guides[index]?.show();
+                }
             });
             video.addEventListener('timeupdate', () => {
                 if (index === selected && video.duration) tabs[index].style.setProperty('--tour-progress', String(video.currentTime / video.duration));
@@ -117,9 +131,9 @@
         if (expand && dialog?.showModal) {
             expand.hidden = false;
             expand.addEventListener('click', () => {
-                expanded = {panel: panels[selected], video: videos[selected]};
+                expanded = {panel: panels[selected], video: videos[selected], title: guides[selected]?.title || panels[selected].querySelector('h3').textContent};
                 returnFocus = expand;
-                document.querySelector('#tour-dialog-title').textContent = panels[selected].querySelector('h3').textContent;
+                document.querySelector('#tour-dialog-title').textContent = expanded.title;
                 dialog.showModal();
                 document.body.classList.add('tour-is-expanded');
                 renderExpanded();
@@ -132,6 +146,12 @@
 
     function renderExpanded() {
         if (!expanded || !dialog.open) return;
+        const version = ++expandedVersion;
+        expandedGuide?.destroy();
+        expandedGuide = null;
+        const guideHost = dialog.querySelector('.tour-dialog-guide');
+        guideHost.hidden = true;
+        guideHost.replaceChildren();
         const container = dialog.querySelector('.tour-dialog-media');
         container.querySelector('video')?.pause();
         const original = expanded.panel.querySelector('.tour-screen img');
@@ -143,17 +163,36 @@
         const video = document.createElement('video');
         video.muted = true;
         video.loop = true;
+        video.playbackRate = 0.85;
         video.playsInline = true;
         video.setAttribute('aria-label', expanded.video.getAttribute('aria-label'));
         video.src = compact.matches ? expanded.video.dataset.mobile : expanded.video.dataset.src;
-        video.addEventListener('playing', () => { image.hidden = true; video.classList.add('is-playing'); });
-        video.addEventListener('error', () => { image.hidden = false; video.remove(); });
+        if (window.PMBITourGuide) {
+            const copy = document.createElement('div'), title = document.createElement('h3'), description = document.createElement('p');
+            description.className = 'tour-route';
+            copy.append(title, description); guideHost.append(copy);
+            expandedGuide = window.PMBITourGuide.create({video, screen: container, title, description, host: guideHost});
+        }
+        const guide = expandedGuide;
+        video.addEventListener('playing', () => {
+            if (version !== expandedVersion) return;
+            image.hidden = true; video.classList.add('is-playing');
+            guideHost.hidden = !guide; guide?.show();
+        });
+        const failed = () => {
+            if (version !== expandedVersion) return;
+            image.hidden = false; video.remove(); guide?.hide(); guideHost.hidden = true;
+        };
+        video.addEventListener('error', failed);
         container.append(video);
-        video.play().catch(() => { image.hidden = false; video.remove(); });
+        video.play().catch(failed);
     }
     dialog?.querySelector('[data-tour-close]').addEventListener('click', () => dialog.close());
     dialog?.addEventListener('close', () => {
+        expandedVersion++;
         dialog.querySelector('video')?.pause();
+        expandedGuide?.destroy(); expandedGuide = null;
+        dialog.querySelector('.tour-dialog-guide').replaceChildren();
         dialog.querySelector('.tour-dialog-media').replaceChildren();
         document.body.classList.remove('tour-is-expanded');
         expanded = null;

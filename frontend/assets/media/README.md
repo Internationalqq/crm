@@ -1,5 +1,11 @@
 # Presentation media
 
+## Synchronized recording guides — 18 September 2026
+
+`presentation-guide.js` adds native-size action/result captions and numbered seek controls to all 24 existing desktop/phone recordings. Cue times are in source-video seconds; target rectangles are percentages of the recorded frame and are mapped to the contained video area, including letterboxing. The number sits outside the rectangle. Playback uses 0.85 speed; media files are unchanged. Reduced motion, Save Data, loading failure and denied autoplay preserve the original poster and static explanation without an active-action overlay.
+
+Evidence: original recording scripts and eight-frame timelines per clip in `tmp/presentation-cues-20260918/timelines`. Captions explicitly distinguish prepared price/tender searches and the import confirmation screen from completed results. Changing a recording requires reviewing its own timeline and updating the corresponding guide; desktop, portrait and focused recordings have different timings. Guide controls only seek local demonstration footage; they never call CRM or AutoBot APIs.
+
 ## Construction film and posters
 
 Sources: [Buildings under construction, aerial view — Mixkit 4010](https://mixkit.co/free-stock-video/buildings-under-construction-aerial-view-4010/) and [Construction zone in a city in an aerial shot — Mixkit 42333](https://mixkit.co/free-stock-video/construction-zone-in-a-city-in-an-aerial-shot-42333/).
