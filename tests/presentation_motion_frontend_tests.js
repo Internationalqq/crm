@@ -81,9 +81,7 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
         await flush();
         assert.equal(h.video.src, preference.saveData ? null : '/desktop.mp4', 'Save-Data defers film; reduced motion stops the story but the requested continuous film remains available');
         assert.equal(h.frames.size, 0);
-        h.tabs[2].emit('click');
-        assert.equal(h.story.dataset.scene, '1', 'Manual tab selection still works with motion preferences');
-        assert.equal(h.frames.size, 0, 'Manual selection preserves the motion preference');
+
     }
 
     const h = setup({mobile: true});
@@ -120,33 +118,5 @@ function setup({reduce = false, saveData = false, mobile = false, rejected = fal
     loading.finishFonts(); await flush();
     assert.equal(loading.video.paused, false);
 
-    const s = setup();
-    assert.equal(s.story.dataset.scene, '2', 'Photo report is the initial scene');
-    s.visible(s.story, true); s.advance(6800);
-    assert.equal(s.story.dataset.scene, '0', 'Estimate follows the photo report');
-    assert.equal(s.panels[1].hidden, false);
-    s.doc.hidden = true; s.doc.emit('visibilitychange');
-    const before = s.story.attributes['--scene-progress'];
-    s.advance(10000);
-    assert.equal(s.story.attributes['--scene-progress'], before, 'Hidden tabs freeze the story');
-    s.doc.hidden = false; s.doc.emit('visibilitychange');
-    s.advance(20000);
-    assert.equal(s.story.dataset.scene, '2', 'The complete cycle returns to the photo report');
-    assert.equal(s.frames.size, 1, 'The show keeps running after a complete cycle');
-    let prevented = false;
-    s.tabs[0].emit('keydown', {key: 'End', preventDefault: () => { prevented = true; }});
-    assert(prevented && s.tabs[3].focused);
-    assert.equal(s.tabs[3].attributes['aria-selected'], 'true');
-    assert.equal(s.panels.filter(panel => !panel.hidden).length, 1);
-    assert.equal(s.frames.size, 1, 'Choosing a scene keeps automatic changes running');
-    s.advance(6800);
-    assert.equal(s.story.dataset.scene, '2', 'Automatic progression continues after keyboard selection');
-    s.visible(s.story, false); s.visible(s.story, true);
-    assert.equal(s.frames.size, 1);
-    s.tabs[3].emit('keydown', {key: 'ArrowRight', preventDefault() {}});
-    assert.equal(s.story.dataset.scene, '2');
-    s.tabs[1].emit('click');
-    s.advance(6800);
-    assert.equal(s.story.dataset.scene, '1', 'Click selection does not pause the show either');
-    console.log('Presentation motion: photo-first looping, continued playback after selection, preferences, video fallback and keyboard passed.');
+    console.log('Presentation film: responsive source, continuous playback, visibility, loading priority and fallback passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

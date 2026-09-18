@@ -1,0 +1,145 @@
+{
+  "origin": "Real browser recordings of PM.bi and AutoBot, 2026-09-18. Synthetic data; no customer information. Cursor overlay only. No claims of live market results or completed tender searches.",
+  "recordings": [
+    {
+      "file": "bot-estimate-mobile.mp4",
+      "bytes": 328274,
+      "duration": 17.458333,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "bot-estimate.mp4",
+      "bytes": 695903,
+      "duration": 21.166667,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "bot-export-mobile.mp4",
+      "bytes": 124668,
+      "duration": 6.833333,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "bot-export.mp4",
+      "bytes": 380357,
+      "duration": 10.0,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "bot-market-mobile.mp4",
+      "bytes": 115639,
+      "duration": 9.375,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "bot-market.mp4",
+      "bytes": 417658,
+      "duration": 9.666667,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "bot-research-mobile.mp4",
+      "bytes": 149596,
+      "duration": 11.833333,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "bot-research.mp4",
+      "bytes": 226067,
+      "duration": 11.916667,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "bot-review-mobile.mp4",
+      "bytes": 245244,
+      "duration": 17.416667,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "bot-review.mp4",
+      "bytes": 647609,
+      "duration": 18.416667,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "bot-tenders-mobile.mp4",
+      "bytes": 95092,
+      "duration": 6.0,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "bot-tenders.mp4",
+      "bytes": 238556,
+      "duration": 6.291667,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "crm-estimate-mobile.mp4",
+      "bytes": 235766,
+      "duration": 12.375,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "crm-estimate.mp4",
+      "bytes": 473504,
+      "duration": 12.958333,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "crm-report-mobile.mp4",
+      "bytes": 327880,
+      "duration": 12.833333,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "crm-report.mp4",
+      "bytes": 647201,
+      "duration": 12.0,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "crm-result-mobile.mp4",
+      "bytes": 470605,
+      "duration": 24.708333,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "crm-result.mp4",
+      "bytes": 811758,
+      "duration": 21.875,
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "crm-task-mobile.mp4",
+      "bytes": 423503,
+      "duration": 20.291667,
+      "width": 390,
+      "height": 700
+    },
+    {
+      "file": "crm-task.mp4",
+      "bytes": 719622,
+      "duration": 18.458333,
+      "width": 1280,
+      "height": 900
+    }
+  ]
+}

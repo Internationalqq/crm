@@ -2,7 +2,7 @@
 version: 1
 slug: "frontend-templates-presentation-html"
 primary_target: "frontend/templates/presentation.html"
-related_targets: ["frontend/assets/css/presentation.css","frontend/assets/js/presentation.js","frontend/assets/js/presentation-motion.js","frontend/assets/js/presentation-autobot.js"]
+related_targets: ["frontend/assets/css/presentation.css","frontend/assets/js/presentation.js","frontend/assets/js/presentation-motion.js","frontend/assets/js/presentation-tours.js"]
 ---
 
 # Презентация PM.bi
@@ -10,6 +10,8 @@ related_targets: ["frontend/assets/css/presentation.css","frontend/assets/js/pre
 Scope: только `/presentation` и её ресурсы. Mode: Persuade. Пользователь подтвердил аудиторию, задачу продажи, светлую основу, Turner как ориентир, видео и последовательность CRM; выбрал code-first. Концепция и реализация делегированы явным «начни с короткого объяснения … затем реализуй»; повторный выбор эстетики не требуется.
 
 ## Direction contract
+
+Current extension — 18 September, real product recordings: preserve the pinned light documentary world, first video hero and photo-first order. Replace illustrative mini-apps and generic photo sections with recordings made by clicking the actual applications on isolated synthetic data. The large product theatre offers chapters, visible recorded cursor, captions, automatic continuation, keyboard selection and a full-size view; reduced motion shows the corresponding final screen. AutoBot visibly covers estimate parsing, original-line verification, market setup, tender workspace and project export where the working UI supports them. No production data or simulated processing claims are published. Hansen Yuncken / Alberici contribute scale and editorial composition, not copied assets. Code-first is confirmed. This extends seed `6078377e`; no new visual-world choice is owed.
 
 THESIS: «Стройка перед глазами» с видео всегда открывает страницу. Ниже демонстрация начинается с фотоотчёта: сначала видимый результат работы, затем смета, задача и итог.
 
@@ -29,7 +31,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 ## Verification and boundaries
 
-## Motion extension — 18 September
+## Previous motion extension — superseded by the real-product extension above
 
 Refinement of the existing documentary world, not a replacement. References inspected: user's WhisperLocal (portfolio-two-landings-0918.round-earth-5349.chatgpt.site) and 1C Career AI (tish-architecture-0918.round-earth-5349.chatgpt.site), located in «Собрать портфолио разработчика». Their useful mechanism is visible input → action → result, automatic looping, a demonstrative cursor, and flying content. Their palettes and lettering are not imported.
 
@@ -37,7 +39,7 @@ Focal moment: AutoBot turns a flying estimate document into structured rows, ope
 
 Continuity: rows enter together when the existing CRM panels change. Photo report remains first/leftmost inside the workflow, never over the hero film. Feedback: source disclosure, next-step buttons, role/plan changes and FAQ expansion. Budget: plain CSS/JS, no animation framework or remote runtime, transform/mask animations confined to the relevant region; offscreen/hidden demos stop consuming frames, reduced-motion/Save-Data keep manual stages readable. Default content remains available without JS. Test 320/390/768/1280, all four AutoBot states, manual/keyboard/automatic continuation, source disclosure and no-JS. Retain production release/rollback discipline.
 
-## Role scenes and lower-page refinement — 18 September
+## Previous role scenes — photography superseded by actual product captures
 
 Latest user feedback explicitly removes the floating partition photo-report from the hero. Preserve the first video, typography, light palette and previous functioning demos. Give every role a distinct licensed documentary photo: project discussion, tablet on site, on-site inspection. Couple image and CRM example into an automatic three-role sequence (8 seconds per scene), with manual selection/keyboard continuing the cycle and a stable panel height. Photo reveal and financial progress are continuity, not unrelated entrance effects. No pause control; reduced motion/Save-Data/hidden or offscreen regions conserve motion. Never move keyboard focus on automatic changes.
 

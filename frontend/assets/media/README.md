@@ -14,29 +14,29 @@ Edits: clip 4010 seconds 0.3–5.3 followed by clip 42333 seconds 1–6.5 with a
 
 The 17 September follow-up requests a continuous film: it does not pause on scroll or automatically opt out under reduced motion. The clarified brief removes manual pause/play controls; a hidden browser tab still suspends playback. The separate four-scene CRM demonstration begins with the photo report and loops continuously; selecting a tab restarts its interval without pausing. It respects reduced motion and suspends while outside the viewport. This supersedes the previous shared motion policy.
 
-## Demonstration illustrations
+## Actual product walkthroughs — 18 September 2026
 
-`demo-interior.webp` and `demo-exterior.webp` reuse the project's existing ImageGen illustrations, originally `frontend/assets/images/project-cover-interior.webp` and `project-cover-exterior.webp`. Generation prompts are recorded in that directory's README. They are explicitly labelled as illustrations in the presentation and are not evidence of customer projects. The copies carry provenance in JSON sidecars; the original CRM assets are untouched.
+`product/` contains 20 local H.264/fast-start MP4 recordings: 10 scenarios, each at 1280×900 and at 390×700. Total video payload is about 7.8 MB, loaded one selected scene at a time as its theatre enters the viewport. Every clip has a WebP still and a provenance sidecar. `recordings.json` records dimensions, durations and byte sizes.
 
-`pmbi-icon.png` is a copy of the existing `frontend/assets/logo.png` brand asset, with its origin recorded in PNG metadata. WebP provenance uses the Impeccable tool's `.webp.json` sidecars; source assets remain unchanged.
+Source applications: PM.bi commit `89d7bf2` and AutoBot commit `4d794fc`. Playwright operated the actual browser UI: clicks, typing, uploads, saves and real local responses. The cursor annotation tracks those actual pointer events. No invented HTML interface, generated UI or production customer information appears in these recordings. Both applications ran in isolated copies with synthetic data. The illustrative object is «Деловой центр “Горизонт”»; the local Excel estimate contains four demonstration positions.
 
-## Site photography
+- `crm-report`: open the journal day, open its photograph, return to the report.
+- `crm-estimate`: open work quantities, enter actual volume and save.
+- `crm-task`: create an assigned task with a due date.
+- `crm-result`: add a planned invoice and open the payment list; this is not a completed payment.
+- `bot-estimate`: upload an Excel file and show the parsed positions.
+- `bot-review`: open the original row, amend a position and save the correction reason.
+- `bot-market`: configure city and item types for market comparison. No live search results are claimed.
+- `bot-export`: open AutoBot inside the actual CRM bridge, select the existing project and show the import confirmation control. The demonstration does not submit the import.
+- `bot-tenders`: configure tender search criteria. No tender results are fabricated.
+- `bot-research`: configure a named work/material search. No market result is fabricated.
 
-- `site-planning.webp`: [Mikael Blomkvist, Pexels 8961133](https://www.pexels.com/photo/a-man-and-a-woman-with-ppe-s-looking-at-a-blue-print-8961133/), specialists reviewing plans at a construction site. Original 7719×5146; resized to 1400 px wide, WebP quality 82.
-- `site-team.webp`: [This Viktọ, Pexels 10202865](https://www.pexels.com/photo/construction-workers-on-the-building-site-10202865/), construction team at work. Original 6015×3739; resized to 1600 px wide, WebP quality 82.
+Suffix `-mobile` identifies a separately recorded portrait walkthrough, not a crop of the desktop recording. The page labels all recordings as demonstration data. Tabs advance when the selected recording ends and can be selected manually or from the keyboard. No pause controls, as requested. Product recordings stay as readable stills for reduced motion, Save Data, unavailable video or denied autoplay. Offscreen and hidden-page players are suspended. The enlarged view uses the same local media. The construction hero retains the separately documented continuous-film policy above.
 
-Downloaded through each photo's official download link on 17 September 2026. [Pexels License](https://www.pexels.com/license/) permits website and commercial promotional use and resizing. No endorsement, affiliation, customer relationship or project ownership is claimed. These are illustrative stock photographs, not PM.bi case studies. JSON sidecars retain source and conversion details. The two source JPEGs remain in ignored QA storage; no generated edits were made.
+`autobot-walkthrough.gif` combines the actual Excel upload/parse and row-review recordings: 25 seconds, 8 fps, 960 px wide, 128 colours, infinite loop, about 3.95 MB. It is offered only as a download and is not requested on initial page load. Its JSON sidecar records the origin.
 
-## Role photography — 18 September 2026
+## Retained illustration and brand
 
-- `role-owner.webp`: [Gustavo Fring, Pexels 6285158](https://www.pexels.com/photo/businessman-and-architects-looking-at-blueprints-in-an-office-6285158/), project discussion with blueprints; 1200×800, WebP quality 82, 45,698 bytes.
-- `role-foreman.webp`: [Mikael Blomkvist, Pexels 8961008](https://www.pexels.com/photo/an-engineer-using-a-digital-tablet-8961008/), tablet on a work site; 1200×800, WebP quality 82, 43,044 bytes.
-- `role-customer.webp`: [Mikael Blomkvist, Pexels 8961338](https://www.pexels.com/photo/two-people-checking-on-a-construction-project-8961338/), inspection during renovation; 1200×1800, WebP quality 82, 170,574 bytes.
+`demo-interior.webp` reuses the project's existing ImageGen illustration `frontend/assets/images/project-cover-interior.webp`. Its generation origin is recorded in that directory's README and the local JSON sidecar. It is used for the synthetic report photograph and the explicitly future Telegram concept, not as evidence of a customer project. Original CRM assets are untouched.
 
-Downloaded from the official Pexels image CDN, resized without generative changes. [Pexels License](https://www.pexels.com/license/) checked 18 September permits commercial website use and modification. Illustrative role scenes, with no claim that the people are PM.bi customers or endorse it. All three photos load lazily and have provenance sidecars. The onset of each role scene reveals the photograph alongside its existing CRM example. The hero report overlay is removed per the latest user feedback.
-
-## AutoBot walkthrough — 18 September 2026
-
-`autobot-walkthrough.gif` is an export of the presentation's authored HTML/CSS/JS demo, not a recording of a customer account. Four stages show upload, structured rows, human verification against an illustrative source line, and confirmed positions in an illustrative CRM project. The filename, row coordinates, quantities and project are synthetic and labelled. Site photography and the project illustration reuse the licensed/original media documented above.
-
-Rendered with Playwright at 1280×990, 208 frames at 8 fps (26 seconds), then encoded with ffmpeg to 960×743 with a 128-colour palette and infinite loop. No soundtrack or generated video. The export is 763,581 bytes before provenance metadata. The live page uses accessible HTML controls and CSS animation; the GIF is download-only, so it does not add an autoplaying download or decoding cost to page load. Origin is retained in a JSON sidecar.
+`pmbi-icon.png` is a copy of the existing `frontend/assets/logo.png`, with origin in PNG metadata. Abandoned presentation-only stock photographs, role photographs and the unused exterior copy were removed when actual product recordings replaced them; their original CRM source assets were not changed.
