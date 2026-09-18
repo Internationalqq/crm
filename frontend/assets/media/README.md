@@ -26,3 +26,9 @@ The 17 September follow-up requests a continuous film: it does not pause on scro
 - `site-team.webp`: [This Viktọ, Pexels 10202865](https://www.pexels.com/photo/construction-workers-on-the-building-site-10202865/), construction team at work. Original 6015×3739; resized to 1600 px wide, WebP quality 82.
 
 Downloaded through each photo's official download link on 17 September 2026. [Pexels License](https://www.pexels.com/license/) permits website and commercial promotional use and resizing. No endorsement, affiliation, customer relationship or project ownership is claimed. These are illustrative stock photographs, not PM.bi case studies. JSON sidecars retain source and conversion details. The two source JPEGs remain in ignored QA storage; no generated edits were made.
+
+## AutoBot walkthrough — 18 September 2026
+
+`autobot-walkthrough.gif` is an export of the presentation's authored HTML/CSS/JS demo, not a recording of a customer account. Four stages show upload, structured rows, human verification against an illustrative source line, and confirmed positions in an illustrative CRM project. The filename, row coordinates, quantities and project are synthetic and labelled. Site photography and the project illustration reuse the licensed/original media documented above.
+
+Rendered with Playwright at 1280×990, 208 frames at 8 fps (26 seconds), then encoded with ffmpeg to 960×743 with a 128-colour palette and infinite loop. No soundtrack or generated video. The export is 763,581 bytes before provenance metadata. The live page uses accessible HTML controls and CSS animation; the GIF is download-only, so it does not add an autoplaying download or decoding cost to page load. Origin is retained in a JSON sidecar.

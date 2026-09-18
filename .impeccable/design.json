@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-17T10:04:22.502Z",
+  "generatedAt": "2026-09-18T09:52:12.214Z",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -129,7 +129,28 @@
         "purpose": "Надпись основной кнопки."
       }
     },
-    "shadows": [],
+    "shadows": [
+      {
+        "name": "hero-report",
+        "value": "0 14px 40px #13273d26",
+        "purpose": "Локальная тень бумажного фотоотчёта над первым фильмом; не общий стиль контейнеров."
+      },
+      {
+        "name": "autobot-desk",
+        "value": "0 20px 55px #203a5512",
+        "purpose": "Мягкая граница большой рабочей плоскости Автобота на фоне секции."
+      },
+      {
+        "name": "autobot-paper",
+        "value": "0 15px 30px #183c641a",
+        "purpose": "Исходный лист сметы над фотографией; до 600px тень и наклон отсутствуют."
+      },
+      {
+        "name": "autobot-cursor",
+        "value": "drop-shadow(0 3px 4px #16324d40)",
+        "purpose": "Читаемый силуэт декоративного SVG-указателя над действием."
+      }
+    ],
     "motion": [
       {
         "name": "button-background",
@@ -169,7 +190,82 @@
       {
         "name": "reduced-motion-css",
         "value": "scroll-behavior: auto; transition: none; animation: none",
-        "purpose": "Убирает плавную прокрутку, переход фона кнопки и обе анимации сцен. Save-Data не меняет эти CSS-состояния."
+        "purpose": "Убирает плавную прокрутку, переход фона кнопки и исходные анимации сцен. Новые движения требуют motion-ready; Автобот также отключает анимации и переходы в static-состоянии. Save-Data сохраняет исходные scene-enter и volume-enter при ручном выборе сцены."
+      },
+      {
+        "name": "report-arrive",
+        "value": "1s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Фотоотчёт над первым фильмом: translate(50px,30px) rotate(9deg), opacity .3 → rotate(3deg), opacity 1."
+      },
+      {
+        "name": "file-arrive",
+        "value": ".8s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Документ Автобота: translate(-35px,12px) rotate(-3deg), opacity .35 → исходное положение, opacity 1."
+      },
+      {
+        "name": "autobot-row-arrive",
+        "value": ".65s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Строки Автобота: translateX(-20px), opacity .25 → translateX(0), opacity 1; вторая и третья строки задержаны на .13s и .26s."
+      },
+      {
+        "name": "story-row-arrive",
+        "value": ".55s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Строки прежних сцен: тот же row-arrive, задержки .1s и .2s."
+      },
+      {
+        "name": "photo-reveal",
+        "value": ".8s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Фотография активного фотоотчёта: clip-path inset(0 0 15% 0), scale(.98) → inset(0), scale(1)."
+      },
+      {
+        "name": "panel-reveal",
+        "value": ".45s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Панели ролей и внедрения: clip-path inset(0 0 4% 0), opacity .6 → inset(0), opacity 1."
+      },
+      {
+        "name": "disclosure-enter",
+        "value": ".35s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Содержимое FAQ и исходной строки: translateY(-8px), opacity .3 → translateY(0), opacity 1."
+      },
+      {
+        "name": "autobot-paper-move",
+        "value": "transform .65s cubic-bezier(.16,1,.3,1)",
+        "purpose": "Исходный лист меняет наклон между шагами; до 600px движение листа отсутствует."
+      },
+      {
+        "name": "autobot-cursor-cycle",
+        "value": "6.5s",
+        "purpose": "SVG-указатель появляется во второй половине шага, уменьшается на 78%, круг щелчка раскрывается на 79–89%; оба эффекта декоративны и не перехватывают события."
+      },
+      {
+        "name": "disclosure-icon",
+        "value": "transform .25s",
+        "purpose": "Плюс FAQ и исходной строки поворачивается на 45deg в открытом состоянии."
+      },
+      {
+        "name": "autobot-stage-duration",
+        "value": "6500ms",
+        "purpose": "Четыре шага по кругу: загрузка, разбор, проверка человеком, CRM. Ручной выбор сбрасывает интервал и сохраняет автоматическое продолжение."
+      },
+      {
+        "name": "autobot-source-reveal",
+        "value": "1250ms",
+        "purpose": "В третьем шаге исходная строка раскрывается один раз после этой отметки. Ручное раскрытие/закрытие имеет приоритет до следующего шага."
+      },
+      {
+        "name": "autobot-visibility-threshold",
+        "value": "0.15",
+        "purpose": "IntersectionObserver наблюдает рабочие панели. Вне экрана или в скрытой вкладке requestAnimationFrame останавливается, курсор ставится на паузу."
+      },
+      {
+        "name": "autobot-automatic-policy",
+        "value": "inView && !document.hidden && !reduced.matches && !connection?.saveData",
+        "purpose": "При reduced motion или Save-Data текущий шаг статичен, переходы и курсор выключены; ручные вкладки и исходник доступны. Политика первого видео не меняется."
+      },
+      {
+        "name": "new-motion-gate",
+        "value": "body.motion-ready",
+        "purpose": "Новые keyframes включаются только без reduced motion и Save-Data. Статичный HTML остаётся читаемым; загрузка GIF происходит только по отдельной ссылке."
       }
     ],
     "breakpoints": [
@@ -198,7 +294,7 @@
       "refersTo": "button-primary",
       "description": "Главное действие без декоративной стрелки; синий фон, клавиатурный фокус и прямая ссылка в публичную CRM.",
       "html": "<a class=\"ds-primary\" href=\"/app/projects\">Открыть PM.bi</a>",
-      "css": ".ds-primary{display:inline-flex;justify-content:center;align-items:center;gap:32px;min-height:58px;padding:15px 23px;border:1px solid transparent;border-radius:2px;font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;font-weight:500;line-height:1.4;background:var(--blue,#1550c4);color:var(--paper,#ffffff);text-decoration:none;transition:background .18s}.ds-primary:hover{background:var(--blue-hover,#103f9d)}.ds-primary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-primary{min-height:56px;padding-inline:20px;font-size:17px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+      "css": ".ds-primary{display:inline-flex;justify-content:center;align-items:center;gap:32px;min-height:58px;padding:15px 23px;border:1px solid transparent;border-radius:2px;font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;font-weight:500;line-height:1.4;background:var(--blue,#1550c4);color:var(--paper,#ffffff);text-decoration:none;transition:background .18s}.ds-primary:hover{background:var(--blue-hover,#103f9d)}.ds-primary:active{transform:translateY(1px)}.ds-primary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-primary{min-height:56px;padding-inline:20px;font-size:17px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
     },
     {
       "name": "Рабочая сцена",
@@ -207,16 +303,24 @@
       "description": "Светло-синий рабочий документ демонстрации: открытые строки, табличные цифры и ясный результат.",
       "html": "<div class=\"ds-story\"><div class=\"ds-story-top\"><span>Деловой центр «Горизонт»</span><span>Смета</span></div><h4 class=\"ds-story-title\">Отделка первого этажа</h4><div class=\"ds-story-row\"><span>Перегородки</span><span>120 м²</span><b>162 000 ₽</b></div><div class=\"ds-story-total\"><span>Итого по смете</span><strong>348 600 ₽</strong></div></div>",
       "css": ".ds-story{align-self:stretch;min-width:0;padding:26px 30px;display:flex;flex-direction:column;justify-content:center;background:var(--soft-blue,#edf3fa);color:var(--ink,#222b33);font-family:var(--font, \"Golos Text\", \"Segoe UI\", Arial, sans-serif);font-size:18px;line-height:1.55;font-variant-numeric:tabular-nums}.ds-story-top{display:flex;justify-content:space-between;gap:20px;color:var(--muted,#586570);font-size:16px;padding-bottom:22px;margin-bottom:23px;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-title{margin:0 0 22px;font-size:26px;font-weight:500;line-height:1.1;letter-spacing:-.035em;text-wrap:balance}.ds-story-row{display:grid;grid-template-columns:1fr 65px 110px;align-items:center;gap:16px;font-size:17px;padding:16px 0;border-bottom:1px solid var(--line,#d7dfe5)}.ds-story-row b{text-align:right;font-weight:500;white-space:nowrap}.ds-story-row>span:nth-child(2){color:var(--muted,#586570)}.ds-story-total{display:flex;justify-content:space-between;align-items:center;gap:18px;padding-top:25px;font-size:17px}.ds-story-total strong{font-size:30px;font-weight:500;color:var(--blue,#1550c4);white-space:nowrap}@media(max-width:1100px){.ds-story-row{grid-template-columns:1fr 60px 100px;gap:12px;font-size:16px}}@media(max-width:900px){.ds-story{padding:24px}.ds-story-row{grid-template-columns:1fr 58px 98px;gap:8px;font-size:16px}}@media(max-width:600px){.ds-story{padding:20px;min-height:400px}.ds-story-top{gap:10px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:20px}.ds-story-title{font-size:24px}.ds-story-row{grid-template-columns:1fr 95px;gap:5px 12px;font-size:16px;padding-block:13px}.ds-story-row>span:nth-child(2){grid-row:2}.ds-story-row b{grid-column:2;grid-row:1/3}.ds-story-total{flex-wrap:wrap;gap:7px;padding-top:20px;font-size:16px}.ds-story-total strong{font-size:28px;margin-left:auto}}"
+    },
+    {
+      "name": "Исходная строка Автобота",
+      "kind": "custom",
+      "description": "Нативное раскрытие подписанного исходника для проверки человеком; демонстрационные величины, без API и записи в CRM.",
+      "html": "<details class=\"ds-bot-source\"><summary><span>Бетон В25</span><strong>86 м³</strong><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><div class=\"ds-bot-excerpt\"><span>Исходник · лист 1, строка 7</span><p>Бетон В25 <mark>86 м³</mark></p><span>Объём и единица совпадают.</span></div></details>",
+      "css": ".ds-bot-source{margin-top:28px;border-block:1px solid var(--line,#d7dfe5);color:var(--ink,#222b33);font-family:var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);line-height:1.55}.ds-bot-source summary{display:flex;align-items:center;gap:16px;padding:19px 0;font-size:21px;list-style:none;cursor:pointer}.ds-bot-source summary::-webkit-details-marker{display:none}.ds-bot-source summary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}.ds-bot-source summary strong{color:var(--blue,#1550c4);font-weight:500;margin-left:auto;white-space:nowrap}.ds-bot-source summary svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;transition:transform .25s}.ds-bot-source[open] summary svg{transform:rotate(45deg)}.ds-bot-excerpt{background:var(--soft-blue,#edf3fa);padding:20px 24px;margin-bottom:20px}.ds-bot-excerpt>span{display:block;font-size:16px;color:#415c7c}.ds-bot-excerpt p{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:16px 0;font-size:21px}.ds-bot-excerpt mark{background:#d0e1ff;color:#103f9d;padding:3px 8px;white-space:nowrap}@media(max-width:900px){.ds-bot-excerpt{padding:16px}.ds-bot-excerpt p,.ds-bot-source summary{font-size:19px}}@media(max-width:600px){.ds-bot-source summary{gap:10px;font-size:18px}.ds-bot-excerpt{padding:15px}.ds-bot-excerpt p{font-size:18px}}@media(prefers-reduced-motion:reduce){.ds-bot-source summary svg{transition:none}}"
     }
   ],
   "narrative": {
     "northStar": "Документальный монтаж",
-    "overview": "Светлая белая плоскость, крупный графитовый набор и строительный кадр задают характер публичной презентации PM.bi. Изображение узнаваемой стройки соседствует с открытыми строками, рабочими таблицами и ясными действиями. Синий выделяет действие и результат; масштаб текста и свободное пространство создают иерархию.\n\nОбласть действия этого документа — только `/presentation`. Он описывает реализованные `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation-motion.js` и `frontend/assets/js/presentation.js`. Это не замена дизайн-системы рабочей CRM: её оболочка, компактность, токены и компоненты сохраняются. Подтверждённый визуальный мир и композиция страницы записаны отдельно в `.impeccable/surfaces/frontend-templates-presentation-html.md`; обязательства продукта — в `PRODUCT.md`.",
+    "overview": "Светлая белая плоскость, крупный графитовый набор и строительный кадр задают характер публичной презентации PM.bi. Изображение узнаваемой стройки соседствует с открытыми строками, рабочими таблицами и ясными действиями. Синий выделяет действие и результат; масштаб текста и свободное пространство создают иерархию.\n\nОбласть действия этого документа — только `/presentation`. Он описывает реализованные `frontend/templates/presentation.html`, `frontend/assets/css/presentation.css`, `frontend/assets/js/presentation-motion.js`, `frontend/assets/js/presentation-autobot.js` и `frontend/assets/js/presentation.js`. Это не замена дизайн-системы рабочей CRM: её оболочка, компактность, токены и компоненты сохраняются. Подтверждённый визуальный мир и композиция страницы записаны отдельно в `.impeccable/surfaces/frontend-templates-presentation-html.md`; обязательства продукта — в `PRODUCT.md`.",
     "keyCharacteristics": [
       "Очень светлые поверхности и крупная кириллическая типографика.",
       "Один основной синий акцент, графитовый текст и спокойные разделители.",
       "Прямоугольные кадры, открытые строки и плоские рабочие примеры.",
-      "Непрерывный фильм и повторяющийся показ с ручным выбором сцены; смысл остаётся доступен в статичном состоянии."
+      "Непрерывный фильм и повторяющийся показ с ручным выбором сцены; смысл остаётся доступен в статичном состоянии.",
+      "Предметное движение документов, появление строк и видимый указатель действия связывают исходник, проверку человеком и результат Автобота."
     ],
     "rules": [
       {
@@ -231,7 +335,7 @@
       },
       {
         "name": "The Flat Plane Rule",
-        "body": "Разделяйте уровни тоном, линией и отступом. Для элементов этой презентации не добавляйте тени, стеклянные подложки и плавающие декоративные карточки.",
+        "body": "Разделяйте основные уровни тоном, линией и отступом. Мягкая тень допустима только у предметного фотоотчёта, рабочей плоскости, исходного листа и указателя Автобота; не переносите её на обычные контейнеры, навигацию и кнопки. Стеклянные подложки и плавающие декоративные карточки не относятся к этому миру.",
         "section": "elevation"
       }
     ],
@@ -244,7 +348,7 @@
     ],
     "donts": [
       "**Don't** переносите светлую презентационную композицию, её крупный масштаб и интервалы на рабочие экраны CRM без отдельной задачи.",
-      "**Don't** добавляйте второй основной акцент, декоративные тени, мелкие надзаголовки или символы шрифта вместо используемых SVG-иконок.",
+      "**Don't** добавляйте второй основной акцент, декоративные тени вне описанного предметного показа, мелкие надзаголовки или символы шрифта вместо используемых SVG-иконок.",
       "**Don't** превращайте служебный статус, единичные оттенки границ и оттенки отдельных секций в новые общие токены.",
       "**Don't** скрывайте основной смысл или действие за autoplay, прокруткой или доступностью видео.",
       "**Don't** выдавайте иллюстрации, условные числа и планы за подтверждённые кейсы, цены, отзывы или действующие функции."

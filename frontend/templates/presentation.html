@@ -11,9 +11,10 @@
     <title>PM.bi — Стройка перед глазами</title>
     <link rel="icon" type="image/png" href="/assets/media/pmbi-icon.png">
     <link rel="preload" href="/assets/fonts/GolosText-Variable.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260917-hero-1">
-    <script defer src="/assets/js/presentation.js?v=20260917-hero-1"></script>
-    <script defer src="/assets/js/presentation-motion.js?v=20260917-hero-1"></script>
+    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260918-motion-1">
+    <script defer src="/assets/js/presentation.js?v=20260918-motion-1"></script>
+    <script defer src="/assets/js/presentation-motion.js?v=20260918-motion-1"></script>
+    <script defer src="/assets/js/presentation-autobot.js?v=20260918-motion-1"></script>
 </head>
 <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol><symbol id="icon-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol><symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol></defs></svg>
@@ -36,6 +37,10 @@
             </div>
             <div class="hero-heading"><h1 id="film-title">Стройка<br><span>перед глазами.</span></h1><p>PM.bi — CRM для тех, кто строит.<br>Объекты, команда и деньги в одной системе.</p></div>
             <div class="hero-actions"><a class="button button-primary" href="#workflow">Посмотреть систему</a></div>
+            <figure class="hero-report">
+                <img src="/assets/media/demo-interior.webp" width="1200" height="720" alt="Иллюстрация фотоотчёта: монтаж перегородок" loading="lazy" decoding="async">
+                <figcaption><span>Пример фотоотчёта</span><div><strong>Перегородки</strong><b>42 м²</b></div></figcaption>
+            </figure>
             <p class="film-status" role="status" hidden>Видео недоступно. Показан кадр со стройки.</p>
         </section>
 
@@ -130,14 +135,48 @@
         <section class="autobot-section" id="autobot" aria-labelledby="autobot-title">
             <div class="container section">
                 <div class="autobot-grid">
-                    <div class="autobot-copy"><h2 id="autobot-title">Автобот.<br>Смету — в работу.</h2><p class="section-lead">Загрузите документ. Автобот поможет разобрать позиции и найти предложения по материалам.</p><p>Вы проверяете объёмы, единицы и источники цен, затем подтверждаете данные для CRM.</p><a class="text-link" href="#plans">Выбрать формат </a></div>
-                    <div class="estimate-preview" aria-label="Пример разбора сметы Автоботом">
-                        <div class="estimate-top"><span>Смета_объекта.xlsx</span><span>Пример разбора</span></div>
-                        <table><caption>Позиции из документа</caption><thead><tr><th scope="col">Материал</th><th scope="col">Объём</th></tr></thead><tbody><tr><th scope="row">Бетон В25</th><td>86 м³</td></tr><tr><th scope="row">Арматура А500</th><td>12 т</td></tr><tr><th scope="row">Опалубка</th><td>240 м²</td></tr></tbody></table>
-                        <div class="estimate-result"><p>Исходный документ и источники предложений остаются под рукой.</p></div>
-                    </div>
+                    <h2 id="autobot-title">Автобот.<br>Смету — в работу.</h2>
+                    <div class="autobot-copy"><p class="section-lead">Загрузите документ. Автобот поможет разобрать позиции и найти предложения по материалам.</p><p>Вы проверяете объёмы, единицы и источники цен, затем подтверждаете данные для CRM.</p></div>
                 </div>
-                <ol class="autobot-steps"><li><span>01</span>Загрузить документ</li><li><span>02</span>Проверить результат</li><li><span>03</span>Подтвердить для CRM</li></ol>
+                <div class="bot-demo" data-bot-stage="0">
+                    <div class="bot-demo-heading"><p>Демонстрационные данные</p><p>Документ. Проверка. Объект.</p></div>
+                    <div class="bot-stage-tabs" role="tablist" aria-label="Как работает Автобот" hidden>
+                        <button id="bot-tab-0" type="button" role="tab" aria-controls="bot-panel-0" aria-selected="true" data-bot-step="0"><span>Загрузить</span><i aria-hidden="true"></i></button>
+                        <button id="bot-tab-1" type="button" role="tab" aria-controls="bot-panel-1" aria-selected="false" tabindex="-1" data-bot-step="1"><span>Разобрать</span><i aria-hidden="true"></i></button>
+                        <button id="bot-tab-2" type="button" role="tab" aria-controls="bot-panel-2" aria-selected="false" tabindex="-1" data-bot-step="2"><span>Проверить</span><i aria-hidden="true"></i></button>
+                        <button id="bot-tab-3" type="button" role="tab" aria-controls="bot-panel-3" aria-selected="false" tabindex="-1" data-bot-step="3"><span>В CRM</span><i aria-hidden="true"></i></button>
+                    </div>
+                    <div class="bot-desk">
+                        <aside class="bot-source" aria-label="Исходный документ примера">
+                            <img class="bot-site-photo" src="/assets/media/site-team.webp" width="1600" height="994" alt="Армирование на строительной площадке" loading="lazy" decoding="async">
+                            <div class="bot-paper"><div class="bot-file-type">XLSX<span>Исходный файл</span></div><h3>Смета<br>на фундамент</h3><div class="bot-paper-lines" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><p>Смета_<wbr>объекта.xlsx</p></div>
+                            <p class="bot-source-note">Исходник остаётся<br>рядом с результатом.</p>
+                        </aside>
+                        <div class="bot-panels">
+                            <section class="bot-panel" id="bot-panel-0" role="tabpanel" aria-labelledby="bot-tab-0" tabindex="0">
+                                <div class="bot-window-heading"><strong>Автобот</strong><span>Разбор документа</span></div>
+                                <div class="bot-panel-body"><h3>Начните с файла.</h3><p>Смета уже есть. Переносить каждую строку вручную не нужно.</p><div class="bot-dropzone"><svg viewBox="0 0 56 64" aria-hidden="true"><path d="M10 3h23l13 13v45H10zM33 3v14h13M19 30h18M19 39h18M19 48h10"/></svg><div><strong>Смета_объекта.xlsx</strong><span>Пример документа · 3 позиции</span></div></div></div>
+                                <div class="bot-action"><p>Выберите файл для разбора.</p><button class="button button-primary" type="button" data-bot-next="1" hidden>Загрузить пример</button></div>
+                            </section>
+                            <section class="bot-panel" id="bot-panel-1" role="tabpanel" aria-labelledby="bot-tab-1" tabindex="0">
+                                <div class="bot-window-heading"><strong>Автобот</strong><span>Позиции сметы</span></div>
+                                <div class="bot-panel-body"><h3>Строки стали данными.</h3><p>Название, единица, объём — каждое значение на своём месте.</p><div class="bot-rows" aria-label="Три позиции из примера сметы"><div><strong>Бетон В25</strong><span>86 м³</span></div><div><strong>Арматура А500</strong><span>12 т</span></div><div><strong>Опалубка</strong><span>240 м²</span></div></div></div>
+                                <div class="bot-action"><p>Теперь сверьте с исходником.</p><button class="button button-primary" type="button" data-bot-next="2" hidden>Проверить позиции</button></div>
+                            </section>
+                            <section class="bot-panel" id="bot-panel-2" role="tabpanel" aria-labelledby="bot-tab-2" tabindex="0">
+                                <div class="bot-window-heading"><strong>Автобот</strong><span>Проверка человеком</span></div>
+                                <div class="bot-panel-body"><h3>Последнее слово — ваше.</h3><p>Откройте строку и сравните её с документом до подтверждения.</p><details class="bot-source-detail"><summary><span>Бетон В25</span><strong>86 м³</strong><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div class="bot-source-excerpt"><span>Исходник · лист 1, строка 7</span><p>Бетон В25 <mark>86 м³</mark></p><span>Объём и единица совпадают.</span></div></details><p class="bot-review-note">Цены и предложения тоже требуют проверки источников.</p></div>
+                                <div class="bot-action"><p>В примере позиции проверены.</p><button class="button button-primary" type="button" data-bot-next="3" hidden>Подтвердить для CRM</button></div>
+                            </section>
+                            <section class="bot-panel" id="bot-panel-3" role="tabpanel" aria-labelledby="bot-tab-3" tabindex="0">
+                                <div class="bot-window-heading"><strong>PM.bi</strong><span>Объект</span></div>
+                                <div class="bot-panel-body"><h3>Смета — уже в объекте.</h3><div class="bot-project"><img src="/assets/media/demo-exterior.webp" width="1200" height="720" alt="Иллюстрация объекта из демонстрации" loading="lazy" decoding="async"><div><strong>Деловой центр «Горизонт»</strong><span>Фундамент · пример</span></div></div><div class="bot-rows bot-confirmed"><div><strong>Бетон В25</strong><span>86 м³</span></div><div><strong>Арматура А500</strong><span>12 т</span></div><div><strong>Опалубка</strong><span>240 м²</span></div></div></div>
+                                <div class="bot-action"><p>Дальше — работа в системе.</p><a class="text-link" href="/app/projects">Посмотреть CRM</a></div>
+                            </section>
+                        </div>
+                    </div>
+                    <div class="bot-demo-footer"><p>Наглядный пример процесса. Можно переключать шаги и раскрывать строки.</p><div class="bot-demo-links"><a class="text-link" href="/assets/media/autobot-walkthrough.gif" download="PMbi-Автобот.gif">Скачать GIF</a><a class="text-link" href="#plans">Выбрать формат</a></div></div>
+                </div>
             </div>
         </section>
 
