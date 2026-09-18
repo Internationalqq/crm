@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T14:29:00.012Z",
+  "generatedAt": "2026-09-18T15:54:55.934953+00:00",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -142,7 +142,7 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Повторяющиеся заголовки роли, формата, инструкции и будущего сценария."
+        "purpose": "Заголовки инструкции и будущего сценария."
       },
       "tour-title": {
         "displayName": "Tour-Title",
@@ -163,14 +163,13 @@
       "chapter": {
         "displayName": "Chapter",
         "purpose": "Название главы рядом с функциональным SVG."
+      },
+      "panel-title": {
+        "displayName": "Panel title",
+        "purpose": "Заголовки роли и формата внедрения."
       }
     },
     "shadows": [
-      {
-        "name": "tour-screen",
-        "value": "0 12px 32px -18px #26344940",
-        "purpose": "Мягкая глубина белого медиа внутри canvas."
-      },
       {
         "name": "concept-receipt",
         "value": "0 10px 24px -12px #22304933",
@@ -191,7 +190,7 @@
       {
         "name": "frame-settle",
         "value": ".45s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Экран выбранной главы: clip-path inset(1% 0 0), translateY(6px), opacity .85 -> inset(0), translateY(0), opacity 1. Требует motion-ready."
+        "purpose": "Выбранная запись и снимок роли: clip-path inset(1% 0 0), translateY(6px), opacity .85 -> inset(0), translateY(0), opacity 1. Требует motion-ready."
       },
       {
         "name": "panel-reveal",
@@ -245,7 +244,7 @@
       },
       {
         "name": "role-stage-duration",
-        "value": "8000ms",
+        "value": "5000ms",
         "purpose": "Три роли меняются по кругу. Ручной выбор начинает полный интервал заново; автоматическая смена фокус не переводит."
       },
       {
@@ -262,6 +261,11 @@
         "name": "reduced-motion-css",
         "value": "scroll-behavior: auto; transition: none",
         "purpose": "Отключает плавную прокрутку и переходы кнопки и плюсов; motion-ready отсутствует. Отдельная политика hero сохраняется."
+      },
+      {
+        "name": "role-progress",
+        "value": "5s linear both",
+        "purpose": "Полоса выбранной роли показывает интервал. Ручной выбор перезапускает её; offscreen/reduced motion/Save Data убирают анимацию."
       }
     ],
     "breakpoints": [
@@ -311,9 +315,9 @@
     {
       "name": "Главы записи продукта",
       "kind": "nav",
-      "description": "Боковая навигация 216px с SVG, подсказкой и прогрессом; до 1100px расположена над записью. Код страницы меняет aria-orientation и набор стрелок вместе с раскладкой.",
+      "description": "Компактный рейл 188px; до 1100px — горизонтальная прокручиваемая лента. Выбранная глава остаётся видна при автоматическом и ручном выборе.",
       "html": "<div class=\"ds-chapters\" role=\"tablist\" aria-label=\"Сценарии CRM\" aria-orientation=\"vertical\">\n<button type=\"button\" role=\"tab\" aria-selected=\"true\" tabindex=\"0\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M4 6h4l2-3h4l2 3h4v14H4z\"/><circle cx=\"12\" cy=\"12\" r=\"4\"/></svg><span class=\"ds-chapter-copy\"><span>Фотоотчёт</span><small>Что сделано</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M8 8h8M8 12h8M8 16h5\"/></svg><span class=\"ds-chapter-copy\"><span>Смета</span><small>План и факт</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"17\" rx=\"2\"/><path d=\"M8 2v4m8-4v4M8 13l3 3 5-6\"/></svg><span class=\"ds-chapter-copy\"><span>Задача</span><small>Кто отвечает</small></span><i aria-hidden=\"true\"></i></button>\n<button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><svg viewBox=\"0 0 24 24\" class=\"ds-icon\" aria-hidden=\"true\"><path d=\"M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4zM20 12h-6v4h6\"/></svg><span class=\"ds-chapter-copy\"><span>Результат</span><small>Что оплатить</small></span><i aria-hidden=\"true\"></i></button>\n</div>",
-      "css": ".ds-chapters{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-chapters{width:216px}.ds-chapters button{font:inherit;cursor:pointer}@media(max-width:1100px){.ds-chapters{width:auto}}.ds-chapters .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-chapters{grid-column: 1; grid-row: 2/4; display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 16px 12px; border-right: 1px solid var(--line,#e0e5eb); background: var(--wash,#f7f8fa);}.ds-chapters button{position: relative; display: flex; align-items: start; gap: 12px; padding: 19px 12px; min-height: 74px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted,#606b7a); text-align: left; line-height: 1.3;}.ds-chapters button > .ds-icon{width: 20px; height: 20px; margin-top: 2px;}.ds-chapter-copy{display: block; min-width: 0;}.ds-chapter-copy > span{display: block; font-size: 18px; font-weight: 500;}.ds-chapter-copy small{display: block; margin-top: 6px; color: var(--muted,#606b7a); font-size: 16px; line-height: 1.4;}.ds-chapters [aria-selected=\"true\"]{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters button:hover{background: #edf0f4; color: var(--ink,#22272f);}.ds-chapters [aria-selected=\"true\"]:hover{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters i{position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: var(--blue,#2258d6); transform: scaleX(var(--tour-progress,0)); transform-origin: left;}@media (max-width: 1100px){.ds-chapters{grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; padding: 10px; border-right: 0; border-bottom: 1px solid var(--line,#e0e5eb);}}@media (max-width: 1100px){.ds-chapters button{padding: 14px; min-height: 68px;}}@media (max-width: 1100px){.ds-chapter-copy small{display: none;}}@media (max-width: 900px){.ds-chapters button{gap: 8px; padding: 12px 10px;}}@media (max-width: 900px){.ds-chapter-copy > span{font-size: 17px;}}@media (max-width: 600px){.ds-chapters{grid-template-columns: repeat(2,minmax(0,1fr)); padding: 8px;}}@media (max-width: 600px){.ds-chapters button{padding: 13px 9px; min-height: 56px; align-items: center; gap: 9px;}}@media (max-width: 600px){.ds-chapters button > .ds-icon{width: 18px; height: 18px; margin-top: 0;}}@media (max-width: 600px){.ds-chapter-copy > span{font-size: 16px;}}@media (max-width: 360px){.ds-chapters button{gap: 6px; padding-inline: 6px;}}@media print{.ds-chapters{display: none;}}.ds-chapters button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "css": ".ds-chapters{font:18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);width:188px}.ds-chapters button{font:inherit;cursor:pointer}@media(max-width:1100px){.ds-chapters{width:auto}}.ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-chapters{display: none;}.ds-chapters{position: relative; grid-column: 1; grid-row: 2/4; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 12px; border-right: 1px solid var(--line,#e0e5eb); background: var(--wash,#f7f8fa); overflow: auto;}.ds-chapters button{position: relative; display: flex; align-items: center; gap: 10px; padding: 14px 10px; min-height: 52px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted,#606b7a); text-align: left; line-height: 1.3;}.ds-chapters button > .ds-icon{width: 20px; height: 20px; margin-top: 2px;}.ds-chapter-copy{display: block; min-width: 0;}.ds-chapter-copy > span{display: block; font-size: 17px; font-weight: 500;}.ds-chapter-copy small{display: none;}.ds-chapters [aria-selected=\"true\"]{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters button:hover{background: #edf0f4; color: var(--ink,#22272f);}.ds-chapters [aria-selected=\"true\"]:hover{background: var(--paper,#fff); color: var(--blue,#2258d6);}.ds-chapters i{position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: var(--blue,#2258d6); transform: scaleX(var(--tour-progress,0)); transform-origin: left;}@media (max-width: 1100px){.ds-chapters{grid-column: 1; grid-row: 2; flex-direction: row; gap: 4px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line,#e0e5eb); overflow-x: auto;}}@media (max-width: 1100px){.ds-chapters button{flex: 0 0 auto; padding: 12px; min-height: 44px; white-space: nowrap;}}@media (max-width: 900px){.ds-chapters button{gap: 8px; padding: 12px 10px;}}@media (max-width: 900px){.ds-chapter-copy > span{font-size: 17px;}}@media (max-width: 600px){.ds-chapters button{padding: 12px 10px; min-height: 44px; align-items: center; gap: 8px;}}@media (max-width: 600px){.ds-chapters button > .ds-icon{width: 18px; height: 18px; margin-top: 0;}}@media (max-width: 600px){.ds-chapter-copy > span{font-size: 16px;}}@media (max-width: 360px){.ds-chapters button{gap: 6px; padding-inline: 6px;}}@media print{.ds-chapters{display: none;}}.ds-chapters button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
       "refersTo": "tour-tab"
     },
     {
@@ -327,9 +331,9 @@
     {
       "name": "Вкладки ролей",
       "kind": "nav",
-      "description": "Текстовые вкладки с синей нижней полосой выбранной роли и графитовым наведением.",
+      "description": "Роли автоматически сменяются каждые 5 секунд, полоса показывает интервал; в статичном примере выбрана первая роль.",
       "html": "<div class=\"ds-roles\" role=\"tablist\" aria-label=\"Роль в строительной команде\"><button type=\"button\" role=\"tab\" aria-selected=\"true\">Руководитель</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Прораб</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Заказчик</button></div>",
-      "css": ".ds-roles{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-roles{border-bottom:1px solid var(--line,#e0e5eb)}.ds-roles button{font:inherit;cursor:pointer}.ds-roles{display: flex; gap: 32px;}.ds-roles button{background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--muted,#606b7a); padding: 18px 0; font-size: 18px; white-space: nowrap;}.ds-roles button[aria-selected=\"true\"]{color: var(--blue,#2258d6); border-bottom-color: var(--blue,#2258d6);}.ds-roles button:hover{color: var(--ink,#22272f);}@media (max-width: 600px){.ds-roles{justify-content: space-between; gap: 8px;}}@media (max-width: 600px){.ds-roles button{padding-block: 15px; font-size: 16px;}}.ds-roles button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "css": ".ds-roles{font:18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);border-bottom:1px solid var(--line,#e0e5eb)}.ds-roles button{font:inherit;cursor:pointer}.ds-roles{display: flex; gap: 32px;}.ds-roles button{position: relative; background: transparent; border: 0; color: var(--muted,#606b7a); padding: 14px 0; font-size: 18px; white-space: nowrap;}.ds-roles button::after{content: \"\"; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--blue,#2258d6); transform: scaleX(0); transform-origin: left;}.ds-roles button[aria-selected=\"true\"]{color: var(--blue,#2258d6);}.ds-roles button[aria-selected=\"true\"]::after{transform: scaleX(1);}.ds-roles button:hover{color: var(--ink,#22272f);}@media (max-width: 600px){.ds-roles{justify-content: space-between; gap: 8px;}}@media (max-width: 600px){.ds-roles button{padding-block: 15px; font-size: 16px;}}.ds-roles button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
       "refersTo": "role-tab"
     },
     {
@@ -337,7 +341,7 @@
       "kind": "nav",
       "description": "Три связанных выбора. Выбранный формат имеет светло-синий фон и синюю нижнюю границу; переключение ручное.",
       "html": "<div class=\"ds-plans\" role=\"tablist\" aria-label=\"Формат внедрения\">\n                <button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><strong>Пилот</strong><span>Один объект</span></button>\n                <button type=\"button\" role=\"tab\" aria-selected=\"true\"><strong>Подписка</strong><span>Для команды</span></button>\n                <button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\"><strong>Своя версия</strong><span>Под ваши процессы</span></button>\n            </div>",
-      "css": ".ds-plans{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-plans button{font:inherit;cursor:pointer}.ds-plans{display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border: 1px solid var(--line,#e0e5eb); border-radius: 12px 12px 0 0; overflow: hidden;}.ds-plans button{display: flex; flex-direction: column; align-items: start; gap: 7px; padding: 24px 28px; border: 0; border-bottom: 2px solid transparent; background: var(--paper,#fff); color: var(--ink,#22272f); text-align: left;}.ds-plans button + button{border-left: 1px solid var(--line,#e0e5eb);}.ds-plans strong{font-size: 24px; font-weight: 550; line-height: 1.2;}.ds-plans span{font-size: 16px; color: var(--muted,#606b7a);}.ds-plans button:hover{background: var(--wash,#f7f8fa);}.ds-plans button[aria-selected=\"true\"]{background: var(--soft-blue,#edf2ff); border-bottom-color: var(--blue,#2258d6); color: var(--blue,#2258d6);}@media (max-width: 900px){.ds-plans button{padding: 22px;}}@media (max-width: 600px){.ds-plans{grid-template-columns: 1fr;}}@media (max-width: 600px){.ds-plans button{flex-direction: row; justify-content: space-between; align-items: center; gap: 14px; padding: 18px 20px;}}@media (max-width: 600px){.ds-plans button + button{border-left: 0; border-top: 1px solid var(--line,#e0e5eb);}}@media (max-width: 600px){.ds-plans strong{font-size: 23px;}}@media (max-width: 600px){.ds-plans span{max-width: 126px; text-align: right;}}@media (max-width: 360px){.ds-plans strong{font-size: 21px;}}@media (max-width: 360px){.ds-plans span{max-width: 105px;}}.ds-plans button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
+      "css": ".ds-plans{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f)}.ds-plans button{font:inherit;cursor:pointer}.ds-plans{display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border: 1px solid var(--line,#e0e5eb); border-radius: 12px 12px 0 0; overflow: hidden;}.ds-plans button{display: flex; flex-direction: column; align-items: start; gap: 7px; padding: 20px 28px; border: 0; border-bottom: 2px solid transparent; background: var(--paper,#fff); color: var(--ink,#22272f); text-align: left;}.ds-plans button + button{border-left: 1px solid var(--line,#e0e5eb);}.ds-plans strong{font-size: 24px; font-weight: 550; line-height: 1.2;}.ds-plans span{font-size: 16px; color: var(--muted,#606b7a);}.ds-plans button:hover{background: var(--wash,#f7f8fa);}.ds-plans button[aria-selected=\"true\"]{background: var(--soft-blue,#edf2ff); border-bottom-color: var(--blue,#2258d6); color: var(--blue,#2258d6);}@media (max-width: 900px){.ds-plans button{padding: 22px;}}@media (max-width: 600px){.ds-plans{grid-template-columns: 1fr;}}@media (max-width: 600px){.ds-plans button{flex-direction: row; justify-content: space-between; align-items: center; gap: 14px; padding: 18px 20px;}}@media (max-width: 600px){.ds-plans button + button{border-left: 0; border-top: 1px solid var(--line,#e0e5eb);}}@media (max-width: 600px){.ds-plans strong{font-size: 23px;}}@media (max-width: 600px){.ds-plans span{max-width: 126px; text-align: right;}}@media (max-width: 360px){.ds-plans strong{font-size: 21px;}}@media (max-width: 360px){.ds-plans span{max-width: 105px;}}.ds-plans button:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
       "refersTo": "plan-option"
     },
     {
@@ -363,7 +367,7 @@
       "Общая светлая рамка, тонкие разделители и последовательные поля от первого экрана до подвала.",
       "Плотный кириллический Golos Text; вторые строки заголовков спокойнее основного текста.",
       "Один синий акцент для действий и выбранных состояний; холодные нейтральные рабочие поверхности.",
-      "Реальные записи с главами, подписями и доступом к полному контексту; мягкие края обрамляют полезный рабочий участок.",
+      "Реальные записи в компактной рамке по высоте окна; главы, краткие подписи, раскрываемое пояснение и доступ к полному контексту.",
       "Ручной выбор и статичные кадры сохраняют смысл; движение зависит от отдельной политики фильма и продуктовых сцен."
     ],
     "rules": [
@@ -379,23 +383,23 @@
       },
       {
         "name": "The Working Depth Rule",
-        "body": "Тень поддерживает вложенный экран или предметный пример. Общая рамка, навигация и действия отделяются линией и тоном; стеклянные подложки и декоративные плавающие карточки в текущую систему не входят.",
+        "body": "Тень поддерживает предметный пример. Встроенная запись, общая рамка, навигация и действия отделяются полями, линией и тоном; стеклянные подложки и декоративные плавающие карточки в текущую систему не входят.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "**Do** применяйте эту систему только к публичной презентации; рабочая CRM сохраняет собственный визуальный и ролевой контракт.",
-      "**Do** собирайте страницу общей рамкой, последовательными полями, крупным набором и одним главным действием в смысловом блоке.",
-      "**Do** делайте результат записи понятным по кадру и подписи, сохраняя ручной выбор и доступ к полному контексту.",
-      "**Do** отмечайте демонстрационные данные и будущие концепты рядом с соответствующим материалом.",
-      "**Do** сохраняйте SVG, клавиатурную ориентацию, видимый фокус, отдельные мобильные записи и статичные варианты движения."
+      "применяйте эту систему только к публичной презентации; рабочая CRM сохраняет собственный визуальный и ролевой контракт.",
+      "собирайте страницу общей рамкой, последовательными полями, крупным набором и одним главным действием в смысловом блоке.",
+      "делайте результат записи понятным по кадру и подписи, сохраняя ручной выбор и доступ к полному контексту.",
+      "отмечайте демонстрационные данные и будущие концепты рядом с соответствующим материалом.",
+      "сохраняйте SVG, клавиатурную ориентацию, видимый фокус, отдельные мобильные записи и статичные варианты движения."
     ],
     "donts": [
-      "**Don't** переносите крупную презентационную типографику и интервалы на рабочие экраны CRM без отдельной задачи.",
-      "**Don't** вводите вторую акцентную палитру, тёмные секции, декоративные надзаголовки, стеклянные подложки или символы шрифта вместо SVG.",
-      "**Don't** восстанавливайте угловую накладку первого экрана, прямоугольную систему прошлого мира или горизонтальные главы на широком экране по историческим документам.",
-      "**Don't** скрывайте смысл и действия за autoplay, прокруткой или единственным увеличенным просмотром.",
-      "**Don't** выдавайте иллюстрации, условные числа, планы, настройку поиска или выбор объекта за подтверждённые кейсы, платежи, цены, результаты поиска и выполненный импорт."
+      "переносите крупную презентационную типографику и интервалы на рабочие экраны CRM без отдельной задачи.",
+      "вводите вторую акцентную палитру, тёмные секции, декоративные надзаголовки, стеклянные подложки или символы шрифта вместо SVG.",
+      "восстанавливайте угловую накладку первого экрана, прямоугольную систему прошлого мира или горизонтальные главы на широком экране по историческим документам.",
+      "скрывайте смысл и действия за autoplay, прокруткой или единственным увеличенным просмотром.",
+      "выдавайте иллюстрации, условные числа, планы, настройку поиска или выбор объекта за подтверждённые кейсы, платежи, цены, результаты поиска и выполненный импорт."
     ]
   }
 }

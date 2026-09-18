@@ -46,3 +46,6 @@ The corresponding four `-focus` WebP posters are extracted from the recordings a
 `demo-interior.webp` reuses the project's existing ImageGen illustration `frontend/assets/images/project-cover-interior.webp`. Its generation origin is recorded in that directory's README and the local JSON sidecar. It is used for the synthetic report photograph and the explicitly future Telegram concept, not as evidence of a customer project. Original CRM assets are untouched.
 
 `pmbi-icon.png` is a copy of the existing `frontend/assets/logo.png`, with origin in PNG metadata. Abandoned presentation-only stock photographs, role photographs and the unused exterior copy were removed when actual product recordings replaced them; their original CRM source assets were not changed.
+## AutoBot illustration
+
+The presentation also reuses `../images/autobot-construction-ai.webp` unchanged beside the AutoBot introduction. It is the existing generated product illustration, not a screenshot or evidence of an implemented capability. Its original prompt is recorded in `../images/README.md`; provenance is also stored in `../images/autobot-construction-ai.webp.json`. Authentic product recordings remain separate.

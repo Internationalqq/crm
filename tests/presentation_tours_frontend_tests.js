@@ -24,10 +24,12 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     const doc = new Element(), preference = new Element(), compact = new Element(), wide = new Element(), connection = new Element(), tablist = new Element();
     preference.matches = reduce; compact.matches = mobile; wide.matches = !mobile; connection.saveData = saveData;
     doc.body = new Element(); doc.hidden = false;
+    tablist.scrollLeft = 0; tablist.clientWidth = 220;
     const root = new Element(), panels = [], tabs = [], videos = [], screens = [], statuses = [], promises = [];
     for (let i = 0; i < 4; i++) {
         const panel = new Element(), tab = new Element(), video = new Element(), screen = new Element(), status = new Element();
         tab.attributes = {'aria-controls': `scene-${i}`, 'aria-selected': String(i === 0)};
+        tab.offsetLeft = i * 120; tab.offsetWidth = 100;
         panel.hidden = i !== 0; status.hidden = true;
         video.paused = true; video.readyState = 1; video.currentTime = 0; video.duration = 10;
         video.dataset = {src: `/scene-${i}.mp4`, mobile: `/scene-${i}-mobile.mp4`};
@@ -84,6 +86,10 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     assert.equal(h.selected(), 0, 'Tablet and phone tabs use horizontal arrow keys');
     h.tabs[0].emit('keydown', {key: 'ArrowLeft', preventDefault() {}}); await flush();
     assert.equal(h.selected(), 3);
+    assert.equal(h.tablist.scrollLeft, 240, 'The last horizontal chapter is brought into view');
+    h.tabs[3].emit('keydown', {key: 'Home', preventDefault() {}}); await flush();
+    assert.equal(h.tablist.scrollLeft, 0, 'Returning to the first chapter reveals the start of the strip');
+    h.tabs[3].emit('click'); await flush();
     h.visible(false); assert(h.videos.every(v => v.paused));
     h.visible(true); await flush();
     h.doc.hidden = true; h.doc.emit('visibilitychange'); assert(h.videos.every(v => v.paused));

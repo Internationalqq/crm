@@ -36,8 +36,12 @@
         const schedule = () => {
             if (!cycleRegion) return;
             window.clearTimeout(timer);
+            cycleRegion.classList.remove('role-cycle-running');
             if (!visible || document.hidden || preference.matches || connection?.saveData) return;
-            timer = window.setTimeout(() => activate(tabs[(tabs.indexOf(selectedTab) + 1) % tabs.length]), 8000);
+            // Restart the visible reading interval after manual selection too.
+            void cycleRegion.offsetWidth;
+            cycleRegion.classList.add('role-cycle-running');
+            timer = window.setTimeout(() => activate(tabs[(tabs.indexOf(selectedTab) + 1) % tabs.length]), 5000);
         };
         const activate = (tab) => {
             selectedTab = tab;
@@ -67,6 +71,7 @@
         });
         if (cycleRegion) {
             const observer = new window.IntersectionObserver(entries => {
+                if (visible === entries[0].isIntersecting) return;
                 visible = entries[0].isIntersecting;
                 schedule();
             }, {threshold: 0.15});

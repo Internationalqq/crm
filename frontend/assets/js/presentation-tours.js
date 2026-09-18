@@ -63,6 +63,15 @@
                 if (i !== index) videos[i].pause();
             });
             const video = videos[index];
+            // Keep the selected chapter in the horizontal strip without moving the page.
+            if (!wide.matches) {
+                const list = root.querySelector('.tour-tabs');
+                const tab = tabs[index];
+                if (tab.offsetLeft < list.scrollLeft) list.scrollLeft = tab.offsetLeft;
+                else if (tab.offsetLeft + tab.offsetWidth > list.scrollLeft + list.clientWidth) {
+                    list.scrollLeft = tab.offsetLeft + tab.offsetWidth - list.clientWidth;
+                }
+            }
             if (video.readyState) video.currentTime = 0;
             poster(video);
             sync();

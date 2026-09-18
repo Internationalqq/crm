@@ -77,29 +77,33 @@ navigation.emit('click', {target: {closest: () => ({})}});
 assert.equal(menu.getAttribute('aria-expanded'), 'false');
 assert.equal(timers.size, 0, 'Offscreen roles do not start a timer');
 observerCallback([{isIntersecting: true}]);
-advance(8000);
+assert(demo.classes.has('role-cycle-running'), 'Visible role cycle shows progress');
+advance(2500);
+observerCallback([{isIntersecting: true}]);
+advance(2500); // Repeated observer reports must not postpone the next role.
 assert.equal(roles[1].getAttribute('aria-selected'), 'true');
-advance(8000); advance(8000);
+advance(5000); advance(5000);
 assert.equal(roles[0].getAttribute('aria-selected'), 'true', 'Automatic sequence loops');
 roles[2].emit('click');
-advance(7999);
+advance(4999);
 assert.equal(roles[2].getAttribute('aria-selected'), 'true', 'Manual choice receives a full reading interval');
 advance(1);
 assert.equal(roles[0].getAttribute('aria-selected'), 'true', 'Manual selection continues the automatic sequence');
 roles[0].emit('keydown', {key: 'ArrowRight', preventDefault() {}});
-advance(8000);
+advance(5000);
 assert.equal(roles[2].getAttribute('aria-selected'), 'true', 'Keyboard selection continues the sequence');
 assert.equal(plans[0].getAttribute('aria-selected'), 'true', 'Role cycle does not affect plans');
 for (const [target, key] of [[doc, 'hidden'], [preference, 'matches'], [connection, 'saveData']]) {
     target[key] = true; target.emit(target === doc ? 'visibilitychange' : 'change');
     assert.equal(timers.size, 0);
-    advance(16000);
+    advance(10000);
     assert.equal(roles[2].getAttribute('aria-selected'), 'true');
     target[key] = false; target.emit(target === doc ? 'visibilitychange' : 'change');
     assert.equal(timers.size, 1);
 }
 observerCallback([{isIntersecting: false}]);
 assert.equal(timers.size, 0);
+assert(!demo.classes.has('role-cycle-running'), 'Offscreen cycle removes progress');
 preference.matches = true; preference.emit('change');
 roles[1].emit('click');
 assert.equal(roles[1].getAttribute('aria-selected'), 'true', 'Reduced motion retains manual controls');
