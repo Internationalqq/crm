@@ -21,8 +21,27 @@
         let selected = 0;
         let visible = false;
         const canPlay = () => visible && !document.hidden && automatic();
+        let progressFrame = 0;
+        const stopProgress = () => {
+            cancelAnimationFrame(progressFrame);
+            progressFrame = 0;
+        };
+        const paintProgress = () => {
+            progressFrame = 0;
+            const video = videos[selected];
+            if (!canPlay() || video.paused || video.ended) return;
+            if (Number.isFinite(video.duration) && video.duration > 0) {
+                tabs[selected].style.setProperty('--tour-progress', String(Math.min(1, video.currentTime / video.duration)));
+            }
+            progressFrame = requestAnimationFrame(paintProgress);
+        };
+        const startProgress = () => {
+            stopProgress();
+            paintProgress();
+        };
         const poster = video => video.closest('.tour-screen').classList.remove('is-playing');
         const sync = () => {
+            if (!canPlay()) stopProgress();
             videos.forEach((video, index) => {
                 if (index !== selected || !canPlay() || denied.has(video)) {
                     video.pause();
@@ -34,7 +53,11 @@
                     denied.delete(video);
                     video.src = source;
                 }
-                if (!video.paused || pending.has(video)) return;
+                if (!video.paused) {
+                    startProgress();
+                    return;
+                }
+                if (pending.has(video)) return;
                 pending.add(video);
                 video.muted = true;
                 video.play().then(() => {
@@ -50,6 +73,7 @@
             });
         };
         const activate = index => {
+            stopProgress();
             selected = index;
             tabs.forEach((tab, i) => {
                 tab.setAttribute('aria-selected', String(i === index));
@@ -89,11 +113,14 @@
         });
         videos.forEach((video, index) => {
             video.addEventListener('playing', () => {
-                if (index === selected && canPlay()) video.closest('.tour-screen').classList.add('is-playing');
+                if (index === selected && canPlay()) {
+                    video.closest('.tour-screen').classList.add('is-playing');
+                    startProgress();
+                }
             });
-            video.addEventListener('timeupdate', () => {
-                if (index === selected && video.duration) tabs[index].style.setProperty('--tour-progress', String(video.currentTime / video.duration));
-            });
+            ['pause', 'waiting', 'ended', 'error'].forEach(event => video.addEventListener(event, () => {
+                if (index === selected) stopProgress();
+            }));
             video.addEventListener('ended', () => {
                 if (index === selected && canPlay()) activate((index + 1) % tabs.length);
             });

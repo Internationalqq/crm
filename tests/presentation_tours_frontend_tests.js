@@ -48,10 +48,14 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     root.children = {'[data-tour-tab]': tabs, '.tour-tabs': tablist};
     doc.children = {'[data-tour]': [root]};
     doc.getElementById = id => panels[Number(id.split('-')[1])];
-    let observer;
+    let observer, frameId = 0;
+    const frames = new Map();
+    const requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+    const cancelAnimationFrame = id => frames.delete(id);
     class IntersectionObserver { constructor(callback) { observer = callback; } observe() {} }
-    vm.runInNewContext(source, {document: doc, navigator: {connection}, window: {IntersectionObserver, matchMedia: q => q.includes('reduced') ? preference : q.includes('1101') ? wide : compact}, IntersectionObserver});
+    vm.runInNewContext(source, {requestAnimationFrame, cancelAnimationFrame, document: doc, navigator: {connection}, window: {IntersectionObserver, matchMedia: q => q.includes('reduced') ? preference : q.includes('1101') ? wide : compact}, IntersectionObserver});
     return {doc, root, preference, compact, wide, tablist, connection, panels, tabs, videos, screens, statuses, promises,
+        frames, tick() { const batch = [...frames.values()]; frames.clear(); batch.forEach(fn => fn()); },
         visible(value) { observer([{isIntersecting: value}]); },
         selected() { return tabs.findIndex(tab => tab.attributes['aria-selected'] === 'true'); }};
 }
@@ -63,6 +67,16 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     h.visible(true); await flush();
     assert.equal(h.videos[0].src, '/scene-0.mp4');
     assert.equal(h.videos[0].paused, false);
+    h.videos[0].currentTime = 1.01; h.tick();
+    assert.equal(Number(h.tabs[0].attributes['--tour-progress']), 0.101, 'Progress follows media time between timeupdate events');
+    assert.equal(h.frames.size, 1, 'Only one progress loop runs');
+    h.tabs[0].emit('click'); await flush();
+    h.videos[0].currentTime = 0.5; h.tick();
+    assert.equal(Number(h.tabs[0].attributes['--tour-progress']), 0.05, 'Reselecting an already playing chapter restarts progress');
+    h.visible(false); assert.equal(h.frames.size, 0, 'Offscreen progress stops');
+    h.visible(true); await flush();
+    h.videos[0].emit('waiting'); assert.equal(h.frames.size, 0, 'Buffering stops progress');
+    h.videos[0].emit('playing'); assert.equal(h.frames.size, 1, 'Playback restarts one progress loop');
     assert(h.screens[0].classes.has('is-playing'));
     assert(h.videos.slice(1).every(v => !v.src));
     h.videos[0].emit('ended'); await flush();

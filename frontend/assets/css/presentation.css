@@ -66,20 +66,20 @@ h3 { font-size: 30px; }
 .hero-film.is-ready video { opacity: 1; }
 .film-status { padding-top: 16px; font-size: 16px; color: var(--muted); text-align: left; }
 .product-tour { min-width: 0; border: 1px solid var(--line); border-radius: 16px; overflow: clip; background: var(--paper); }
-.tour-ready { display: grid; grid-template-columns: 188px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); height: min(640px,calc(100svh - 116px)); min-height: 460px; scroll-margin-top: 100px; }
+.tour-ready { display: grid; grid-template-columns: 216px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); height: min(640px,calc(100svh - 116px)); min-height: 460px; scroll-margin-top: 100px; }
 .tour-toolbar { grid-column: 1/-1; display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 8px 20px; border-bottom: 1px solid var(--line); }
 .tour-toolbar p { font-size: 16px; }
 .tour-tabs { display: none; }
 .tour-ready .tour-tabs { position: relative; grid-column: 1; grid-row: 2; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 12px; border-right: 1px solid var(--line); background: var(--wash); overflow: auto; }
-.tour-tabs button { position: relative; display: flex; align-items: center; gap: 10px; padding: 14px 10px; min-height: 52px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); text-align: left; line-height: 1.3; }
-.tour-tabs button > .icon { width: 20px; height: 20px; margin-top: 2px; }
+.tour-tabs button { position: relative; display: flex; align-items: center; gap: 10px; padding: 14px 12px; min-height: 56px; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); text-align: left; line-height: 1.3; }
+.tour-tabs button > .icon { width: 18px; height: 18px; margin-top: 0; }
 .tour-tab-copy { display: block; min-width: 0; }
-.tour-tab-copy > span { display: block; font-size: 17px; font-weight: 500; }
+.tour-tab-copy > span { display: block; font-size: 16px; font-weight: 400; }
 .tour-tab-copy small { display: none; }
 .tour-tabs [aria-selected="true"] { background: var(--blue); color: var(--paper); }
 .tour-tabs button:hover { background: #edf0f4; color: var(--ink); }
 .tour-tabs [aria-selected="true"]:hover { background: var(--blue-hover); color: var(--paper); }
-.tour-tabs i { position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px; background: currentColor; transform: scaleX(var(--tour-progress,0)); transform-origin: left; }
+.tour-tabs i { position: absolute; left: 12px; right: 12px; bottom: 5px; height: 2px; background: currentColor; transform: scaleX(var(--tour-progress,0)); transform-origin: left; }
 .tour-scenes { grid-column: 2; grid-row: 2; display: grid; min-width: 0; min-height: 0; }
 .tour-scene { grid-area: 1/1; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); background: var(--canvas); }
 .tour-scene[hidden] { display: grid; visibility: hidden; pointer-events: none; }
@@ -257,7 +257,7 @@ h3 { font-size: 30px; }
     .section-heading { grid-template-columns: 1fr; gap: 20px; margin-bottom: 28px; }
     .section-heading > p { max-width: 610px; }
     .tour-tabs button { gap: 8px; padding: 12px 10px; }
-    .tour-tab-copy > span { font-size: 17px; }
+    .tour-tab-copy > span { font-size: 16px; }
     .demo-panel { grid-template-columns: 1fr; gap: 30px; }
     .role-capture picture { padding: 12px; }
     .launch-path { grid-template-columns: 1fr; gap: 30px; }
