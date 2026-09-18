@@ -27,6 +27,14 @@ The 17 September follow-up requests a continuous film: it does not pause on scro
 
 Downloaded through each photo's official download link on 17 September 2026. [Pexels License](https://www.pexels.com/license/) permits website and commercial promotional use and resizing. No endorsement, affiliation, customer relationship or project ownership is claimed. These are illustrative stock photographs, not PM.bi case studies. JSON sidecars retain source and conversion details. The two source JPEGs remain in ignored QA storage; no generated edits were made.
 
+## Role photography — 18 September 2026
+
+- `role-owner.webp`: [Gustavo Fring, Pexels 6285158](https://www.pexels.com/photo/businessman-and-architects-looking-at-blueprints-in-an-office-6285158/), project discussion with blueprints; 1200×800, WebP quality 82, 45,698 bytes.
+- `role-foreman.webp`: [Mikael Blomkvist, Pexels 8961008](https://www.pexels.com/photo/an-engineer-using-a-digital-tablet-8961008/), tablet on a work site; 1200×800, WebP quality 82, 43,044 bytes.
+- `role-customer.webp`: [Mikael Blomkvist, Pexels 8961338](https://www.pexels.com/photo/two-people-checking-on-a-construction-project-8961338/), inspection during renovation; 1200×1800, WebP quality 82, 170,574 bytes.
+
+Downloaded from the official Pexels image CDN, resized without generative changes. [Pexels License](https://www.pexels.com/license/) checked 18 September permits commercial website use and modification. Illustrative role scenes, with no claim that the people are PM.bi customers or endorse it. All three photos load lazily and have provenance sidecars. The onset of each role scene reveals the photograph alongside its existing CRM example. The hero report overlay is removed per the latest user feedback.
+
 ## AutoBot walkthrough — 18 September 2026
 
 `autobot-walkthrough.gif` is an export of the presentation's authored HTML/CSS/JS demo, not a recording of a customer account. Four stages show upload, structured rows, human verification against an illustrative source line, and confirmed positions in an illustrative CRM project. The filename, row coordinates, quantities and project are synthetic and labelled. Site photography and the project illustration reuse the licensed/original media documented above.

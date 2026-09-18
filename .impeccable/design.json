@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T09:52:12.214Z",
+  "generatedAt": "2026-09-18T10:46:41.293Z",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -131,11 +131,6 @@
     },
     "shadows": [
       {
-        "name": "hero-report",
-        "value": "0 14px 40px #13273d26",
-        "purpose": "Локальная тень бумажного фотоотчёта над первым фильмом; не общий стиль контейнеров."
-      },
-      {
         "name": "autobot-desk",
         "value": "0 20px 55px #203a5512",
         "purpose": "Мягкая граница большой рабочей плоскости Автобота на фоне секции."
@@ -144,6 +139,11 @@
         "name": "autobot-paper",
         "value": "0 15px 30px #183c641a",
         "purpose": "Исходный лист сметы над фотографией; до 600px тень и наклон отсутствуют."
+      },
+      {
+        "name": "concept-receipt",
+        "value": "0 12px 30px #183c641a",
+        "purpose": "Локальный вариант мягкой тени исходного листа Автобота: бумажный чек в явно обозначенном будущем сценарии, с наклоном -3deg. Не общий стиль карточек."
       },
       {
         "name": "autobot-cursor",
@@ -193,11 +193,6 @@
         "purpose": "Убирает плавную прокрутку, переход фона кнопки и исходные анимации сцен. Новые движения требуют motion-ready; Автобот также отключает анимации и переходы в static-состоянии. Save-Data сохраняет исходные scene-enter и volume-enter при ручном выборе сцены."
       },
       {
-        "name": "report-arrive",
-        "value": "1s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Фотоотчёт над первым фильмом: translate(50px,30px) rotate(9deg), opacity .3 → rotate(3deg), opacity 1."
-      },
-      {
         "name": "file-arrive",
         "value": ".8s cubic-bezier(.16,1,.3,1) both",
         "purpose": "Документ Автобота: translate(-35px,12px) rotate(-3deg), opacity .35 → исходное положение, opacity 1."
@@ -215,17 +210,17 @@
       {
         "name": "photo-reveal",
         "value": ".8s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Фотография активного фотоотчёта: clip-path inset(0 0 15% 0), scale(.98) → inset(0), scale(1)."
+        "purpose": "Фотография активного фотоотчёта и каждой роли: clip-path inset(0 0 15% 0), scale(.98) → inset(0), scale(1). Роли повторно используют существующие keyframes под motion-ready."
       },
       {
         "name": "panel-reveal",
         "value": ".45s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Панели ролей и внедрения: clip-path inset(0 0 4% 0), opacity .6 → inset(0), opacity 1."
+        "purpose": "Рабочий пример роли, панель внедрения и окно будущего концепта: clip-path inset(0 0 4% 0), opacity .6 → inset(0), opacity 1. Используются существующие keyframes под motion-ready."
       },
       {
         "name": "disclosure-enter",
         "value": ".35s cubic-bezier(.16,1,.3,1) both",
-        "purpose": "Содержимое FAQ и исходной строки: translateY(-8px), opacity .3 → translateY(0), opacity 1."
+        "purpose": "Содержимое FAQ, исходной строки, шагов внедрения и результатов будущих концептов: translateY(-8px), opacity .3 → translateY(0), opacity 1. Нативные раскрытия остаются доступны без JavaScript."
       },
       {
         "name": "autobot-paper-move",
@@ -240,7 +235,7 @@
       {
         "name": "disclosure-icon",
         "value": "transform .25s",
-        "purpose": "Плюс FAQ и исходной строки поворачивается на 45deg в открытом состоянии."
+        "purpose": "Плюс FAQ, исходной строки, шага внедрения и результата концепта поворачивается на 45deg в открытом состоянии."
       },
       {
         "name": "autobot-stage-duration",
@@ -265,7 +260,27 @@
       {
         "name": "new-motion-gate",
         "value": "body.motion-ready",
-        "purpose": "Новые keyframes включаются только без reduced motion и Save-Data. Статичный HTML остаётся читаемым; загрузка GIF происходит только по отдельной ссылке."
+        "purpose": "Предметные анимации включаются только без reduced motion и Save-Data. Роли и нижние блоки повторно используют photo-reveal, panel-reveal, volume-enter и disclosure-enter, без новых keyframes. Статичный HTML остаётся читаемым; GIF загружается только по отдельной ссылке."
+      },
+      {
+        "name": "role-volume-enter",
+        "value": ".9s cubic-bezier(.16,1,.3,1) both",
+        "purpose": "Полосы выполнения руководителя повторно используют volume-enter: scaleX(.15) → scaleX(1), от левого края. Заданный процент не меняется; эффект требует motion-ready."
+      },
+      {
+        "name": "role-stage-duration",
+        "value": "8000ms",
+        "purpose": "Три роли по кругу: руководитель, прораб, заказчик. Щелчок и клавиатурный выбор запускают полный интервал заново, затем цикл продолжается. Автоматическая смена не перемещает фокус; кнопки паузы нет."
+      },
+      {
+        "name": "role-visibility-threshold",
+        "value": "0.15",
+        "purpose": "IntersectionObserver наблюдает блок ролей. Вне экрана, при скрытой вкладке или pagehide таймер очищается; возвращение в допустимое состояние запускает полный интервал заново."
+      },
+      {
+        "name": "role-automatic-policy",
+        "value": "visible && !document.hidden && !preference.matches && !connection?.saveData",
+        "purpose": "Reduced motion и Save-Data оставляют текущую роль статичной; ручной выбор доступен. Стрелки, Home и End перемещают фокус только по клавиатурному вводу. Форматы внедрения и будущие сценарии выбираются вручную, без таймера. Без JavaScript показана роль руководителя с фотографией."
       }
     ],
     "breakpoints": [
@@ -310,6 +325,21 @@
       "description": "Нативное раскрытие подписанного исходника для проверки человеком; демонстрационные величины, без API и записи в CRM.",
       "html": "<details class=\"ds-bot-source\"><summary><span>Бетон В25</span><strong>86 м³</strong><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><div class=\"ds-bot-excerpt\"><span>Исходник · лист 1, строка 7</span><p>Бетон В25 <mark>86 м³</mark></p><span>Объём и единица совпадают.</span></div></details>",
       "css": ".ds-bot-source{margin-top:28px;border-block:1px solid var(--line,#d7dfe5);color:var(--ink,#222b33);font-family:var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);line-height:1.55}.ds-bot-source summary{display:flex;align-items:center;gap:16px;padding:19px 0;font-size:21px;list-style:none;cursor:pointer}.ds-bot-source summary::-webkit-details-marker{display:none}.ds-bot-source summary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}.ds-bot-source summary strong{color:var(--blue,#1550c4);font-weight:500;margin-left:auto;white-space:nowrap}.ds-bot-source summary svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;transition:transform .25s}.ds-bot-source[open] summary svg{transform:rotate(45deg)}.ds-bot-excerpt{background:var(--soft-blue,#edf3fa);padding:20px 24px;margin-bottom:20px}.ds-bot-excerpt>span{display:block;font-size:16px;color:#415c7c}.ds-bot-excerpt p{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:16px 0;font-size:21px}.ds-bot-excerpt mark{background:#d0e1ff;color:#103f9d;padding:3px 8px;white-space:nowrap}@media(max-width:900px){.ds-bot-excerpt{padding:16px}.ds-bot-excerpt p,.ds-bot-source summary{font-size:19px}}@media(max-width:600px){.ds-bot-source summary{gap:10px;font-size:18px}.ds-bot-excerpt{padding:15px}.ds-bot-excerpt p{font-size:18px}}@media(prefers-reduced-motion:reduce){.ds-bot-source summary svg{transition:none}}"
+    },
+    {
+      "name": "Вкладки ролей",
+      "kind": "nav",
+      "refersTo": "role-tab",
+      "description": "Текстовые вкладки с синей полосой выбранной роли. В реализации поддерживают стрелки, Home и End, восьмисекундный цикл после ручного выбора и стабильную высоту общей области; автоматическая смена фокус не перемещает. Фото и текст слева, интерфейс справа; на планшете фото и текст рядом над интерфейсом, на телефоне всё последовательно.",
+      "html": "<div class=\"ds-role-tabs\" role=\"tablist\" aria-label=\"Роли в примере\"><button type=\"button\" role=\"tab\" aria-selected=\"true\">Руководитель</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Прораб</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Заказчик</button></div>",
+      "css": ".ds-role-tabs{display:flex;gap:32px;border-bottom:1px solid var(--line,#d7dfe5);font-family:var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif)}.ds-role-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;border-radius:0;color:var(--muted,#586570);padding:18px 0;font:400 20px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);white-space:nowrap;cursor:pointer}.ds-role-tabs button[aria-selected=\"true\"]{color:var(--blue,#1550c4);border-bottom-color:var(--blue,#1550c4)}.ds-role-tabs button:hover{color:var(--blue,#1550c4)}.ds-role-tabs button:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}@media(max-width:600px){.ds-role-tabs{gap:0;justify-content:space-between}.ds-role-tabs button{padding-block:15px;font-size:16px}}"
+    },
+    {
+      "name": "Нативный шаг внедрения",
+      "kind": "custom",
+      "description": "Три раскрытия рядом с фотографией объясняют объект, доступ команды и первый сценарий. Первое открыто, общее имя связывает шаги в нативную группу. Та же линия, SVG-плюс и раскрытие результата используются в будущих концептах; ручное управление и содержание доступны без JavaScript.",
+      "html": "<details class=\"ds-launch-step\" name=\"ds-launch-steps\" open><summary><span>01</span>Выберем объект<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4v16M4 12h16\"/></svg></summary><div><p>Возьмём один понятный участок работы: смету, задачи, график или затраты.</p><dl><div><dt>Что понадобится</dt><dd>Описание объекта и текущего процесса</dd></div><div><dt>Что определим</dt><dd>С чего команде удобнее начать</dd></div></dl></div></details>",
+      "css": ".ds-launch-step{border-block:1px solid var(--line,#d7dfe5);color:var(--ink,#222b33);font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif)}.ds-launch-step summary{display:flex;align-items:center;gap:16px;list-style:none;padding-block:22px;font-size:20px;line-height:1.4;cursor:pointer}.ds-launch-step summary::-webkit-details-marker{display:none}.ds-launch-step summary:focus-visible{outline:3px solid var(--blue,#1550c4);outline-offset:5px}.ds-launch-step summary>span{color:var(--blue,#1550c4);font-size:16px;font-variant-numeric:tabular-nums}.ds-launch-step summary svg{margin-left:auto;width:24px;height:24px;fill:none;stroke:var(--blue,#1550c4);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;transition:transform .25s}.ds-launch-step[open] summary svg{transform:rotate(45deg)}.ds-launch-step>div{padding-bottom:24px}.ds-launch-step p{margin:0;color:var(--muted,#586570)}.ds-launch-step dl{margin:20px 0 0;font-size:16px}.ds-launch-step dl>div{display:grid;grid-template-columns:1fr 1.4fr;gap:18px;padding-block:10px;border-top:1px solid var(--line,#d7dfe5)}.ds-launch-step dt{color:var(--muted,#586570)}.ds-launch-step dd{margin:0}@media(max-width:600px){.ds-launch-step summary{gap:12px;font-size:18px}.ds-launch-step dl>div{grid-template-columns:1fr;gap:6px}}@media(prefers-reduced-motion:reduce){.ds-launch-step summary svg{transition:none}}"
     }
   ],
   "narrative": {
@@ -335,7 +365,7 @@
       },
       {
         "name": "The Flat Plane Rule",
-        "body": "Разделяйте основные уровни тоном, линией и отступом. Мягкая тень допустима только у предметного фотоотчёта, рабочей плоскости, исходного листа и указателя Автобота; не переносите её на обычные контейнеры, навигацию и кнопки. Стеклянные подложки и плавающие декоративные карточки не относятся к этому миру.",
+        "body": "Разделяйте основные уровни тоном, линией и отступом. Мягкая тень допустима у рабочей плоскости, исходного листа и указателя Автобота, а также у чека в будущем сценарии; не переносите её на обычные контейнеры, навигацию и кнопки. Стеклянные подложки и плавающие декоративные карточки не относятся к этому миру.",
         "section": "elevation"
       }
     ],

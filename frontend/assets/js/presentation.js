@@ -27,10 +27,20 @@
         });
     }
 
-    const bindTabs = (selector) => {
+    const bindTabs = (selector, cycleRegion) => {
         const tabs = Array.from(document.querySelectorAll(selector));
         if (!tabs.length) return;
+        let selectedTab, timer, visible = false;
+        const preference = cycleRegion ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+        const connection = cycleRegion ? window.navigator.connection : null;
+        const schedule = () => {
+            if (!cycleRegion) return;
+            window.clearTimeout(timer);
+            if (!visible || document.hidden || preference.matches || connection?.saveData) return;
+            timer = window.setTimeout(() => activate(tabs[(tabs.indexOf(selectedTab) + 1) % tabs.length]), 8000);
+        };
         const activate = (tab) => {
+            selectedTab = tab;
             tabs.forEach(candidate => {
                 const selected = candidate === tab;
                 candidate.setAttribute('aria-selected', String(selected));
@@ -38,6 +48,7 @@
                 const panel = document.getElementById(candidate.getAttribute('aria-controls'));
                 if (panel) panel.hidden = !selected;
             });
+            schedule();
         };
         activate(tabs.find(tab => tab.getAttribute('aria-selected') === 'true') || tabs[0]);
         tabs.forEach((tab, index) => {
@@ -54,9 +65,24 @@
                 tabs[next].focus();
             });
         });
+        if (cycleRegion) {
+            const observer = new window.IntersectionObserver(entries => {
+                visible = entries[0].isIntersecting;
+                schedule();
+            }, {threshold: 0.15});
+            observer.observe(cycleRegion);
+            document.addEventListener('visibilitychange', schedule);
+            preference.addEventListener('change', schedule);
+            connection?.addEventListener('change', schedule);
+            window.addEventListener('pagehide', () => { visible = false; schedule(); });
+            window.addEventListener('pageshow', () => { observer.unobserve(cycleRegion); observer.observe(cycleRegion); });
+        }
     };
-    bindTabs('[data-role]');
+    bindTabs('[data-role]', document.querySelector('#demo'));
     bindTabs('[data-plan]');
+    bindTabs('[data-future]');
     const planOptions = document.querySelector('.plan-options');
     if (planOptions) planOptions.hidden = false;
+    const futureOptions = document.querySelector('.future-options');
+    if (futureOptions) futureOptions.hidden = false;
 })();

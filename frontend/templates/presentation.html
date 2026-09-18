@@ -11,10 +11,10 @@
     <title>PM.bi — Стройка перед глазами</title>
     <link rel="icon" type="image/png" href="/assets/media/pmbi-icon.png">
     <link rel="preload" href="/assets/fonts/GolosText-Variable.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260918-motion-1">
-    <script defer src="/assets/js/presentation.js?v=20260918-motion-1"></script>
-    <script defer src="/assets/js/presentation-motion.js?v=20260918-motion-1"></script>
-    <script defer src="/assets/js/presentation-autobot.js?v=20260918-motion-1"></script>
+    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260918-roles-1">
+    <script defer src="/assets/js/presentation.js?v=20260918-roles-1"></script>
+    <script defer src="/assets/js/presentation-motion.js?v=20260918-roles-1"></script>
+    <script defer src="/assets/js/presentation-autobot.js?v=20260918-roles-1"></script>
 </head>
 <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol><symbol id="icon-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol><symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol></defs></svg>
@@ -37,10 +37,6 @@
             </div>
             <div class="hero-heading"><h1 id="film-title">Стройка<br><span>перед глазами.</span></h1><p>PM.bi — CRM для тех, кто строит.<br>Объекты, команда и деньги в одной системе.</p></div>
             <div class="hero-actions"><a class="button button-primary" href="#workflow">Посмотреть систему</a></div>
-            <figure class="hero-report">
-                <img src="/assets/media/demo-interior.webp" width="1200" height="720" alt="Иллюстрация фотоотчёта: монтаж перегородок" loading="lazy" decoding="async">
-                <figcaption><span>Пример фотоотчёта</span><div><strong>Перегородки</strong><b>42 м²</b></div></figcaption>
-            </figure>
             <p class="film-status" role="status" hidden>Видео недоступно. Показан кадр со стройки.</p>
         </section>
 
@@ -98,7 +94,9 @@
                     </div>
                     <p class="demo-label">Демонстрационные данные</p>
                 </div>
+                <div class="role-panels">
                 <div class="demo-panel" id="panel-owner" role="tabpanel" aria-labelledby="tab-owner" tabindex="0">
+                    <figure class="role-photo"><img src="/assets/media/role-owner.webp" width="1200" height="800" alt="Руководитель и специалисты обсуждают чертежи проекта" loading="lazy" decoding="async"><figcaption>Общая картина — для решений.</figcaption></figure>
                     <div class="demo-copy"><h3>Понимать, что<br>зарабатывает объект.</h3><p>Смета, прогноз затрат, выполненные работы и оплаты — рядом. Можно увидеть отклонение и разобраться в его причине.</p><ul class="plain-list"><li>Экономика по объектам</li><li>План и выполненные объёмы</li><li>Счета и движение денег</li></ul></div>
                     <div class="demo-workspace">
                         <div class="workspace-header"><span>Деловой центр «Горизонт»</span><span class="status">В работе</span></div>
@@ -111,6 +109,7 @@
                     </div>
                 </div>
                 <div class="demo-panel" id="panel-foreman" role="tabpanel" aria-labelledby="tab-foreman" tabindex="0" hidden>
+                    <figure class="role-photo"><img src="/assets/media/role-foreman.webp" width="1200" height="800" alt="Специалист в каске работает с планшетом на площадке" loading="lazy" decoding="async"><figcaption>Рабочий день — прямо на площадке.</figcaption></figure>
                     <div class="demo-copy"><h3>Зафиксировать работу.<br>Прямо на площадке.</h3><p>Прораб добавляет объёмы, людей, материалы и фотографии. Руководитель видит отчёт в карточке объекта.</p><ul class="plain-list"><li>Задачи на рабочий день</li><li>Отчёт с телефона</li><li>История работ и фотографий</li></ul></div>
                     <div class="demo-workspace report-workspace">
                         <div class="workspace-header"><span>Дневной отчёт</span><span>Отделочные работы</span></div>
@@ -119,6 +118,7 @@
                     </div>
                 </div>
                 <div class="demo-panel" id="panel-customer" role="tabpanel" aria-labelledby="tab-customer" tabindex="0" hidden>
+                    <figure class="role-photo"><img src="/assets/media/role-customer.webp" width="1200" height="1800" alt="Участники проекта осматривают помещение во время ремонта" loading="lazy" decoding="async"><figcaption>Ход стройки — без лишних звонков.</figcaption></figure>
                     <div class="demo-copy"><h3>Показать заказчику,<br>как идёт стройка.</h3><p>Заказчик открывает доступные ему объекты, фотографии и отчёты. Внутренние финансы защищены правами доступа.</p><ul class="plain-list"><li>Ход работ по объекту</li><li>Отчёты с фотографиями</li><li>Доступ к согласованным разделам</li></ul></div>
                     <div class="demo-workspace report-workspace">
                         <div class="workspace-header"><span>Деловой центр «Горизонт»</span><span>Доступ заказчика</span></div>
@@ -126,6 +126,7 @@
                         <div class="customer-stage"><h4>Благоустройство территории</h4><span class="status">В работе</span></div>
                         <p class="workspace-note">Здесь видны материалы, которые команда открыла заказчику.</p>
                     </div>
+                </div>
                 </div>
                 <noscript><p class="demo-note">Показан пример руководителя. Для переключения ролей включите JavaScript.</p></noscript>
             </div>
@@ -202,15 +203,37 @@
                 </div>
             </div>
             <p class="section-note">Стоимость зависит от числа объектов, участников и задач внедрения. Условия согласуем до начала работы.</p>
+            <div class="launch-path" aria-labelledby="launch-title">
+                <figure class="launch-photo"><img src="/assets/media/site-planning.webp" width="1400" height="934" alt="Команда сверяет чертежи перед началом работ" loading="lazy" decoding="async"><figcaption>Начинаем с вашего рабочего процесса.</figcaption></figure>
+                <div class="launch-guide"><h3 id="launch-title">Как начнём работу.</h3><p>Три шага от знакомства с системой до первого отчёта. Раскройте любой.</p>
+                    <details name="launch-steps" open><summary><span>01</span>Выберем объект<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div><p>Возьмём один понятный участок работы: смету, задачи, график или затраты.</p><dl><div><dt>Что понадобится</dt><dd>Описание объекта и текущего процесса</dd></div><div><dt>Что определим</dt><dd>С чего команде удобнее начать</dd></div></dl></div></details>
+                    <details name="launch-steps"><summary><span>02</span>Подключим команду<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div><p>Определим участников и согласуем доступ. У руководителя, прораба и заказчика — свои рабочие разделы.</p><dl><div><dt>Что понадобится</dt><dd>Участники и их задачи</dd></div><div><dt>Что определим</dt><dd>Кто вносит данные, а кто смотрит отчёты</dd></div></dl></div></details>
+                    <details name="launch-steps"><summary><span>03</span>Пройдём первый сценарий<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div><p>Создадим задачу, зафиксируем выполненную работу и посмотрим результат в объекте. По этому опыту уточним настройку.</p><a class="text-link" href="#workflow">Посмотреть пример процесса</a></div></details>
+                </div>
+            </div>
         </section>
 
         <section class="future-section" id="future" aria-labelledby="future-title">
             <div class="container section">
                 <div class="section-heading"><h2 id="future-title">Что дальше?<br>Ближе к площадке.</h2><p>Эти сценарии пока в планах. Приоритеты и сроки определим вместе с командами, которые будут пользоваться системой.</p></div>
-                <div class="future-grid">
-                    <article><h3>Отчёты через Telegram</h3><p>Отправить фото и результат работы в бота. Привязать сообщение к объекту и задаче, получить напоминание.</p></article>
-                    <article><h3>Чеки и закупки</h3><p>Распознать чек, подготовить список материалов, собрать предложения. Сотрудник проверяет и подтверждает.</p></article>
-                    <article class="future-network"><h3>Обслуживание<br>клубов и сетей</h3><div><p>Сломался стол, нужна замена оборудования, закончились расходники. Сотрудник оставляет заявку с фотографией, ответственный организует работу и отмечает результат.</p><p>Та же логика объектов и задач — для повседневной работы сети.</p></div></article>
+                <div class="future-options" role="tablist" aria-label="Будущие сценарии" hidden>
+                    <button id="future-tab-reports" type="button" role="tab" aria-controls="future-reports" aria-selected="true" data-future="reports">Отчёты в Telegram</button>
+                    <button id="future-tab-supplies" type="button" role="tab" aria-controls="future-supplies" aria-selected="false" tabindex="-1" data-future="supplies">Чеки и закупки</button>
+                    <button id="future-tab-network" type="button" role="tab" aria-controls="future-network" aria-selected="false" tabindex="-1" data-future="network">Клубы и сети</button>
+                </div>
+                <div class="future-panels">
+                    <article class="future-panel" id="future-reports" role="tabpanel" aria-labelledby="future-tab-reports" tabindex="0">
+                        <div class="future-copy"><h3>Фото в сообщении.<br>Отчёт в объекте.</h3><p>Отправить фото и результат работы в бота. Привязать сообщение к объекту и задаче, получить напоминание.</p><p class="concept-note">Концепт · пока в планах.<br>Ниже — интерактивный пример.</p></div>
+                        <div class="concept-window"><div class="concept-header"><strong>Отчёт с площадки</strong><span>Пример</span></div><div class="concept-message"><img src="/assets/media/demo-interior.webp" alt="Иллюстрация выполненных перегородок для примера сообщения" width="1200" height="720" loading="lazy" decoding="async"><p>«Горизонт», первый этаж.<br>Перегородки — 42 м² за день.</p></div><details class="concept-result"><summary>Как это попадёт в объект<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div><dl><div><dt>Объект</dt><dd>«Горизонт»</dd></div><div><dt>Задача</dt><dd>Монтаж перегородок</dd></div><div><dt>Отчёт</dt><dd>42 м² и фотография</dd></div></dl><p>Сообщение связывается с работой. Команда видит его в истории объекта.</p></div></details></div>
+                    </article>
+                    <article class="future-panel" id="future-supplies" role="tabpanel" aria-labelledby="future-tab-supplies" tabindex="0">
+                        <div class="future-copy"><h3>От чека —<br>к списку материалов.</h3><p>Распознать чек, подготовить список материалов, собрать предложения. Сотрудник проверяет и подтверждает.</p><p class="concept-note">Концепт · пока в планах.<br>Ниже — интерактивный пример.</p></div>
+                        <div class="concept-window"><div class="concept-header"><strong>Чеки и закупки</strong><span>Пример</span></div><div class="receipt-scene"><div class="concept-receipt"><strong>Материалы</strong><span>Пример документа</span><div><span>Грунтовка</span><b>4 шт.</b></div><div><span>Крепёж</span><b>2 уп.</b></div><div><span>Профиль</span><b>24 шт.</b></div></div></div><details class="concept-result"><summary>Показать результат разбора<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div><dl><div><dt>Распознано</dt><dd>3 позиции материалов</dd></div><div><dt>Следующий шаг</dt><dd>Сверить названия и количество</dd></div><div><dt>Подтверждает</dt><dd>Сотрудник</dd></div></dl><p>Список становится основой закупки после проверки. Источники и условия поставки тоже нужно сверить.</p></div></details></div>
+                    </article>
+                    <article class="future-panel" id="future-network" role="tabpanel" aria-labelledby="future-tab-network" tabindex="0">
+                        <div class="future-copy"><h3>Одна заявка.<br>Понятный ответственный.</h3><p>Сломался стол, нужна замена оборудования, закончились расходники. Сотрудник оставляет заявку с фотографией, ответственный организует работу и отмечает результат.</p><p>Та же логика объектов и задач — для повседневной работы сети.</p><p class="concept-note">Концепт · пока в планах.<br>Ниже — интерактивный пример.</p></div>
+                        <div class="concept-window"><div class="concept-header"><strong>Заявка по клубу</strong><span>Пример</span></div><div class="service-scene"><svg viewBox="0 0 320 140" aria-hidden="true"><rect x="112" y="12" width="98" height="64" rx="3"/><path d="M160 76v20m-25 0h50M40 108h240M58 108v23m204-23v23"/><path class="service-mark" d="M43 106h34m-17-17v34"/></svg><h4>Повреждена кромка стола</h4><p>Зал 1 · рабочее место 8</p></div><details class="concept-result"><summary>Как организовать ремонт<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></summary><div><dl><div><dt>Сотрудник</dt><dd>Оставляет заявку с фото</dd></div><div><dt>Ответственный</dt><dd>Заказывает материалы и ремонт</dd></div><div><dt>Руководитель</dt><dd>Видит результат и фото после работ</dd></div></dl></div></details></div>
+                    </article>
                 </div>
             </div>
         </section>
