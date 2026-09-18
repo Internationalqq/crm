@@ -109,7 +109,7 @@ function setup({reduce = false, mobile = false, saveData = false, reject = false
     assert(!denied.screens[0].classes.has('is-playing'), 'Autoplay denial keeps the poster');
     const focused = setup({focused: true}); focused.visible(true); await flush();
     assert.equal(focused.videos[0].src, '/focus.mp4', 'An action-focused recording is used inline');
-    assert.equal(focused.videos[0].dataset.src, '/scene-0.mp4', 'Full-context source remains available for enlargement');
+    assert.equal(focused.videos[0].dataset.src, '/scene-0.mp4', 'Original recording source is preserved');
     focused.compact.matches = true; focused.compact.emit('change'); await flush();
     assert.equal(focused.videos[0].src, '/focus-mobile.mp4', 'The focused scene has a separate phone recording');
     const failed = setup(); failed.visible(true); await flush(); failed.videos[0].emit('error');

@@ -14,7 +14,7 @@ class PresentationTests(unittest.TestCase):
                     status, headers, body = StaticResponseHarness.request("GET", path)
                     self.assertEqual(status, 200)
                     self.assertIn("Стройка".encode(), body)
-                    self.assertIn("Демонстрационные данные".encode(), body)
+                    self.assertIn("Записи интерфейса сделаны на демонстрационных данных.".encode(), body)
                     self.assertNotIn(b"untrusted-query", body)
                     self.assertEqual(headers["Cache-Control"], "no-store")
                     self.assertEqual(headers["X-Frame-Options"], "DENY")

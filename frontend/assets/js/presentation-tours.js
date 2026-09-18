@@ -5,10 +5,7 @@
     const connection = navigator.connection;
     const compact = window.matchMedia('(max-width: 600px)');
     const wide = window.matchMedia('(min-width: 1101px)');
-    const dialog = document.querySelector('.tour-dialog');
     const players = [];
-    let expanded = null;
-    let returnFocus = null;
     const automatic = () => !preference.matches && !connection?.saveData;
     const reflectMotion = () => document.body.classList.toggle('motion-ready', automatic());
 
@@ -16,7 +13,6 @@
         const tabs = Array.from(root.querySelectorAll('[data-tour-tab]'));
         const panels = tabs.map(tab => document.getElementById(tab.getAttribute('aria-controls')));
         const videos = panels.map(panel => panel.querySelector('video'));
-        const expand = root.querySelector('[data-tour-expand]');
         const orient = () => root.querySelector('.tour-tabs').setAttribute('aria-orientation', wide.matches ? 'vertical' : 'horizontal');
         orient();
         wide.addEventListener('change', orient);
@@ -24,7 +20,7 @@
         const pending = new WeakSet();
         let selected = 0;
         let visible = false;
-        const canPlay = () => visible && !document.hidden && automatic() && !dialog?.open;
+        const canPlay = () => visible && !document.hidden && automatic();
         const poster = video => video.closest('.tour-screen').classList.remove('is-playing');
         const sync = () => {
             videos.forEach((video, index) => {
@@ -114,56 +110,13 @@
                 sync();
             }, {threshold: 0.12}).observe(root);
         } else visible = true;
-        if (expand && dialog?.showModal) {
-            expand.hidden = false;
-            expand.addEventListener('click', () => {
-                expanded = {panel: panels[selected], video: videos[selected]};
-                returnFocus = expand;
-                document.querySelector('#tour-dialog-title').textContent = panels[selected].querySelector('h3').textContent;
-                dialog.showModal();
-                document.body.classList.add('tour-is-expanded');
-                renderExpanded();
-                players.forEach(player => player.sync());
-            });
-        }
         players.push({sync});
         sync();
     });
 
-    function renderExpanded() {
-        if (!expanded || !dialog.open) return;
-        const container = dialog.querySelector('.tour-dialog-media');
-        container.querySelector('video')?.pause();
-        const original = expanded.panel.querySelector('.tour-screen img');
-        const image = original.cloneNode();
-        image.src = (compact.matches ? original.dataset.fullMobile : original.dataset.full) || original.currentSrc || original.src;
-        image.loading = 'eager';
-        container.replaceChildren(image);
-        if (!automatic() || document.hidden) return;
-        const video = document.createElement('video');
-        video.muted = true;
-        video.loop = true;
-        video.playsInline = true;
-        video.setAttribute('aria-label', expanded.video.getAttribute('aria-label'));
-        video.src = compact.matches ? expanded.video.dataset.mobile : expanded.video.dataset.src;
-        video.addEventListener('playing', () => { image.hidden = true; video.classList.add('is-playing'); });
-        video.addEventListener('error', () => { image.hidden = false; video.remove(); });
-        container.append(video);
-        video.play().catch(() => { image.hidden = false; video.remove(); });
-    }
-    dialog?.querySelector('[data-tour-close]').addEventListener('click', () => dialog.close());
-    dialog?.addEventListener('close', () => {
-        dialog.querySelector('video')?.pause();
-        dialog.querySelector('.tour-dialog-media').replaceChildren();
-        document.body.classList.remove('tour-is-expanded');
-        expanded = null;
-        players.forEach(player => player.sync());
-        returnFocus?.focus({preventScroll: true});
-    });
     const preferenceChanged = () => {
         reflectMotion();
         players.forEach(player => player.sync());
-        renderExpanded();
     };
     preference.addEventListener('change', preferenceChanged);
     compact.addEventListener('change', preferenceChanged);

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T23:19:25.322943+05:00",
+  "generatedAt": "2026-09-18T18:41:33.236249Z",
   "title": "Design System: PM.bi — презентация",
   "extensions": {
     "colorMeta": {
@@ -170,7 +170,7 @@
       },
       "control-label": {
         "displayName": "Control label",
-        "purpose": "Контурные действия «Увеличить», «О сценарии» и текстовые якоря шапки."
+        "purpose": "Текстовые якоря шапки."
       }
     },
     "shadows": [
@@ -209,7 +209,7 @@
       {
         "name": "disclosure-icon",
         "value": "transform .25s",
-        "purpose": "Сам знак SVG-плюса поворачивается на 45deg внутри неподвижной цветной подложки; reduced motion отключает переход. У «О сценарии» плюс без подложки поворачивается сразу."
+        "purpose": "Сам знак SVG-плюса поворачивается на 45deg внутри неподвижной цветной подложки; reduced motion отключает переход."
       },
       {
         "name": "motion-gate",
@@ -238,13 +238,8 @@
       },
       {
         "name": "tour-automatic-policy",
-        "value": "visible && !document.hidden && !preference.matches && !connection?.saveData && !dialog?.open",
+        "value": "visible && !document.hidden && !preference.matches && !connection?.saveData",
         "purpose": "Источник назначается выбранной главе при разрешённом воспроизведении. Встроенный показ предпочитает data-preview/data-preview-mobile; до 600px выбирается отдельная портретная запись. Первые главы имеют дополнительные сфокусированные 900x632 и 390x700 записи; исходные двадцать 1280x900/390x700 сохранены. Reduced motion и Save-Data не запрашивают MP4 при начальной загрузке. Запрет autoplay оставляет WebP, ошибка добавляет сообщение; кнопок паузы, запуска и повтора нет."
-      },
-      {
-        "name": "tour-expanded-policy",
-        "value": "!preference.matches && !connection?.saveData && !document.hidden",
-        "purpose": "Диалог повторяет исходный полный клип из data-src/data-mobile и использует полный постер из data-full/data-full-mobile, если задан. Открытие приостанавливает встроенные записи. Закрытие возвращает фокус и возобновляет допустимое воспроизведение."
       },
       {
         "name": "role-stage-duration",
@@ -325,20 +320,11 @@
       "refersTo": "tour-tab"
     },
     {
-      "name": "Подпись и пояснение записи",
+      "name": "Заголовок с иконкой Telegram",
       "kind": "custom",
-      "refersTo": "tour-explanation",
-      "description": "Постоянные название и маршрут над настоящей записью. Контурное «О сценарии» раскрывает пояснение поверх верхней части экрана; hover и open используют светло-синий фон.",
-      "html": "<div class=\"ds-caption\"><div><h3>Из Excel — в строки сметы.</h3><p class=\"ds-route\">Файл → разбор → таблица</p></div><details class=\"ds-explanation\"><summary>О сценарии<svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g class=\"ds-plus-glyph\"><path d=\"M12 4v16M4 12h16\"/></g></svg></summary><p>В записи загружаем файл и получаем позиции с объёмами, единицами и суммами. Каждая строка сохраняет ссылку на место в исходнике.</p></details></div>",
-      "css": ".ds-caption{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f);}.ds-caption h3{margin:0;font-weight:550;letter-spacing:-.035em;text-wrap:balance;}.ds-caption p{margin:0;}.ds-explanation summary{cursor:pointer;}.ds-caption .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; box-sizing: border-box;}.ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-caption{position: relative; z-index: 1; order: -1; display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 24px; border-bottom: 1px solid var(--line,#e0e5eb); background: var(--paper,#fff);}.ds-caption h3{font-size: 24px; line-height: 1.2;}.ds-route{margin-top: 8px; color: var(--muted,#606b7a); font-size: 16px;}.ds-explanation{flex-shrink: 0;}.ds-explanation summary{display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--line,#e0e5eb); border-radius: 7px; color: var(--blue,#2258d6); font-size: 16px; font-weight: 500; list-style: none;}.ds-explanation summary:hover,.ds-explanation[open] summary{background: var(--soft-blue,#edf2ff); border-color: var(--blue,#2258d6);}.ds-explanation summary::-webkit-details-marker{display: none;}.ds-explanation .ds-icon{width: 18px; height: 18px;}.ds-explanation[open] .ds-icon{transform: rotate(45deg);}.ds-explanation > p{position: absolute; z-index: 3; top: calc(100% - 1px); left: 16px; right: 16px; padding: 20px; border: 1px solid var(--line,#e0e5eb); border-radius: 0 0 12px 12px; background: var(--paper,#fff); color: var(--muted,#606b7a); font-size: 17px;}@media (max-width: 1100px){.ds-caption{gap: 20px;}}@media (max-width: 600px){.ds-caption{flex-wrap: wrap; gap: 2px; padding: 12px 16px;}.ds-caption h3{font-size: 22px;}.ds-caption > div{width: 100%;}.ds-route{margin-top: 6px;}.ds-explanation summary{min-height: 36px;}.ds-explanation > p{left: 8px; right: 8px; padding: 16px; font-size: 16px;}}.ds-explanation summary:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}"
-    },
-    {
-      "name": "Увеличить запись",
-      "kind": "button",
-      "description": "Контурная синяя кнопка с hover-фоном открывает исходный полный клип и постер главы в нативном светлом dialog.",
-      "html": "<button class=\"ds-expand\" type=\"button\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5\"/></svg>Увеличить</button>",
-      "css": ".ds-expand{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f);cursor:pointer;}.ds-expand .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; box-sizing: border-box;}.ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-expand{display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--blue,#2258d6); border-radius: 7px; background: var(--paper,#fff); color: var(--blue,#2258d6); font-size: 16px; font-weight: 500; white-space: nowrap;}.ds-expand[hidden]{display: none;}.ds-expand .ds-icon{width: 20px; height: 20px;}.ds-expand:hover{color: var(--blue-hover,#1947b3); background: var(--soft-blue,#edf2ff);}@media (max-width: 600px){.ds-expand{font-size: 16px;}.ds-expand{gap: 6px; padding-inline: 8px;}.ds-expand .ds-icon{width: 17px; height: 17px;}}@media print{.ds-expand{display: none;}}.ds-expand:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
-      "refersTo": "tour-expand"
+      "description": "Контурный Telegram в заголовке будущего отчёта. В заголовках преимуществ и ролей тот же SVG-строй использует промежуток 12px и верхнее выравнивание.",
+      "html": "<div class=\"ds-concept-header\"><strong><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m21 3-4 18-6-5-4 3 1-7-6-3 19-6ZM8 12 21 3M11 16l5-8\"/></svg>Отчёт с площадки</strong><span>Пример</span></div>",
+      "css": ".ds-concept-header{font:400 16px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f);display:flex;justify-content:space-between;gap:18px;padding-bottom:18px;border-bottom:1px solid var(--line,#e0e5eb)}.ds-concept-header strong{display:flex;align-items:center;gap:10px;font-weight:500}.ds-concept-header>span{color:var(--muted,#606b7a)}.ds-icon{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;color:var(--blue,#2258d6)}@media(max-width:600px){.ds-concept-header{flex-wrap:wrap;gap:6px 12px}}"
     },
     {
       "name": "Вкладки ролей",
@@ -359,7 +345,7 @@
     {
       "name": "Окно будущего сценария",
       "kind": "card",
-      "description": "Белая плоскость с пометкой Пример и контурным раскрытием. Hover/open выделены светло-синим, знак плюса вращается внутри неподвижной подложки; это будущий сценарий.",
+      "description": "Белая плоскость с пометкой Пример и контурным раскрытием. Hover/open выделены светло-синим, знак плюса вращается внутри неподвижной подложки; это будущий сценарий. Соседние колонки равны и выровнены по верху; отчёт использует фото 5/3 на всю ширину окна.",
       "html": "<div class=\"ds-concept-window\"><div class=\"ds-concept-header\"><strong>Заявка по клубу</strong><span>Пример</span></div><div class=\"ds-service-scene\"><svg viewBox=\"0 0 320 140\" aria-hidden=\"true\"><rect x=\"112\" y=\"12\" width=\"98\" height=\"64\" rx=\"3\"/><path d=\"M160 76v20m-25 0h50M40 108h240M58 108v23m204-23v23\"/><path class=\"ds-service-mark\" d=\"M43 106h34m-17-17v34\"/></svg><h4>Повреждена кромка стола</h4><p>Зал 1 · рабочее место 8</p></div><details class=\"ds-concept-result\"><summary>Как организовать ремонт<svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g class=\"ds-plus-glyph\"><path d=\"M12 4v16M4 12h16\"/></g></svg></summary><div><dl><div><dt>Сотрудник</dt><dd>Оставляет заявку с фото</dd></div><div><dt>Ответственный</dt><dd>Заказывает материалы и ремонт</dd></div><div><dt>Руководитель</dt><dd>Видит результат и фото после работ</dd></div></dl></div></details></div>",
       "css": ".ds-concept-window{font:400 18px/1.55 var(--font,\"Golos Text\",\"Segoe UI\",Arial,sans-serif);color:var(--ink,#22272f);}.ds-concept-window h4{margin:0;font-weight:550;line-height:1.12;letter-spacing:-.035em;text-wrap:balance;}.ds-concept-window p{margin:0;}.ds-concept-result summary{cursor:pointer;}.ds-concept-result .ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; box-sizing: border-box;}.ds-icon{width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;}.ds-concept-result summary{display: flex; align-items: center; gap: 16px; list-style: none; padding: 16px 12px; font-size: 18px; font-weight: 500; line-height: 1.4;}.ds-concept-result summary::-webkit-details-marker{display: none;}.ds-concept-result summary .ds-icon{margin-left: auto; width: 32px; height: 32px; padding: 6px; border-radius: 6px; background: var(--soft-blue,#edf2ff); color: var(--blue,#2258d6);}.ds-concept-result summary .ds-icon .ds-plus-glyph{transform-origin: center; transition: transform .25s;}.ds-concept-result summary:hover,.ds-concept-result[open] summary{background: var(--soft-blue,#edf2ff); color: var(--blue,#2258d6);}.ds-concept-result[open] .ds-icon .ds-plus-glyph{transform: rotate(45deg);}.ds-concept-result dl{margin: 20px 0 0; font-size: 16px;}.ds-concept-result dl > div{display: grid; grid-template-columns: 1fr 1.4fr; gap: 18px; padding-block: 10px; border-top: 1px solid var(--line,#e0e5eb);}.ds-concept-result dt{color: var(--muted,#606b7a);}.ds-concept-result dd{margin: 0;}.ds-concept-window{padding: 26px; min-width: 0; border: 1px solid var(--line,#e0e5eb); border-radius: 12px; background: var(--paper,#fff);}.ds-concept-header{display: flex; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line,#e0e5eb); font-size: 16px;}.ds-concept-header strong{font-weight: 500;}.ds-concept-header > span{color: var(--muted,#606b7a);}.ds-concept-result{border-top: 1px solid var(--line,#e0e5eb);}.ds-concept-result summary{border: 1px solid var(--line,#e0e5eb); border-radius: 7px; color: var(--blue,#2258d6);}.ds-concept-result > div{padding-top: 4px;}.ds-concept-result > div > p{margin-top: 18px; color: var(--muted,#606b7a); font-size: 16px;}.ds-service-scene{margin-block: 24px; padding: 24px; background: var(--wash,#f7f8fa);}.ds-service-scene svg{display: block; width: 100%; max-width: 320px; margin: 0 auto 22px; fill: none; stroke: var(--muted,#606b7a); stroke-width: 2;}.ds-service-scene .ds-service-mark{stroke: var(--blue,#2258d6); stroke-width: 4;}.ds-service-scene h4{font-size: 24px;}.ds-service-scene p{margin-top: 12px; font-size: 16px; color: var(--muted,#606b7a);}@media (max-width: 900px){.ds-concept-window{padding: 20px;}}@media (max-width: 600px){.ds-concept-result dl > div{grid-template-columns: 1fr; gap: 6px;}.ds-concept-header{flex-wrap: wrap; gap: 6px 12px;}.ds-concept-result summary{font-size: 17px;}.ds-service-scene{padding: 20px;}}@media (prefers-reduced-motion: reduce){.ds-concept-result summary .ds-icon .ds-plus-glyph{transition: none;}}.ds-concept-result summary:focus-visible{outline:3px solid var(--blue,#2258d6);outline-offset:4px}",
       "refersTo": "concept-window"
@@ -379,7 +365,7 @@
       "Общая светлая рамка, тонкие разделители и последовательные поля от первого экрана до подвала.",
       "Плотный кириллический Golos Text; вторые строки заголовков спокойнее основного текста.",
       "Один синий акцент для действий и выбранных состояний; холодные нейтральные рабочие поверхности.",
-      "Реальные записи в компактной рамке по высоте окна; главы, краткие подписи, раскрываемое пояснение и доступ к полному контексту.",
+      "Реальные записи в компактной рамке по высоте окна; главы, название и маршрут перед экраном.",
       "Ручной выбор и статичные кадры сохраняют смысл; движение зависит от отдельной политики фильма и продуктовых сцен."
     ],
     "rules": [
@@ -402,15 +388,15 @@
     "dos": [
       "Do применяйте эту систему только к публичной презентации; рабочая CRM сохраняет собственный визуальный и ролевой контракт.",
       "Do собирайте страницу общей рамкой, последовательными полями, крупным набором и одним главным действием в смысловом блоке.",
-      "Do делайте результат записи понятным по кадру и подписи, сохраняя ручной выбор и доступ к полному контексту.",
-      "Do отмечайте демонстрационные данные и будущие концепты рядом с соответствующим материалом.",
+      "Do делайте результат записи понятным по кадру и подписи, сохраняя ручной выбор глав.",
+      "Do сохраняйте общее пояснение об условных данных в подвале и пометки о планах рядом с будущими концептами.",
       "Do сохраняйте SVG, клавиатурную ориентацию, видимый фокус, отдельные мобильные записи и статичные варианты движения."
     ],
     "donts": [
       "Don't переносите крупную презентационную типографику и интервалы на рабочие экраны CRM без отдельной задачи.",
       "Don't вводите вторую акцентную палитру, тёмные секции, декоративные надзаголовки, стеклянные подложки или символы шрифта вместо SVG.",
       "Don't восстанавливайте угловую накладку первого экрана, прямоугольную систему прошлого мира или горизонтальные главы на широком экране по историческим документам.",
-      "Don't скрывайте смысл и действия за autoplay, прокруткой или единственным увеличенным просмотром.",
+      "Don't скрывайте смысл и действия за autoplay или прокруткой.",
       "Don't выдавайте иллюстрации, условные числа, планы, настройку поиска или выбор объекта за подтверждённые кейсы, платежи, цены, результаты поиска и выполненный импорт."
     ]
   }
