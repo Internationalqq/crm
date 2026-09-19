@@ -84,10 +84,7 @@
         }
     };
     bindTabs('[data-role]', document.querySelector('#demo'));
-    bindTabs('[data-plan]');
     bindTabs('[data-future]');
-    const planOptions = document.querySelector('.plan-options');
-    if (planOptions) planOptions.hidden = false;
     const futureOptions = document.querySelector('.future-options');
     if (futureOptions) futureOptions.hidden = false;
 })();

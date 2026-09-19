@@ -30,6 +30,7 @@ h3 { font-size: 30px; }
 #main > section + section { border-top: 1px solid var(--line); }
 .section { padding-block: 80px; }
 .section-heading { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; margin-bottom: 32px; }
+#workflow .section-heading, #plans .section-heading { align-items: center; }
 .section-heading > p { max-width: 480px; color: var(--muted); font-size: 18px; line-height: 1.55; }
 .icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .icon-heading { display: flex; align-items: start; gap: 12px; }
@@ -67,6 +68,8 @@ h3 { font-size: 30px; }
 .film-status { padding-top: 16px; font-size: 16px; color: var(--muted); text-align: left; }
 .product-tour { min-width: 0; border: 1px solid var(--line); border-radius: 16px; overflow: clip; background: var(--paper); }
 .tour-ready { display: grid; grid-template-columns: 216px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); height: min(640px,calc(100svh - 116px)); min-height: 460px; scroll-margin-top: 100px; }
+.tour-ready.tour-without-toolbar { grid-template-rows: minmax(0,1fr); }
+.tour-ready.tour-without-toolbar .tour-tabs, .tour-ready.tour-without-toolbar .tour-scenes { grid-row: 1; }
 .tour-toolbar { grid-column: 1/-1; display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 8px 20px; border-bottom: 1px solid var(--line); }
 .tour-toolbar p { font-size: 16px; }
 .tour-tabs { display: none; }
@@ -102,9 +105,9 @@ h3 { font-size: 30px; }
 .autobot-intro p { max-width: 580px; margin-top: 20px; color: var(--muted); }
 .autobot-art img { height: 216px; object-fit: cover; object-position: 85% center; border-radius: 12px; }
 .demo-heading { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
-.demo-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.demo-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; width: 100%; }
 .demo-tabs button, .future-options button { position: relative; min-height: 48px; padding: 12px 20px; border: 1px solid #cdd5df; border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 18px; font-weight: 500; line-height: 1.4; }
-.demo-tabs button { white-space: nowrap; }
+.demo-tabs button { white-space: nowrap; min-height: 76px; padding: 20px 32px; font-size: 22px; }
 .demo-tabs button::after { content: ""; position: absolute; bottom: 3px; left: 12px; right: 12px; height: 2px; background: currentColor; transform: scaleX(0); transform-origin: left; }
 .demo-tabs button[aria-selected="true"], .future-options button[aria-selected="true"] { background: var(--blue); border-color: var(--blue); color: var(--paper); }
 .demo-tabs button[aria-selected="true"]::after { transform: scaleX(1); }
@@ -123,27 +126,13 @@ h3 { font-size: 30px; }
 .role-capture picture { display: block; height: 320px; padding: 12px; border-radius: 12px; background: var(--canvas); }
 .role-capture img { height: 100%; object-fit: contain; border-radius: 6px; }
 .demo-note { font-size: 16px; color: var(--muted); margin: 20px 24px; }
-.plan-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border: 1px solid var(--line); border-radius: 12px 12px 0 0; overflow: hidden; }
-.plan-options[hidden] { display: none; }
-.plan-options button { display: flex; flex-direction: column; align-items: start; gap: 7px; padding: 20px 28px; border: 0; border-bottom: 2px solid transparent; background: var(--paper); color: var(--ink); text-align: left; }
-.plan-options button + button { border-left: 1px solid var(--line); }
-.plan-options strong { font-size: 24px; font-weight: 550; line-height: 1.2; }
-.plan-options span { font-size: 16px; color: var(--muted); }
-.plan-options button:hover { background: var(--soft-blue); color: var(--blue); }
-.plan-options button[aria-selected="true"] { background: var(--blue); border-bottom-color: var(--blue); color: var(--paper); }
-.plan-options button[aria-selected="true"] span { color: var(--paper); }
-.plan-options button[aria-selected="true"]:hover { background: var(--blue-hover); }
-.plan-options button:focus-visible { outline-offset: -5px; }
-.plan-options button[aria-selected="true"]:focus-visible { outline-color: var(--paper); }
-.plan-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; padding: 28px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; background: var(--wash); }
-.plan-panel[hidden] { display: none; }
-.plan-panel h3 { font-size: 28px; }
-.plan-panel p { margin-top: 16px; max-width: 530px; color: var(--muted); }
-.plan-panel .button { margin-top: 24px; }
-.plan-detail { padding-top: 4px; }
-.plan-detail ul { list-style: none; padding: 0; margin: 0; width: 100%; }
-.plan-detail li { padding-block: 12px; border-bottom: 1px solid var(--line); font-size: 17px; }
-.plan-detail li:first-child { padding-top: 0; }
+.plan-formats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-block: 1px solid var(--line); }
+.plan-format { padding: 28px; min-width: 0; }
+.plan-format + .plan-format { border-left: 1px solid var(--line); }
+.plan-format > .icon { color: var(--blue); width: 28px; height: 28px; margin-bottom: 20px; }
+.plan-format h3 { font-size: 24px; }
+.plan-format p { color: var(--muted); margin-top: 8px; font-size: 16px; }
+
 .section-note { color: var(--muted); font-size: 16px; margin-top: 20px; max-width: 760px; }
 .launch-path { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: start; margin-top: 64px; padding-top: 56px; border-top: 1px solid var(--line); }
 .launch-photo img { border: 1px solid var(--line); border-radius: 12px; }
@@ -223,7 +212,7 @@ h3 { font-size: 30px; }
 .footer-bottom { display: flex; justify-content: space-between; align-items: center; gap: 28px; padding-top: 26px; margin-top: 30px; border-top: 1px solid var(--line); font-size: 16px; color: var(--muted); }
 .motion-ready .tour-scene:not([hidden]) .tour-screen { animation: frame-settle .45s var(--ease) both; }
 .motion-ready .demo-panel:not([hidden]) .role-capture { animation: frame-settle .45s var(--ease) both; }
-.motion-ready .plan-panel:not([hidden]), .motion-ready .future-panel:not([hidden]) .concept-window { animation: panel-reveal .4s var(--ease) both; }
+.motion-ready .future-panel:not([hidden]) .concept-window { animation: panel-reveal .4s var(--ease) both; }
 .motion-ready .faq-list details[open] p, .motion-ready .launch-guide details[open] > div, .motion-ready .concept-result[open] > div { animation: disclosure-enter .3s var(--ease) both; }
 @keyframes frame-settle { from { clip-path: inset(1% 0 0); transform: translateY(6px); opacity: .85; } to { clip-path: inset(0); transform: translateY(0); opacity: 1; } }
 @keyframes panel-reveal { from { opacity: .7; } to { opacity: 1; } }
@@ -233,13 +222,16 @@ h3 { font-size: 30px; }
     :root { --page-gutter: 24px; --section-inset: 36px; }
     .section-heading { gap: 36px; }
     .tour-ready { grid-template-columns: minmax(0,1fr); grid-template-rows: auto auto minmax(0,1fr); height: min(720px,calc(100svh - 112px)); }
+    .tour-ready.tour-without-toolbar { grid-template-rows: auto minmax(0,1fr); }
+    .tour-ready.tour-without-toolbar .tour-scenes { grid-row: 2; }
     .tour-ready .tour-tabs { grid-column: 1; grid-row: 2; flex-direction: row; gap: 4px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .tour-ready.tour-without-toolbar .tour-tabs { grid-row: 1; }
     .tour-tabs button { flex: 0 0 auto; padding: 12px; min-height: 44px; white-space: nowrap; }
     .tour-scenes { grid-column: 1; grid-row: 3; }
     .tour-caption { gap: 20px; }
     .tour-screen { margin: 16px; }
     .autobot-intro { grid-template-columns: minmax(0,1fr) 260px; gap: 32px; }
-    .demo-panel, .plan-panel, .launch-path, .future-panel { gap: 36px; }
+    .demo-panel, .launch-path, .future-panel { gap: 36px; }
     .product-benefits > div { padding: 24px 18px; }
     .product-benefits h3 { font-size: 22px; }
 }
@@ -261,8 +253,6 @@ h3 { font-size: 30px; }
     .demo-panel { grid-template-columns: 1fr; gap: 30px; }
     .role-capture picture { padding: 12px; }
     .launch-path { grid-template-columns: 1fr; gap: 30px; }
-    .plan-panel { gap: 28px; padding: 28px; }
-    .plan-options button { padding: 22px; }
     .future-copy h3 { font-size: 28px; }
     .concept-window { padding: 20px; }
     .footer-top { gap: 24px; flex-wrap: wrap; }
@@ -311,19 +301,14 @@ h3 { font-size: 30px; }
     .product-benefits > div { padding: 25px 0; }
     .product-benefits > div + div { border-left: 0; border-top: 1px solid var(--line); }
     .product-benefits h3 { font-size: 24px; }
-    .demo-tabs { gap: 6px; }
-    .demo-tabs button { padding: 12px 8px; font-size: 16px; }
+    .plan-formats { grid-template-columns: 1fr; }
+    .plan-format { padding: 24px 0; }
+    .plan-format + .plan-format { border-left: 0; border-top: 1px solid var(--line); }
+    .demo-tabs { grid-template-columns: 1fr; gap: 10px; }
+    .demo-tabs button { min-height: 64px; padding: 18px 24px; font-size: 20px; }
     .demo-panel { padding-top: 28px; }
     .demo-copy h3 { font-size: 26px; }
     .role-capture picture { padding: 12px; }
-    .plan-options { grid-template-columns: 1fr; }
-    .plan-options button { flex-direction: row; justify-content: space-between; align-items: center; gap: 14px; padding: 18px 20px; }
-    .plan-options button + button { border-left: 0; border-top: 1px solid var(--line); }
-    .plan-options strong { font-size: 23px; }
-    .plan-options span { max-width: 126px; text-align: right; }
-    .plan-panel { grid-template-columns: 1fr; gap: 26px; padding: 25px 20px; }
-    .plan-panel h3 { font-size: 26px; }
-    .plan-panel .button { width: 100%; min-width: 0; }
     .launch-path { margin-top: 44px; padding-top: 38px; }
     .launch-guide h3 { font-size: 29px; }
     .launch-guide summary { gap: 12px; }
@@ -350,8 +335,6 @@ h3 { font-size: 30px; }
     h2 { font-size: 34px; }
     .tour-tabs button { gap: 6px; padding-inline: 6px; }
     .tour-toolbar { flex-wrap: wrap; gap: 5px; }
-    .plan-options strong { font-size: 21px; }
-    .plan-options span { max-width: 105px; }
 }
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }

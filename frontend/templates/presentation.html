@@ -11,10 +11,10 @@
     <title>PM.bi — Стройка перед глазами</title>
     <link rel="icon" type="image/png" href="/assets/media/pmbi-icon.png">
     <link rel="preload" href="/assets/fonts/GolosText-Variable.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260918-smooth-1">
-    <script defer src="/assets/js/presentation.js?v=20260918-smooth-1"></script>
-    <script defer src="/assets/js/presentation-motion.js?v=20260918-smooth-1"></script>
-    <script defer src="/assets/js/presentation-tours.js?v=20260918-smooth-1"></script>
+    <link rel="stylesheet" href="/assets/css/presentation.css?v=20260919-layout-1">
+    <script defer src="/assets/js/presentation.js?v=20260919-layout-1"></script>
+    <script defer src="/assets/js/presentation-motion.js?v=20260919-layout-1"></script>
+    <script defer src="/assets/js/presentation-tours.js?v=20260919-layout-1"></script>
 </head>
 <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol><symbol id="icon-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol><symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol><symbol id="icon-report" viewBox="0 0 24 24"><path d="M4 6h4l2-3h4l2 3h4v14H4z"/><circle cx="12" cy="12" r="4"/></symbol><symbol id="icon-estimate" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol><symbol id="icon-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4m8-4v4M8 13l3 3 5-6"/></symbol><symbol id="icon-result" viewBox="0 0 24 24"><path d="M4 7V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4zM20 12h-6v4h6"/></symbol><symbol id="icon-upload" viewBox="0 0 24 24"><path d="M4 15v6h16v-6M12 16V3M7 8l5-5 5 5"/></symbol><symbol id="icon-review" viewBox="0 0 24 24"><path d="M8 4H4v16h16V4h-4M9 3h6v4H9zM8 14l3 3 5-6"/></symbol><symbol id="icon-market" viewBox="0 0 24 24"><path d="M3 21h18M6 17v-5m6 5V8m6 9V3"/></symbol><symbol id="icon-export" viewBox="0 0 24 24"><path d="M10 3H4v18h16v-6M12 12l9-9m-7 0h7v7"/></symbol><symbol id="icon-tenders" viewBox="0 0 24 24"><path d="M4 21V5h16v16M8 5V2h8v3M2 21h20M8 9h2m4 0h2M8 13h2m4 0h2M10 21v-4h4v4"/></symbol><symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol><symbol id="icon-telegram" viewBox="0 0 24 24"><path d="m21 3-4 18-6-5-4 3 1-7-6-3 19-6ZM8 12 21 3M11 16l5-8"/></symbol><symbol id="icon-team" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 4v3"/></symbol><symbol id="icon-helmet" viewBox="0 0 24 24"><path d="M4 16v-3a8 8 0 0 1 16 0v3M9 4v7m6-7v7M2 16h20v4H2z"/></symbol><symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/></symbol><symbol id="icon-receipt" viewBox="0 0 24 24"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3ZM9 7h6M9 11h6M9 15h3"/></symbol></defs></svg>
@@ -41,8 +41,7 @@
         </section>
 
 <section class="section container workflow-section" id="workflow" aria-labelledby="workflow-title">
-<div class="section-heading"><h2 id="workflow-title">Работа на объекте.<br><span>Видна в системе.</span></h2><p>Посмотрите, как фотография, смета, задача и счёт работают внутри одного объекта.</p></div><div class="product-tour" data-tour="crm">
-<div class="tour-toolbar"><p>Запись работы PM.bi</p></div>
+<div class="section-heading"><h2 id="workflow-title">Работа на объекте.<br><span>Видна в системе.</span></h2><p>Посмотрите, как фотография, смета, задача и счёт работают внутри одного объекта.</p></div><div class="product-tour tour-without-toolbar" data-tour="crm">
 <div class="tour-tabs" role="tablist" aria-label="Сценарии CRM">
 <button type="button" role="tab" id="crm-tab-report" aria-controls="crm-scene-report" aria-selected="true" tabindex="0" data-tour-tab><svg class="icon" aria-hidden="true"><use href="#icon-report"></use></svg><span class="tour-tab-copy"><span>Фотоотчёт</span><small>Что сделано</small></span><i aria-hidden="true"></i></button>
 <button type="button" role="tab" id="crm-tab-estimate" aria-controls="crm-scene-estimate" aria-selected="false" tabindex="-1" data-tour-tab><svg class="icon" aria-hidden="true"><use href="#icon-estimate"></use></svg><span class="tour-tab-copy"><span>Смета</span><small>План и факт</small></span><i aria-hidden="true"></i></button>
@@ -109,24 +108,10 @@
 
         <section class="section container plans-section" id="plans" aria-labelledby="plans-title">
             <div class="section-heading"><h2 id="plans-title">Ваш масштаб.<br><span>Ваш формат.</span></h2><p>Начните с одного объекта или подключите команду. Условия определим под ваши задачи.</p></div>
-            <div class="plan-options" role="tablist" aria-label="Формат внедрения" hidden>
-                <button id="plan-tab-pilot" type="button" role="tab" aria-selected="false" aria-controls="plan-pilot" tabindex="-1" data-plan="pilot"><strong>Пилот</strong><span>Один объект</span></button>
-                <button id="plan-tab-subscription" type="button" role="tab" aria-selected="true" aria-controls="plan-subscription" data-plan="subscription"><strong>Подписка</strong><span>Для команды</span></button>
-                <button id="plan-tab-own" type="button" role="tab" aria-selected="false" aria-controls="plan-own" tabindex="-1" data-plan="own"><strong>Своя версия</strong><span>Под ваши процессы</span></button>
-            </div>
-            <div class="plan-panels">
-                <div class="plan-panel" id="plan-pilot" role="tabpanel" aria-labelledby="plan-tab-pilot" tabindex="0">
-                    <div><h3>Проверить на одном объекте.</h3><p>Небольшая команда и конкретный рабочий процесс. Пройдём путь от первой задачи до отчёта и поймём, как система вписывается в вашу работу.</p><a class="button button-primary" href="/app/projects">Посмотреть CRM</a></div>
-                    <div class="plan-detail"><ul><li>Один объект и его участники</li><li>Настройка нужных разделов</li><li>Первый рабочий сценарий</li></ul></div>
-                </div>
-                <div class="plan-panel" id="plan-subscription" role="tabpanel" aria-labelledby="plan-tab-subscription" tabindex="0">
-                    <div><h3>Работать всей командой.</h3><p>Система для повседневной работы на ваших объектах. Состав поддержки, обновлений и подключение AutoBot согласуем перед стартом.</p><a class="button button-primary" href="/app/projects">Посмотреть CRM</a></div>
-                    <div class="plan-detail"><ul><li>Объекты, задачи и фотоотчёты</li><li>Роли и доступ для команды</li><li>Согласованный состав поддержки</li></ul></div>
-                </div>
-                <div class="plan-panel" id="plan-own" role="tabpanel" aria-labelledby="plan-tab-own" tabindex="0">
-                    <div><h3>Настроить под вашу компанию.</h3><p>Отдельное внедрение для ваших процессов. Определим нужные доработки, размещение системы и дальнейшее сопровождение.</p><a class="button button-primary" href="/app/projects">Посмотреть CRM</a></div>
-                    <div class="plan-detail"><ul><li>Разбор процессов компании</li><li>Согласованный объём доработок</li><li>Размещение и сопровождение</li></ul></div>
-                </div>
+            <div class="plan-formats" aria-label="Форматы внедрения">
+                <div class="plan-format"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><h3>Пилот</h3><p>Один объект</p></div>
+                <div class="plan-format"><svg class="icon" aria-hidden="true"><use href="#icon-team"></use></svg><h3>Подписка</h3><p>Для команды</p></div>
+                <div class="plan-format"><svg class="icon" aria-hidden="true"><use href="#icon-estimate"></use></svg><h3>Своя версия</h3><p>Под ваши процессы</p></div>
             </div>
             <p class="section-note">Стоимость зависит от числа объектов, участников и задач внедрения. Условия согласуем до начала работы.</p>
             <div class="launch-path" aria-labelledby="launch-title">

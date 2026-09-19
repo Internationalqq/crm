@@ -17,14 +17,14 @@ class Element {
     emit(name, event = {}) { (this.events[name] || []).forEach(fn => fn(event)); }
     focus() { this.focused = true; }
 }
-const doc = new Element(), menu = new Element({'aria-expanded': 'false'}), navigation = new Element(), options = new Element();
+const doc = new Element(), menu = new Element({'aria-expanded': 'false'}), navigation = new Element();
 const panels = {};
 const tabs = (prefix, selected) => Array.from({length: 3}, (_, i) => {
     const id = prefix + i;
     panels[id] = new Element();
     return new Element({'aria-controls': id, 'aria-selected': String(i === selected)});
 });
-const roles = tabs('role-', 0), plans = tabs('plan-', 1), futures = tabs('future-', 0);
+const roles = tabs('role-', 0), futures = tabs('future-', 0);
 const demo = new Element(), futureOptions = new Element();
 const preference = new Element(), connection = new Element(), win = new Element();
 preference.matches = false;
@@ -45,19 +45,11 @@ function advance(milliseconds) {
     for (const [id, timer] of [...timers]) if (timer.at <= clock) { timers.delete(id); timer.fn(); }
 }
 doc.documentElement = new Element();
-doc.querySelector = selector => ({'.menu-toggle': menu, '#site-nav': navigation, '.plan-options': options, '#demo': demo, '.future-options': futureOptions}[selector] || null);
-doc.querySelectorAll = selector => ({'[data-role]': roles, '[data-plan]': plans, '[data-future]': futures}[selector] || []);
+doc.querySelector = selector => ({'.menu-toggle': menu, '#site-nav': navigation, '#demo': demo, '.future-options': futureOptions}[selector] || null);
+doc.querySelectorAll = selector => ({'[data-role]': roles, '[data-future]': futures}[selector] || []);
 doc.getElementById = id => panels[id];
-options.hidden = true;
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../frontend/assets/js/presentation.js'), 'utf8'), {document: doc, window: win});
-assert.equal(options.hidden, false);
-assert.equal(panels['plan-1'].hidden, false);
-assert.equal(panels['plan-0'].hidden, true);
-plans[0].emit('click');
-assert.equal(panels['plan-0'].hidden, false);
-assert.equal(panels['plan-1'].hidden, true);
-assert.equal(roles[0].getAttribute('aria-selected'), 'true', 'Plan selection does not change the selected CRM role');
-for (const group of [roles, plans, futures]) {
+for (const group of [roles, futures]) {
     let prevented = false;
     group[0].emit('keydown', {key: 'End', preventDefault() { prevented = true; }});
     assert(prevented && group[2].focused);
@@ -92,7 +84,6 @@ assert.equal(roles[0].getAttribute('aria-selected'), 'true', 'Manual selection c
 roles[0].emit('keydown', {key: 'ArrowRight', preventDefault() {}});
 advance(5000);
 assert.equal(roles[2].getAttribute('aria-selected'), 'true', 'Keyboard selection continues the sequence');
-assert.equal(plans[0].getAttribute('aria-selected'), 'true', 'Role cycle does not affect plans');
 for (const [target, key] of [[doc, 'hidden'], [preference, 'matches'], [connection, 'saveData']]) {
     target[key] = true; target.emit(target === doc ? 'visibilitychange' : 'change');
     assert.equal(timers.size, 0);
@@ -108,4 +99,4 @@ preference.matches = true; preference.emit('change');
 roles[1].emit('click');
 assert.equal(roles[1].getAttribute('aria-selected'), 'true', 'Reduced motion retains manual controls');
 assert.equal(timers.size, 0);
-console.log('Presentation interactions: role/plan/future selection, keyboard, menu, automatic repeat, manual continuation and visibility/motion/data preferences passed.');
+console.log('Presentation interactions: role/future selection, keyboard, menu, automatic repeat, manual continuation and visibility/motion/data preferences passed.');
