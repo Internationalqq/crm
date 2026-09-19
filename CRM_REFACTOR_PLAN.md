@@ -7,7 +7,7 @@ Baseline `0fb8810e5a80b166f628ef5b90ae166773e18222`, tracked diff пустой. 
 
 Прошли3frontend-набора,7Python-тестов в изоляции, Chrome390/768/1280/1440:10глав, роли/future/FAQ, no-JS/reduced motion, отсутствие3раскрытий и клубов,2сообщения и центр подписи. Readability320–1440 прошла; ошибок/переполнений нет. Первый scratch QA имел синтаксическую ошибку после замены устаревшей проверки; исправлен только harness, повтор прошёл. Кадры3сценариев сняты на390/768/1280; для element captures sticky header скрыт только при съёмке. Documenter синхронизировал DESIGN/JSON. Резерв `/opt/crm-backups/presentation-future-20260919T050205Z`, restore/integrity/rollback готовы. Полный CRM suite/другие движки/физические устройства не проверены.
 
-Свежий независимый reviewer: SHIP, обязательных исправлений нет; diff и8desktop/mobile кадров просмотрены. Следующий шаг — публикация.
+Свежий независимый reviewer: SHIP, обязательных исправлений нет; diff и8desktop/mobile кадров просмотрены. Код `2f98192483d151d34485420aa0ee519ba8e11583` опубликован, origin/main синхронизирован, версия `20260919-future-1`. Кандидат повторно прошёл7Python-тестов. HTTPS/точные ресурсы/HEAD/ranges/API/integrity успешны. На домене повторён Chrome390/768/1280/1440:10глав, роли/future/FAQ, no-JS/reduced motion, два сообщения, отсутствие3раскрытий/клубов и центр подписи. AutoBot не перезапускался, рабочие записи не изменены; preview остановлен. Deployment/verification.json и production-screens/qa.json сохранены. Пакет завершён.
 
 ## 19 сентября — крупные роли и выровненная композиция
 
