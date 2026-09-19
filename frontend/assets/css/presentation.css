@@ -133,7 +133,7 @@ h3 { font-size: 30px; }
 .plan-format h3 { font-size: 24px; }
 .plan-format p { color: var(--muted); margin-top: 8px; font-size: 16px; }
 
-.section-note { color: var(--muted); font-size: 16px; margin-top: 20px; max-width: 760px; }
+.section-note { color: var(--muted); font-size: 16px; margin: 24px auto 0; max-width: 760px; text-align: center; }
 .launch-path { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: start; margin-top: 64px; padding-top: 56px; border-top: 1px solid var(--line); }
 .launch-photo img { border: 1px solid var(--line); border-radius: 12px; }
 .launch-photo figcaption { margin-top: 18px; color: var(--muted); font-size: 18px; }
@@ -141,19 +141,19 @@ h3 { font-size: 30px; }
 .launch-guide > p { margin: 18px 0 26px; color: var(--muted); }
 .launch-guide details { border-top: 1px solid var(--line); }
 .launch-guide details:last-child { border-bottom: 1px solid var(--line); }
-.launch-guide summary, .concept-result summary { display: flex; align-items: center; gap: 16px; list-style: none; padding: 16px 12px; font-size: 18px; font-weight: 500; line-height: 1.4; }
-.launch-guide summary::-webkit-details-marker, .concept-result summary::-webkit-details-marker { display: none; }
+.launch-guide summary { display: flex; align-items: center; gap: 16px; list-style: none; padding: 16px 12px; font-size: 18px; font-weight: 500; line-height: 1.4; }
+.launch-guide summary::-webkit-details-marker { display: none; }
 .launch-guide summary > span { color: var(--muted); font-size: 16px; font-variant-numeric: tabular-nums; }
-.launch-guide summary .icon, .concept-result summary .icon { margin-left: auto; width: 32px; height: 32px; padding: 6px; border-radius: 6px; background: var(--soft-blue); color: var(--blue); }
-.launch-guide summary .icon use, .concept-result summary .icon use, .faq-list summary .icon use { transform-origin: center; transition: transform .25s; }
-.launch-guide summary:hover, .launch-guide details[open] summary, .concept-result summary:hover, .concept-result[open] summary { background: var(--soft-blue); color: var(--blue); }
-.launch-guide details[open] .icon use, .concept-result[open] .icon use { transform: rotate(45deg); }
+.launch-guide summary .icon { margin-left: auto; width: 32px; height: 32px; padding: 6px; border-radius: 6px; background: var(--soft-blue); color: var(--blue); }
+.launch-guide summary .icon use, .faq-list summary .icon use { transform-origin: center; transition: transform .25s; }
+.launch-guide summary:hover, .launch-guide details[open] summary { background: var(--soft-blue); color: var(--blue); }
+.launch-guide details[open] .icon use { transform: rotate(45deg); }
 .launch-guide details > div { padding: 16px 12px 22px; }
 .launch-guide details p { color: var(--muted); }
-.launch-guide dl, .concept-result dl { margin: 20px 0 0; font-size: 16px; }
-.launch-guide dl > div, .concept-result dl > div { display: grid; grid-template-columns: 1fr 1.4fr; gap: 18px; padding-block: 10px; border-top: 1px solid var(--line); }
-.launch-guide dt, .concept-result dt { color: var(--muted); }
-.launch-guide dd, .concept-result dd { margin: 0; }
+.launch-guide dl { margin: 20px 0 0; font-size: 16px; }
+.launch-guide dl > div { display: grid; grid-template-columns: 1fr 1.4fr; gap: 18px; padding-block: 10px; border-top: 1px solid var(--line); }
+.launch-guide dt { color: var(--muted); }
+.launch-guide dd { margin: 0; }
 .future-section { background: var(--wash); }
 .future-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 32px; }
 .future-options[hidden] { display: none; }
@@ -169,13 +169,27 @@ h3 { font-size: 30px; }
 .concept-header { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); font-size: 16px; }
 .concept-header strong { font-weight: 500; }
 .concept-header > span { color: var(--muted); }
-.concept-message { margin: 24px 0; width: 100%; background: var(--wash); }
-.concept-message img { width: 100%; height: auto; aspect-ratio: 5/3; object-fit: cover; }
-.concept-message p { padding: 18px; font-size: 17px; color: var(--muted); }
-.concept-result { border-top: 1px solid var(--line); }
-.concept-result summary { border: 1px solid var(--line); border-radius: 7px; color: var(--blue); }
-.concept-result > div { padding-top: 4px; }
-.concept-result > div > p { margin-top: 18px; color: var(--muted); font-size: 16px; }
+.concept-facts { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.concept-facts h4 { font-size: 21px; }
+.concept-facts dl { margin: 16px 0 0; font-size: 16px; }
+.concept-facts dl > div { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.concept-facts dt { color: var(--muted); }
+.concept-facts dd { margin: 0; }
+.concept-facts > p { margin-top: 16px; color: var(--muted); font-size: 16px; }
+.telegram-chat { display: grid; gap: 18px; padding-top: 24px; }
+.telegram-message { max-width: 94%; padding: 18px; border-radius: 12px; font-size: 16px; line-height: 1.5; }
+.telegram-outgoing { justify-self: end; padding: 0; overflow: hidden; background: var(--soft-blue); }
+.telegram-incoming { justify-self: start; background: var(--wash); }
+.telegram-message img { aspect-ratio: 5/3; object-fit: cover; }
+.telegram-message-copy { padding: 18px; }
+.telegram-message strong { color: var(--blue); font-weight: 500; }
+.telegram-message p { margin-top: 10px; }
+.message-time { display: block; margin-top: 12px; font-size: 16px; color: var(--muted); }
+.telegram-message dl { margin: 14px 0; }
+.telegram-message dl > div { display: grid; grid-template-columns: 90px 1fr; gap: 12px; padding-block: 5px; }
+.telegram-message dt { color: var(--muted); }
+.telegram-message dd { margin: 0; }
+.service-scene > .icon { width: 32px; height: 32px; color: var(--blue); margin-bottom: 20px; }
 .receipt-scene { padding: 24px; margin-block: 24px; background: var(--canvas); }
 .concept-receipt { padding: 24px; max-width: 310px; margin-inline: auto; background: var(--paper); box-shadow: 0 10px 24px -12px #22304933; }
 .concept-receipt > strong { display: block; font-size: 24px; font-weight: 500; }
@@ -183,8 +197,6 @@ h3 { font-size: 30px; }
 .concept-receipt > div { display: flex; justify-content: space-between; gap: 16px; font-size: 16px; border-top: 1px solid var(--line); padding-block: 12px; }
 .concept-receipt b { font-weight: 500; white-space: nowrap; }
 .service-scene { margin-block: 24px; padding: 24px; background: var(--wash); }
-.service-scene svg { display: block; width: 100%; max-width: 320px; margin: 0 auto 22px; fill: none; stroke: var(--muted); stroke-width: 2; }
-.service-scene .service-mark { stroke: var(--blue); stroke-width: 4; }
 .service-scene h4 { font-size: 24px; }
 .service-scene p { margin-top: 12px; font-size: 16px; color: var(--muted); }
 .faq-section > h2, .faq-list { max-width: 960px; margin-inline: auto; }
@@ -213,7 +225,7 @@ h3 { font-size: 30px; }
 .motion-ready .tour-scene:not([hidden]) .tour-screen { animation: frame-settle .45s var(--ease) both; }
 .motion-ready .demo-panel:not([hidden]) .role-capture { animation: frame-settle .45s var(--ease) both; }
 .motion-ready .future-panel:not([hidden]) .concept-window { animation: panel-reveal .4s var(--ease) both; }
-.motion-ready .faq-list details[open] p, .motion-ready .launch-guide details[open] > div, .motion-ready .concept-result[open] > div { animation: disclosure-enter .3s var(--ease) both; }
+.motion-ready .faq-list details[open] p, .motion-ready .launch-guide details[open] > div { animation: disclosure-enter .3s var(--ease) both; }
 @keyframes frame-settle { from { clip-path: inset(1% 0 0); transform: translateY(6px); opacity: .85; } to { clip-path: inset(0); transform: translateY(0); opacity: 1; } }
 @keyframes panel-reveal { from { opacity: .7; } to { opacity: 1; } }
 @keyframes disclosure-enter { from { transform: translateY(-6px); opacity: .7; } to { transform: translateY(0); opacity: 1; } }
@@ -312,12 +324,13 @@ h3 { font-size: 30px; }
     .launch-path { margin-top: 44px; padding-top: 38px; }
     .launch-guide h3 { font-size: 29px; }
     .launch-guide summary { gap: 12px; }
-    .launch-guide dl > div, .concept-result dl > div { grid-template-columns: 1fr; gap: 6px; }
+    .launch-guide dl > div { grid-template-columns: 1fr; gap: 6px; }
     .future-options { gap: 8px; margin-bottom: 28px; }
     .future-options button { flex: 1 1 100px; flex-direction: column; align-items: start; padding: 12px; font-size: 16px; }
     .future-panel { grid-template-columns: 1fr; gap: 28px; }
     .concept-header { flex-wrap: wrap; gap: 6px 12px; }
-    .concept-result summary { font-size: 17px; }
+    .concept-facts dl > div, .telegram-message dl > div { grid-template-columns: 1fr; gap: 4px; }
+    .telegram-message { max-width: 100%; }
     .receipt-scene { padding: 22px 14px; }
     .concept-receipt, .service-scene { padding: 20px; }
     .faq-list summary { font-size: 18px; gap: 16px; padding-inline: 12px; }
@@ -338,7 +351,7 @@ h3 { font-size: 30px; }
 }
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .button, .faq-list summary .icon use, .launch-guide summary .icon use, .concept-result summary .icon use { transition: none; }
+    .button, .faq-list summary .icon use, .launch-guide summary .icon use { transition: none; }
 }
 @media print {
     .site-header { position: static; }
