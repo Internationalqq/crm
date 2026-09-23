@@ -812,6 +812,8 @@ body.login-page[data-page="login"] .login-methods {
 
 body.login-page[data-page="login"] .login-methods button {
     flex: 1;
+    gap: 8px;
+    min-width: 0;
     min-height: 44px;
     padding: 8px;
     border: 1px solid transparent;
@@ -820,6 +822,13 @@ body.login-page[data-page="login"] .login-methods button {
     box-shadow: none;
     color: var(--color-text-secondary);
     font-size: 14px;
+    font-weight: 600;
+}
+
+body.login-page[data-page="login"] .login-method-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
 }
 
 body.login-page[data-page="login"] .login-methods button[aria-pressed="true"] {
