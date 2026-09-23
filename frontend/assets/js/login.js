@@ -208,6 +208,8 @@
         if (requestPanel) requestPanel.hidden = false;
         if (title) title.textContent = 'Вход';
         if (lead) lead.textContent = message || 'Пароль обновлён. Войдите с новым паролем.';
+        if (PMBI.emailLogin) PMBI.emailLogin.init(false);
+        bindLoginForm();
         if (loginForm && loginForm.login && typeof loginForm.login.focus === 'function') loginForm.login.focus();
     }
 
@@ -384,9 +386,10 @@
     function initLogin() {
         bindPasswordResetForm();
         bindPasswordResetConfirmation();
-        showPasswordResetConfirmation(resetTokenFromHash());
+        var resetting = showPasswordResetConfirmation(resetTokenFromHash());
+        if (!resetting && PMBI.emailLogin) PMBI.emailLogin.init();
         initClerkLogin();
-        return bindLoginForm();
+        return resetting ? qs('[data-password-reset-confirm-form]') : bindLoginForm();
     }
 
     PMBI.login.initLogin = initLogin;

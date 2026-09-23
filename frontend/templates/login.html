@@ -5,17 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow,noarchive">
     <title>Вход — PM.bi</title>
+    {{auth_config}}
+    {{auth_head}}
     <link rel="icon" type="image/png" href="/assets/logo.png?v=20260728-textfix2">
     <link rel="stylesheet" href="/assets/css/tokens.css?v=20260917-light-1">
     <link rel="stylesheet" href="/assets/css/base.css?v=20260821-ui-iteration-1-light-sidebar">
     <link rel="stylesheet" href="/assets/css/shell.css?v=20260917-light-1">
-    <link rel="stylesheet" href="/assets/css/components.css?v=20260818-section-presence-1-login-fast-1">
+    <link rel="stylesheet" href="/assets/css/components.css?v=20260923-email-login-1">
     <link rel="stylesheet" href="/assets/css/ui-system.css?v=20260917-light-1">
-    <link rel="stylesheet" href="/assets/css/ui-final.css?v=20260904-login-fields-aligned-1">
+    <link rel="stylesheet" href="/assets/css/ui-final.css?v=20260923-email-login-1">
     <link rel="stylesheet" href="/assets/css/connection-shell.css?v=20260901-connection-shell-1">
     <script defer src="/assets/js/connection-shell.js?v=20260901-connection-shell-1"></script>
     <script defer src="/assets/js/core.js?v=20260820-project-economics-1-crm-skeletons-1-loader-cleanup-31"></script>
-    <script defer src="/assets/js/login.js?v=20260901-login-fast-1-secure-reset-1"></script>
+    <script defer src="/assets/js/email-login.js?v=20260923-email-login-1"></script>
+    <script defer src="/assets/js/login.js?v=20260923-email-login-1"></script>
 </head>
 <body class="login-page" data-page="login">
     <div class="connection-shell" data-connection-shell data-autostart="true" data-state="loading" role="status" aria-live="polite" aria-atomic="true">
@@ -39,6 +42,38 @@
         <section class="login-form">
             <h2 data-login-title>Вход</h2>
             <p data-login-lead>Введите выданный логин и пароль.</p>
+            <div class="login-methods" data-login-methods hidden aria-label="Способ входа">
+                <button type="button" data-method-password aria-pressed="true">С паролем</button>
+                <button type="button" data-method-email aria-pressed="false">Войти по почте</button>
+            </div>
+            <section class="email-login" data-email-login hidden aria-label="Вход по почте">
+                <form data-email-request>
+                    <label>
+                        <span>Почта</span>
+                        <input name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="name@company.ru" required>
+                    </label>
+                    <button type="submit">Получить код</button>
+                </form>
+                <form data-email-verify hidden>
+                    <div class="email-login-recipient">
+                        <span data-email-recipient></span>
+                        <button type="button" class="email-login-link" data-email-change>Изменить почту</button>
+                    </div>
+                    <label>
+                        <span>Код из письма</span>
+                        <input name="code" data-email-code type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" aria-describedby="email-code-hint" required>
+                    </label>
+                    <small id="email-code-hint" data-email-hint>Шесть цифр. Код действует 10 минут.</small>
+                    <button type="submit">Войти в CRM</button>
+                    <div class="email-login-resend">
+                        <button type="button" class="email-login-link" data-email-resend disabled>Отправить код ещё раз</button>
+                        <span data-email-timer aria-label="До повторной отправки"></span>
+                    </div>
+                    <small>Нет письма? Проверьте папку «Спам» и правильность адреса.</small>
+                </form>
+                <div class="form-error" data-email-error role="alert" aria-atomic="true"></div>
+                <p class="email-login-status" data-email-status role="status" aria-live="polite"></p>
+            </section>
             <section class="password-reset-confirm" data-password-reset-confirm hidden>
                 <form data-password-reset-confirm-form>
                     <label>

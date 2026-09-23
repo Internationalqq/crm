@@ -1520,6 +1520,8 @@ def repair_legacy_user_references(con: sqlite3.Connection) -> None:
 def init_db() -> None:
     DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
     with db() as con:
+        from email_login import ensure_schema as ensure_email_login_schema
+        ensure_email_login_schema(con)
         seed_guest_project_visibility = bool(
             table_exists(con, "projects")
             and "guest_visible"
@@ -5576,6 +5578,12 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 self.proxy_agent_market_request(method, path)
             elif method == "POST" and path == "/api/auth/login":
                 self.api_login()
+            elif method == "POST" and path == "/api/auth/email/request":
+                from email_login import request_code
+                request_code(self)
+            elif method == "POST" and path == "/api/auth/email/verify":
+                from email_login import verify_code
+                verify_code(self)
             elif method == "POST" and path == "/api/auth/request-password-reset":
                 auth_api_request_password_reset(self)
             elif method == "POST" and path == "/api/auth/change-password":

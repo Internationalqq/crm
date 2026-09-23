@@ -1982,7 +1982,7 @@ body[data-page="autobot"] .autobot-embed {
     background: #fbfdff !important;
 }
 
-.login-form button {
+.login-form button[type="submit"]:not(.ghost) {
     background: var(--green) !important;
     box-shadow: 0 10px 22px rgba(47,111,237,.18);
 }

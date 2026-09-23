@@ -449,16 +449,11 @@ def password_reset_email_text(login: str, reset_token: str) -> str:
     )
 
 
-def send_password_reset_email_resend(email: str, login: str, reset_token: str) -> None:
-    payload = json.dumps(
-        {
-            "from": PMBI_RESEND_FROM,
-            "to": [email],
-            "subject": "PM.bi: восстановление пароля",
-            "text": password_reset_email_text(login, reset_token),
-        },
-        ensure_ascii=False,
-    ).encode("utf-8")
+def send_email_resend(email: str, subject: str, text: str, html: str = "") -> None:
+    content = {"from": PMBI_RESEND_FROM, "to": [email], "subject": subject, "text": text}
+    if html:
+        content["html"] = html
+    payload = json.dumps(content, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         "https://api.resend.com/emails",
         data=payload,
@@ -478,17 +473,23 @@ def send_password_reset_email_resend(email: str, login: str, reset_token: str) -
         raise RuntimeError(f"resend_http_{error.code}: {detail}") from error
 
 
-def send_password_reset_email(email: str, login: str, reset_token: str) -> None:
+def send_password_reset_email_resend(email: str, login: str, reset_token: str) -> None:
+    send_email_resend(email, "PM.bi: восстановление пароля", password_reset_email_text(login, reset_token))
+
+
+def send_email(email: str, subject: str, text: str, html: str = "") -> None:
     if not mail_configured():
         raise RuntimeError("mail_not_configured")
     if PMBI_MAIL_PROVIDER == "resend":
-        send_password_reset_email_resend(email, login, reset_token)
+        send_email_resend(email, subject, text, html)
         return
     message = EmailMessage()
-    message["Subject"] = "PM.bi: восстановление пароля"
+    message["Subject"] = subject
     message["From"] = PMBI_SMTP_FROM
     message["To"] = email
-    message.set_content(password_reset_email_text(login, reset_token))
+    message.set_content(text)
+    if html:
+        message.add_alternative(html, subtype="html")
     smtp_class = smtplib.SMTP_SSL if PMBI_SMTP_USE_SSL else smtplib.SMTP
     with smtp_class(PMBI_SMTP_HOST, PMBI_SMTP_PORT, timeout=15) as smtp:
         if PMBI_SMTP_USE_TLS and not PMBI_SMTP_USE_SSL:
@@ -496,6 +497,10 @@ def send_password_reset_email(email: str, login: str, reset_token: str) -> None:
         if PMBI_SMTP_USERNAME:
             smtp.login(PMBI_SMTP_USERNAME, PMBI_SMTP_PASSWORD)
         smtp.send_message(message)
+
+
+def send_password_reset_email(email: str, login: str, reset_token: str) -> None:
+    send_email(email, "PM.bi: восстановление пароля", password_reset_email_text(login, reset_token))
 
 
 def token_hash(token: str) -> str:
@@ -886,6 +891,8 @@ def guest_api_allowed(method: str, path: str) -> bool:
     method = str(method or "").upper()
     if (method, path) in {
         ("POST", "/api/auth/login"),
+        ("POST", "/api/auth/email/request"),
+        ("POST", "/api/auth/email/verify"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/request-password-reset"),
         ("GET", "/api/auth/me"),
@@ -1062,6 +1069,7 @@ def clerk_cookie_token(handler) -> str | None:
 
 def auth_config() -> dict[str, object]:
     return {
+        "emailLoginEnabled": not clerk_enabled() and mail_configured(),
         "clerkEnabled": clerk_enabled(),
         "clerkPublishableKey": CLERK_PUBLISHABLE_KEY,
         "clerkSignInFallbackRedirectUrl": CLERK_SIGN_IN_FALLBACK_REDIRECT_URL,

@@ -690,6 +690,7 @@ body[data-page="autobot"] .autobot-offline a {
 
 /* Sign-in */
 body.login-page[data-page="login"] {
+    --color-text-secondary: #647084;
     padding: var(--space-5);
     background:
         radial-gradient(circle at 14% 10%, rgba(37, 99, 235, .10), transparent 34%),
@@ -795,6 +796,115 @@ body.login-page[data-page="login"] .login-form h2 {
 
 body.login-page[data-page="login"] .login-form form {
     gap: var(--space-3);
+}
+
+body.login-page[data-page="login"] .login-form [hidden] {
+    display: none;
+}
+
+body.login-page[data-page="login"] .login-methods {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+}
+
+body.login-page[data-page="login"] .login-methods button {
+    flex: 1;
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    box-shadow: none;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+}
+
+body.login-page[data-page="login"] .login-methods button[aria-pressed="true"] {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-accent-strong);
+}
+
+body.login-page[data-page="login"] .email-login {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+body.login-page[data-page="login"] .email-login-recipient {
+    display: grid;
+    justify-items: start;
+    min-width: 0;
+}
+
+body.login-page[data-page="login"] .email-login-recipient > span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+    font-weight: 600;
+}
+
+body.login-page[data-page="login"] .email-login-link {
+    width: auto;
+    min-height: 44px;
+    padding: 8px 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-accent-strong);
+    box-shadow: none;
+    font-size: 14px;
+    text-align: left;
+}
+
+body.login-page[data-page="login"] .email-login input::placeholder {
+    color: var(--color-text-secondary);
+    opacity: 1;
+}
+
+body.login-page[data-page="login"] .email-login-link:hover:not(:disabled) {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+body.login-page[data-page="login"] .email-login input[data-email-code] {
+    height: 58px;
+    font-size: 28px;
+    letter-spacing: .3em;
+    font-variant-numeric: tabular-nums;
+    caret-color: var(--color-accent-strong);
+}
+
+body.login-page[data-page="login"] .email-login-resend {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+body.login-page[data-page="login"] [data-email-timer] {
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+}
+
+body.login-page[data-page="login"] .email-login-status {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+body.login-page[data-page="login"] .email-login-status:empty {
+    display: none;
+}
+
+body.login-page[data-page="login"] :is(.email-login, .login-methods) button:focus-visible {
+    outline: 2px solid var(--color-accent-strong);
+    outline-offset: 3px;
 }
 
 body.login-page[data-page="login"] .login-form label:not(.remember-me) {
@@ -1007,6 +1117,14 @@ body.role-guest main.content {
     body.login-page[data-page="login"] .login-hero {
         border-right: 0;
         border-bottom: 1px solid var(--color-border);
+    }
+
+    body.login-page[data-page="login"] .login-hero :is(h1, p, .login-points) {
+        display: none;
+    }
+
+    body.login-page[data-page="login"] .login-brand {
+        margin-bottom: 0;
     }
 }
 
