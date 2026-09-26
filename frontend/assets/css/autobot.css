@@ -90,44 +90,11 @@ body[data-page="autobot"] .autobot-heading {
     min-width: 0;
 }
 
-body[data-page="autobot"] .autobot-heading-icon {
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    width: 42px;
-    height: 42px;
-    border: 1px solid #c8dcfb;
-    border-radius: 13px;
-    color: #2563eb;
-    background: var(--color-surface);
-    box-shadow: none;
-}
-
-body[data-page="autobot"] .autobot-heading-icon svg {
-    width: 21px;
-    height: 21px;
-}
-
-body[data-page="autobot"] .autobot-eyebrow {
-    margin-bottom: 2px;
-    color: var(--color-accent);
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-}
-
 body[data-page="autobot"] .autobot-heading h1 {
     margin: 0;
     color: var(--color-text);
-    font-size: 20px;
-    line-height: 1.1;
-}
-
-body[data-page="autobot"] .autobot-heading p {
-    margin: 3px 0 0;
-    color: var(--color-text-secondary);
-    font-size: 12px;
+    font-size: 17px;
+    line-height: 1.3;
 }
 
 body[data-page="autobot"] .autobot-toolbar {
@@ -211,9 +178,9 @@ body[data-page="autobot"] .autobot-embed-wrap {
     position: relative;
     overflow: hidden;
     border: 1px solid #d6e1ee;
-    border-radius: 16px;
+    border-radius: 8px;
     background: #f7f9fc;
-    box-shadow: 0 14px 34px rgba(30, 55, 90, .09);
+    box-shadow: none;
 }
 
 body[data-page="autobot"] .autobot-embed {
@@ -258,7 +225,7 @@ body[data-page="autobot"] .autobot-offline-icon {
     height: 50px;
     margin-bottom: 5px;
     border: 1px solid #c9dcf8;
-    border-radius: 16px;
+    border-radius: 8px;
     color: #2563eb;
     background: #fff;
     box-shadow: 0 12px 30px rgba(37, 99, 235, .11);
@@ -343,8 +310,6 @@ body[data-page="autobot"] .autobot-offline-actions a {
 }
 
 @media (max-width: 900px) {
-    body[data-page="autobot"] .autobot-heading p,
-    body[data-page="autobot"] .autobot-eyebrow,
     body[data-page="autobot"] .autobot-tool-button span {
         display: none;
     }
@@ -369,12 +334,6 @@ body[data-page="autobot"] .autobot-offline-actions a {
         padding: 0 !important;
     }
 
-    body[data-page="autobot"] .autobot-heading-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 11px;
-    }
-
     body[data-page="autobot"] .autobot-heading h1 {
         font-size: 17px;
     }
@@ -392,13 +351,12 @@ body[data-page="autobot"] .autobot-offline-actions a {
     }
 
     body[data-page="autobot"] .autobot-embed-wrap {
-        border-radius: 12px;
+        border-radius: 8px;
     }
 }
 
 @media (max-width: 470px) {
-    body[data-page="autobot"] .autobot-connection strong,
-    body[data-page="autobot"] .autobot-heading-icon {
+    body[data-page="autobot"] .autobot-connection strong {
         display: none;
     }
 
