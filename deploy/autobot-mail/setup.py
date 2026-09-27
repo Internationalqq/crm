@@ -23,13 +23,26 @@ EXPECTED={
 
 def private_file(path,content):
     temp=path.with_suffix('.new')
-    fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
     try:
         with os.fdopen(fd,'w',encoding='utf-8') as out:
             out.write(content);out.flush();os.fsync(out.fileno())
         os.replace(temp,path)
     finally:
         if temp.exists():temp.unlink()
+
+
+def queue_token(details,path):
+    env=dict(value.split('=',1) for value in details['Config']['Env'] if '=' in value)
+    token=env.get('MARKET_AGENT_TOKEN','').strip()
+    if not token:
+        # AutoBot stores the generated token here when no env override exists.
+        # Read the established identity; never generate/rotate it during setup.
+        try:token=path.read_text(encoding='utf-8').strip()
+        except OSError:raise SystemExit('Existing queue token file is unavailable.') from None
+    if len(token)<32 or any(c in token for c in '\r\n'):
+        raise SystemExit('Queue token is not configured.')
+    return token
 
 
 def main():
@@ -42,9 +55,7 @@ def main():
     if config.exists() and json.loads(config.read_text())!=EXPECTED:
         raise SystemExit('Existing configuration differs; review it without overwriting.')
     details=json.loads(subprocess.check_output(['docker','inspect','pmbi-autobot'],text=True))[0]
-    env=dict(value.split('=',1) for value in details['Config']['Env'] if '=' in value)
-    token=env.get('MARKET_AGENT_TOKEN','')
-    if len(token)<32 or any(c in token for c in '\r\n'):raise SystemExit('Queue token is not configured.')
+    token=queue_token(details,Path('/opt/code/auto_bot/data/agent_market_worker.token'))
     private_file(config,json.dumps(EXPECTED,ensure_ascii=False,indent=2)+'\n')
     private_file(ROOT/'queue_token',token)
     Path('/opt/code/auto_bot/data/mail-transport').mkdir(parents=True,exist_ok=True,mode=0o700)
