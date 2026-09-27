@@ -20,7 +20,7 @@
         if (typeof value !== 'string' || value.length > 2000 || !value.startsWith('/') || value.startsWith('//')) return '';
         try {
             var url = new URL(value, origin);
-            if (url.origin !== origin || !/^\/(?:estimates(?:\/[A-Za-z0-9_-]+)?|tenders(?:\/(?:\d{8,25}|suppliers|market-audit))?|research)\/?$/.test(url.pathname)) return '';
+            if (url.origin !== origin || !/^\/(?:autobot\/)?(?:estimates(?:\/[A-Za-z0-9_-]+)?|tenders(?:\/(?:\d{8,25}|suppliers|market-audit))?|research)\/?$/.test(url.pathname)) return '';
             url.searchParams.delete('_pmbi_reload');
             if (url.hash && !/^#[A-Za-z0-9_-]{1,100}$/.test(url.hash)) return '';
             return url.pathname + url.search + url.hash;
