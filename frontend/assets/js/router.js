@@ -15,7 +15,7 @@
 
     var SCRIPT_URLS = {
         app: '/assets/js/app.js?v=20260913-design-c965f07b',
-        autobot: '/assets/js/autobot.js?v=20260824-autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1-foreman-crm-bridge-2-multi-estimate-bundle-1-location-1',
+        autobot: '/assets/js/autobot.js?v=20260927-stable-scroll-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260913-design-c965f07b',
         planning: '/assets/js/planning.js?v=20260913-design-c965f07b',
         procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1-foreman-flow-1-warehouse-modal-a11y-2-safe-supplier-url-3-modal-listener-4-modal-focus-5-warehouse-error-retry-6-procurement-evidence-personal-2',

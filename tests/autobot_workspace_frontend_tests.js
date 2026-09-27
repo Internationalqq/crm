@@ -32,7 +32,6 @@ assert(script.includes('12000'), 'AutoBot module must expose an offline state af
 assert(script.includes("searchParams.set('_pmbi_reload'"), 'reload must bypass a stale iframe response');
 assert(script.includes("return '/api/autobot/health'"), 'iframe readiness must use the same-origin CRM health proxy');
 assert(script.includes("fetch(autobotHealthUrl(),"), 'AutoBot health checks must not depend on the cross-origin iframe URL');
-assert(router.includes('autobot-scroll-head-1-same-origin-health-3-origin-retry-cap-1-foreman-crm-bridge-2-multi-estimate-bundle-1'), 'router must invalidate the cached AutoBot module after multi-estimate bridge support');
 assert(script.includes('checkAutobotHealth(root)'), 'a frame load alone must not be treated as a healthy AutoBot');
 assert(script.includes('scheduleRetry(root, frame)'), 'AutoBot must retry automatically after a deploy-time outage');
 assert(script.includes('Math.min(10000'), 'automatic retries must use bounded backoff');
@@ -57,8 +56,6 @@ assert(css.includes('body[data-page="autobot"].autobot-modal-open .topbar'), 'fe
 assert(!page.includes('autobot-workspace-head'), 'AutoBot navigation must not be preceded by a duplicate workspace heading');
 assert(script.includes("event.data.type === 'autobot:feature-modal'"), 'AutoBot frame messages must control modal workspace mode');
 assert(script.includes("classList.toggle('autobot-modal-open'"), 'modal workspace mode must be reflected on the CRM body');
-assert(script.includes("event.data.type === 'autobot:scroll'"), 'AutoBot frame scroll messages must be handled');
-assert(script.includes("classList.toggle('autobot-topbar-hidden'"), 'scrolling AutoBot must release the CRM header space');
 assert(css.includes('@media (max-width: 720px)'), 'workspace must include a mobile layout');
 assert(css.includes('@media (prefers-reduced-motion: reduce)'), 'workspace must respect reduced-motion preferences');
 

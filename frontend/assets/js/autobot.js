@@ -416,9 +416,8 @@
                 document.body.classList.toggle('autobot-modal-open', event.data.open === true);
                 return;
             }
-            if (event.data.type === 'autobot:scroll') {
-                document.body.classList.toggle('autobot-topbar-hidden', event.data.scrolled === true);
-            }
+            // Keep the iframe viewport stable while scrolling. Hiding the
+            // header can clamp a short page's scroll offset back to zero.
         };
         window.addEventListener('message', frameMessageHandler);
         frame.addEventListener('load', function () { handleFrameLoad(root, frame); });
@@ -451,7 +450,7 @@
             window.removeEventListener('message', frameMessageHandler);
             frameMessageHandler = null;
         }
-        document.body.classList.remove('autobot-modal-open', 'autobot-topbar-hidden');
+        document.body.classList.remove('autobot-modal-open');
     }
 
     PMBI.autobot = { __loaded: true, init: init, cleanup: cleanup };

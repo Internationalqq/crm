@@ -26,24 +26,6 @@ body[data-page="autobot"] .topbar {
     pointer-events: auto !important;
 }
 
-body[data-page="autobot"].autobot-topbar-hidden .topbar {
-    display: none !important;
-}
-
-body[data-page="autobot"].autobot-topbar-hidden .main {
-    grid-template-rows: minmax(0, 1fr);
-}
-
-
-body[data-page="autobot"].autobot-topbar-hidden main.content {
-    padding: 0 18px 18px !important;
-}
-
-body[data-page="autobot"].autobot-topbar-hidden .autobot-stage {
-    grid-template-rows: minmax(0, 1fr);
-    gap: 0;
-}
-
 /* A feature dialog inside AutoBot receives the whole viewport, not a cropped iframe. */
 body[data-page="autobot"].autobot-modal-open .main {
     grid-template-rows: minmax(0, 1fr);
@@ -215,10 +197,6 @@ body[data-page="autobot"] .autobot-offline-actions a {
 @media (max-width: 720px) {
     body[data-page="autobot"] main.content {
         padding: 10px !important;
-    }
-
-    body[data-page="autobot"].autobot-topbar-hidden main.content {
-        padding: 0 !important;
     }
 
     body[data-page="autobot"] .autobot-embed-wrap {

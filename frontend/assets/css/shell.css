@@ -21,26 +21,12 @@ body[data-page="autobot"].sidebar-collapsed .topbar {
     left: 0;
 }
 
-body[data-page="autobot"].autobot-topbar-hidden .topbar {
-    transform: translateY(calc(-100% - 10px));
-    opacity: .02;
-    pointer-events: none;
-}
-
-body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
-    height: 100vh;
-}
-
 body[data-page="autobot"] .topbar {
     left: 224px;
 }
 
 body[data-page="autobot"] .content {
     padding: 50px 0 0 !important;
-}
-
-body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
-    height: 100vh !important;
 }
 
 body.sidebar-collapsed .sidebar-head,
@@ -868,8 +854,7 @@ html.sidebar-pref-collapsed .brand span {
         height: calc(100vh - 64px);
     }
 
-    body[data-page="autobot"] .autobot-embed,
-    body[data-page="autobot"].autobot-topbar-hidden .autobot-embed {
+    body[data-page="autobot"] .autobot-embed {
         height: calc(100vh - 64px);
     }
 }
