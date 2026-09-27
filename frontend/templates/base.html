@@ -12,7 +12,7 @@
                 var desktopSidebar = window.matchMedia
                     ? window.matchMedia('(min-width: 901px)').matches
                     : window.innerWidth > 900;
-                if (desktopSidebar && window.localStorage.getItem('pmbi_sidebar_collapsed') === '1') {
+                if (desktopSidebar && ('{{page}}' === 'autobot' || window.localStorage.getItem('pmbi_sidebar_collapsed') === '1')) {
                     document.documentElement.classList.add('sidebar-pref-collapsed');
                 }
             } catch (error) {}
@@ -60,8 +60,8 @@
     <script defer src="/assets/js/style-health.js?v=20260902-report-ux-r1"></script>
     <script defer src="/assets/vendor/lucide.min.js?v=1.41.0"></script>
     <script defer src="/assets/vendor/sortable.min.js?v=1.15.2"></script>
-    <script defer src="/assets/js/core.js?v=20260913-design-c965f07b"></script>
-  <script defer src="/assets/js/router.js?v=20260927-autobot-location-1"></script>
+    <script defer src="/assets/js/core.js?v=20260927-autobot-sidebar-1"></script>
+  <script defer src="/assets/js/router.js?v=20260927-autobot-sidebar-1"></script>
 </head>
 <body class="{{body_class}}" data-page="{{page}}">
     <a class="skip-link" href="#main-content">К основному содержимому</a>

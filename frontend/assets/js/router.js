@@ -165,6 +165,9 @@
         });
         document.body.dataset.page = nextPage;
         PMBI.page = nextPage;
+        if (PMBI.core && typeof PMBI.core.applySidebarLayoutPreference === 'function') {
+            PMBI.core.applySidebarLayoutPreference();
+        }
         currentRouteUrl = new URL(url.href);
         if (doc.title) document.title = doc.title;
         var shellTitle = document.querySelector("[data-shell-page-title]");

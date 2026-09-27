@@ -11,11 +11,14 @@ function harness() {
   const scripts = [];
   const requests = [];
   const redirects = [];
+  const documents = new Map();
+  const sidebarPages = [];
   function element(tag) {
     const node = {
       tagName: tag, children: [], dataset: {}, attributes: {}, listeners: {},
       setAttribute(key, value) { this.attributes[key] = value; },
       appendChild(child) { child.parent = this; this.children.push(child); },
+      replaceChildren(...children) { this.children = children; },
       prepend(child) { child.parent = this; this.children.unshift(child); },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       remove() {
@@ -47,15 +50,18 @@ function harness() {
   };
   const location = new URL('http://crm.test/app/dashboard');
   location.assign = href => redirects.push(href);
-  const window = {location, addEventListener() {}};
+  const window = {location, addEventListener() {}, PMBI: {core: {
+    applySidebarLayoutPreference() { sidebarPages.push(document.body.dataset.page); },
+  }}};
   vm.runInNewContext(source, {
     window, document, location, URL, AbortController,
+    DOMParser: class { parseFromString(html) { return documents.get(html); } },
     console: {error() {}},
     fetch(url, options) {
       return new Promise((resolve, reject) => requests.push({url, options, resolve, reject}));
     },
   });
-  return {scripts, requests, redirects, root, router: window.PMBI.router};
+  return {scripts, requests, redirects, root, document, documents, sidebarPages, router: window.PMBI.router};
 }
 
 test('a failed initial script can be retried from the visible error', async () => {
@@ -122,5 +128,26 @@ test('returning to the current page cancels an unfinished navigation', async () 
   assert.equal(app.root.attributes['aria-busy'], 'false');
   app.requests[0].reject(new Error('late network failure'));
   await settle();
+  assert.deepEqual(app.redirects, []);
+});
+
+test('successful navigation reapplies sidebar policy for the new page', async () => {
+  const app = harness();
+  await settle();
+  app.scripts[0].onload();
+  await settle();
+  for (const page of ['autobot', 'dashboard']) {
+    app.documents.set(page, {body: {dataset: {page}}, title: page,
+      querySelector: () => ({childNodes: []}),
+    });
+    app.router.navigate(new URL('http://crm.test/app/' + page), false);
+    const request = app.requests.at(-1);
+    request.resolve({ok: true, text: async () => page});
+    await settle();
+    if (page === 'autobot') { app.scripts.at(-1).onload(); await settle(); }
+    assert.equal(app.document.body.dataset.page, page);
+    assert.equal(app.sidebarPages.at(-1), page, 'sidebar sees the committed destination, not the previous page');
+  }
+  assert.deepEqual(app.sidebarPages, ['autobot', 'dashboard']);
   assert.deepEqual(app.redirects, []);
 });

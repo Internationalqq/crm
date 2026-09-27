@@ -1130,6 +1130,9 @@
             : window.innerWidth <= 900;
     }
 
+    var sidebarActivePage = null;
+    var sidebarVisitCollapsed = null;
+
     function syncSidebarControls() {
         var mobile = isMobileSidebarViewport();
         var menuOpen = document.body.classList.contains('menu-open');
@@ -1145,10 +1148,17 @@
     }
 
     function applySidebarLayoutPreference() {
-        var collapsed = false;
-        try {
-            collapsed = window.localStorage.getItem('pmbi_sidebar_collapsed') === '1';
-        } catch (error) {}
+        var activePage = document.body.dataset.page;
+        if (activePage !== sidebarActivePage) {
+            sidebarActivePage = activePage;
+            sidebarVisitCollapsed = activePage === 'autobot' ? true : null;
+        }
+        var collapsed = sidebarVisitCollapsed;
+        if (collapsed === null) {
+            try {
+                collapsed = window.localStorage.getItem('pmbi_sidebar_collapsed') === '1';
+            } catch (error) { collapsed = false; }
+        }
         document.body.classList.toggle('sidebar-collapsed', !isMobileSidebarViewport() && collapsed);
         document.documentElement.classList.remove('sidebar-pref-collapsed');
         if (!isMobileSidebarViewport()) document.body.classList.remove('menu-open');
@@ -1160,9 +1170,13 @@
         var collapsed = !document.body.classList.contains('sidebar-collapsed');
         document.body.classList.toggle('sidebar-collapsed', collapsed);
         document.documentElement.classList.remove('sidebar-pref-collapsed');
-        try {
-            window.localStorage.setItem('pmbi_sidebar_collapsed', collapsed ? '1' : '0');
-        } catch (error) {}
+        if (sidebarActivePage === 'autobot') {
+            sidebarVisitCollapsed = collapsed;
+        } else {
+            try {
+                window.localStorage.setItem('pmbi_sidebar_collapsed', collapsed ? '1' : '0');
+            } catch (error) {}
+        }
         syncSidebarControls();
     }
 
@@ -1209,7 +1223,8 @@
     window.PMBI = Object.assign(window.PMBI || {}, {
         core: Object.assign(window.PMBI && window.PMBI.core || {}, {
             readStoredJson: readStoredJson,
-            writeStoredJson: writeStoredJson
+            writeStoredJson: writeStoredJson,
+            applySidebarLayoutPreference: applySidebarLayoutPreference
         }),
         page: page,
         APP_TODAY: APP_TODAY,

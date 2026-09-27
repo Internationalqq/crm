@@ -65,7 +65,7 @@ const windowStub = {
   },
 };
 const documentStub = {
-  body: { classList: classList() },
+  body: { classList: classList(), dataset: { page: 'dashboard' } },
   documentElement: { classList: classList(['sidebar-pref-collapsed']) },
 };
 
@@ -79,6 +79,35 @@ const sidebarApi = new Function(
 sidebarApi.applySidebarLayoutPreference();
 assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), true);
 assert.equal(documentStub.documentElement.classList.contains('sidebar-pref-collapsed'), false);
+
+// AutoBot owns a visit-local default; resizing or manual expansion must not
+// overwrite the layout preference used by the rest of CRM.
+storage.set('pmbi_sidebar_collapsed', '0');
+documentStub.body.dataset.page = 'autobot';
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), true);
+assert.equal(storage.get('pmbi_sidebar_collapsed'), '0');
+sidebarApi.toggleDesktopSidebar();
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), false, 'manual expansion survives resize during this visit');
+documentStub.body.dataset.page = 'projects';
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), false);
+documentStub.body.dataset.page = 'autobot';
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), true, 'a new visit starts compact again');
+windowStub.innerWidth = 390;
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), false, 'mobile keeps the existing navigation drawer');
+windowStub.innerWidth = 1280;
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), true);
+storage.set('pmbi_sidebar_collapsed', '1');
+sidebarApi.toggleDesktopSidebar();
+assert.equal(storage.get('pmbi_sidebar_collapsed'), '1', 'manual AutoBot expansion is local to AutoBot');
+documentStub.body.dataset.page = 'dashboard';
+sidebarApi.applySidebarLayoutPreference();
+assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), true, 'the global compact preference is restored on exit');
 
 sidebarApi.toggleDesktopSidebar();
 assert.equal(documentStub.body.classList.contains('sidebar-collapsed'), false);
@@ -130,5 +159,19 @@ assertVersionedAsset(appCss, 'css/overrides.css');
 assertVersionedAsset(baseHtml, 'app.css');
 assertVersionedAsset(baseHtml, 'js/core.js');
 assert.match(baseHtml, /matchMedia\('\(min-width: 901px\)'\)\.matches/);
+
+// Direct loads/F5 should start with the same compact state before core.js loads,
+// including browsers where storage is unavailable.
+const prepaintSource = baseHtml.match(/<script>([\s\S]*?)<\/script>/)[1];
+for (const page of ['autobot', 'dashboard']) {
+  for (const width of [390, 900, 901, 1280]) {
+    const applied = [];
+    new Function('window', 'document', prepaintSource.replaceAll('{{page}}', page))(
+      { innerWidth: width, localStorage: { getItem() { throw new Error('storage blocked'); } } },
+      { documentElement: { classList: { add(name) { applied.push(name); } } } },
+    );
+    assert.equal(applied.includes('sidebar-pref-collapsed'), page === 'autobot' && width > 900);
+  }
+}
 
 console.log('sidebar_animation_frontend_ok');
