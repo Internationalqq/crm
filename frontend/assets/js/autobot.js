@@ -14,6 +14,27 @@
     var automaticRetryLimit = 5;
     var crmBridgeRequests = Object.create(null);
     var crmImportInFlight = false;
+    var currentFramePath = '';
+
+    function safeFramePath(value, origin) {
+        if (typeof value !== 'string' || value.length > 2000 || !value.startsWith('/') || value.startsWith('//')) return '';
+        try {
+            var url = new URL(value, origin);
+            if (url.origin !== origin || !/^\/(?:estimates(?:\/[A-Za-z0-9_-]+)?|tenders(?:\/(?:\d{8,25}|suppliers|market-audit))?|research)\/?$/.test(url.pathname)) return '';
+            url.searchParams.delete('_pmbi_reload');
+            if (url.hash && !/^#[A-Za-z0-9_-]{1,100}$/.test(url.hash)) return '';
+            return url.pathname + url.search + url.hash;
+        } catch (error) { return ''; }
+    }
+
+    function rememberFramePath(path, origin) {
+        currentFramePath = path;
+        try { window.sessionStorage.setItem('pmbi-autobot-location:' + origin, path); } catch (error) {}
+        var outer = new URL(window.location.href);
+        if (outer.pathname !== '/app/autobot') return;
+        outer.searchParams.set('autobot', path);
+        window.history.replaceState(window.history.state, '', outer.pathname + outer.search + outer.hash);
+    }
 
     function refreshIcons(root) {
         if (PMBI.refreshLucideIcons) {
@@ -310,7 +331,7 @@
         reloadButtons.forEach(function (button) { button.disabled = true; });
 
         if (forceReload) {
-            var nextUrl = new URL(frame.src, window.location.href);
+            var nextUrl = new URL(currentFramePath || frame.src, autobotFrameOrigin(root));
             nextUrl.searchParams.set('_pmbi_reload', String(Date.now()));
             frame.src = nextUrl.href;
         }
@@ -367,8 +388,18 @@
         root.dataset.autobotBound = '1';
         frame.dataset.autobotReady = '0';
         var expectedFrameOrigin = autobotFrameOrigin(root);
+        var storedPath = '';
+        try { storedPath = window.sessionStorage.getItem('pmbi-autobot-location:' + expectedFrameOrigin) || ''; } catch (error) {}
+        currentFramePath = safeFramePath(new URL(window.location.href).searchParams.get('autobot'), expectedFrameOrigin)
+            || safeFramePath(storedPath, expectedFrameOrigin);
+        if (currentFramePath) frame.src = new URL(currentFramePath, expectedFrameOrigin).href;
         frameMessageHandler = function (event) {
             if (!expectedFrameOrigin || event.origin !== expectedFrameOrigin || event.source !== frame.contentWindow || !event.data) return;
+            if (event.data.type === 'autobot:location') {
+                var path = safeFramePath(event.data.path, expectedFrameOrigin);
+                if (path) rememberFramePath(path, expectedFrameOrigin);
+                return;
+            }
             if (event.data.type === 'autobot:crm-projects-request') {
                 handleCrmProjectsRequest(frame, expectedFrameOrigin, event.data);
                 return;
