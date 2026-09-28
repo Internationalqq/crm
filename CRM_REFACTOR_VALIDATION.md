@@ -676,3 +676,9 @@ AutoBot `e71d70bac454c04915189c6110125421147861d5`: полный изолиро�
 
 100 изолированных Python-тестов AutoBot и buyer_frontend_tests.js PASS; Linux candidate 110 PASS, health/auth PASS. На Mac письмо проверено по адресату и полному тексту; повторное выполнение сверки не отправляет дубликат. Реального ответа пока нет; полный suite и адаптивные размеры не запускались. Подробности: [AUTOBOT_SCRIPT_PILOT_2026-09-26.md](AUTOBOT_SCRIPT_PILOT_2026-09-26.md).
 
+
+### 28 сентября — позиции, предложения и ответы AutoBot
+
+AutoBot `620bcd25a5666b54fa1c93b09c8a9926bca98b90`: изолированные Windows/Linux наборы `test_buyer*.py`, market_requirements, tender_detail_market/filters — **298 passed + 33 subtests**. Четыре frontend-набора прошли; копия Волги проверена при 390/768/1280 px и текущих 1280×720. Начальная несовместимость native wheels с Python 3.11 устранена переходом на подготовленный Python 3.12. Полный CRM-набор не запускался. Finish review: единственная правка подписи scored resolved/ship; независимого backend-ревью не было.
+
+Production: health, четыре модуля/шесть assets, пять API без сессии 401, внешняя защита нового GET, 15 таблиц и 3 отчёта без изменения; рабочая CRM-сессия подтвердила счётчики, переход к чату и сохранение вкладки после refresh. Backup `/opt/crm-backups/volga-buyer-20260928T101555Z`, rollback `crm-autobot:rollback-pipeline-620bcd2`. Миграций и реальных писем нет, Mac не включался. SMTP:465 недоступен, IMAP:993 отвечает; сквозная SMTP-доставка не проверена. [Подробный отчёт](AUTOBOT_PIPELINE_2026-09-28.md).
