@@ -1,11 +1,12 @@
-# Optional service. Activate only after SMTP/IMAP check and an idle Mac cutover.
+# Receiving-only while HOSTKEY SMTP is blocked. Mac AutoBot stays disabled.
+# Remove --inbox-only only after successful SMTP/IMAP check and send acceptance.
 services:
   autobot-mail:
     image: crm-autobot:latest
     container_name: pmbi-autobot-mail
     profiles: [server-mail]
     init: true
-    command: [python, -m, autobot.buyer_mail_service, run, --config, /run/autobot-mail/config.json]
+    command: [python, -m, autobot.buyer_mail_service, run, --config, /run/autobot-mail/config.json, --inbox-only]
     volumes:
       - /opt/crm-secrets/autobot-mail:/run/autobot-mail:ro
       - /opt/code/auto_bot/data/mail-transport:/var/lib/autobot-mail
