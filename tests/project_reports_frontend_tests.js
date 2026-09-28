@@ -423,7 +423,8 @@ assert.equal(
   false,
   'Resource cards must use semantic icons instead of letter placeholders',
 );
-assert.match(reportModalFormJs, /<b>Дата и доступ<\/b>/);
+assert.match(reportModalFormJs, /name="report_date"/);
+assert.match(reportModalFormJs, /name="is_client_visible"/);
 assert.match(reportModalFormJs, /<b>Состав смены<\/b>/);
 assert.match(reportModalFormJs, /<textarea name="raw_input"[^>]*aria-label="Опишите, что произошло"/);
 assert.doesNotMatch(reportModalFormJs, /<span>Опишите, что произошло<\/span>/);
@@ -1396,6 +1397,14 @@ assert.equal(quantifiedWorkDraft.workMatches[0].quantityLabel, '5 шт');
 assert.deepEqual(Array.from(quantifiedWorkDraft.previewAdditionalClauses), []);
 assert.match(quantifiedWorkDraft.text, /Монтаж розеток — 5 шт/);
 
+parserContext.state.sectionScheduleByProject[parserProjectId].sections[0].items.push({id: 503, title: 'Прокладка кабеля', plannedQty: 100, unit: 'м'});
+const cableWorkDraft = parserContext.reportParser.build(parserProjectId, {raw_input: 'Проложили кабель 40 м.'});
+assert.equal(cableWorkDraft.workMatches.length, 1);
+assert.equal(cableWorkDraft.workMatches[0].actualQty, 40);
+assert.equal(cableWorkDraft.workMatches[0].actionEligible, true);
+assert.equal(parserContext.reportParser.build(parserProjectId, {raw_input: 'Не проложили кабель 40 м.'}).workMatches.length, 0);
+parserContext.state.sectionScheduleByProject[parserProjectId].sections[0].items.pop();
+
 const manualMaterialClause = 'Кабель ВВГ';
 const manualMaterialDraft = parserContext.reportParser.build(parserProjectId, {
   raw_input: `${manualMaterialClause}.`,
@@ -1845,6 +1854,7 @@ function reportVoiceRuntime(isSecureContext) {
   }
   Recognition.prototype.start = function start() { this.started = true; };
   Recognition.prototype.stop = function stop() { this.stopped = true; };
+  Recognition.prototype.abort = function abort() { this.aborted = true; };
   const documentStub = {
     activeElement: null,
     body: { appendChild(node) { toast = node; } },
@@ -1909,6 +1919,6 @@ assert.equal(workingVoiceInput.value, 'Выполнили монтаж стен'
 assert.equal(workingVoiceInput.dispatched, 1);
 workingVoice.instances[0].onerror({ error: 'network' });
 assert.match(workingVoice.toast().textContent, /Проверьте интернет/);
-assert.equal(workingVoice.instances[0].stopped, true);
+assert.equal(workingVoice.instances[0].aborted, true, 'A failed recognition must be cancelled without triggering autofill');
 
 console.log('project_reports_frontend_ok');

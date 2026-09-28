@@ -383,6 +383,7 @@ function draftRuntime() {
   const documentListeners = {};
   let activeForms = [];
   const state = { currentUser: { id: 7 }, user: { id: 7 } };
+  let voiceBindings = 0;
   const document = {
     body: { dataset: {} },
     visibilityState: 'visible',
@@ -440,6 +441,7 @@ function draftRuntime() {
     reportPhotoDrafts,
     reportResourceRowHtml: () => '',
     syncReportResourceSummary() {},
+    bindReportVoiceInputs() { voiceBindings += 1; },
     clearReportPhotoDrafts(form) { form._reportPhotoDrafts = []; },
     renderReportPhotoDrafts() {},
     setReportPhotoRetryMode() {},
@@ -465,6 +467,7 @@ function draftRuntime() {
     windowListeners,
     documentListeners,
     document,
+    voiceBindings: () => voiceBindings,
     setForms(forms) { activeForms = forms; },
   };
 }
@@ -574,6 +577,7 @@ test('restore feeds the saved assistant snapshot into the manual preview control
   assert.equal(restoredForm.controls.raw_input.value, 'Заказали двери');
   assert.deepEqual(JSON.parse(JSON.stringify(restoredAssistant)), assistant);
   assert.equal(restoredForm.dataset.reportDraftRestored, '1');
+  assert.equal(runtime.voiceBindings(), 1, 'Rebind dictation after the temporary restoring lock has been released');
 });
 
 test('clear removes text and photo storage, while submit clears only after complete success', async () => {
@@ -642,7 +646,8 @@ test('draft source contract includes localStorage, IndexedDB, lifecycle hooks, a
   assert.match(operationsJs, /window\.addEventListener\('pagehide', flushReportDrafts\)/);
   assert.match(operationsJs, /document\.visibilityState === 'hidden'/);
   assert.match(operationsJs, /data-log-form data-report-draft-form novalidate/);
-  assert.match(operationsJs, /data-report-draft-status-text>Черновик будет сохраняться автоматически/);
+  assert.match(operationsJs, /data-report-draft-status aria-live="polite" hidden/);
+  assert.match(operationsJs, /Черновик сохранён на этом устройстве/);
 });
 
 (async () => {

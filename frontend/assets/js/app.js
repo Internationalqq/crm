@@ -7848,9 +7848,10 @@ function renderLogsDayView(project, logs) {
     function reportHasWorkCompletionIntent(text) {
         var normalized = normalizeReportText(text);
         if (!normalized) return false;
+        if (/(?:^|\s)не\s+пролож|(?:^|\s)(?:завтра|планируем|будем)(?:\s|$)/.test(normalized)) return false;
         if (/(сделал(?:и|а)?\s+заказ|оформил(?:и|а)?.*\sзаказ)/.test(normalized)) return false;
         if (/\d+(?:[\.,]\d+)?\s*%/.test(normalized)) return true;
-        return /(^|\s)(?:сделал(?:и|а)?|выполнил(?:и|а)?|выполнен(?:а|о|ы)?|завершил(?:и|а)?|заверш[её]н(?:а|о|ы)?|закончил(?:и|а)?|закрыл(?:и|а)?|закрыт(?:а|о|ы)?|смонтировал(?:и|а)?|смонтирован(?:а|о|ы)?|установил(?:и|а)?|установлен(?:а|о|ы)?|уложил(?:и|а)?|уложен(?:а|о|ы)?|демонтировал(?:и|а)?|демонтирован(?:а|о|ы)?|покрасил(?:и|а)?|покрашен(?:а|о|ы)?|залил(?:и|а)?|залит(?:а|о|ы)?|подключил(?:и|а)?|подключ[её]н(?:а|о|ы)?|собрал(?:и|а)?|собран(?:а|о|ы)?|подготовил(?:и|а)?|подготовлен(?:а|о|ы)?|починил(?:и|а)?|отремонтировал(?:и|а)?|восстановил(?:и|а)?|убрал(?:и|а)?|пров[её]л(?:и|а)?|произв[её]л(?:и|а)?|готов(?:а|о|ы)?)(\s|$)/.test(normalized);
+        return /(^|\s)(?:сделал(?:и|а)?|выполнил(?:и|а)?|выполнен(?:а|о|ы)?|завершил(?:и|а)?|заверш[её]н(?:а|о|ы)?|закончил(?:и|а)?|закрыл(?:и|а)?|закрыт(?:а|о|ы)?|смонтировал(?:и|а)?|смонтирован(?:а|о|ы)?|установил(?:и|а)?|установлен(?:а|о|ы)?|проложил(?:и|а)?|проложен(?:а|о|ы)?|уложил(?:и|а)?|уложен(?:а|о|ы)?|демонтировал(?:и|а)?|демонтирован(?:а|о|ы)?|покрасил(?:и|а)?|покрашен(?:а|о|ы)?|залил(?:и|а)?|залит(?:а|о|ы)?|подключил(?:и|а)?|подключ[её]н(?:а|о|ы)?|собрал(?:и|а)?|собран(?:а|о|ы)?|подготовил(?:и|а)?|подготовлен(?:а|о|ы)?|починил(?:и|а)?|отремонтировал(?:и|а)?|восстановил(?:и|а)?|убрал(?:и|а)?|пров[её]л(?:и|а)?|произв[её]л(?:и|а)?|готов(?:а|о|ы)?)(\s|$)/.test(normalized);
     }
 
     function reportTextClauses(value) {
@@ -9081,7 +9082,17 @@ function renderLogsDayView(project, logs) {
             form._reportPreviewDraftController = {
                 serialize: reportPreviewDraftSnapshot,
                 restore: restoreReportPreviewDraft,
-                refresh: refreshPreview
+                refresh: refreshPreview,
+                summary: function () {
+                    var draft = activeDraft || {};
+                    return {
+                        work: (draft.workMatches || []).filter(function (entry) { return !entry.ambiguous && reportMatchConsumesClause(entry, reportWorkMatchIsConcrete); }).length,
+                        material: (draft.materialMatches || []).filter(function (entry) { return !entry.ambiguous && reportMatchConsumesClause(entry, reportMaterialMatchIsConcrete); }).length,
+                        ambiguous: (draft.workMatches || []).concat(draft.materialMatches || []).filter(function (entry) { return entry.ambiguous; }).length,
+                        incomplete: (draft.workMatches || []).concat(draft.materialMatches || []).filter(function (entry) { return !entry.ambiguous && !entry.actionEligible; }).map(function (entry) { return entry.item && entry.item.title || 'Позиция сметы'; }),
+                        unmatched: draft.previewAdditionalClauses || draft.unmatchedClauses || []
+                    };
+                }
             };
             refreshPreview();
         });
@@ -9371,20 +9382,24 @@ function renderLogsDayView(project, logs) {
         }
     }
 
-    function stopReportVoiceRecognition(keepButtonState) {
-        var recognition = reportVoiceState.recognition;
-        var button = reportVoiceState.button;
-        reportVoiceState.active = false;
-        reportVoiceState.recognition = null;
-        reportVoiceState.input = null;
-        reportVoiceState.button = null;
-        reportVoiceState.baseValue = '';
-        if (!keepButtonState) setReportVoiceButtonState(button, 'idle');
-        if (recognition) {
-            try {
-                recognition.stop();
-            } catch (error) {}
+    function stopReportVoiceRecognition(keepButtonState, discard) {
+        var session = reportVoiceState;
+        if (!session.recognition) return;
+        if (keepButtonState || discard) {
+            session.finish(true, keepButtonState);
+            try { session.recognition.abort(); } catch (error) {}
+            return;
         }
+        if (session.stopping) return;
+        session.stopping = true;
+        if (session.form && session.input.name === 'raw_input' && session.form._reportDictation) session.form._reportDictation.wait();
+        session.button.disabled = true;
+        session.timer = setTimeout(function () {
+            session.finish(true);
+            try { session.recognition.abort(); } catch (error) {}
+            showReportVoiceToast('Распознавание не завершилось. Текст сохранён — нажмите «Заполнить из описания».');
+        }, 6000);
+        try { session.recognition.stop(); } catch (error) { session.finish(true); }
     }
 
     function appendReportVoiceText(input, text) {
@@ -9412,12 +9427,26 @@ function renderLogsDayView(project, logs) {
             showReportVoiceToast(unavailableMessage);
             return;
         }
-        if (reportVoiceState.active) stopReportVoiceRecognition();
+        if (reportVoiceState.recognition) stopReportVoiceRecognition(false, true);
         var recognition = new Recognition();
+        var session = { recognition:recognition, input:input, button:button, form:input.form,
+            baseValue:String(input.value || ''), active:true, spoken:'', done:false };
+        session.finish = function (discard, keepError) {
+            if (session.done) return;
+            session.done = true; clearTimeout(session.timer);
+            if (reportVoiceState === session) reportVoiceState = {recognition:null, input:null, button:null, baseValue:'', active:false};
+            button.disabled = false;
+            if (!keepError) setReportVoiceButtonState(button, 'idle');
+            if (session.form && session.form._reportDictation) session.form._reportDictation.cancel();
+            if (!discard && session.spoken && input.name === 'raw_input' && session.form && session.form.isConnected) {
+                session.form.dispatchEvent(new CustomEvent('pmbi:report-dictation-complete', {bubbles:true}));
+            }
+        };
         recognition.lang = 'ru-RU';
         recognition.interimResults = true;
         recognition.continuous = true;
         recognition.onresult = function (event) {
+            if (session.done || reportVoiceState !== session) return;
             var parts = [];
             for (var index = 0; index < event.results.length; index += 1) {
                 var result = event.results[index];
@@ -9426,11 +9455,13 @@ function renderLogsDayView(project, logs) {
                 }
             }
             var spoken = parts.join(' ').trim();
-            var baseValue = String(reportVoiceState.baseValue || '');
+            session.spoken = spoken;
+            var baseValue = session.baseValue;
             input.value = baseValue + (baseValue && spoken ? (/\s$/.test(baseValue) ? '' : ' ') : '') + spoken;
             input.dispatchEvent(new Event('input', { bubbles: true }));
         };
         recognition.onerror = function (event) {
+            if (session.done || reportVoiceState !== session) return;
             var errorCode = event && event.error ? String(event.error) : '';
             if (errorCode !== 'aborted') {
                 showReportVoiceToast(reportVoiceErrorMessage(errorCode));
@@ -9440,15 +9471,9 @@ function renderLogsDayView(project, logs) {
             stopReportVoiceRecognition(true);
         };
         recognition.onend = function () {
-            if (reportVoiceState.recognition === recognition) stopReportVoiceRecognition();
+            session.finish(false);
         };
-        reportVoiceState = {
-            recognition: recognition,
-            input: input,
-            button: button,
-            baseValue: String(input.value || ''),
-            active: true
-        };
+        reportVoiceState = session;
         setReportVoiceButtonState(button, 'active');
         input.focus();
         try {
@@ -9463,7 +9488,7 @@ function renderLogsDayView(project, logs) {
 
     function reportVoiceInputTargets(form) {
         var primary = qs('[name="raw_input"]', form);
-        if (primary && !primary.disabled && !primary.readOnly) return [primary];
+        if (primary) return !primary.disabled && !primary.readOnly ? [primary] : [];
         return qsa('textarea, input', form).filter(function (input) {
             var type = String(input.getAttribute('type') || (input.tagName === 'TEXTAREA' ? 'textarea' : 'text')).toLowerCase();
             var textTypes = ['textarea', 'text', 'search', 'tel', 'url', 'email'];
@@ -9493,7 +9518,7 @@ function renderLogsDayView(project, logs) {
             if (form.dataset.reportVoiceFormBound !== '1') {
                 form.dataset.reportVoiceFormBound = '1';
                 form.addEventListener('submit', function () {
-                    stopReportVoiceRecognition();
+                    stopReportVoiceRecognition(false, true);
                 });
             }
             reportVoiceInputTargets(form).forEach(function (input) {

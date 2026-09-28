@@ -4273,6 +4273,14 @@
         });
         syncReportResourceSummary(form, 'workforce');
         syncReportResourceSummary(form, 'equipment');
+        if (PMBI.reportDictation) PMBI.reportDictation.bind(form, {
+            read: function (kind) { return reportDraftResourceSnapshot(form, kind); },
+            write: function (kind, entries) { restoreReportDraftResources(form, kind, entries); },
+            changed: function () {
+                refreshLucideIcons(form);
+                form.dispatchEvent(new CustomEvent('pmbi:report-draft-changed', { bubbles: true }));
+            }
+        });
     }
 
     var REPORT_DRAFT_VERSION = 2;
@@ -4300,6 +4308,7 @@
         if (!root) return;
         root.classList.remove('is-saving', 'is-saved', 'is-restored', 'is-warning');
         if (tone) root.classList.add('is-' + tone);
+        root.hidden = !tone && !canClear;
         var textNode = qs('[data-report-draft-status-text]', root);
         if (textNode) textNode.textContent = message;
         var clearButton = qs('[data-report-draft-clear]', root);
@@ -4325,7 +4334,8 @@
                 label: String(label && label.value || ''),
                 count: String(count && count.value || ''),
                 hours: String(hours && hours.value || ''),
-                names: reportWorkerNames(names && names.value || '')
+                names: reportWorkerNames(names && names.value || ''),
+                autoText: row.dataset.reportDictationSource || ''
             };
         }).slice(0, 40);
     }
@@ -4635,8 +4645,10 @@
             if (count) count.value = String(entry && entry.count || '');
             if (hours) hours.value = String(entry && entry.hours || '');
             if (names) names.value = (Array.isArray(entry && entry.names) ? entry.names : []).join('\n');
+            if (entry && entry.autoText) row.dataset.reportDictationSource = String(entry.autoText);
         });
         syncReportResourceSummary(form, kind);
+        if (form._reportDictation) form._reportDictation.decorate();
     }
 
     function restoreReportDraftPhotos(form, snapshot) {
@@ -4874,6 +4886,7 @@
                 }
                 if (form._reportDraftPhotoStorageFailed) message += ' · часть фото нужно выбрать снова';
                 reportDraftStatus(form, form._reportDraftPhotoStorageFailed || form._reportDraftPhase !== 'editing' ? 'warning' : 'restored', message, true);
+                bindReportVoiceInputs();
             }).catch(function () {
                 if (form._reportDraftDisposed) {
                     form._reportDraftRestoring = false;
@@ -4892,6 +4905,7 @@
                     ? 'Предыдущая отправка могла сохраниться · нажмите «Проверить отправку»'
                     : 'Текст восстановлен · фото нужно выбрать повторно';
                 reportDraftStatus(form, 'warning', restoreErrorMessage, true);
+                bindReportVoiceInputs();
             });
         }, 0);
     }
@@ -6125,33 +6139,32 @@
                     '<div class="report-modal-title-copy">' +
                         '<div class="report-drawer-caption"><span>Журнал объекта</span></div>' +
                         '<h3 id="project-report-modal-title">Отчёт за день</h3>' +
-                        '<span class="report-modal-project">' + escapeHtml(project.title || 'Объект') + '</span>' +
                     '</div>' +
                 '</div>' +
             '</header>' +
             '<div class="report-modal-scroll" data-report-modal-scroll>' +
             '<form class="project-form report-intake-form report-chat-form report-chat-simple-form report-daily-form" data-log-form data-report-draft-form novalidate>' +
-                '<div class="report-draft-status" data-report-draft-status aria-live="polite">' +
+                '<div class="report-draft-status" data-report-draft-status aria-live="polite" hidden>' +
                     '<button type="button" data-report-draft-clear hidden><i data-lucide="trash-2" aria-hidden="true"></i><span>Очистить</span></button>' +
                     '<span class="report-draft-status-dot" aria-hidden="true"></span>' +
-                    '<span data-report-draft-status-text>Черновик будет сохраняться автоматически</span>' +
+                    '<span data-report-draft-status-text></span>' +
                 '</div>' +
                 '<input type="hidden" name="project_id" value="' + escapeHtml(project.id) + '">' +
                 '<input type="hidden" name="title" value="">' +
                 '<section class="report-form-section report-form-meta-section">' +
-                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="calendar-days"></i></span><div><b>Дата и доступ</b><small>Укажите день и выберите, кто увидит отчет</small></div></div>' +
                     '<div class="report-chat-header report-chat-header-compact">' +
                         '<label><span class="report-compact-field-label"><i data-lucide="calendar-days" aria-hidden="true"></i>Дата отчета</span><input name="report_date" type="date" value="' + escapeHtml(selectedDate) + '"' + reportDateBounds + ' required></label>' +
                         '<label><span class="report-compact-field-label"><i data-lucide="eye" aria-hidden="true"></i>Кому доступен</span><select name="is_client_visible"><option value="1">Заказчику и команде</option><option value="0">Только команде</option></select></label>' +
                     '</div>' + projectStartNotice +
                 '</section>' +
                 '<section class="report-form-section report-form-main-section">' +
-                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></span><div><b>Описание дня</b><small>Начните здесь: коротко опишите работы, поставки и важные события</small></div><span class="report-section-required">Обязательно</span></div>' +
+                    '<div class="report-form-section-head"><span class="report-section-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></span><div><b>Описание дня</b></div></div>' +
                     '<label class="report-chat-inputbox report-daily-textarea-field">' +
-                        '<span class="report-daily-field-title"><b>Что произошло на объекте?</b><small>Можно написать свободным текстом или надиктовать</small></span>' +
-                        '<textarea name="raw_input" rows="6" required aria-label="Опишите, что произошло" placeholder="Например: завершили демонтаж перегородок, приняли кабель, монтаж розеток выполнен наполовину. Ждём согласование щита."></textarea>' +
-                        '<small class="report-field-hint">Нажмите «Диктовать» или пишите свободно. Пример: «Заказал дверные ручки, привезли кабель 40 м»</small>' +
+                        '<span class="report-daily-field-title"><b>Что произошло на объекте?</b></span>' +
+                        '<textarea name="raw_input" rows="4" required aria-label="Опишите, что произошло" placeholder="Например: три электрика по восемь часов, экскаватор два часа. Проложили кабель 40 м."></textarea>' +
                     '</label>' +
+                    '<button type="button" class="report-autofill-button" data-report-autofill><i data-lucide="list-checks" aria-hidden="true"></i>Заполнить из описания</button>' +
+                    '<div class="report-autofill-result" data-report-autofill-result tabindex="-1" aria-live="polite" hidden></div>' +
                     '<div class="report-live-assist" data-report-live-assist aria-live="polite" hidden></div>' +
                 '</section>' +
                 '<section class="report-form-section report-resources-section">' +
@@ -6202,7 +6215,6 @@
                 '</section>' +
                 '<div class="form-error" data-log-error role="alert" aria-atomic="true"></div>' +
                 '<div class="report-intake-actions">' +
-                    '<small>«Только отчёт» сохраняет запись. «Сохранить и учесть» также применяет выбранные работы и материалы.</small>' +
                     '<span class="report-submit-group"><button class="ghost report-only-button" type="submit" data-report-only-submit' + reportSubmitDisabled + '><span>Только отчёт</span></button><button class="primary report-submit-button" type="submit"' + reportSubmitDisabled + '><span>Сохранить и учесть</span></button></span>' +
                 '</div>' +
             '</form>' +
