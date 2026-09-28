@@ -34,9 +34,10 @@ def private_file(path,content):
 
 def queue_token(details,path):
     env=dict(value.split('=',1) for value in details['Config']['Env'] if '=' in value)
-    token=env.get('MARKET_AGENT_TOKEN','').strip()
+    token=env.get('BUYER_WORKER_TOKEN','').strip()
     if not token:
-        # AutoBot stores the generated token here when no env override exists.
+        # Buyer mail and price-search workers have separate credentials.
+        # Reuse only the explicitly provisioned buyer token; never generate it.
         # Read the established identity; never generate/rotate it during setup.
         try:token=path.read_text(encoding='utf-8').strip()
         except OSError:raise SystemExit('Existing queue token file is unavailable.') from None
@@ -55,7 +56,7 @@ def main():
     if config.exists() and json.loads(config.read_text())!=EXPECTED:
         raise SystemExit('Existing configuration differs; review it without overwriting.')
     details=json.loads(subprocess.check_output(['docker','inspect','pmbi-autobot'],text=True))[0]
-    token=queue_token(details,Path('/opt/code/auto_bot/data/agent_market_worker.token'))
+    token=queue_token(details,Path('/opt/code/auto_bot/data/buyer_worker.token'))
     private_file(config,json.dumps(EXPECTED,ensure_ascii=False,indent=2)+'\n')
     private_file(ROOT/'queue_token',token)
     Path('/opt/code/auto_bot/data/mail-transport').mkdir(parents=True,exist_ok=True,mode=0o700)
