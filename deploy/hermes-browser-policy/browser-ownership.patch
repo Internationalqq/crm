@@ -1,0 +1,314 @@
+--- a/tools/computer_use/cua_backend.py
++++ b/tools/computer_use/cua_backend.py
+@@ -802,8 +802,11 @@
+ 
+     def call_tool(self, name: str, args: Dict[str, Any], timeout: float = 30.0) -> Dict[str, Any]:
+         self._require_started()
++        # Only observations may be replayed automatically. An interrupted input
++        # can already have clicked Send even if its response was lost.
++        observations = {"list_windows", "list_apps", "get_window_state", "screenshot"}
+         try:
+-            return self._bridge.run(self._call_tool_async(name, args), timeout=timeout)
++            result = self._bridge.run(self._call_tool_async(name, args), timeout=timeout)
+         except Exception as e:
+             if not self._is_closed_session_error(e):
+                 raise
+@@ -813,7 +816,25 @@
+             logger.warning("cua-driver MCP session closed during %s; reconnecting once", name)
+             with self._lock:
+                 self._restart_session_locked()
+-            return self._bridge.run(self._call_tool_async(name, args), timeout=timeout)
++            if name not in observations:
++                return {"isError": True, "data": "Computer-use transport interrupted; input was not replayed. Capture again and verify the previous action before continuing."}
++            result = self._bridge.run(self._call_tool_async(name, args), timeout=timeout)
++
++        session_id = args.get("session")
++        ended = (f"session '{session_id}' has ended; tool call '{name}' was rejected. "
++                 "Call start_session with this id to revive it")
++        if (name in observations and isinstance(session_id, str)
++                and result.get("isError") and isinstance(result.get("data"), str)
++                and ended in result["data"]):
++            # This observation was explicitly rejected before dispatch. Revive
++            # only its identity. Permission/other errors are never retried.
++            with self._lock:
++                revived = self._bridge.run(self._call_tool_async(
++                    "start_session", {"session": session_id}), timeout=timeout)
++                if revived.get("isError"):
++                    return revived
++                return self._bridge.run(self._call_tool_async(name, args), timeout=timeout)
++        return result
+ 
+ 
+ def _extract_tool_result(mcp_result: Any) -> Dict[str, Any]:
+@@ -916,7 +937,13 @@
+ class CuaDriverBackend(ComputerUseBackend):
+     """Default computer-use backend. Cross-platform via cua-driver MCP."""
+ 
+-    def __init__(self) -> None:
++    def __init__(self, *, allowed_apps: Optional[List[str]] = None) -> None:
++        if allowed_apps is not None and (
++            not isinstance(allowed_apps, list)
++            or any(not isinstance(app, str) or not app.strip() for app in allowed_apps)
++        ):
++            raise ValueError("computer_use.allowed_apps must be null or a list of app names")
++        self._allowed_apps = None if allowed_apps is None else tuple(app.strip() for app in allowed_apps)
+         self._bridge = _AsyncBridge()
+         self._session = _CuaDriverSession(self._bridge)
+         # Sticky context — updated by capture(), used by action tools.
+@@ -950,6 +977,23 @@
+         # MCP server instructions.
+         self._session_id: str = f"hermes-{uuid.uuid4().hex[:12]}"
+ 
++    def _app_allowed(self, app: str) -> bool:
++        allowed = getattr(self, "_allowed_apps", None)
++        return allowed is None or app.casefold() in {name.casefold() for name in allowed}
++
++    def _restrict_app(self, app: Optional[str]) -> Optional[str]:
++        allowed = getattr(self, "_allowed_apps", None)
++        if allowed is None:
++            return app
++        if app is None and len(allowed) == 1:
++            return allowed[0]
++        if not app or not self._app_allowed(app):
++            raise PermissionError("This profile may control only: " + (", ".join(allowed) or "no apps"))
++        return app
++
++    def _visible_apps(self, apps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++        return [app for app in apps if self._app_allowed(str(app.get("name") or app.get("app_name") or ""))]
++
+     # ── Lifecycle ──────────────────────────────────────────────────
+     def start(self) -> None:
+         _maybe_nudge_update()
+@@ -1018,6 +1062,7 @@
+         self._active_pid = None
+         self._active_window_id = None
+         self._snapshot_tokens = {}
++        app = self._restrict_app(app)
+         # Step 1: enumerate on-screen windows to find target pid/window_id.
+         # Surface 3 of NousResearch/hermes-agent#47072: read the canonical
+         # `structuredContent.windows` array directly. Pre-fix the wrapper
+@@ -1044,7 +1089,7 @@
+                 "title": w.get("title", ""),
+                 "z_index": w.get("z_index", 0),
+             }
+-            for w in raw_windows
++            for w in raw_windows if self._app_allowed(str(w.get("app_name", "")))
+         ]
+         # Current driver contract: larger integer z_index is closer to front.
+         windows.sort(key=lambda w: (w["z_index"] is not None, w["z_index"] or 0), reverse=True)
+@@ -1424,12 +1469,12 @@
+         if isinstance(structured, dict) and "apps" in structured:
+             if not isinstance(structured["apps"], list):
+                 raise RuntimeError("cua-driver list_apps returned malformed apps array")
+-            return structured["apps"]
++            return self._visible_apps(structured["apps"])
+         data = out["data"]
+         if isinstance(data, list):
+-            return data
++            return self._visible_apps(data)
+         if isinstance(data, dict):
+-            return data.get("apps", [])
++            return self._visible_apps(data.get("apps", []))
+         # list_apps returns plain text — parse app lines.
+         if isinstance(data, str):
+             apps = []
+@@ -1437,7 +1482,7 @@
+                 m = re.search(r'(.+?)\s+\(pid\s+(\d+)\)', line)
+                 if m:
+                     apps.append({"name": m.group(1).strip(), "pid": int(m.group(2))})
+-            return apps
++            return self._visible_apps(apps)
+         raise RuntimeError("cua-driver list_apps returned no supported app listing")
+ 
+     def focus_app(self, app: str, raise_window: bool = False) -> ActionResult:
+@@ -1451,6 +1496,7 @@
+         self._active_window_id = None
+         self._last_app = None
+         self._snapshot_tokens = {}
++        app = self._restrict_app(app)
+         lw_out = self._session.call_tool(
+             "list_windows",
+             {"on_screen_only": not raise_window, "session": self._session_id},
+@@ -1472,7 +1518,7 @@
+         windows.sort(key=lambda w: (w["z_index"] is not None, w["z_index"] or 0), reverse=True)
+ 
+         app_lower = app.lower()
+-        matched = [w for w in windows if app_lower in w["app_name"].lower()]
++        matched = [w for w in windows if app_lower in w["app_name"].lower() and self._app_allowed(w["app_name"])]
+         # Don't silently fall back to the frontmost window when the filter
+         # matches nothing — that hides the real failure (often a localized
+         # macOS app name mismatch, e.g. caller passed "Calculator" but
+--- a/tools/computer_use/tool.py
++++ b/tools/computer_use/tool.py
+@@ -151,7 +151,9 @@
+             backend_name = os.environ.get("HERMES_COMPUTER_USE_BACKEND", "cua").lower()
+             if backend_name in {"cua", "cua-driver", ""}:
+                 from tools.computer_use.cua_backend import CuaDriverBackend
+-                _backend = CuaDriverBackend()
++                from hermes_cli.config import load_config
++                allowed_apps = ((load_config() or {}).get("computer_use") or {}).get("allowed_apps")
++                _backend = CuaDriverBackend(allowed_apps=allowed_apps)
+             elif backend_name == "noop":  # pragma: no cover
+                 _backend = _NoopBackend()
+             else:
+--- a/hermes_cli/config.py
++++ b/hermes_cli/config.py
+@@ -2904,6 +2904,9 @@
+         # every invocation (MCP backend, status, doctor, install). Set true
+         # to let cua-driver use its own default (telemetry on).
+         "cua_telemetry": False,
++        # null preserves unrestricted selection; [] denies every app.
++        # Exact app names restrict capture/focus in the computer_use tool.
++        "allowed_apps": None,
+     },
+ 
+ 
+--- /dev/null
++++ b/tests/computer_use/test_profile_ownership_and_session_recovery.py
+@@ -0,0 +1,146 @@
++import asyncio
++from unittest.mock import AsyncMock, Mock
++
++import pytest
++
++from tools.computer_use.cua_backend import CuaDriverBackend, _AsyncBridge, _CuaDriverSession
++
++
++def ok(**structured):
++    return {'isError': False, 'data': '', 'structuredContent': structured}
++
++
++def ended(name='list_windows', session='owner'):
++    return {'isError': True, 'data': f"session '{session}' has ended; tool call '{name}' was rejected. Call start_session with this id to revive it before issuing further actions, or use a new session id."}
++
++
++def session(*results):
++    s = _CuaDriverSession(_AsyncBridge())
++    s._started = True
++    s._call_tool_async = AsyncMock(side_effect=results)
++    s._bridge.run = lambda coro, timeout: asyncio.run(coro)
++    s._restart_session_locked = Mock()
++    return s
++
++
++@pytest.mark.parametrize('name', ['list_windows', 'list_apps', 'get_window_state', 'screenshot'])
++def test_ended_observation_revives_only_own_session_once(name):
++    result = ok(windows=[])
++    s = session(ended(name), ok(), result)
++    assert s.call_tool(name, {'session': 'owner'}) == result
++    assert [c.args[0] for c in s._call_tool_async.call_args_list] == [name, 'start_session', name]
++    assert s._call_tool_async.call_args_list[1].args[1] == {'session': 'owner'}
++
++
++def test_revival_is_bounded():
++    s = session(ended(), ok(), ended())
++    assert s.call_tool('list_windows', {'session': 'owner'})['isError']
++    assert s._call_tool_async.call_count == 3
++
++
++def test_failed_revival_stops_without_retry():
++    denied = {'isError': True, 'data': 'permission denied'}
++    s = session(ended(), denied)
++    assert s.call_tool('list_windows', {'session': 'owner'}) == denied
++    assert s._call_tool_async.call_count == 2
++
++
++@pytest.mark.parametrize('result', [
++    {'isError': True, 'data': 'permission denied'},
++    ended(session='someone-else'),
++    {'isError': False, 'data': ended()['data']},
++])
++def test_permission_other_identity_and_page_text_do_not_trigger_revival(result):
++    s = session(result)
++    assert s.call_tool('list_windows', {'session': 'owner'}) == result
++    assert s._call_tool_async.call_count == 1
++
++
++@pytest.mark.parametrize('name', ['click', 'type_text', 'press_key'])
++def test_mutating_calls_never_replayed_when_session_ended(name):
++    s = session(ended(name))
++    assert s.call_tool(name, {'session': 'owner'})['isError']
++    assert s._call_tool_async.call_count == 1
++
++
++def test_interrupted_input_reconnects_but_never_replays_input():
++    s = session(BrokenPipeError())
++    out = s.call_tool('click', {'session': 'owner'})
++    assert out['isError'] and 'not replayed' in out['data']
++    s._restart_session_locked.assert_called_once()
++    assert s._call_tool_async.call_count == 1
++
++
++def test_interrupted_observation_recovers_transport_then_identity():
++    s = session(BrokenPipeError(), ended(), ok(), ok(windows=[]))
++    assert not s.call_tool('list_windows', {'session': 'owner'})['isError']
++    s._restart_session_locked.assert_called_once()
++    assert s._call_tool_async.call_count == 4
++
++
++@pytest.mark.parametrize('allowed,forbidden', [('Firefox', 'Safari'), ('Safari', 'Firefox')])
++def test_other_browser_and_desktop_blocked_before_reading(allowed, forbidden):
++    b = CuaDriverBackend(allowed_apps=[allowed])
++    b._session = Mock()
++    b._active_pid, b._active_window_id = 12, 34
++    for app in (forbidden, 'desktop', 'Fire', '/Applications/' + allowed + '.app'):
++        with pytest.raises(PermissionError):
++            b.capture(app=app)
++        with pytest.raises(PermissionError):
++            b.focus_app(app)
++    assert b._active_pid is None and b._active_window_id is None
++    b._session.call_tool.assert_not_called()
++
++
++def test_empty_allowlist_denies_frontmost_capture():
++    b = CuaDriverBackend(allowed_apps=[])
++    b._session = Mock()
++    with pytest.raises(PermissionError):
++        b.capture()
++    b._session.call_tool.assert_not_called()
++
++
++def test_app_inventory_contains_only_assigned_browser():
++    b = CuaDriverBackend(allowed_apps=['Firefox'])
++    b._session = Mock()
++    b._session.call_tool.return_value = ok(apps=[{'name': 'Safari', 'pid': 1}, {'name': 'Firefox', 'pid': 2}])
++    assert b.list_apps() == [{'name': 'Firefox', 'pid': 2}]
++
++
++def test_exact_app_filter_rejects_similarly_named_app():
++    b = CuaDriverBackend(allowed_apps=['Firefox'])
++    b._session = Mock()
++    b._session.call_tool.return_value = ok(windows=[
++        {'app_name': 'Firefox Helper', 'pid': 1, 'window_id': 2, 'z_index': 10},
++        {'app_name': 'Firefox', 'pid': 3, 'window_id': 4, 'z_index': 1},
++    ])
++    assert b.focus_app('Firefox').ok
++    assert b._active_pid == 3 and b._active_window_id == 4
++
++
++def test_implicit_capture_uses_only_assigned_app():
++    b = CuaDriverBackend(allowed_apps=['Safari'])
++    assert b._restrict_app(None) == 'Safari'
++    assert b._restrict_app('safari') == 'safari'
++
++
++@pytest.mark.parametrize('invalid', ['Firefox', [None], [''], 1])
++def test_malformed_policy_is_not_unrestricted(invalid):
++    with pytest.raises(ValueError):
++        CuaDriverBackend(allowed_apps=invalid)
++
++
++def test_tool_factory_passes_profile_policy(monkeypatch):
++    from tools.computer_use import tool
++    import hermes_cli.config
++    tool.reset_backend_for_tests()
++    monkeypatch.setattr(hermes_cli.config, 'load_config', lambda: {'computer_use': {'allowed_apps': ['Safari']}})
++    monkeypatch.setattr(CuaDriverBackend, 'start', lambda self: None)
++    monkeypatch.setattr(CuaDriverBackend, 'stop', lambda self: None)
++    try:
++        backend = tool._get_backend()
++        assert backend._allowed_apps == ('Safari',)
++        with pytest.raises(PermissionError):
++            backend.capture(app='Firefox')
++    finally:
++        tool.reset_backend_for_tests()
