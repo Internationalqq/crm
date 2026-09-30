@@ -1,5 +1,6 @@
-# Receiving-only while HOSTKEY SMTP is blocked. Mac AutoBot stays disabled.
-# Remove --inbox-only only after successful SMTP/IMAP check and send acceptance.
+# Legacy receiving-only service, stopped after migration to local mail (30.09).
+# Local worker uses HTTPS queue + SMTP/IMAP; VPS SMTP remains closed.
+# Manual server-mail profile is for explicit recovery only, not normal startup.
 services:
   autobot-mail:
     image: crm-autobot:latest
@@ -22,4 +23,4 @@ services:
       timeout: 5s
       start_period: 90s
       retries: 3
-    restart: unless-stopped
+    restart: "no"
