@@ -22,5 +22,13 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(m.proxy({'path':'/projects','token':'x'*40+'\nBad: yes'})['status'],401)
         def fail(*a,**k):raise RuntimeError('secret')
         self.assertEqual(m.proxy({'path':'/projects','token':'x'*40},fail),{'status':503,'payload':{'error':'crm_unavailable'}})
+    def test_relay_uses_fixed_https_origin_and_preserves_post(self):
+        calls=[]
+        def open(req,timeout):
+            calls.append(req);r=io.BytesIO(b'{"item":{"id":2}}');r.status=200;return r
+        result=m.proxy({'path':'/2/draft','data':{'revision':1},'token':'x'*40},open,base_url='https://crm.example')
+        self.assertEqual(result['payload']['item']['id'],2)
+        self.assertEqual(calls[0].full_url,'https://crm.example/api/finance-intake/2/draft')
+        self.assertEqual(calls[0].get_method(),'POST')
 
 if __name__=='__main__':unittest.main()

@@ -14,6 +14,7 @@ PROFILE = Path('/Users/egor/.hermes/profiles/anya')
 GROUP = '-5589110678'
 LOCK = threading.Lock()
 STARTED = False
+WAKE = threading.Event()
 
 
 def folder():
@@ -35,11 +36,23 @@ def db():
     con.row_factory = sqlite3.Row
     con.execute('CREATE TABLE IF NOT EXISTS queue (source TEXT PRIMARY KEY, payload TEXT NOT NULL, '
                 'path TEXT NOT NULL, crm_id INTEGER, error TEXT, updated_at REAL NOT NULL)')
+    con.execute('CREATE TABLE IF NOT EXISTS drafts (source TEXT PRIMARY KEY, payload TEXT NOT NULL, '
+                'generation INTEGER NOT NULL, synced INTEGER NOT NULL DEFAULT 0, error TEXT)')
     return con
 
 
 def api(path, data=None):
     cfg = json.loads((PROFILE / 'finance-crm.json').read_text())
+    if cfg.get('transport') == 'relay':
+        # Loopback is carried inside the authenticated Windows→Mac SSH connection.
+        if cfg.get('relay_url') != 'http://127.0.0.1:18878/':
+            raise ValueError('Unexpected relay endpoint')
+        req=urllib.request.Request(cfg['relay_url'], data=json.dumps({'path':path,'data':data,'token':cfg['token']}).encode(),
+                                   headers={'Content-Type':'application/json'})
+        with urllib.request.urlopen(req,timeout=30) as response:envelope=json.load(response)
+        if envelope.get('status') != 200:
+            error=RuntimeError('CRM request rejected');error.code=envelope.get('status',503);raise error
+        return envelope['payload']
     if cfg.get('transport') == 'ssh':
         result = subprocess.run(['ssh','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
             '-o','UserKnownHostsFile='+cfg['known_hosts'],'-o','ConnectTimeout=10','-i',cfg['identity'],cfg['ssh_host']],
@@ -77,8 +90,62 @@ def flush():
                     con.execute('UPDATE queue SET error=?,updated_at=? WHERE source=?',
                                 ('HTTP' + str(exc.code) if hasattr(exc, 'code') else type(exc).__name__, time.time(), row['source']))
                 con.commit()
+                if not result_available(con, row['source']):
+                    return  # One unavailable upstream must not delay every queued file.
+            pending = con.execute('SELECT d.*,q.crm_id FROM drafts d JOIN queue q ON q.source=d.source '
+                                  "WHERE d.synced=0 AND q.crm_id IS NOT NULL AND (d.error IS NULL OR d.error NOT LIKE 'HTTP4%') LIMIT 10").fetchall()
+            for draft in pending:
+                try:
+                    data=json.loads(draft['payload'])
+                    current=api('/'+str(draft['crm_id']))['item']
+                    # A lost acknowledgement may have applied this exact draft already.
+                    fields=('project_id','kind','title','counterparty','document_date','amount_kopecks','fiscal_key','details')
+                    same=all(current.get(k)==data.get(k) for k in fields)
+                    if not same:
+                        expected=data.get('revision',1)
+                        if current.get('status')!='needs_review' or current.get('revision')!=expected:
+                            exc=RuntimeError('Draft changed; human review required');exc.code=409;raise exc
+                        data['revision']=expected
+                        api('/'+str(draft['crm_id'])+'/draft',data)
+                    con.execute('UPDATE drafts SET synced=1,error=NULL WHERE source=? AND generation=?',
+                                (draft['source'],draft['generation']))
+                except Exception as exc:
+                    con.execute('UPDATE drafts SET error=? WHERE source=? AND generation=?',
+                                ('HTTP'+str(exc.code) if hasattr(exc,'code') else type(exc).__name__,draft['source'],draft['generation']))
+                    con.commit()
+                    if not str(getattr(exc,'code','')).startswith('4'):
+                        return
+                con.commit()
     finally:
         LOCK.release()
+
+
+def result_available(con, source):
+    return con.execute('SELECT crm_id FROM queue WHERE source=?',(source,)).fetchone()['crm_id'] is not None
+
+
+def queue_draft(args):
+    data=args.get('document')
+    if not isinstance(data,dict) or len(json.dumps(data))>160000:
+        raise ValueError('Full draft required')
+    with db() as con:
+        source=args.get('source')
+        if source:
+            row=con.execute('SELECT * FROM queue WHERE source=?',(source,)).fetchone()
+        else:
+            ident=args.get('id')
+            if type(ident) is not int or ident<=0:raise ValueError('id or queued source required')
+            row=con.execute('SELECT * FROM queue WHERE crm_id=? ORDER BY updated_at DESC LIMIT 1',(ident,)).fetchone()
+        if not row:raise ValueError('Unknown original in this group')
+        if row['crm_id'] is not None and type(data.get('revision')) is not int:
+            raise ValueError('Read current revision before editing existing document')
+        con.execute('INSERT INTO drafts(source,payload,generation) VALUES(?,?,1) ON CONFLICT(source) DO UPDATE SET '
+                    'payload=excluded.payload,generation=drafts.generation+1,synced=0,error=NULL',
+                    (row['source'],json.dumps(data,ensure_ascii=False)))
+        con.commit()
+    WAKE.set()
+    return {'delivery':'queued','source':row['source'],'crm_id':row['crm_id'],
+            'instruction':'Draft preserved locally. Check status; only draft_synced=1 confirms CRM storage.'}
 
 
 def capture(event=None, **kwargs):
@@ -127,12 +194,13 @@ def capture(event=None, **kwargs):
         con.commit()
     if not accepted:
         return None
-    flush()
+    WAKE.set()
     with db() as con:
         rows = [dict(con.execute('SELECT source,crm_id,error FROM queue WHERE source=?',(k,)).fetchone()) for k in accepted]
     note = ('\n[CRM intake: ' + json.dumps(rows, ensure_ascii=False) +
             '. Original preserved locally. A crm_id confirms server storage only, not extraction or payment. '
-            'Use finance_crm get/projects/draft to save each document extraction. If no crm_id, use status later; '
+            'Use finance_crm get/projects/draft to save each document extraction. If no crm_id, draft accepts this source key; '
+            'save extraction locally even while offline, leave unknown project null. Check status later; '
             'report queued, not synced. Ask for missing project. Never claim a payment was posted.]')
     return {'action':'rewrite', 'text':(event.text or '') + note}
 
@@ -141,16 +209,19 @@ def tool(args, **kwargs):
     try:
         action = args.get('action')
         if action == 'status':
-            flush()
+            WAKE.set()
             with db() as con:
-                result = [dict(r) for r in con.execute('SELECT source,crm_id,error,updated_at FROM queue ORDER BY updated_at DESC LIMIT 20')]
+                result = [dict(r) for r in con.execute('SELECT q.source,q.crm_id,q.error,q.updated_at,d.synced AS draft_synced,d.error AS draft_error '
+                          'FROM queue q LEFT JOIN drafts d ON q.source=d.source ORDER BY q.updated_at DESC LIMIT 20')]
         elif action == 'projects':
             result = api('/projects')
-        elif action in {'get', 'draft'}:
+        elif action == 'draft':
+            result = queue_draft(args)
+        elif action == 'get':
             ident = args.get('id')
             if type(ident) is not int or ident <= 0:
                 raise ValueError('id required')
-            result = api('/' + str(ident) + ('/draft' if action == 'draft' else ''), args.get('document') if action == 'draft' else None)
+            result = api('/' + str(ident))
         else:
             raise ValueError('unknown action')
         return json.dumps(result, ensure_ascii=False)
@@ -167,15 +238,18 @@ def register(ctx):
     ctx.register_hook('pre_gateway_dispatch', capture)
     ctx.register_tool(name='finance_crm', toolset='finance_crm', handler=tool,
         schema={'name':'finance_crm','description':'Group finance CRM: status of originals, allowed project names, get document, save draft extraction. No payment/confirmation permissions. Money in integer kopecks; preserve revision; only facts from source, unknown=null/questions.',
-                'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['status','projects','get','draft']},'id':{'type':'integer'},
+                'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['status','projects','get','draft']},'id':{'type':'integer'},'source':{'type':'string','description':'Exact source key from CRM intake annotation; for draft before crm_id is assigned.'},
                  'document':{'type':'object','description':'Full draft: revision,project_id,kind(receipt/invoice/refund/other/unknown),title,counterparty,document_date ISO,amount_kopecks integer or null,fiscal_key FN:FD:FP or null,details:{lines:[{title,quantity decimal string,unit,amount_kopecks}],questions:[],payment_kind,vat_percent,planned_date}. Line amounts must equal total. Never infer VAT/payment.'}},'required':['action']}})
     if not STARTED:
         STARTED = True
+        (folder()/'runtime.json').write_text(json.dumps({'pid':os.getpid(),'registered_at':time.time(),
+            'plugin_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}))
         def worker():
             while True:
                 try:
                     flush()
                 except Exception:
                     pass
-                time.sleep(30)
+                WAKE.wait(30)
+                WAKE.clear()
         threading.Thread(target=worker, name='finance-crm-outbox', daemon=True).start()

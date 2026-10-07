@@ -13,7 +13,7 @@ import urllib.error
 MAX_BYTES = 29 * 1024 * 1024
 
 
-def proxy(envelope, opener=urllib.request.urlopen):
+def proxy(envelope, opener=urllib.request.urlopen, base_url='http://127.0.0.1:8080'):
     path = envelope.get('path')
     data = envelope.get('data')
     if not isinstance(path, str) or not (
@@ -24,7 +24,7 @@ def proxy(envelope, opener=urllib.request.urlopen):
     token = envelope.get('token')
     if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}',token):
         return {'status':401,'payload':{'error':'invalid_integration_token'}}
-    req = urllib.request.Request('http://127.0.0.1:8080/api/finance-intake' + path,
+    req = urllib.request.Request(base_url + '/api/finance-intake' + path,
         data=json.dumps(data).encode() if data is not None else None,
         headers={'Content-Type':'application/json','Authorization':'Bearer '+token})
     try:
