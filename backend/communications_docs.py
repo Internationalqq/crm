@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest
+from auth import user_can_manage_documents, user_can_manage_schedule, user_has_any_role, user_is_guest, user_can_view_finances
 from operational_quantities import operational_quantity_plan
 from projects import serialize_project
 from schedule_tasks import (
@@ -1358,6 +1358,9 @@ def api_project_documents(handler, path: str) -> None:
                 for item in material_summary_rows(con, project_id)
                 if normalize_estimate_item_kind(item.get("itemKind")) != "work"
             ]
+        if not user_can_view_finances(user):
+            protected = {r[0] for r in con.execute('SELECT document_id FROM finance_intake WHERE document_id IS NOT NULL')}
+            rows = [r for r in rows if r['id'] not in protected]
     documents = []
     for row in rows:
         documents.append(document_payload(row))
@@ -1856,6 +1859,9 @@ def api_update_document(handler, path: str) -> None:
 
     with db() as con:
         con.execute("BEGIN IMMEDIATE")
+        if con.execute('SELECT 1 FROM finance_intake WHERE document_id=?', (document_id,)).fetchone():
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "finance_original_immutable"})
+            return
         row = con.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
         if not row:
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "document_not_found"})
@@ -2025,6 +2031,9 @@ def api_delete_document(handler, path: str) -> None:
     remaining_storage_paths: list[str] = []
     with db() as con:
         con.execute("BEGIN IMMEDIATE")
+        if con.execute('SELECT 1 FROM finance_intake WHERE document_id=?', (document_id,)).fetchone():
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "finance_original_immutable"})
+            return
         row = con.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
         if not row:
             con.rollback()
@@ -2160,6 +2169,11 @@ def api_document_file(handler, path: str, inline: bool) -> None:
         return
     with db() as con:
         row = con.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row and not user_can_view_finances(user) and con.execute(
+            'SELECT 1 FROM finance_intake WHERE document_id=?', (document_id,)
+        ).fetchone():
+            handler.send_json(HTTPStatus.FORBIDDEN, {"error": "document_forbidden"})
+            return
         guest_report_photo = None
         if row and user_is_guest(user):
             guest_report_photo = con.execute(

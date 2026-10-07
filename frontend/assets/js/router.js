@@ -14,7 +14,7 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        app: '/assets/js/app.js?v=20260928-report-dictation-7',
+        app: '/assets/js/app.js?v=20261007-finance-intake-1',
         autobot: '/assets/js/autobot.js?v=20260927-stable-scroll-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260913-design-c965f07b',
         planning: '/assets/js/planning.js?v=20260913-design-c965f07b',

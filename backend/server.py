@@ -404,6 +404,7 @@ APP_PAGES = {
 APP_PAGES["/app/suppliers"] = ("suppliers", "Контрагенты")
 
 APP_PAGES["/app/autobot"] = ("autobot", "AutoBot")
+APP_PAGES["/app/finances"] = ("finances", "Финансы")
 
 DIRECTOR_ACTION_BLOCK_RE = re.compile(
     r"<(?P<tag>section|button)\b(?=[^>]*\sdata-director-action\b)[\s\S]*?</(?P=tag)>",
@@ -4609,6 +4610,8 @@ def init_db() -> None:
         ensure_estimate_reconciliation_schema(con)
         ensure_warehouse_control_schema(con)
         ensure_daily_log_actions_schema(con)
+        from finance_intake import ensure_schema as ensure_finance_intake_schema
+        ensure_finance_intake_schema(con)
         ensure_sqlite_indexes(con)
         con.commit()
         report_sqlite_foreign_key_violations(con)
@@ -5574,7 +5577,10 @@ class PMBIHandler(BaseHTTPRequestHandler):
                 if user_is_guest(viewer) and not guest_api_allowed(method, path):
                     self.send_json(HTTPStatus.FORBIDDEN, {"error": "guest_forbidden"})
                     return
-            if is_agent_market_proxy_route(method, path):
+            if path == '/api/finance-intake' or path.startswith('/api/finance-intake/'):
+                from finance_intake import handle as handle_finance_intake
+                handle_finance_intake(self, method, path)
+            elif is_agent_market_proxy_route(method, path):
                 self.proxy_agent_market_request(method, path)
             elif method == "POST" and path == "/api/auth/login":
                 self.api_login()

@@ -1,0 +1,5 @@
+name: finance-crm-intake
+version: 1.0.0
+description: Anya finance-group originals and reviewed extraction to CRM
+hooks:
+  - pre_gateway_dispatch

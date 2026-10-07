@@ -111,6 +111,7 @@ def project_has_immutable_financial_history(
     """
 
     direct_probes = (
+        ('finance_intake', 'SELECT 1 FROM finance_intake WHERE project_id = ? LIMIT 1'),
         (
             "project_financial_baselines",
             """

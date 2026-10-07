@@ -625,6 +625,7 @@
             node.classList.toggle('hidden', !isDirectorRole());
         });
         var allowed = allowedModules();
+        if (canSeeFinances() && allowed.indexOf('finances') === -1) allowed.push('finances');
         qsa('[data-nav]').forEach(function (link) {
             if (allowed.indexOf(link.dataset.nav) === -1) {
                 link.classList.add('hidden');
@@ -708,6 +709,8 @@
     };
 
     function initPage() {
+        qsa('[data-finance-intake-nav]').forEach(function (node) { node.hidden = !canSeeFinances(); });
+        if (page === 'finances' && PMBI.financeIntake) PMBI.financeIntake.mount(qs('[data-finance-intake]'));
         if (page === 'dashboard') initDashboardPage();
         if (page === 'daily_tasks') initDailyTasksPage();
         if (page === 'projects') {
@@ -10063,7 +10066,7 @@ function renderLogsDayView(project, logs) {
                 renderFinanceWorkspaceHead(items, true, canViewManagement) +
                 errorPanel + overviewPanel +
                 paymentsPanel + operationsPanel +
-                managementPanel + renderFinanceEntryModal(true) +
+                managementPanel + '<section data-finance-intake aria-label="Чеки и счета объекта"></section>' + renderFinanceEntryModal(true) +
             '</div>');
         bindFinanceEntryModal(root);
         bindFinanceIncomeForm(projectId);
@@ -10075,6 +10078,7 @@ function renderLogsDayView(project, logs) {
         }
         bindEconomicsManagement();
         bindFinanceWorkspaceNavigation(root, projectId);
+        if (PMBI.financeIntake) PMBI.financeIntake.mount(qs('[data-finance-intake]', root), projectId);
         applyRoleVisibility(root);
         refreshLucideIcons(root);
     }

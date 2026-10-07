@@ -979,6 +979,8 @@ def user_can_open(user: dict, path: str) -> bool:
         return True
     if user_is_guest(user):
         return path == "/app/projects"
+    if path == '/app/finances':
+        return user_can_view_finances(user)
     if path == "/app/autobot" and not user_can_access_autobot(user):
         return False
     if path == "/app":
