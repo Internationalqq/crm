@@ -1770,6 +1770,7 @@
             oldDrawer.remove();
         }
         safeReplaceChildren(panel, renderProjectReportsPanel(project));
+        if (PMBI.fieldIntake) PMBI.fieldIntake.append(panel, projectId, 'report');
         var reportDrawer = ensureProjectReportDrawer();
         bindLogForm();
         bindProjectReportAssistantActions();

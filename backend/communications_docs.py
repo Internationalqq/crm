@@ -3347,6 +3347,9 @@ def api_delete_daily_log(handler, path: str) -> None:
             con.rollback()
             handler.send_json(HTTPStatus.NOT_FOUND, {"error": "log_not_found"})
             return
+        if con.execute('SELECT 1 FROM field_events WHERE daily_log_id=?', (log_id,)).fetchone():
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "daily_log_has_applied_actions"})
+            return
         applied_action = con.execute(
             """
             SELECT 1 FROM daily_log_actions WHERE daily_log_id = ?

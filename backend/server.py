@@ -4612,6 +4612,8 @@ def init_db() -> None:
         ensure_daily_log_actions_schema(con)
         from finance_intake import ensure_schema as ensure_finance_intake_schema
         ensure_finance_intake_schema(con)
+        from field_intake import ensure_schema as ensure_field_intake_schema
+        ensure_field_intake_schema(con)
         ensure_sqlite_indexes(con)
         con.commit()
         report_sqlite_foreign_key_violations(con)
@@ -5580,6 +5582,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             if path == '/api/finance-intake' or path.startswith('/api/finance-intake/'):
                 from finance_intake import handle as handle_finance_intake
                 handle_finance_intake(self, method, path)
+            elif path == '/api/field-intake' or path.startswith('/api/field-intake/'):
+                from field_intake import handle as handle_field_intake
+                handle_field_intake(self, method, path)
             elif is_agent_market_proxy_route(method, path):
                 self.proxy_agent_market_request(method, path)
             elif method == "POST" and path == "/api/auth/login":

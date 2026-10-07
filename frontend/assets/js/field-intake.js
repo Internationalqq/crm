@@ -1,0 +1,71 @@
+(function () {
+    'use strict';
+    var P=window.PMBI=window.PMBI || {};
+    var esc=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+    var labels={report:'Дневной отчёт',receipt:'Материалы получены',expected:'Ожидаемая поставка'};
+    var errors={unresolved_questions:'Сначала уточните вопросы к записи.',possible_duplicate_check_required:'Похожая запись уже учтена. Сравните исходники.',revision_conflict:'Запись уже изменена. Обновите список.',location_required:'Укажите место хранения.',project_required:'Выберите объект.',actual_receipt_evidence_required:'Нужна цитата о фактическом получении материалов.',planned_delivery_is_not_stock:'Ожидаемую поставку нельзя провести как приход.',fact_evidence_required:'Цитата должна точно совпадать с исходным сообщением.',material_project_or_unit_mismatch:'Материал или единица не соответствует объекту.',bad_quantity:'Укажите положительное количество.',finance_link_forbidden:'Связь со счётом доступна сотруднику с доступом к финансам.'};
+    async function api(path,data){
+        var r=await fetch('/api/field-intake'+path,{credentials:'same-origin',method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});
+        var v=await r.json();if(!r.ok)throw new Error(errors[v.error] || 'Не удалось выполнить действие: '+(v.error || r.status));return v;
+    }
+    function permitted(){var u=P.state && P.state.user;return u && u.role!=='customer' && u.role!=='guest';}
+    function options(projects,value,empty){return '<option value="">'+esc(empty || 'Нужно уточнить')+'</option>'+projects.map(function(p){return '<option value="'+p.id+'" '+(p.id===value?'selected':'')+'>'+esc(p.title)+'</option>';}).join('');}
+    function linesHTML(lines){return lines.map(function(l){return '<div class="field-material"><label>Материал<input name="material" required value="'+esc(l.title)+'"></label><label>Количество<input name="quantity" inputmode="decimal" required value="'+esc(l.qty)+'"></label><label>Ед.<input name="unit" required value="'+esc(l.unit)+'"></label></div>';}).join('');}
+    function sourceHTML(item){return item.sources.map(function(s){return '<div class="field-source"><strong>'+esc(s.sender_name || 'Участник')+'</strong><small> · '+esc(new Date(s.sent_at*1000).toLocaleString('ru-RU',{timeZone:'Asia/Yekaterinburg'}))+'</small><p>'+esc(s.text)+'</p>'+(s.transcript?'<p><b>Расшифровка:</b> '+esc(s.transcript)+'</p>':'')+'<div class="field-files">'+s.media.map(function(f){return '<a href="'+esc(f.view_url)+'" target="_blank" rel="noopener">'+esc(f.name)+'</a>';}).join('')+'</div></div>';}).join('');}
+    function formHTML(item,projects,finance){
+        var d=item.data;
+        return '<form class="intake-form field-form"><div class="intake-fields"><label>Объект<select name="project">'+options(projects,item.project_id)+'</select></label><label>Событие<select name="kind">'+Object.keys(labels).map(function(k){return '<option value="'+k+'" '+(k===item.kind?'selected':'')+'>'+labels[k]+'</option>';}).join('')+'</select></label><label>Заголовок<input name="title" required value="'+esc(item.title)+'"></label><label>Дата события<input name="day" type="date" required value="'+esc(item.event_date)+'" '+(item.kind==='report'?'readonly':'')+'></label><label>Место хранения<select name="location">'+[['unknown','Нужно уточнить'],['project','На объекте'],['company','Склад компании']].map(function(p){return '<option value="'+p[0]+'" '+(p[0]===item.location?'selected':'')+'>'+p[1]+'</option>';}).join('')+'</select></label></div>'+
+            (item.kind==='report'?'<label>Выполненные работы<textarea name="work" required rows="3">'+esc(d.work_done)+'</textarea></label><label>Уточнённая дата — цитата из сообщения<input name="report_date_quote" value="'+esc(d.report_date_quote)+'"></label>'+(d.date_issue?'<p role="alert">'+esc(d.date_issue)+'</p>':'')+'<label>Человек на смене<input name="workers" type="number" min="0" max="999" value="'+esc(d.workers_count || 0)+'"></label><p class="muted">Дата отчёта — из «отчёт за…», иначе день отправки по Екатеринбургу.</p>':'<div data-field-lines>'+linesHTML(d.lines || [{}])+'</div><button type="button" class="ghost compact" data-add-material>Добавить материал</button><label>Цитата о поступлении / ожидании<textarea name="fact" rows="2" required>'+esc(d.fact_quote)+'</textarea></label><label>Цитата с датой поставки<input name="date_quote" value="'+esc(d.date_quote)+'"></label>'+(finance?'<div class="intake-fields"><label>Связать со счётом<select name="invoice"><option value="">Без связи</option></select></label><label>Поступление по счёту<select name="delivery"><option value="partial" '+(d.delivery_status==='partial'?'selected':'')+'>Частично</option><option value="complete" '+(d.delivery_status==='complete'?'selected':'')+'>Полностью</option></select></label></div>':''))+
+            '<label>Что нужно уточнить<textarea name="questions" rows="2">'+esc((d.questions || []).join('\n'))+'</textarea></label>'+
+            (item.possible_duplicates.length?'<label><span><input type="checkbox" name="distinct"> Сравнил с записями № '+item.possible_duplicates.join(', ')+': это отдельное событие</span></label>':'')+
+            '<div class="intake-actions"><button class="primary" type="submit">Сохранить и учесть</button><button class="ghost" type="button" data-save-field>Сохранить уточнение</button></div><p role="status" data-field-error></p></form>';
+    }
+    async function mount(root,pid,kind){
+        if(!root || !permitted())return;
+        root.innerHTML='<p role="status">Загружаем сообщения с объектов…</p>';
+        try{
+            var data=await api('');if(!root.isConnected)return;
+            root.classList.add('field-intake');
+            root.innerHTML='<div class="intake-head"><div><h3>Сообщения с объектов</h3><p>Отчёты, исходные фото и поставки из Telegram. Ожидание поставки не увеличивает склад.</p></div><button class="ghost compact" data-refresh>Обновить</button></div><div class="intake-filters"><label>Объект<select data-project>'+options(data.projects,pid,'Все доступные')+'</select></label><label>Показать<select data-state><option value="all">Все события</option><option value="needs_review">Нужно уточнить</option><option value="applied">Учтено</option></select></label></div><div data-events></div>';
+            if(pid)root.querySelector('[data-project]').disabled=true;
+            function render(){
+                var filter=Number(root.querySelector('[data-project]').value),state=root.querySelector('[data-state]').value;
+                var rows=data.items.filter(function(i){return (!filter || i.project_id===filter) && (state==='all' || i.status===state) && (!kind || (kind==='deliveries'?i.kind!=='report':i.kind===kind));});
+                root.querySelector('[data-events]').innerHTML=rows.length?rows.map(function(i){var d=i.data;var p=data.projects.find(function(p){return p.id===i.project_id;});return '<details class="intake-item" data-event="'+i.id+'"><summary><span><b>'+esc(i.title)+'</b><small>'+esc(i.event_date+' · '+labels[i.kind]+' · '+(p?p.title:'Объект не указан'))+'</small></span><span>'+ (i.status==='applied'?'Учтено':'Нужно уточнить')+'</span></summary><div class="field-detail">'+sourceHTML(i)+(i.status==='applied'?'<p>'+esc(i.kind==='report'?d.work_done:(d.lines || []).map(function(l){return l.title+' — '+l.qty+' '+l.unit;}).join('; '))+'</p>'+(i.finance_entry_id?'<p>Счёт № '+i.finance_entry_id+' · '+(i.kind==='expected'?'Ожидается':d.delivery_status==='complete'?'Получено полностью':'Получено частично')+'</p>':'')+(i.daily_log_id?'<a href="/app/projects?openProject='+i.project_id+'&tab=reports">Открыть журнал объекта</a>':''):formHTML(i,data.projects,data.can_finance))+'</div></details>';}).join(''):'<p class="muted">Пока нет событий. Здесь появятся сообщения из подключённой группы «Отчёт за день».</p>';
+                root.querySelectorAll('[data-event]').forEach(function(panel){
+                    var item=rows.find(function(i){return i.id===Number(panel.dataset.event);}),form=panel.querySelector('form');if(!form)return;
+                    function get(n){return form.elements.namedItem(n)?form.elements.namedItem(n).value:'';}
+                    async function invoices(){var select=form.elements.namedItem('invoice');if(!select)return;select.innerHTML='<option value="">Без связи</option>';if(!get('project'))return;try{var c=await api('/context/'+Number(get('project')));c.invoices.forEach(function(i){var o=document.createElement('option');o.value=i.id;o.textContent='№ '+i.id+' · '+(i.category || i.counterparty_name || 'Счёт');o.selected=i.id===item.data.finance_entry_id;select.appendChild(o);});}catch(e){form.querySelector('[data-field-error]').textContent=e.message;}}
+                    panel.addEventListener('toggle',function(){if(panel.open && !panel.dataset.loaded){panel.dataset.loaded='1';invoices();}});
+                    form.elements.namedItem('project').onchange=invoices;
+                    var add=form.querySelector('[data-add-material]');if(add)add.onclick=function(){form.querySelector('[data-field-lines]').insertAdjacentHTML('beforeend',linesHTML([{}]));};
+                    async function save(apply){
+                        var buttons=form.querySelectorAll('button');buttons.forEach(function(b){b.disabled=true;});
+                        try{
+                            var detail=Object.assign({},item.data,{questions:get('questions').split('\n').filter(function(v){return v.trim();})});
+                            if(item.kind==='report'){detail.work_done=get('work');detail.workers_count=Number(get('workers'));detail.report_date_quote=get('report_date_quote');}
+                            else{detail.fact_quote=get('fact');detail.date_quote=get('date_quote');detail.lines=Array.from(form.querySelectorAll('.field-material')).map(function(l,index){return Object.assign({},(item.data.lines || [])[index],{title:l.querySelector('[name=material]').value,qty:l.querySelector('[name=quantity]').value.replace(',','.'),unit:l.querySelector('[name=unit]').value});});if(data.can_finance){detail.finance_entry_id=Number(get('invoice')) || null;detail.delivery_status=get('delivery');}}
+                            var saved=await api('/events',{message_id:item.message_id,event_key:item.event_key,source_ids:item.sources.map(function(s){return s.id;}),revision:item.revision,project_id:Number(get('project')) || null,kind:get('kind'),location:get('location'),event_date:get('day'),title:get('title'),data:detail});
+                            item.revision=saved.item.revision;
+                            if(apply)await api('/'+item.id+'/apply',{revision:item.revision,confirm_distinct:!!(form.elements.namedItem('distinct') && form.elements.namedItem('distinct').checked)});
+                            await mount(root,pid,kind);
+                        }catch(e){form.querySelector('[data-field-error]').textContent=e.message;}finally{buttons.forEach(function(b){b.disabled=false;});}
+                    }
+                    form.onsubmit=function(e){e.preventDefault();save(true);};form.querySelector('[data-save-field]').onclick=function(){save(false);};
+                });
+            }
+            root.querySelector('[data-project]').onchange=render;root.querySelector('[data-state]').onchange=render;root.querySelector('[data-refresh]').onclick=function(){mount(root,pid,kind);};render();
+        }catch(e){root.innerHTML='<p role="alert">'+esc(e.message)+'</p><button class="ghost" data-retry>Повторить</button>';root.querySelector('[data-retry]').onclick=function(){mount(root,pid,kind);};}
+    }
+    async function stock(root,pid){
+        if(!root || !permitted())return;
+        root.classList.add('field-intake');
+        try{var data=await api('/balances');if(!root.isConnected)return;root.innerHTML='<div class="intake-head"><div><h3>Остатки по местам хранения</h3><p>Склад компании и материалы на объектах. Каждый приход учтён в одном месте.</p></div><button class="ghost compact" data-refresh>Обновить</button></div><label>Место хранения<select data-location><option value="">Все доступные</option><option value="company">Склад компании</option>'+data.projects.map(function(p){return '<option value="'+p.id+'">'+esc(p.title)+'</option>';}).join('')+'</select></label><div data-stock></div>';
+            var select=root.querySelector('[data-location]');if(pid){select.value=String(pid);select.disabled=true;}
+            function render(){var rows=data.items.filter(function(i){return !select.value || (select.value==='company'?!i.project_id:i.project_id===Number(select.value));});root.querySelector('[data-stock]').innerHTML=rows.length?'<div class="field-stock-list">'+rows.map(function(i){return '<div class="field-stock-row"><div><b>'+esc(i.name)+'</b><small>'+esc(i.location_title)+'</small></div><strong>'+esc(new Intl.NumberFormat('ru-RU',{maximumFractionDigits:6}).format(i.qty)+' '+i.unit)+'</strong></div>';}).join('')+'</div>':'<p class="muted">Материалов на остатке пока нет.</p>';}
+            select.onchange=render;root.querySelector('[data-refresh]').onclick=function(){stock(root,pid);};render();
+        }catch(e){root.innerHTML='<p role="alert">'+esc(e.message)+'</p>';}
+    }
+    function append(panel,pid,mode){if(!panel || !permitted())return;var root=document.createElement('section');panel.appendChild(root);if(mode==='stock')stock(root,pid);else mount(root,pid,mode);}
+    P.fieldIntake={mount:mount,stock:stock,append:append};
+}());

@@ -16,7 +16,14 @@ MAX_BYTES = 29 * 1024 * 1024
 def proxy(envelope, opener=urllib.request.urlopen, base_url='http://127.0.0.1:8080'):
     path = envelope.get('path')
     data = envelope.get('data')
-    if not isinstance(path, str) or not (
+    namespace=envelope.get('namespace','finance')
+    if namespace=='field':
+        permitted=isinstance(path,str) and ((data is None and re.fullmatch(r'(?:|/projects|/context/\d+|/\d+)',path)) or
+                    (isinstance(data,dict) and re.fullmatch(r'/(?:import|events|\d+/(?:apply|attach)|messages/\d+/transcript)',path)))
+        if not permitted:return {'status':403,'payload':{'error':'transport_scope_forbidden'}}
+    elif namespace!='finance':
+        return {'status':403,'payload':{'error':'transport_scope_forbidden'}}
+    elif not isinstance(path, str) or not (
         (data is None and re.fullmatch(r'/(projects|\d+)', path)) or
         (isinstance(data, dict) and re.fullmatch(r'/(import|\d+/draft)', path))
     ):
@@ -24,13 +31,18 @@ def proxy(envelope, opener=urllib.request.urlopen, base_url='http://127.0.0.1:80
     token = envelope.get('token')
     if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}',token):
         return {'status':401,'payload':{'error':'invalid_integration_token'}}
-    req = urllib.request.Request(base_url + '/api/finance-intake' + path,
+    req = urllib.request.Request(base_url + '/api/'+namespace+'-intake' + path,
         data=json.dumps(data).encode() if data is not None else None,
         headers={'Content-Type':'application/json','Authorization':'Bearer '+token})
     try:
         with opener(req,timeout=20) as result:
             return {'status':result.status,'payload':json.load(result)}
     except urllib.error.HTTPError as exc:
+        if namespace=='field':
+            try:
+                reason=json.loads(exc.read(4096)).get('error','')
+                if isinstance(reason,str) and re.fullmatch('[a-z0-9_]{1,100}',reason):return {'status':exc.code,'payload':{'error':reason}}
+            except (ValueError,AttributeError):pass
         return {'status':exc.code,'payload':{'error':'crm_request_rejected'}}
     except Exception:
         return {'status':503,'payload':{'error':'crm_unavailable'}}

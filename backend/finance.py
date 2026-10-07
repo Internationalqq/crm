@@ -660,6 +660,9 @@ def api_delete_finance_entry(handler, path: str) -> None:
         if con.execute('SELECT 1 FROM finance_intake WHERE finance_entry_id=?', (finance_id,)).fetchone():
             handler.send_json(HTTPStatus.CONFLICT, {"error": "finance_entry_has_source_documents"})
             return
+        if con.execute('SELECT 1 FROM field_events WHERE finance_entry_id=?', (finance_id,)).fetchone():
+            handler.send_json(HTTPStatus.CONFLICT, {"error": "finance_entry_has_source_documents"})
+            return
         has_allocations = con.execute(
             "SELECT 1 FROM project_payment_allocations WHERE finance_entry_id = ? LIMIT 1",
             (finance_id,),

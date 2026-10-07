@@ -7,6 +7,14 @@ spec=importlib.util.spec_from_file_location('intake_ssh',Path(__file__).resolve(
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class TransportTests(unittest.TestCase):
+    def test_field_namespace_is_separate_and_bounded(self):
+        calls=[]
+        def open(req,timeout):
+            calls.append(req);r=io.BytesIO(b'{}');r.status=200;return r
+        self.assertEqual(m.proxy({'namespace':'field','path':'/1/apply','data':{'revision':1},'token':'x'*40},open)['status'],200)
+        self.assertEqual(calls[0].full_url,'http://127.0.0.1:8080/api/field-intake/1/apply')
+        for path in ['/1/confirm','/../finances','/projects?x=1','/messages/1/file/abc']:
+            self.assertEqual(m.proxy({'namespace':'field','path':path,'data':{},'token':'x'*40},open)['status'],403)
     def test_only_draft_intake_and_specific_read_paths_allowed(self):
         for path,data in [('/1/confirm',{}),('/../auth/login',{}),('//example.com',None),('/1/file',None),('',None),('/projects?other=1',None),('/import',None)]:
             with self.subTest(path=path):

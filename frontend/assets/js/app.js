@@ -711,6 +711,10 @@
     function initPage() {
         qsa('[data-finance-intake-nav]').forEach(function (node) { node.hidden = !canSeeFinances(); });
         if (page === 'finances' && PMBI.financeIntake) PMBI.financeIntake.mount(qs('[data-finance-intake]'));
+        if (PMBI.fieldIntake) {
+            PMBI.fieldIntake.mount(qs('[data-field-intake]'), null, page === 'logs' ? 'report' : 'deliveries');
+            PMBI.fieldIntake.stock(qs('[data-field-stock]'));
+        }
         if (page === 'dashboard') initDashboardPage();
         if (page === 'daily_tasks') initDailyTasksPage();
         if (page === 'projects') {
@@ -10079,6 +10083,7 @@ function renderLogsDayView(project, logs) {
         bindEconomicsManagement();
         bindFinanceWorkspaceNavigation(root, projectId);
         if (PMBI.financeIntake) PMBI.financeIntake.mount(qs('[data-finance-intake]', root), projectId);
+        if (PMBI.fieldIntake) PMBI.fieldIntake.append(root, projectId, 'deliveries');
         applyRoleVisibility(root);
         refreshLucideIcons(root);
     }

@@ -494,6 +494,7 @@
         if (!panel || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
         removeDialogPortal();
         safeReplaceChildren(panel, render(payload));
+        if (PMBI.fieldIntake) PMBI.fieldIntake.append(panel, payload.projectId || state.selectedProjectId, 'stock');
         bindPanel(panel, projectId, payload);
         refreshLucideIcons(panel);
     }

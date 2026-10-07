@@ -1,0 +1,17 @@
+.field-intake{margin-top:20px;padding:20px;border:1px solid var(--border,#e1e5ea);border-radius:12px;background:var(--surface,#fff);color:var(--text,#202936);min-width:0}
+.field-intake .intake-item{border-bottom:1px solid var(--border,#e1e5ea)}
+.field-intake .intake-item:last-child{border-bottom:0}
+.field-intake .intake-item summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:16px 0;align-items:center;cursor:pointer}
+.field-intake .intake-item summary>span{min-width:0;overflow-wrap:anywhere}
+.field-intake .intake-item summary small{display:block;margin-top:6px;color:var(--muted,#526174);font-size:13px}
+.field-intake .intake-item summary:hover{background:var(--surface-muted,#f5f7fa)}
+.field-intake .intake-item summary:focus-visible{outline:2px solid var(--accent,#325df3);outline-offset:2px}
+.field-intake [data-field-error]{color:var(--danger,#a82424)}
+.field-intake .intake-head h3{margin:0}.field-intake .intake-head p{margin:6px 0 0;max-width:70ch}
+.field-detail{padding:16px;min-width:0}.field-source{padding:12px;margin-bottom:12px;border-radius:8px;background:var(--surface-soft,#f5f7f9);overflow-wrap:anywhere}
+.field-source p{white-space:pre-wrap}.field-files{display:flex;gap:12px;flex-wrap:wrap}.field-files a{overflow-wrap:anywhere}
+.field-material{display:grid;grid-template-columns:minmax(0,3fr) minmax(90px,1fr) minmax(65px,1fr);gap:10px;margin-bottom:10px}
+.field-intake label{display:flex;flex-direction:column;gap:6px;min-width:0}.field-intake input,.field-intake select,.field-intake textarea{max-width:100%;min-width:0}
+.field-stock-list{margin-top:14px}.field-stock-row{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--border,#e1e5ea)}
+.field-stock-row>div{min-width:0;overflow-wrap:anywhere}.field-stock-row small{display:block;margin-top:4px;color:var(--muted,#64748b)}.field-stock-row>strong{white-space:nowrap}
+@media(max-width:600px){.field-intake{padding:14px}.field-detail{padding:10px}.field-material{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.field-material>label:first-child{grid-column:1/-1}.field-intake .intake-head{align-items:flex-start}.field-intake .intake-head>div{min-width:0}.field-intake .intake-item summary{align-items:flex-start}.field-intake .intake-item summary>span{min-width:0;overflow-wrap:anywhere}}
