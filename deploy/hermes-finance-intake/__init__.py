@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import threading
 import time
 import urllib.request
@@ -39,6 +40,16 @@ def db():
 
 def api(path, data=None):
     cfg = json.loads((PROFILE / 'finance-crm.json').read_text())
+    if cfg.get('transport') == 'ssh':
+        result = subprocess.run(['ssh','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
+            '-o','UserKnownHostsFile='+cfg['known_hosts'],'-o','ConnectTimeout=10','-i',cfg['identity'],cfg['ssh_host']],
+            input=json.dumps({'path':path,'data':data,'token':cfg['token']}),capture_output=True,text=True,timeout=30)
+        if result.returncode:
+            raise ConnectionError('CRM SSH unavailable')
+        envelope=json.loads(result.stdout)
+        if envelope.get('status') != 200:
+            error=RuntimeError('CRM request rejected');error.code=envelope.get('status',503);raise error
+        return envelope['payload']
     if not cfg['base_url'].startswith('https://'):
         raise ValueError('HTTPS required')
     req = urllib.request.Request(cfg['base_url'].rstrip('/') + '/api/finance-intake' + path,
