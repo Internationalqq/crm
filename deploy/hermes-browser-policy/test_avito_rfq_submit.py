@@ -42,6 +42,7 @@ class SubmitTests(unittest.TestCase):
         self.editor = ''
         self.clipboard = ''
         self.events = []
+        self.editor_focused = False
         self.wrong_paste = False
         self.changed_recipient = False
         self.fail_send = False
@@ -63,7 +64,7 @@ class SubmitTests(unittest.TestCase):
                    e('AXStaticText', 'www.avito.ru/profile/messenger/channel/chat'),
                    e('AXImage', f'https://www.avito.ru/user/{seller}/profile?iid=1'),
                    e('AXHeading', 'Supplier'),
-                   e('AXTextArea', 'Сообщение', bounds=[20, 600, 600, 60], value=self.editor)]
+                   e('AXTextArea', 'Сообщение', index=184, bounds=[20, 600, 600, 60], value=self.editor)]
         if self.phase == 'empty':
             entries.append(e('AXStaticText', 'Чат создан.'))
         if self.phase == 'draft':
@@ -82,18 +83,24 @@ class SubmitTests(unittest.TestCase):
         return {'text': self.clipboard}
 
     def native(self, args):
+        if args['action'] == 'click' and args.get('element') != 9:
+            self.assertEqual(args.get('element'), 184, 'Focus the fresh AX editor, not screenshot coordinates')
+            self.assertNotIn('coordinate', args)
+            self.editor_focused = True
         if args['action'] == 'capture':
             if args['mode'] == 'ax':
                 return json.dumps(self.snapshot())
             raw = b'\x89PNG\r\n\x1a\nfixture'
             return {'content': [{'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(raw).decode()}}]}
         if args.get('keys') == 'cmd+v':
+            self.assertTrue(self.editor_focused)
             self.events.append('paste')
             self.editor = 'WRONG' if self.wrong_paste else self.clipboard
             self.phase = 'draft'
             if self.lose_lock:
                 self.active.write_text(json.dumps({'owner': 'commercial', 'ticket': 'other', 'created': time.time()}))
         if args.get('keys') == 'cmd+c':
+            self.assertTrue(self.editor_focused)
             self.events.append('copy_actual_editor')
             self.clipboard = self.editor
         if args.get('element') == 9:

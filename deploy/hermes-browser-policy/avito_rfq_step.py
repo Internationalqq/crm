@@ -159,7 +159,7 @@ def mark_send_unknown(pending):
         pending.pop(field, None)
 
 
-def editor_point(snapshot):
+def editor_element(snapshot):
     editor = unique_editor(snapshot)
     window = next(e for e in snapshot['elements'] if e['role'] == 'AXWindow')
     wx, wy, ww, wh = window['bounds']
@@ -167,8 +167,7 @@ def editor_point(snapshot):
     if not (ww > 0 and wh > 0 and width > 0 and height > 0 and
             wx <= x and wy <= y and x + width <= wx + ww and y + height <= wy + wh):
         raise ValueError('Message editor must be visible inside the captured window')
-    return [round((x + width / 2 - wx) * snapshot['width'] / ww),
-            round((y + height / 2 - wy) * snapshot['height'] / wh)]
+    return editor['index']
 
 
 def contains_exact_text(value, expected):
@@ -343,7 +342,7 @@ def main():
         pending = {**identity, 'profile_url': 'https://www.avito.ru/user/' + identity['seller_id'] + '/profile', 'supplier': args.supplier, 'listing_url': args.listing_url or '', 'phase': 'submit' if args.step == 'submit' else 'optimized', 'text': task['request_text'], 'status': 'fill_unknown', 'started_at': now()}
         save(pending_path, pending)
         native_start = time.monotonic()
-        action({'action': 'click', 'coordinate': editor_point(snap), 'delivery_mode': 'foreground'})
+        action({'action': 'click', 'element': editor_element(snap), 'delivery_mode': 'foreground'})
         copied = _get_backend().call_tool('clipboard_write', {'text': pending['text']})
         if copied.get('isError'):
             raise ValueError('Clipboard write failed; no paste attempted')
@@ -371,7 +370,7 @@ def main():
             with (root / 'avito_outreach.csv').open() as stream:
                 check_capacity(list(csv.DictReader(stream)), identity)
             # Copy from the visible editor to verify the exact renderer text.
-            action({'action': 'click', 'coordinate': editor_point(snap), 'delivery_mode': 'foreground'})
+            action({'action': 'click', 'element': editor_element(snap), 'delivery_mode': 'foreground'})
             verify_copied_editor(_get_backend().call_tool,
                                  lambda keys: action({'action': 'key', 'keys': keys}),
                                  pending['text'])

@@ -67,14 +67,14 @@ class GuardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'draft'):
             rfq.empty_conversation(snap, 'RFQ', visually_reviewed=True)
 
-    def test_editor_point_uses_window_origin_and_image_scale(self):
+    def test_editor_focus_uses_ax_element_not_scaled_screenshot_coordinates(self):
         snap = {'width': 1568, 'height': 813, 'elements': [
             {'role': 'AXWindow', 'bounds': [0, 25, 1920, 995]},
-            {**element('AXTextArea', 'Сообщение'), 'bounds': [1471, 964, 303, 44]}]}
-        self.assertEqual(rfq.editor_point(snap), [1325, 785])
+            {**element('AXTextArea', 'Сообщение'), 'bounds': [1471, 964, 303, 44], 'index': 184}]}
+        self.assertEqual(rfq.editor_element(snap), 184)
         snap['elements'][1]['bounds'][1] = 1100
         with self.assertRaisesRegex(ValueError, 'visible'):
-            rfq.editor_point(snap)
+            rfq.editor_element(snap)
 
     def test_clipboard_text_must_match_completely(self):
         self.assertTrue(rfq.contains_exact_text({'data': json.dumps({'text': 'RFQ'})}, 'RFQ'))
