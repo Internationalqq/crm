@@ -1,0 +1,131 @@
+--- a/tools/computer_use/tool.py
++++ b/tools/computer_use/tool.py
+@@ -349,11 +349,12 @@
+ 
+ def _dispatch(backend: ComputerUseBackend, action: str, args: Dict[str, Any]) -> Any:
+     capture_after = bool(args.get("capture_after"))
++    mode = str(args.get("mode", "som"))
++    if (action == "capture" or capture_after) and mode not in {"som", "vision", "ax"}:
++        return json.dumps({"error": f"bad mode {mode!r}; use som|vision|ax"})
++    capture_options = {"mode": mode, "max_elements": _coerce_max_elements(args.get("max_elements"))}
+ 
+     if action == "capture":
+-        mode = str(args.get("mode", "som"))
+-        if mode not in {"som", "vision", "ax"}:
+-            return json.dumps({"error": f"bad mode {mode!r}; use som|vision|ax"})
+         try:
+             cap = backend.capture(mode=mode, app=args.get("app"))
+         except RuntimeError as exc:
+@@ -383,7 +384,7 @@
+             if policy_context(app) and retryable_window_error(res.message):
+                 recover_browser(backend, app)
+                 res = ActionResult(ok=True, action="focus_app", message="Browser recovered; capture again before any input.")
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     if action in {"click", "double_click", "right_click", "middle_click"}:
+         button = args.get("button")
+@@ -404,7 +405,7 @@
+             x=x, y=y, button=button or "left", click_count=click_count,
+             modifiers=args.get("modifiers"),
+         )
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     if action == "drag":
+         has_elements = args.get("from_element") is not None and args.get("to_element") is not None
+@@ -421,7 +422,7 @@
+             button=args.get("button", "left"),
+             modifiers=args.get("modifiers"),
+         )
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     if action == "scroll":
+         coord = args.get("coordinate") or (None, None)
+@@ -433,7 +434,7 @@
+             y=coord[1] if coord and coord[1] is not None else None,
+             modifiers=args.get("modifiers"),
+         )
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     if action == "type":
+         # Keep existing targeting fields attached to type. A separate click
+@@ -448,18 +449,18 @@
+         elif element is not None:
+             target["element"] = element
+         res = backend.type_text(args.get("text", ""), **target)
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     if action == "key":
+         res = backend.key(args.get("keys", ""))
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     if action == "set_value":
+         value = args.get("value")
+         if value is None:
+             return json.dumps({"error": "set_value requires `value`"})
+         res = backend.set_value(value=str(value), element=args.get("element"))
+-        return _maybe_follow_capture(backend, res, capture_after)
++        return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+     return json.dumps({"error": f"unknown action {action!r}"})
+ 
+@@ -865,6 +866,7 @@
+ 
+ def _maybe_follow_capture(
+     backend: ComputerUseBackend, res: ActionResult, do_capture: bool,
++    *, mode: str = "som", max_elements: int = _DEFAULT_MAX_ELEMENTS,
+ ) -> Any:
+     if not do_capture:
+         return _text_response(res)
+@@ -878,12 +880,14 @@
+         # that capture_after=True re-captures the same app rather than the frontmost
+         # window (which may have changed if the action caused a focus shift).
+         last_app = getattr(backend, "_last_app", None)
+-        cap = backend.capture(mode="som", app=last_app)
++        cap = backend.capture(mode=mode, app=last_app)
+     except Exception as e:
+         logger.warning("follow-up capture failed: %s", e)
+-        return _text_response(res)
++        data = json.loads(_text_response(res))
++        data.update(capture_ok=False, capture_error="follow_up_capture_failed")
++        return json.dumps(data)
+     # Combine action summary with the capture.
+-    resp = _capture_response(cap)
++    resp = _capture_response(cap, max_elements=max_elements)
+     if isinstance(resp, dict) and resp.get("_multimodal"):
+         prefix = f"[{res.action}] ok={res.ok}" + (f" — {res.message}" if res.message else "")
+         resp["content"][0]["text"] = prefix + "\n\n" + resp["content"][0]["text"]
+--- a/tools/computer_use/schema.py
++++ b/tools/computer_use/schema.py
+@@ -59,7 +59,7 @@
+                 "type": "string",
+                 "enum": ["som", "vision", "ax"],
+                 "description": (
+-                    "Capture mode. `som` (default) is a screenshot with "
++                    "Mode for capture and capture_after. `som` (default) is a screenshot with "
+                     "numbered overlays on every interactable element plus "
+                     "the AX tree — best for vision models, lets you click "
+                     "by element index. `vision` is a plain screenshot. "
+@@ -85,7 +85,7 @@
+                 "type": "integer",
+                 "description": (
+                     "Optional cap on the AX `elements` array returned by "
+-                    "`action='capture'`. Default 100, hard maximum 1000. "
++                    "capture and capture_after. Default 100, hard maximum 1000. "
+                     "Dense UIs (Electron apps such as Obsidian or VS Code, "
+                     "JetBrains IDEs) can publish 500+ AX nodes — capping "
+                     "prevents a single capture from blowing session "
+@@ -207,7 +207,7 @@
+                 "type": "boolean",
+                 "description": (
+                     "If true, take a follow-up capture after the action "
+-                    "and include it in the response. Saves a round-trip "
++                    "using mode/max_elements and include it in the response. Saves a round-trip "
+                     "when you need to verify an action's effect."
+                 ),
+             },
