@@ -1,0 +1,154 @@
+--- a/tools/computer_use/backend.py
++++ b/tools/computer_use/backend.py
+@@ -112,6 +112,7 @@
+         button: str = "left",           # left | right | middle
+         click_count: int = 1,
+         modifiers: Optional[List[str]] = None,
++        delivery_mode: Optional[str] = None,
+     ) -> ActionResult: ...
+ 
+     @abstractmethod
+@@ -143,6 +144,7 @@
+     def type_text(
+         self, text: str, *, element: Optional[int] = None,
+         x: Optional[int] = None, y: Optional[int] = None,
++        delay_ms: Optional[int] = None,
+     ) -> ActionResult:
+         """Insert text, optionally targeting one captured field in the same action."""
+ 
+--- a/tools/computer_use/cua_backend.py
++++ b/tools/computer_use/cua_backend.py
+@@ -1339,6 +1339,7 @@
+         button: str = "left",
+         click_count: int = 1,
+         modifiers: Optional[List[str]] = None,
++        delivery_mode: Optional[str] = None,
+     ) -> ActionResult:
+         pid = self._active_pid
+         if pid is None or self._active_window_id is None:
+@@ -1360,6 +1361,10 @@
+         tool = "double_click" if click_count == 2 else "click"
+ 
+         args: Dict[str, Any] = {"pid": pid, "button": button_norm}
++        if delivery_mode is not None:
++            if delivery_mode not in ("background", "foreground"):
++                return ActionResult(ok=False, action=tool, message="Invalid delivery_mode")
++            args["delivery_mode"] = delivery_mode
+         if element is not None:
+             if self._active_window_id is None:
+                 return ActionResult(ok=False, action=tool,
+@@ -1456,6 +1461,7 @@
+     def type_text(
+         self, text: str, *, element: Optional[int] = None,
+         x: Optional[int] = None, y: Optional[int] = None,
++        delay_ms: Optional[int] = None,
+     ) -> ActionResult:
+         pid = self._active_pid
+         if pid is None:
+@@ -1469,6 +1475,10 @@
+             return ActionResult(ok=False, action="type_text",
+                                 message="type requires either element or a complete x/y pair.")
+         args = {**self._keyboard_target(), "text": text}
++        if delay_ms is not None:
++            if type(delay_ms) is not int or not 0 <= delay_ms <= 200:
++                return ActionResult(ok=False, action="type_text", message="Invalid delay_ms")
++            args["delay_ms"] = delay_ms
+         if element is not None:
+             args["element_index"] = element
+         elif has_coordinate:
+--- a/tools/computer_use/tool.py
++++ b/tools/computer_use/tool.py
+@@ -400,10 +400,15 @@
+         element = args.get("element")
+         coord = args.get("coordinate") or (None, None)
+         x, y = (coord[0], coord[1]) if coord and coord[0] is not None else (None, None)
++        click_options = {}
++        if "delivery_mode" in args:
++            if args["delivery_mode"] not in ("background", "foreground"):
++                return json.dumps({"error": "delivery_mode must be background or foreground"})
++            click_options["delivery_mode"] = args["delivery_mode"]
+         res = backend.click(
+             element=element if element is not None else None,
+             x=x, y=y, button=button or "left", click_count=click_count,
+-            modifiers=args.get("modifiers"),
++            modifiers=args.get("modifiers"), **click_options,
+         )
+         return _maybe_follow_capture(backend, res, capture_after, **capture_options)
+ 
+@@ -440,6 +445,11 @@
+         # Keep existing targeting fields attached to type. A separate click
+         # can report AXPress success without moving the renderer's focus.
+         target: Dict[str, Any] = {}
++        if "delay_ms" in args:
++            delay = args["delay_ms"]
++            if type(delay) is not int or not 0 <= delay <= 200:
++                return json.dumps({"error": "delay_ms must be an integer from 0 to 200"})
++            target["delay_ms"] = delay
+         element, coord = args.get("element"), args.get("coordinate")
+         if coord is not None:
+             if (element is not None or not isinstance(coord, (list, tuple))
+--- a/tools/computer_use/schema.py
++++ b/tools/computer_use/schema.py
+@@ -177,6 +177,14 @@
+                 ),
+             },
+             # ── type / key / wait ──────────────────────────────────
++            "delay_ms": {
++                "type": "integer", "minimum": 0, "maximum": 200,
++                "description": "For type: native inter-character delay. Omit for driver default; 0 for fast entry. Verify the complete text before Send.",
++            },
++            "delivery_mode": {
++                "type": "string", "enum": ["background", "foreground"],
++                "description": "For clicks: foreground briefly fronts the exact window when observed background clicks fail. No automatic replay; capture to verify.",
++            },
+             "text": {
+                 "type": "string",
+                 "description": "Text to type (respects the current layout).",
+--- /dev/null
++++ b/tests/computer_use/test_fast_input_options.py
+@@ -0,0 +1,45 @@
++import json
++from unittest.mock import Mock
++import pytest
++from tools.computer_use.cua_backend import CuaDriverBackend
++from tools.computer_use.tool import _dispatch
++
++def backend():
++ b=CuaDriverBackend(allowed_apps=['Firefox'],keyboard_delivery_mode='foreground')
++ b._active_pid,b._active_window_id=11,42
++ b._session.call_tool=Mock(return_value={'isError':False,'data':{'effect':'unverifiable'}})
++ return b
++
++def test_zero_delay_reaches_same_target_once():
++ b=backend(); r=json.loads(_dispatch(b,'type',{'text':'Запрос','element':7,'delay_ms':0}))
++ assert r['ok'] and r['meta']['effect']=='unverifiable'
++ b._session.call_tool.assert_called_once()
++ name,args=b._session.call_tool.call_args.args
++ assert name=='type_text' and args['delay_ms']==0 and args['element_index']==7
++ assert (args['pid'],args['window_id'])==(11,42)
++
++@pytest.mark.parametrize('delay',[-1,201,1.5,True,'0'])
++def test_bad_delay_never_types(delay):
++ b=backend(); r=json.loads(_dispatch(b,'type',{'text':'x','delay_ms':delay}))
++ assert r.get('error') or r.get('ok') is False
++ b._session.call_tool.assert_not_called()
++
++def test_foreground_click_preserves_exact_window_and_token():
++ b=backend();b._snapshot_tokens={7:'test-token'};b._session.supports_capability=Mock(return_value=True)
++ r=json.loads(_dispatch(b,'click',{'element':7,'delivery_mode':'foreground'}))
++ assert r['ok'];b._session.call_tool.assert_called_once()
++ name,args=b._session.call_tool.call_args.args
++ assert name=='click' and args['delivery_mode']=='foreground'
++ assert (args['pid'],args['window_id'],args['element_token'])==(11,42,'test-token')
++
++@pytest.mark.parametrize('mode',['','auto',True,0])
++def test_invalid_click_mode_never_clicks(mode):
++ b=backend();r=json.loads(_dispatch(b,'click',{'element':7,'delivery_mode':mode}))
++ assert r.get('error') or r.get('ok') is False
++ b._session.call_tool.assert_not_called()
++
++def test_unspecified_options_preserve_defaults():
++ b=backend();_dispatch(b,'type',{'text':'x'})
++ assert 'delay_ms' not in b._session.call_tool.call_args.args[1]
++ b=backend();_dispatch(b,'click',{'element':7})
++ assert 'delivery_mode' not in b._session.call_tool.call_args.args[1]

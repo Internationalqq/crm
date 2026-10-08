@@ -1,0 +1,117 @@
+diff --git a/tests/computer_use/test_unicode_output.py b/tests/computer_use/test_unicode_output.py
+new file mode 100644
+index 0000000000..efefd24289
+--- /dev/null
++++ b/tests/computer_use/test_unicode_output.py
+@@ -0,0 +1,27 @@
++import json
++import pytest
++from tools.computer_use.backend import CaptureResult, UIElement
++from tools.computer_use.tool import _capture_response
++
++
++@pytest.mark.parametrize('label', ['Сообщения — отправлено', '商品 🧱', 'Кнопка "Отправить"\\u041a'])
++def test_ax_text_is_readable_and_json_round_trips(label):
++    cap = CaptureResult(mode='ax', width=1200, height=900, app='Firefox',
++                        window_title='Переписка',
++                        elements=[UIElement(index=1, role='AXButton', label=label)])
++    raw = _capture_response(cap)
++    assert 'Переписка' in raw
++    assert json.loads(raw)['elements'][0]['label'] == label
++
++
++def test_action_capture_keeps_unicode_without_reencoding():
++    from unittest.mock import MagicMock
++    from tools.computer_use.backend import ActionResult
++    from tools.computer_use.tool import _maybe_follow_capture
++    backend = MagicMock()
++    backend._last_app = 'Firefox'
++    backend.capture.return_value = CaptureResult(mode='ax', width=1200, height=900,
++        app='Firefox', window_title='Переписка', elements=[])
++    raw = _maybe_follow_capture(backend, ActionResult(ok=True, action='click', message='Нажато'), True, mode='ax')
++    assert 'Переписка' in raw and 'Нажато' in raw
++    assert json.loads(raw)['ok'] is True
+diff --git a/tests/tools/test_kanban_tools.py b/tests/tools/test_kanban_tools.py
+index ccd51a59cd..cacf3f24d1 100644
+--- a/tests/tools/test_kanban_tools.py
++++ b/tests/tools/test_kanban_tools.py
+@@ -2010,3 +2010,17 @@ def test_maybe_auto_subscribe_swallows_add_notify_sub_failure(monkeypatch, worke
+     d = json.loads(out)
+     assert d["ok"] is True, d
+     assert d["subscribed"] is False, d
++
++
++def test_show_keeps_non_ascii_task_text_readable(worker_env):
++    from hermes_cli import kanban_db as kb
++    from tools import kanban_tools as kt
++    title = 'Габионы — запрос цены 🧱'
++    conn = kb.connect()
++    try:
++        tid = kb.create_task(conn, title=title, assignee='gulya')
++    finally:
++        conn.close()
++    raw = kt._handle_show({'task_id': tid})
++    assert title in raw
++    assert json.loads(raw)['task']['title'] == title
+diff --git a/tools/computer_use/tool.py b/tools/computer_use/tool.py
+index 7dbbbcb4a6..fb9c7ad845 100644
+--- a/tools/computer_use/tool.py
++++ b/tools/computer_use/tool.py
+@@ -445,7 +445,7 @@ def _text_response(res: ActionResult) -> str:
+         payload["message"] = res.message
+     if res.meta:
+         payload["meta"] = res.meta
+-    return json.dumps(payload)
++    return json.dumps(payload, ensure_ascii=False)
+ 
+ 
+ # Default cap for the AX `elements` array returned by capture. Dense UIs
+@@ -618,7 +618,7 @@ def _capture_response(cap: CaptureResult, max_elements: int = _DEFAULT_MAX_ELEME
+             }
+             if truncated_elements:
+                 payload["truncated_elements"] = truncated_elements
+-            return json.dumps(payload)
++            return json.dumps(payload, ensure_ascii=False)
+ 
+         # Prefer the explicit MIME type cua-driver attaches to its image
+         # parts (Surface 7 of NousResearch/hermes-agent#47072 — trycua/cua#1961
+@@ -663,7 +663,7 @@ def _capture_response(cap: CaptureResult, max_elements: int = _DEFAULT_MAX_ELEME
+     }
+     if truncated_elements:
+         payload["truncated_elements"] = truncated_elements
+-    return json.dumps(payload)
++    return json.dumps(payload, ensure_ascii=False)
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -855,7 +855,7 @@ def _maybe_follow_capture(
+         logger.warning("follow-up capture failed: %s", e)
+         data = json.loads(_text_response(res))
+         data.update(capture_ok=False, capture_error="follow_up_capture_failed")
+-        return json.dumps(data)
++        return json.dumps(data, ensure_ascii=False)
+     # Combine action summary with the capture.
+     resp = _capture_response(cap, max_elements=max_elements)
+     if isinstance(resp, dict) and resp.get("_multimodal"):
+@@ -872,7 +872,7 @@ def _maybe_follow_capture(
+     data["ok"] = res.ok
+     if res.message:
+         data["message"] = res.message
+-    return json.dumps(data)
++    return json.dumps(data, ensure_ascii=False)
+ 
+ 
+ def _format_elements(elements: List[UIElement], max_lines: int = 40) -> List[str]:
+diff --git a/tools/kanban_tools.py b/tools/kanban_tools.py
+index d997305b40..45814c9a06 100644
+--- a/tools/kanban_tools.py
++++ b/tools/kanban_tools.py
+@@ -403,7 +403,7 @@ def _handle_show(args: dict, **kw) -> str:
+                 # the same string build_worker_context returns to the
+                 # dispatcher at spawn time.
+                 "worker_context": kb.build_worker_context(conn, tid),
+-            })
++            }, ensure_ascii=False)
+         finally:
+             conn.close()
+     except ValueError as e:
