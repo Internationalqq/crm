@@ -1,4 +1,4 @@
-"""Durable field-message outbox in Anya's existing gateway, no Telegram poller."""
+"""Durable field-message outbox in its owning profile's gateway, no Telegram poller."""
 import base64
 import hashlib
 import json
@@ -10,7 +10,7 @@ import threading
 import time
 import urllib.request
 
-PROFILE=Path('/Users/egor/.hermes/profiles/anya')
+PROFILE=Path(__file__).resolve().parents[2]
 LOCK=threading.Lock();WAKE=threading.Event();STARTED=False
 
 

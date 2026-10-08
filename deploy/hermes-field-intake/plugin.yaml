@@ -1,5 +1,5 @@
 name: field-crm-intake
-version: 1.0.0
-description: Scoped daily reports and material deliveries from Anya's assigned group
+version: 1.0.1
+description: Scoped daily reports and material deliveries from the owning profile's assigned group
 hooks:
   - pre_gateway_dispatch

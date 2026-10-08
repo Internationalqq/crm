@@ -7,6 +7,7 @@ from types import SimpleNamespace as NS
 from datetime import datetime,timezone
 from unittest.mock import patch
 import tempfile
+import shutil
 import unittest
 
 root=Path(__file__).resolve().parents[1]
@@ -29,6 +30,22 @@ class PluginTests(unittest.TestCase):
         return NS(source=NS(platform=NS(value='telegram'),chat_id='-20'),internal=False,
             raw_message=NS(voice=NS(),from_user=NS(id=12,is_bot=False,full_name='Member'),date=datetime(2026,10,6,20,30,tzinfo=timezone.utc)),
             media_urls=[str(p)],text='[voice]',message_id='17')
+    def test_installed_profile_owns_queue_and_rejects_other_gateway(self):
+        owner=self.root/'profiles'/'pto'
+        installed=owner/'plugins'/'field-crm-intake'/'__init__.py'
+        installed.parent.mkdir(parents=True)
+        shutil.copyfile(root/'deploy/hermes-field-intake/__init__.py',installed)
+        (owner/'field-crm.json').write_text(json.dumps({'group_id':'-20'}))
+        spec=importlib.util.spec_from_file_location('installed_pto_field_plugin',installed)
+        loaded=importlib.util.module_from_spec(spec);spec.loader.exec_module(loaded)
+        with patch.dict(os.environ,{'HERMES_HOME':str(owner)}):
+            self.assertIn('-20:17',loaded.capture(self.event())['text'])
+            with loaded.db() as con:self.assertEqual(con.execute('SELECT count(*) FROM sources').fetchone()[0],1)
+        self.assertTrue((owner/'workspace/daily-reports/crm-outbox/queue.sqlite3').exists())
+        with patch.dict(os.environ,{'HERMES_HOME':str(self.root/'profiles'/'anya')}):
+            self.assertIsNone(loaded.capture(self.event()))
+            ctx=NS(register_hook=lambda *a,**k:self.fail('registered in another gateway'))
+            loaded.register(ctx)
     def test_scoped_original_voice_durable_and_pending_group_is_disabled(self):
         e=self.event();r=plugin.capture(e);self.assertIn('-20:17',r['text'])
         plugin.capture(e)
