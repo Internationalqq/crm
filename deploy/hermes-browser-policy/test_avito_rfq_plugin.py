@@ -156,6 +156,28 @@ class PluginTests(unittest.TestCase):
         raw = '{"error":"board access refused"}'
         self.assertEqual(plugin.compact_card(raw), raw)
 
+    def test_registered_show_compact_default_full_opt_out_and_scope(self):
+        import sys
+        import types
+        from unittest.mock import Mock
+        raw = json.dumps({'task': {'id': 't', 'body': 'Instructions'},
+                          'worker_context': 'Instructions', 'parents': [], 'children': [],
+                          'comments': [1], 'runs': [2], 'events': [3]})
+        original = Mock(return_value=raw)
+        fake = types.SimpleNamespace(_handle_show=original, _check_kanban_mode=lambda: True,
+                                     KANBAN_SHOW_SCHEMA={'parameters': {'properties': {}}})
+        ctx = Mock()
+        with patch.dict(sys.modules, {'tools': types.SimpleNamespace(kanban_tools=fake)}):
+            plugin.register(ctx)
+        call = ctx.register_tool.call_args_list[0]
+        self.assertTrue(call.kwargs['override'])
+        self.assertTrue(call.args[2]['parameters']['properties']['compact']['default'])
+        show = call.args[3]
+        self.assertNotIn('comments', json.loads(show({})))
+        self.assertEqual(show({'compact': False}), raw)
+        with patch.dict(os.environ, {'HERMES_KANBAN_TASK': 'other'}):
+            self.assertEqual(show({}), raw)
+
 
 if __name__ == '__main__':
     unittest.main()

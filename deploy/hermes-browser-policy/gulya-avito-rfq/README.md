@@ -11,12 +11,14 @@ delivery checks. The returned evidence image is included in the same tool result
 Every image must still be examined before supplying its hash to the next step.
 An OS lock rejects overlapping helper calls; a timeout never retries the action.
 
-`kanban_show(compact=true)` returns the original canonical `worker_context` once,
-plus task metadata and history counts. The default full response is unchanged.
-The database and its history are never trimmed. This option reduces output only
-when the worker actually requests it; its availability is not proof of use.
+`kanban_show` returns the original canonical `worker_context` once by default in
+this task, plus task metadata and history counts. Explicit `compact=false` retains
+the original full response. The database and its history are never trimmed.
+The first live run omitted the optional compact argument, so the scoped default
+was corrected for subsequent worker starts; it does not change an already loaded
+worker or remove any of its current context.
 
-Validation on 8 October 2026: 31 helper/plugin tests on Windows, 15 plugin tests
+Validation on 8 October 2026: 32 helper/plugin tests on Windows, 16 plugin tests
 on Mac; deployed discovery exposed 39 tools versus the previous 38, adding only
 `avito_rfq_step`. Out-of-scope discovery retained the original `kanban_show` and
 omitted the new tool. Compact/full canonical context matched exactly; response

@@ -167,7 +167,7 @@ def register(ctx):
     original_show = kanban_tools._handle_show
     schema = copy.deepcopy(kanban_tools.KANBAN_SHOW_SCHEMA)
     schema['parameters']['properties']['compact'] = {
-        'type': 'boolean', 'default': False,
+        'type': 'boolean', 'default': True,
         'description': 'Return the canonical worker instructions once, without '
                        'duplicating the history arrays. Full history is preserved.'}
 
@@ -175,7 +175,7 @@ def register(ctx):
         if not in_scope():
             return original_show(args, **kwargs)
         raw = original_show(args, **kwargs)
-        return compact_card(raw) if args.get('compact') is True else raw
+        return compact_card(raw) if args.get('compact', True) is True else raw
 
     ctx.register_tool('kanban_show', 'kanban', schema, show,
                       check_fn=kanban_tools._check_kanban_mode, override=True)
