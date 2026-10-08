@@ -51,6 +51,16 @@ class PluginTests(unittest.TestCase):
             self.assertEqual(json.loads(plugin.handle({'step': 'shell', 'lock_file': 'x'}))['status'], 'needs_inspection')
             run.assert_not_called()
 
+    def test_submit_dispatches_existing_helper_once(self):
+        self.assertIn('submit', plugin.SCHEMA['parameters']['properties']['step']['enum'])
+        done = subprocess.CompletedProcess([], 0, '{"status":"sent_verified"}', '')
+        with patch.object(plugin.subprocess, 'run', return_value=done) as run:
+            result = plugin.handle({'step': 'submit', 'lock_file': 'turn.json',
+                                    'supplier': 'Observed supplier', 'reviewed_image_sha256': 'a' * 64})
+        self.assertEqual(json.loads(result)['status'], 'sent_verified')
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][2], 'submit')
+
     def test_arguments_are_literal_argv_not_shell(self):
         done = subprocess.CompletedProcess([], 0, '{"status":"sent_verified"}\n', '')
         supplier = '$(touch hacked); name'

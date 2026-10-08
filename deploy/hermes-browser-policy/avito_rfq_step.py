@@ -1,8 +1,8 @@
 """Bounded native-UI RFQ steps for Gulya's already-authorized gabion campaign.
 
 No browser protocol, network requests, automatic Send retry, or new recipients.
-The agent selects a relevant seller, reviews each returned screenshot, then
-calls the next step. Bookkeeping and native actions do not need model turns.
+The agent selects and reviews a relevant seller. Submit then checks the exact
+draft and sends once locally; it does not wait for a model between Paste/Send.
 """
 import argparse
 import base64
@@ -90,7 +90,7 @@ def check_capacity(rows, identity):
         raise ValueError('Seller already recorded; never repeat')
 
 
-def history_texts(snapshot):
+def history_elements(snapshot):
     buttons = [e for e in snapshot['elements'] if e.get('role') == 'AXButton' and e.get('bounds')]
     for e in snapshot['elements']:
         if e.get('role') != 'AXStaticText':
@@ -101,7 +101,11 @@ def history_texts(snapshot):
                           and b['bounds'][1] <= bounds[1] < b['bounds'][1] + b['bounds'][3]
                           for b in buttons):
             continue
-        yield e.get('label', '')
+        yield e
+
+
+def history_texts(snapshot):
+    return (e.get('label', '') for e in history_elements(snapshot))
 
 
 def empty_conversation(snapshot, text, visually_reviewed=False):
@@ -119,6 +123,28 @@ def empty_conversation(snapshot, text, visually_reviewed=False):
 def visible_message(snapshot, text):
     expected = ' '.join(text.split())
     return any(' '.join(label.split()) == expected for label in history_texts(snapshot))
+
+
+def delivery_ready(snapshot, text):
+    editor = unique_editor(snapshot)
+    if editor.get('value') or any(e.get('role') == 'AXButton' and e.get('label') in SEND_LABELS
+                                 for e in snapshot['elements']):
+        return False
+    history = list(history_elements(snapshot))
+    messages = [e for e in history if ' '.join(e.get('label', '').split()) == ' '.join(text.split())]
+    if len(messages) != 1:
+        return False
+    def bounds(e):
+        b = e.get('bounds', [])
+        return b if len(b) == 4 and all(isinstance(x, (int, float)) for x in b) and b[2] > 0 and b[3] > 0 else None
+    box = bounds(messages[0])
+    if not box:
+        return False
+    # A receipt from older history must not verify the new RFQ. Require its
+    # native UI bounds immediately below that exact message, in the same column.
+    receipts = [bounds(e) for e in history if e.get('label') in ('Доставлено', 'Прочитано')]
+    return sum(1 for b in receipts if b and 0 <= b[1] - (box[1] + box[3]) <= 40
+               and box[0] <= b[0] and b[0] + b[2] <= box[0] + box[2] + 20) == 1
 
 
 def require_review(pending, digest, phase):
@@ -212,9 +238,25 @@ def record_verified(workspace, pending):
     return count
 
 
+def load_native():
+    os.environ['HERMES_HOME'] = str(HOME)
+    os.environ['PATH'] = plistlib.loads(Path('/Users/egor/Library/LaunchAgents/ai.hermes.gateway-gulya.plist').read_bytes())['EnvironmentVariables']['PATH']
+    sys.path.insert(0, str(REPO))
+    from tools.computer_use.tool import handle_computer_use, _get_backend
+    return handle_computer_use, _get_backend
+
+
+def check_turn(lock_file):
+    active = json.loads((TEAM / 'state/active.json').read_text())
+    lock = json.loads(lock_file.read_text())
+    if active.get('owner') != 'gulya' or active.get('ticket') != lock.get('ticket') or time.time() - active['created'] >= 900:
+        raise ValueError('Own unexpired GUI turn required')
+    return lock
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('step', choices=['inspect', 'fill', 'send', 'confirm'])
+    parser.add_argument('step', choices=['inspect', 'fill', 'send', 'confirm', 'submit'])
     parser.add_argument('--lock-file', required=True)
     parser.add_argument('--supplier')
     parser.add_argument('--listing-url')
@@ -224,17 +266,11 @@ def main():
     lock_file = Path(args.lock_file).resolve()
     if not lock_file.is_relative_to(root):
         raise ValueError('Lock file must belong to this campaign')
-    active = json.loads((TEAM / 'state/active.json').read_text())
-    lock = json.loads(lock_file.read_text())
-    if active.get('owner') != 'gulya' or active.get('ticket') != lock.get('ticket') or time.time() - active['created'] >= 900:
-        raise ValueError('Own unexpired GUI turn required')
+    lock = check_turn(lock_file)
     task = json.loads((root / 'task.json').read_text())
     if task.get('campaign_id') != 'gabions-20261008-30google-30avito':
         raise ValueError('Wrong campaign')
-    os.environ['HERMES_HOME'] = str(HOME)
-    os.environ['PATH'] = plistlib.loads(Path('/Users/egor/Library/LaunchAgents/ai.hermes.gateway-gulya.plist').read_bytes())['EnvironmentVariables']['PATH']
-    sys.path.insert(0, str(REPO))
-    from tools.computer_use.tool import handle_computer_use, _get_backend
+    handle_computer_use, _get_backend = load_native()
 
     out = root / 'speed-benchmark-20261008'
     pending_path = out / 'fast-pending.json'
@@ -249,6 +285,7 @@ def main():
         return snapshot
 
     def action(action_args):
+        check_turn(lock_file)
         result = handle_computer_use({'app': 'Firefox', **action_args})
         parsed = json.loads(result) if isinstance(result, str) else result
         if not parsed.get('ok'):
@@ -291,7 +328,7 @@ def main():
                 save(pending_path, pending)
         print(json.dumps({'identity': identity, 'elements': [e for e in snap['elements'] if e.get('role') in ('AXHeading', 'AXTextArea') or e.get('label') in ('Отправить', 'Нет сообщений', 'Пока нет сообщений')], 'image': path, 'image_sha256': digest}, ensure_ascii=False))
         return
-    if args.step == 'fill':
+    if args.step in ('fill', 'submit'):
         if not args.supplier or args.supplier not in labels(snap) or (args.listing_url and (urlsplit(args.listing_url).hostname != 'www.avito.ru' or urlsplit(args.listing_url).scheme != 'https')):
             raise ValueError('Observed supplier and HTTPS Avito listing required')
         if pending_path.exists() and json.loads(pending_path.read_text()).get('status') != 'sent_verified':
@@ -300,8 +337,10 @@ def main():
             check_capacity(list(csv.DictReader(stream)), identity)
         inspection = json.loads(inspection_path.read_text()) if inspection_path.exists() else {}
         reviewed = (bool(args.reviewed_image_sha256) and args.reviewed_image_sha256 == inspection.get('digest') and inspection.get('identity') == identity and inspection.get('lock_hash') == lock_hash and time.time() - inspection.get('at', 0) < 120)
+        if args.step == 'submit' and not reviewed:
+            raise ValueError('Submit requires fresh review of this recipient and history')
         empty_conversation(snap, task['request_text'], visually_reviewed=reviewed)
-        pending = {**identity, 'profile_url': 'https://www.avito.ru/user/' + identity['seller_id'] + '/profile', 'supplier': args.supplier, 'listing_url': args.listing_url or '', 'phase': 'optimized', 'text': task['request_text'], 'status': 'fill_unknown', 'started_at': now()}
+        pending = {**identity, 'profile_url': 'https://www.avito.ru/user/' + identity['seller_id'] + '/profile', 'supplier': args.supplier, 'listing_url': args.listing_url or '', 'phase': 'submit' if args.step == 'submit' else 'optimized', 'text': task['request_text'], 'status': 'fill_unknown', 'started_at': now()}
         save(pending_path, pending)
         native_start = time.monotonic()
         action({'action': 'click', 'coordinate': editor_point(snap), 'delivery_mode': 'foreground'})
@@ -310,19 +349,24 @@ def main():
             raise ValueError('Clipboard write failed; no paste attempted')
         action({'action': 'key', 'keys': 'cmd+v'})
         pending.update(status='filled_unverified', filled_at=now(), native_paste_seconds=time.monotonic() - native_start)
-        pending['image_path'], pending['image_sha256'] = screenshot('fast-fill-' + identity['seller_id'])
-        pending['image_at'] = time.time()
-        pending['image_phase'] = 'draft'
+        if args.step == 'fill':
+            pending['image_path'], pending['image_sha256'] = screenshot('fast-fill-' + identity['seller_id'])
+            pending['image_at'] = time.time()
+            pending['image_phase'] = 'draft'
         save(pending_path, pending)
-    else:
+    if args.step != 'fill':
         pending = json.loads(pending_path.read_text())
+        if args.step == 'submit':
+            snap = capture()
+            identity = chat_identity(snap, account_verified)
         if any(identity[k] != pending[k] for k in identity):
             raise ValueError('Recipient changed')
-        require_review(pending, args.reviewed_image_sha256, 'draft' if args.step == 'send' else 'after_send')
-        if args.step == 'send':
+        if args.step != 'submit':
+            require_review(pending, args.reviewed_image_sha256, 'draft' if args.step == 'send' else 'after_send')
+        if args.step in ('send', 'submit'):
             if pending['status'] != 'filled_unverified' or pending['text'] != task['request_text']:
                 raise ValueError('No reviewed unsent draft; do not resend')
-            if time.time() - pending['image_at'] > 120:
+            if args.step == 'send' and time.time() - pending['image_at'] > 120:
                 raise ValueError('Draft review expired; inspect actual state')
             with (root / 'avito_outreach.csv').open() as stream:
                 check_capacity(list(csv.DictReader(stream)), identity)
@@ -341,13 +385,25 @@ def main():
             save(pending_path, pending)
             action({'action': 'click', 'element': buttons[0]['index'], 'delivery_mode': 'foreground'})
             pending['send_returned_at'] = now()
+            save(pending_path, pending)
             time.sleep(0.7)
+            verified_locally = False
+            if args.step == 'submit':
+                deadline = time.monotonic() + 8
+                for attempt in range(5):
+                    snap = capture()
+                    if chat_identity(snap, account_verified) != identity:
+                        raise ValueError('Recipient changed after Send; never repeat')
+                    verified_locally = delivery_ready(snap, pending['text'])
+                    if verified_locally or time.monotonic() >= deadline:
+                        break
+                    time.sleep(min(1, max(0, deadline - time.monotonic())))
             pending['image_path'], pending['image_sha256'] = screenshot('fast-send-' + identity['seller_id'])
             pending['image_at'] = time.time()
             pending['image_phase'] = 'after_send'
             pending['evidence_path'] = str(Path(pending['image_path']).relative_to(root))
             save(pending_path, pending)
-        else:
+        if args.step == 'confirm' or (args.step == 'submit' and verified_locally):
             if pending['status'] not in ('send_unknown', 'verified_unrecorded', 'sent_verified'):
                 raise ValueError('No send to confirm')
             if not visible_message(snap, pending['text']):
@@ -355,14 +411,16 @@ def main():
             if any(e.get('role') == 'AXButton' and e.get('label') in SEND_LABELS for e in snap['elements']):
                 raise ValueError('Editor may still contain a draft')
             unique_editor(snap)
-            pending.update(status='verified_unrecorded', verified_at=pending.get('verified_at') or now(), evidence_type='native_capture_and_operator_visual_review')
+            pending.update(status='verified_unrecorded', verified_at=pending.get('verified_at') or now(), evidence_type='native_exact_text_delivery_empty_editor' if args.step == 'submit' else 'native_capture_and_operator_visual_review')
             # Freeze the reviewed evidence before the first ledger write.
             # Recovery after CSV succeeds must reuse this exact evidence.
             save(pending_path, pending)
             count = record_verified(root, pending)
             pending['status'] = 'sent_verified'
             save(pending_path, pending)
-            print(json.dumps({'campaign_sent_verified': count, 'supplier': pending['supplier'], 'verified_at': pending['verified_at']}, ensure_ascii=False))
+            print(json.dumps({'status': 'sent_verified', 'campaign_sent_verified': count,
+                              'supplier': pending['supplier'], 'verified_at': pending['verified_at'],
+                              'image_path': pending['image_path'], 'image_sha256': pending['image_sha256']}, ensure_ascii=False))
             return
     print(json.dumps({k: pending[k] for k in ('status', 'supplier', 'image_path', 'image_sha256')}, ensure_ascii=False))
 

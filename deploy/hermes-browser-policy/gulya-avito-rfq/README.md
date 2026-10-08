@@ -5,11 +5,16 @@ The profile config enables this plugin and adds its toolset to `platform_toolset
 Registration and invocation require Gulya's home/profile and the exact board/task:
 `construction-team / t_b4b6d0c9`. Other workers retain their original tools.
 
-`avito_rfq_step` calls the existing `team-browser-access/avito_rfq_step.py` without
-changing its recipient, campaign limit, own GUI ticket, draft, screenshot or
-delivery checks. The returned evidence image is included in the same tool result.
-Every image must still be examined before supplying its hash to the next step.
-An OS lock rejects overlapping helper calls; a timeout never retries the action.
+`avito_rfq_step` calls `team-browser-access/avito_rfq_step.py`. The default workflow
+is inspect → visual recipient/history review → submit. Submit performs paste,
+exact clipboard readback, identity/capacity/own GUI ticket checks, a single Send,
+and bounded read-only delivery checks in one process. There is no model call
+between Paste and Send. Exact outgoing text, a delivery/read receipt and an
+empty editor without a Send button are required before recording sent_verified.
+The evidence image is saved and returned inline. Missing evidence leaves
+send_unknown, never an automatic retry. Old fill/send/confirm steps remain
+available for existing drafts. An OS lock rejects overlapping plugin calls.
+Every supplied review hash must still come from an actually examined screenshot.
 
 `kanban_show` returns the original canonical `worker_context` once by default in
 this task, plus task metadata and history counts. Explicit `compact=false` retains
@@ -18,8 +23,8 @@ The first live run omitted the optional compact argument, so the scoped default
 was corrected for subsequent worker starts; it does not change an already loaded
 worker or remove any of its current context.
 
-Validation on 8 October 2026: 32 helper/plugin tests on Windows, 16 plugin tests
-on Mac; deployed discovery exposed 39 tools versus the previous 38, adding only
+Before submit, validation on 8 October 2026: 32 helper/plugin tests on Windows,
+16 plugin tests on Mac; deployed discovery exposed 39 tools versus the previous 38, adding only
 `avito_rfq_step`. Out-of-scope discovery retained the original `kanban_show` and
 omitted the new tool. Compact/full canonical context matched exactly; response
 size in that snapshot was 31,729 versus 88,695 characters. The model dispatcher

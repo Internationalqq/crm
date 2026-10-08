@@ -14,7 +14,7 @@ WORKSPACE = HOME / 'workspace/gabions-20261008'
 HELPER = Path('/Users/egor/.hermes/team-browser-access/avito_rfq_step.py')
 TASK = 't_b4b6d0c9'
 BOARD = 'construction-team'
-STEPS = ('inspect', 'fill', 'send', 'confirm')
+STEPS = ('inspect', 'fill', 'send', 'confirm', 'submit')
 
 
 @contextmanager
@@ -144,9 +144,13 @@ def guarded_step(args):
 
 SCHEMA = {
     'name': 'avito_rfq_step',
-    'description': 'Use the existing guarded helper for this gabion campaign. '
-                   'inspect → visually review returned image → fill → review draft '
-                   '→ send ONCE → verify outgoing/Delivered/empty editor → confirm. '
+    'description': 'Use inspect → visually review the recipient/history → submit '
+                   'for this authorized gabion campaign. Submit locally pastes the '
+                   'approved text, checks actual editor/recipient, sends ONCE, and '
+                   'records only exact outgoing + delivery receipt + empty editor. '
+                   'No model call is needed between Paste and Send. If delivery '
+                   'remains unknown, inspect the result and never repeat submit. '
+                   'Legacy fill/send/confirm remain available for an existing draft. '
                    'The image is already included: no separate image-loading call. '
                    'Supply the SHA-256 only after actually examining that image. '
                    'Unknown send must be inspected, never repeated. Same own GUI lock '
