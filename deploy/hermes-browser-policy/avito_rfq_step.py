@@ -253,14 +253,15 @@ def check_turn(lock_file):
     return lock
 
 
-def main():
+def main(args=None, machine_candidate=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('step', choices=['inspect', 'fill', 'send', 'confirm', 'submit'])
+    parser.add_argument('step', choices=['inspect', 'fill', 'send', 'confirm', 'submit', 'scan', 'run_batch'])
     parser.add_argument('--lock-file', required=True)
     parser.add_argument('--supplier')
     parser.add_argument('--listing-url')
     parser.add_argument('--reviewed-image-sha256')
-    args = parser.parse_args()
+    parser.add_argument('--approved-plan-sha256')
+    args = args or parser.parse_args()
     root = WORKSPACE.resolve()
     lock_file = Path(args.lock_file).resolve()
     if not lock_file.is_relative_to(root):
@@ -308,6 +309,10 @@ def main():
         save(account_path, {'lock_hash': lock_hash, 'at': time.time()})
     account = json.loads(account_path.read_text()) if account_path.exists() else {}
     account_verified = account.get('lock_hash') == lock_hash and time.time() - account.get('at', 0) < 900
+    if args.step in ('scan', 'run_batch'):
+        from avito_rfq_batch import run
+        print(json.dumps(run(args, sys.modules[__name__], handle_computer_use, account_verified), ensure_ascii=False))
+        return
     # Account check is reusable only during the very same exclusive GUI turn.
     if args.step == 'inspect' and not any('/user/' in x for x in labels(snap)):
         if not account_verified:
@@ -336,6 +341,10 @@ def main():
             check_capacity(list(csv.DictReader(stream)), identity)
         inspection = json.loads(inspection_path.read_text()) if inspection_path.exists() else {}
         reviewed = (bool(args.reviewed_image_sha256) and args.reviewed_image_sha256 == inspection.get('digest') and inspection.get('identity') == identity and inspection.get('lock_hash') == lock_hash and time.time() - inspection.get('at', 0) < 120)
+        if machine_candidate is not None:
+            from avito_rfq_batch import require_empty_chat
+            require_empty_chat(snap, machine_candidate, task['request_text'], sys.modules[__name__])
+            reviewed = True
         if args.step == 'submit' and not reviewed:
             raise ValueError('Submit requires fresh review of this recipient and history')
         empty_conversation(snap, task['request_text'], visually_reviewed=reviewed)

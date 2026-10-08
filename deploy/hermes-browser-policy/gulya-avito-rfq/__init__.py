@@ -14,7 +14,7 @@ WORKSPACE = HOME / 'workspace/gabions-20261008'
 HELPER = Path('/Users/egor/.hermes/team-browser-access/avito_rfq_step.py')
 TASK = 't_b4b6d0c9'
 BOARD = 'construction-team'
-STEPS = ('inspect', 'fill', 'send', 'confirm', 'submit')
+STEPS = ('inspect', 'fill', 'send', 'confirm', 'submit', 'scan', 'run_batch')
 
 
 @contextmanager
@@ -114,13 +114,14 @@ def guarded_step(args):
             raise ValueError('Lock file outside this campaign')
         command = [sys.executable, str(HELPER), step, '--lock-file', str(lock)]
         for key, flag in [('supplier', '--supplier'),
-                          ('reviewed_image_sha256', '--reviewed-image-sha256')]:
+                          ('reviewed_image_sha256', '--reviewed-image-sha256'),
+                          ('approved_plan_sha256', '--approved-plan-sha256')]:
             if args.get(key) is not None:
                 if not isinstance(args[key], str):
                     raise ValueError('String argument required: ' + key)
                 command.extend([flag, args[key]])
         completed = subprocess.run(command, cwd=WORKSPACE, capture_output=True,
-                                   text=True, timeout=110, check=False)
+                                   text=True, timeout=600 if step in ('scan', 'run_batch') else 110, check=False)
         # cua-driver may print its version notice before the helper JSON.
         lines = [line for line in completed.stdout.splitlines() if line.startswith('{')]
         if not lines:
@@ -144,7 +145,13 @@ def guarded_step(args):
 
 SCHEMA = {
     'name': 'avito_rfq_step',
-    'description': 'Use inspect → visually review the recipient/history → submit '
+    'description': 'Prefer scan → review the returned seller candidates once → run_batch '
+                   'with approved_plan_sha256 for up to 10 suitable new sellers within '
+                   'the remaining campaign limit. Batch opens each observed card/chat, '
+                   'requires loaded empty history, submits and verifies delivery locally, '
+                   'returns to search and continues without model calls between sellers. '
+                   'Any ambiguity/unknown send/access restriction stops for inspection. '
+                   'Never blindly retry a batch. Or use inspect → visually review the recipient/history → submit '
                    'for this authorized gabion campaign. Submit locally pastes the '
                    'approved text, checks actual editor/recipient, sends ONCE, and '
                    'records only exact outgoing + delivery receipt + empty editor. '
@@ -160,6 +167,7 @@ SCHEMA = {
         'lock_file': {'type': 'string'},
         'supplier': {'type': 'string'},
         'reviewed_image_sha256': {'type': 'string'},
+        'approved_plan_sha256': {'type': 'string'},
     }, 'required': ['step', 'lock_file'], 'additionalProperties': False},
 }
 

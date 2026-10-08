@@ -1,5 +1,6 @@
 """Native UI simulation: no browser, model, account or real send is used."""
 import base64
+import argparse
 from contextlib import redirect_stdout
 import csv
 import hashlib
@@ -136,6 +137,26 @@ class SubmitTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'fresh review'):
             self.run_submit('b' * 64)
         self.assertEqual(self.events, [])
+
+    def test_batch_machine_review_uses_same_single_send_and_delivery_guards(self):
+        original = self.snapshot
+        def loaded_empty_chat():
+            snap = original()
+            if self.phase == 'empty':
+                next(e for e in snap['elements'] if e['role'] == 'AXHeading')['bounds'] = [20, 100, 100, 20]
+                next(e for e in snap['elements'] if e.get('label') == 'Чат создан.')['bounds'] = [100, 300, 200, 20]
+                snap['elements'].extend([
+                    {'role': 'AXStaticText', 'label': 'Габионы', 'bounds': [20, 125, 200, 20]},
+                    {'role': 'AXHeading', 'label': 'Спросите у продавца', 'bounds': [20, 450, 200, 30]}])
+            return snap
+        self.snapshot = loaded_empty_chat
+        args = argparse.Namespace(step='submit', lock_file=str(self.lock), supplier='Supplier',
+                                  listing_url=None, reviewed_image_sha256=None, approved_plan_sha256=None)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            rfq.main(args, machine_candidate={'supplier': 'Supplier', 'title': 'Габионы'})
+        self.assertEqual(json.loads(output.getvalue())['status'], 'sent_verified')
+        self.assertEqual(self.events, ['paste', 'copy_actual_editor', 'send_once'])
 
     def test_exact_text_check_stops_wrong_paste(self):
         self.wrong_paste = True

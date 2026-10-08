@@ -5,8 +5,21 @@ The profile config enables this plugin and adds its toolset to `platform_toolset
 Registration and invocation require Gulya's home/profile and the exact board/task:
 `construction-team / t_b4b6d0c9`. Other workers retain their original tools.
 
-`avito_rfq_step` calls `team-browser-access/avito_rfq_step.py`. The default workflow
-is inspect → visual recipient/history review → submit. Submit performs paste,
+`avito_rfq_step` calls `team-browser-access/avito_rfq_step.py` and its adjacent
+`avito_rfq_batch.py`. The default workflow is scan → one model review of candidate
+cards → run_batch with the approved plan hash. The batch visits up to ten suitable
+observed sellers, bounded by the remaining total of thirty. Exact visible card
+content must still match; the loaded empty chat, actual seller ID, draft and
+delivery are checked locally. Back reuses the search tab. A restored empty
+mini-chat is collapsed; no new tabs accumulate. Any ambiguity stops with saved
+partial results and evidence; a tried plan cannot be replayed. The plan is tied
+to the request, own GUI lock and fifteen-minute freshness. The batch loop has a
+nine-minute budget and a ten-minute subprocess timeout, with no model calls
+between sellers. Access restrictions stop before navigating; no retry or bypass.
+This new navigation loop is tested offline only until the live CAPTCHA is cleared.
+
+For unsuitable candidates or an unusual page, retain the address-specific
+inspect → visual recipient/history review → submit workflow. Submit performs paste,
 exact clipboard readback, identity/capacity/own GUI ticket checks, a single Send,
 and bounded read-only delivery checks in one process. There is no model call
 between Paste and Send. Exact outgoing text, a delivery/read receipt and an

@@ -73,6 +73,18 @@ class PluginTests(unittest.TestCase):
         self.assertNotIn('shell', run.call_args.kwargs)
         self.assertEqual(run.call_count, 1)
 
+    def test_batch_dispatches_once_with_literal_plan_and_bounded_timeout(self):
+        for step in ('scan', 'run_batch'):
+            with self.subTest(step=step):
+                self.assertIn(step, plugin.SCHEMA['parameters']['properties']['step']['enum'])
+                done = subprocess.CompletedProcess([], 0, '{"status":"complete"}', '')
+                with patch.object(plugin.subprocess, 'run', return_value=done) as run:
+                    result = plugin.handle({'step': step, 'lock_file': 'turn.json', 'approved_plan_sha256': 'a' * 64})
+                self.assertEqual(json.loads(result)['status'], 'complete')
+                self.assertEqual(run.call_count, 1)
+                self.assertEqual(run.call_args.kwargs['timeout'], 600)
+                self.assertEqual(run.call_args.args[0][-2:], ['--approved-plan-sha256', 'a' * 64])
+
     def test_timeout_never_retries(self):
         with patch.object(plugin.subprocess, 'run', side_effect=subprocess.TimeoutExpired('helper', 110)) as run:
             result = json.loads(plugin.handle({'step': 'send', 'lock_file': 'turn.json'}))

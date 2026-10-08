@@ -1,4 +1,4 @@
 name: gulya-avito-rfq
-version: 1.1.0
-description: Existing Gulya gabion RFQ steps with inline evidence images.
+version: 1.2.0
+description: Scoped mechanical gabion RFQ batches with delivery evidence and exception inspection.
 kind: standalone
