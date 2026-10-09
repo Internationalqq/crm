@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
 
 sp = importlib.util.spec_from_file_location('pilot', Path(__file__).with_name('mechanical_pilot.py'))
 pilot = importlib.util.module_from_spec(sp)
@@ -8,6 +9,15 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_navigation_timeout_is_bounded_and_success_returns_fresh_capture(self):
+        now=[0];calls=[]
+        def sleep(seconds):now[0]+=seconds
+        def capture():
+            calls.append(now[0]);return SimpleNamespace(window_title='query - Google'),['fresh']
+        self.assertIsNone(pilot.wait_source_navigation(capture,'query',1,lambda:now[0],sleep))
+        self.assertEqual(calls,[0,.5,1])
+        result=pilot.wait_source_navigation(lambda:(SimpleNamespace(window_title='Product'),['product']),'query',1,lambda:now[0],sleep)
+        self.assertEqual(result[1],['product'])
     def test_native_title_preserves_quotes_without_accepting_multiple_windows(self):
         title='ATEN 17" console - Google Chrome'
         self.assertEqual(pilot.captured_title('ATEN 17',[{'role':'AXWindow','label':title}]),title)

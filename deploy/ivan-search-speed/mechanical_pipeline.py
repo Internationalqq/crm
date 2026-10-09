@@ -92,6 +92,7 @@ def review_queue(work,deadline,stop,finished,execute=run_child):
         'failed_batches':len(list((work/'packets').glob('batch-????.failed.json')))}
     if state['failed_batches']:
         state.update(status='needs_attention',error='Saved failed review requires diagnosis');save(statepath,state);return
+    save(statepath,state)
     while not stop.is_set() and time.time()<deadline:
         pending=[f for f in sorted((work/'packets').glob('batch-????.json'))
                  if not f.with_suffix('.review.json').exists() and not f.with_suffix('.failed.json').exists()]
@@ -184,7 +185,12 @@ def main():
         signal.signal(signal.SIGTERM,halt);signal.signal(signal.SIGINT,halt)
         def locked_review():
             with (WORK/'reviewer.lock').open('w') as review_lock:
-                fcntl.flock(review_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                while not stop.is_set() and time.time()<deadline:
+                    try:
+                        fcntl.flock(review_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:stop.wait(2)
+                else:return
                 review_queue(WORK,deadline,stop,finished)
         reviewer=threading.Thread(target=locked_review,name='ivan-review')
         reviewer.start()

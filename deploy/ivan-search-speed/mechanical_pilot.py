@@ -63,6 +63,15 @@ def captured_title(fallback,elements):
     return windows[0] if len(windows)==1 else fallback
 
 
+def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=time.sleep):
+    deadline=clock()+timeout
+    while True:
+        c,elements=capture()
+        if not c.window_title.startswith(query[:100]):return c,elements
+        if clock()>=deadline:return None
+        sleep(.5)
+
+
 def observed_link(elements, label):
     matches = [e for e in elements if e['role']=='AXLink' and e['label']==label]
     if len(matches)>1 and len({tuple(e.get('bounds',[])) for e in matches})==1:
@@ -279,12 +288,13 @@ def main():
                                  'reason':str(exc),'snapshot_file':f'{run_tag}-{serial}-ax.json'})
                     continue
                 timed('source_click',lambda:b.click(element=link['index']))
-                deadline=time.monotonic()+10
-                while True:
-                    c,es=capture()
-                    if not c.window_title.startswith(json.loads(discovery_file.read_text())['query'][:100]):break
-                    if time.monotonic()>=deadline:raise RuntimeError('Source navigation not confirmed')
-                    time.sleep(.5)
+                navigation=wait_source_navigation(capture,json.loads(discovery_file.read_text())['query'])
+                if navigation is None:
+                    save(target,{'source_label':label,'status':'navigation_unresolved','candidates':[],
+                                 'reason':'Source navigation not confirmed within 10 seconds; no repeated click',
+                                 'snapshot_file':f'{run_tag}-{serial}-ax.json'})
+                    continue
+                c,es=navigation
                 try:
                     address=url()
                 except RuntimeError as exc:
