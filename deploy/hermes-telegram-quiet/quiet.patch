@@ -1,0 +1,95 @@
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -2499,6 +2499,14 @@
+             getattr(adapter, "name", type(adapter).__name__),
+             exc_info=True,
+         )
++
++
++def _should_echo_transcripts(source) -> bool:
++    """Control transcript publication independently from speech recognition."""
++    return _resolve_gateway_display_bool(
++        _load_gateway_config(), _gateway_platform_value(source.platform),
++        "transcription_echo", default=True, platform=source.platform,
++    )
+ 
+ 
+ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, GatewaySlashCommandsMixin):
+@@ -8865,7 +8873,7 @@
+                 # Echo each successful transcript back to the user immediately,
+                 # before the agent loop runs. Lets the user verify STT quality
+                 # in real-time and see the raw whisper output verbatim.
+-                if _successful_transcripts:
++                if _successful_transcripts and _should_echo_transcripts(source):
+                     _echo_adapter = self.adapters.get(source.platform)
+                     _echo_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
+                     if _echo_adapter:
+@@ -13273,7 +13281,7 @@
+             )
+             # Echo raw transcripts back to the user so voice interrupts
+             # feel identical to fresh voice messages.
+-            if successful_transcripts:
++            if successful_transcripts and _should_echo_transcripts(source):
+                 echo_adapter = self.adapters.get(source.platform)
+                 echo_meta = {"thread_id": source.thread_id} if source.thread_id else None
+                 if echo_adapter:
+@@ -16627,7 +16635,7 @@
+                                             pending_text, _audio_paths,
+                                         )
+                                         pending_text = _enriched
+-                                        if _transcripts:
++                                        if _transcripts and _should_echo_transcripts(source):
+                                             _echo_meta = {"thread_id": source.thread_id} if source.thread_id else None
+                                             for _tx in _transcripts:
+                                                 try:
+@@ -17009,7 +17017,7 @@
+                                 _pending_text, _audio_paths,
+                             )
+                             pending = _enriched or None
+-                            if _transcripts:
++                            if _transcripts and _should_echo_transcripts(source):
+                                 _echo_meta = {"thread_id": source.thread_id} if source.thread_id else None
+                                 for _tx in _transcripts:
+                                     try:
+--- a/gateway/display_config.py
++++ b/gateway/display_config.py
+@@ -33,6 +33,7 @@
+ _GLOBAL_DEFAULTS: dict[str, Any] = {
+     "tool_progress": "all",
+     "tool_progress_grouping": "accumulate",  # "accumulate" = edit one bubble; "separate" = one msg per tool
++    "transcription_echo": True,  # Publication only; STT processing remains enabled.
+     "show_reasoning": False,
+     # How a reasoning/thinking summary is rendered when show_reasoning is on.
+     #   "code"      -> 💭 **Reasoning:** + fenced code block (legacy default)
+--- /dev/null
++++ b/tests/gateway/test_transcript_echo.py
+@@ -0,0 +1,29 @@
++from types import SimpleNamespace
++from unittest.mock import AsyncMock,MagicMock
++import pytest
++from gateway.config import Platform
++from gateway.platforms.base import MessageType
++from gateway.run import GatewayRunner, _should_echo_transcripts
++
++@pytest.mark.parametrize('enabled',[False,True])
++@pytest.mark.asyncio
++async def test_queued_voice_keeps_transcript_without_publishing_when_disabled(monkeypatch,enabled):
++    monkeypatch.setattr('gateway.run._load_gateway_config',lambda:{'display':{'platforms':{'telegram':{'transcription_echo':enabled}}}})
++    source=SimpleNamespace(platform=Platform.TELEGRAM,chat_id='123',thread_id=None)
++    runner=object.__new__(GatewayRunner)
++    runner._enrich_message_with_transcription=AsyncMock(return_value=('recognized words',['recognized words']))
++    sender=SimpleNamespace(send=AsyncMock())
++    runner.adapters={Platform.TELEGRAM:sender}
++    adapter=MagicMock()
++    adapter.get_pending_message.return_value=SimpleNamespace(text='',media_urls=['voice.ogg'],media_types=['audio/ogg'],message_type=MessageType.VOICE)
++    result=await runner._dequeue_pending_with_transcription(adapter,'test',source)
++    assert result=='recognized words'
++    runner._enrich_message_with_transcription.assert_awaited_once_with('', ['voice.ogg'])
++    assert sender.send.await_count==(1 if enabled else 0)
++
++def test_platform_override_and_backward_compatible_default(monkeypatch):
++    source=SimpleNamespace(platform=Platform.TELEGRAM)
++    monkeypatch.setattr('gateway.run._load_gateway_config',lambda:{})
++    assert _should_echo_transcripts(source)
++    monkeypatch.setattr('gateway.run._load_gateway_config',lambda:{'display':{'transcription_echo':True,'platforms':{'telegram':{'transcription_echo':False}}}})
++    assert not _should_echo_transcripts(source)
