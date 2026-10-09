@@ -6,6 +6,7 @@ Installed in the existing Mac run; no new worker or search was started.
 - Native `type_text` defaults to `delay_ms=0`, preserving the exact window and element. Explicit delays remain intact. URL navigation still uses `set_value` and fresh capture.
 - Inter-position idle is 2 seconds instead of 20. The existing OS waiter lock gives a waiting Gulya priority; no lock was removed.
 - Follow-up monitor fix: full-tender search sessions set `HERMES_VERIFY_ON_STOP=0` only inside their child process. Writing result JSON incorrectly triggered the coding verification guard, which requested an unavailable terminal script after batch 57. Coding verification outside this public search remains enabled. Backup: `backup-search-verify-1791541926`; 10 verification-stop tests passed. Current session was not interrupted; applies on its next position.
+- Batch 58 repeatedly closed and opened temporary card tabs. The next-session prompt now prefers reusing one completed own public card tab, preserving fresh URL/capture verification and unfinished/challenge tabs. It also requests compact per-site records and one final summary. Backup: `backup-reuse-tab-1791542475`; Python compilation and 4 wrapper tests passed. Actual use and speed gain remain unverified until the next session.
 
 Backup: `/Users/egor/.hermes/profiles/commercial/workspace/volga-chrome-pilot-20261004/backup-speed-1791540491`.
 
