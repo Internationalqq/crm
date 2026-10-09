@@ -25,6 +25,10 @@ RULES = '''Ты Иван, проверяющий цены. Проверь сох
 
 def review(packet):
     os.environ['HERMES_HOME']='/Users/egor/.hermes/profiles/commercial'
+    # The installed Codex adapter buffers the final response and its generic
+    # 90-second wall timer cancels even a progressing reasoning stream.
+    # Scope the documented timeout to this review child; parent limit is 900s.
+    os.environ['HERMES_API_CALL_STALE_TIMEOUT']='300'
     sys.path.insert(0,'/Users/egor/.hermes/hermes-agent')
     from hermes_cli.config import load_config
     import cli

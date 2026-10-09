@@ -182,7 +182,11 @@ def main():
         STOP_EVENT=stop
         def halt(signum,frame):stop.set()
         signal.signal(signal.SIGTERM,halt);signal.signal(signal.SIGINT,halt)
-        reviewer=threading.Thread(target=review_queue,args=(WORK,deadline,stop,finished),name='ivan-review')
+        def locked_review():
+            with (WORK/'reviewer.lock').open('w') as review_lock:
+                fcntl.flock(review_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                review_queue(WORK,deadline,stop,finished)
+        reviewer=threading.Thread(target=locked_review,name='ivan-review')
         reviewer.start()
         try:produce(WORK,consent['positions'],source['positions'],deadline,stop)
         finally:finished.set();reviewer.join()
