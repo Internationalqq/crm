@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sys
 import time
 
@@ -57,6 +58,11 @@ def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2))
 
 
+def captured_title(fallback,elements):
+    windows=[e['label'] for e in elements if e['role']=='AXWindow']
+    return windows[0] if len(windows)==1 else fallback
+
+
 def observed_link(elements, label):
     matches = [e for e in elements if e['role']=='AXLink' and e['label']==label]
     if len(matches)>1 and len({tuple(e.get('bounds',[])) for e in matches})==1:
@@ -70,12 +76,24 @@ def observed_link(elements, label):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('mode', choices=['discover', 'organic', 'read','review'])
-    p.add_argument('position', type=int, choices=[66, 67, 68, 69, 70, 71, 72])
+    p.add_argument('position', type=int, choices=range(1,214))
+    p.add_argument('--pipeline', action='store_true')
     p.add_argument('--labels', nargs='*', default=[])
     p.add_argument('--stage', choices=['ai','organic'], default='ai')
     p.add_argument('--source', type=int, choices=range(1,6), default=2)
     args = p.parse_args()
     assert (ROOT/'stop-request').exists(), 'Main queue must remain paused'
+    if args.pipeline:
+        consent=json.loads((BASE/'mechanical-pipeline-20261009'/'consent.json').read_text())
+        assert consent['tender_id']=='0171200001926000664'
+        assert args.position in consent['positions'] and time.time()<consent['deadline']
+        global PILOT
+        PILOT=BASE/'mechanical-pipeline-20261009'/'raw'
+    else:
+        assert args.position in range(66,73), 'Campaign positions require pipeline consent'
+    def stop(signum, frame):
+        raise InterruptedError('Mechanical collection stopped')
+    signal.signal(signal.SIGTERM,stop)
     os.environ['PATH'] = '/Users/egor/.local/bin:/opt/homebrew/bin:' + os.environ.get('PATH', '')
     os.environ['HERMES_HOME'] = '/Users/egor/.hermes/profiles/commercial'
     sys.path[:0] = ['/Users/egor/.hermes/hermes-agent', '/Users/egor/.hermes/team-browser-access']
@@ -86,7 +104,11 @@ def main():
     sp.loader.exec_module(wrapper)
     original = CuaDriverBackend._select_content_window
     CuaDriverBackend._select_content_window = lambda self, ws: wrapper.select_chrome_content(ws, lambda cs: original(self, cs))
-    held = browser_lock.operation(Path(browser_lock.__file__).parent/'state', 'acquire', 'commercial')
+    if args.pipeline:
+        from browser_turn_queue import acquire_turn
+        held=acquire_turn(browser_lock,Path(browser_lock.__file__).parent/'state','commercial')
+    else:
+        held = browser_lock.operation(Path(browser_lock.__file__).parent/'state', 'acquire', 'commercial')
     if held['status'] != 'acquired':
         print(json.dumps({'status': 'waiting_for_browser', 'owner': held.get('owner')}));return
     b = CuaDriverBackend(allowed_apps=['Google Chrome'], keyboard_delivery_mode='foreground')
@@ -110,6 +132,7 @@ def main():
         nonlocal serial
         c = timed('capture', lambda: b.capture(mode='ax', app='Google Chrome'))
         es = [vars(e) for e in c.elements]
+        c.window_title=captured_title(c.window_title,es)
         serial += 1
         save(out/f'{run_tag}-{serial}-ax.json', {'title': c.window_title, 'elements': es, 'at': time.time()})
         (out/f'{run_tag}-{serial}.png').write_bytes(base64.b64decode(c.png_b64))

@@ -8,6 +8,10 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_native_title_preserves_quotes_without_accepting_multiple_windows(self):
+        title='ATEN 17" console - Google Chrome'
+        self.assertEqual(pilot.captured_title('ATEN 17',[{'role':'AXWindow','label':title}]),title)
+        self.assertEqual(pilot.captured_title('fallback',[{'role':'AXWindow','label':'a'},{'role':'AXWindow','label':'b'}]),'fallback')
     def test_mirrored_visible_link_is_one_target_but_distinct_links_are_ambiguous(self):
         a={'role':'AXLink','label':'Перейти 1','bounds':[10,20,50,40],'index':1}
         self.assertEqual(pilot.observed_link([a,{**a,'index':2}],'Перейти 1')['index'],1)
