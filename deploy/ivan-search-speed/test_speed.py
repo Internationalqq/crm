@@ -8,6 +8,13 @@ spec.loader.exec_module(ivan)
 
 
 class SearchSpeedTests(unittest.TestCase):
+    def test_cmd_click_keeps_captured_window_and_element(self):
+        args = dict(pid=10, window_id=20, element_index=7, modifier=['cmd'])
+        self.assertEqual(ivan.chrome_pointer_args('click', args), {**args, 'delivery_mode': 'foreground'})
+        self.assertNotIn('delivery_mode', args)
+        missing = dict(pid=10, element_index=7, modifier=['cmd'])
+        self.assertEqual(ivan.chrome_pointer_args('click', missing), missing)
+
     def test_search_compression_preserves_limits_model_and_source_config(self):
         config = dict(model=dict(default='gpt-6-astra', provider='openai-codex'),
                       compression=dict(enabled=True, threshold=0.5, protect_last_n=20),

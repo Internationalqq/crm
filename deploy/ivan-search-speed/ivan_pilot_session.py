@@ -187,6 +187,9 @@ def chrome_pointer_args(action, args):
     result = dict(args)
     if action == 'type_text':
         result.setdefault('delay_ms', 0)
+    if (action == 'click' and args.get('modifier') == ['cmd']
+            and args.get('pid') is not None and args.get('window_id') is not None):
+        result['delivery_mode'] = 'foreground'
     if (action == 'click' and args.get('pid') is not None and args.get('window_id') is not None
             and args.get('x') is not None and args.get('y') is not None
             and args.get('element_index') is None and args.get('element_token') is None):
