@@ -57,10 +57,20 @@ def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2))
 
 
+def observed_link(elements, label):
+    matches = [e for e in elements if e['role']=='AXLink' and e['label']==label]
+    if len(matches)>1 and len({tuple(e.get('bounds',[])) for e in matches})==1:
+        bounds=matches[0].get('bounds',[])
+        if len(bounds)==4 and bounds[2]>0 and bounds[3]>0:
+            return matches[0]
+    if len(matches)!=1:raise RuntimeError('Observed link missing or ambiguous: '+label)
+    return matches[0]
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('mode', choices=['discover', 'organic', 'read','review'])
-    p.add_argument('position', type=int, choices=[66, 67])
+    p.add_argument('position', type=int, choices=[66, 67, 68, 69, 70, 71, 72])
     p.add_argument('--labels', nargs='*', default=[])
     p.add_argument('--stage', choices=['ai','organic'], default='ai')
     p.add_argument('--source', type=int, choices=range(1,6), default=2)
@@ -132,7 +142,7 @@ def main():
         c, es = capture()
         query = json.loads(discovery_file.read_text())['query']
         raw=timed('tab_strip_snapshot',lambda:b.call_tool('get_window_state',{'pid':b._active_pid,'window_id':b._active_window_id,
-                                                   'max_depth':3,'max_elements':1000}))
+                                                   'max_depth':25,'max_elements':10000,'include_screenshot':False}))
         native=(raw.get('structuredContent') or {}).get('elements') or []
         save(out/'tab-strip.json',{'query':query,'tabs':[e for e in native if e['role']=='AXRadioButton']})
         b._snapshot_tokens={e['element_index']:e['element_token'] for e in native if e.get('element_token')}
@@ -221,7 +231,7 @@ def main():
             print(json.dumps({'position':args.position,'links':[(e['index'],e['label']) for e in links],
                               'text':'\n'.join(e['label'] for e in es if e['role'] in ('AXStaticText','AXHeading','AXLink'))[-15000:]},ensure_ascii=False))
         else:
-            labels = args.labels or [e['label'] for e in json.loads(discovery_file.read_text())['links'][:5]]
+            labels = args.labels or list(dict.fromkeys(e['label'] for e in json.loads(discovery_file.read_text())['links']))[:5]
             for n,label in enumerate(labels,1):
                 target=out/f'{args.stage}-source-{n}.json'
                 if target.exists() and json.loads(target.read_text()).get('source_label')==label:continue
@@ -234,19 +244,37 @@ def main():
                         save(target,{'source_label':label,'status':'reused_ai_domain','reuse_from':same[0].name,
                                      'note':'Same provider checked once; organic card itself not read again.'});continue
                 c, es = select_discovery()
-                links = [e for e in es if e['role']=='AXLink' and e['label']==label]
-                if len(links)!=1:raise RuntimeError('Observed link missing or ambiguous: '+label)
-                timed('source_click',lambda:b.click(element=links[0]['index']))
+                for _ in range(4):
+                    matches=[e for e in es if e['role']=='AXLink' and e['label']==label]
+                    if not matches or any(e.get('bounds',[0,0,0,0])[2]>0 for e in matches):break
+                    timed('reveal_observed_link',lambda:b.scroll(direction='down',amount=4))
+                    c,es=capture()
+                try:
+                    link = observed_link(es,label)
+                except RuntimeError as exc:
+                    save(target,{'source_label':label,'status':'navigation_unresolved','candidates':[],
+                                 'reason':str(exc),'snapshot_file':f'{run_tag}-{serial}-ax.json'})
+                    continue
+                timed('source_click',lambda:b.click(element=link['index']))
                 deadline=time.monotonic()+10
                 while True:
                     c,es=capture()
                     if not c.window_title.startswith(json.loads(discovery_file.read_text())['query'][:100]):break
                     if time.monotonic()>=deadline:raise RuntimeError('Source navigation not confirmed')
                     time.sleep(.5)
-                address=url()
+                try:
+                    address=url()
+                except RuntimeError as exc:
+                    save(target,{'source_label':label,'status':'unverified_address','candidates':[],
+                                 'reason':str(exc),'snapshot_file':f'{run_tag}-{serial}-ax.json'})
+                    select_discovery()
+                    continue
                 from urllib.parse import urlsplit
                 if not primary_url(address):
-                    raise RuntimeError('Search/AI page is not a primary source')
+                    save(target,{'source_label':label,'url':address,'status':'unverified_primary_url',
+                                 'candidates':[],'note':'Google redirect/wrapper is not accepted as a primary URL.'})
+                    select_discovery()
+                    continue
                 deadline=time.monotonic()+10
                 while True:
                     c,es=capture();record=extract(es)
