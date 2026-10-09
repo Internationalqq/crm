@@ -56,7 +56,8 @@ class AccessTests(unittest.TestCase):
             update = {'update_id': 5, 'message': {'text': 'check', 'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}}
             bridge.accept(update)
             bridge.accept(update)
-            self.assertEqual(len(sent), 1)
+            self.assertEqual(sent, [])
+            self.assertEqual(bridge.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 1)
             bridge.db.execute("UPDATE jobs SET status='running'")
             bridge.db.commit()
             bridge.db.close()

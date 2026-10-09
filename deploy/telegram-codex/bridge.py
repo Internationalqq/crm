@@ -86,10 +86,8 @@ class Bridge:
             self.send('Пока принимаю задачи текстом. Вложения и голосовые ещё не подключены.')
         elif len(text) <= 12000:
             with self.db:
-                cursor = self.db.execute('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, NULL)',
-                                         (update['update_id'], text, 'queued'))
-            if cursor.rowcount:
-                self.send('Принял задачу ✅ Результат пришлю сюда.')
+                self.db.execute('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, NULL)',
+                                (update['update_id'], text, 'queued'))
 
     def work(self):
         if self.get('halted'):
