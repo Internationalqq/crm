@@ -8,6 +8,18 @@ spec.loader.exec_module(ivan)
 
 
 class SearchSpeedTests(unittest.TestCase):
+    def test_search_compression_preserves_limits_model_and_source_config(self):
+        config = dict(model=dict(default='gpt-6-astra', provider='openai-codex'),
+                      compression=dict(enabled=True, threshold=0.5, protect_last_n=20),
+                      agent=dict(max_turns=60))
+        changed = ivan.search_session_config(config)
+        self.assertEqual(changed['compression']['threshold'], 0.7)
+        self.assertEqual(config['compression']['threshold'], 0.5)
+        self.assertEqual(changed['model'], config['model'])
+        self.assertEqual(changed['agent'], config['agent'])
+        self.assertTrue(changed['compression']['enabled'])
+        self.assertEqual(changed['compression']['protect_last_n'], 20)
+
     def test_public_query_semicolon(self):
         self.assertTrue(ivan.reading_text('Дай пять сайтов крепежа М20; отдельные анкерные болты М8 не подходят.'))
 

@@ -139,6 +139,13 @@ def reading_text(value):
     return not any(c in value for c in ('|', '`', '\\'))
 
 
+def search_session_config(config):
+    # Keep 30% headroom; apply only in this finite public-search child.
+    result = dict(config)
+    result['compression'] = {**config.get('compression', {}), 'threshold': 0.70}
+    return result
+
+
 def chrome_help_strip(window, state):
     sc = state.get('structuredContent') or {}
     bounds = window.get('bounds') or sc.get('window_bounds') or {}
@@ -372,6 +379,9 @@ CAPTCHA, DDoS-проверка, HTTP401/403, TLS/сертификат, треб�
     if consent.get('mode') == 'full_tender':
         # This file-only search writes evidence JSON, not executable code.
         os.environ['HERMES_VERIFY_ON_STOP'] = '0'
+        import hermes_cli.config as session_config
+        original_load_config = session_config.load_config
+        session_config.load_config = lambda *a, **kw: search_session_config(original_load_config(*a, **kw))
     cli.main(query=prompt, quiet=True,
              toolsets='computer_use,file', max_turns=60 if consent.get('mode') == 'full_tender' else 24)
 
