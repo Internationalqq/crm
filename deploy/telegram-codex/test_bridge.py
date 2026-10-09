@@ -13,9 +13,63 @@ spec = importlib.util.spec_from_file_location('bridge', Path(__file__).with_name
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 import attachments
+import outgoing
+import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_completed_job_attaches_file_and_removes_local_path_from_reply(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.db.execute("INSERT INTO jobs VALUES (24,'Создай файл','queued',NULL)")
+            bridge.db.commit()
+            sent = []
+            bridge.api = lambda method, payload: sent.append(payload['text']) or {'message_id': 1}
+            with patch.object(module, 'run_codex', return_value='Готово\nMEDIA: C:/work/result.png'), patch.object(module, 'deliver', return_value=555) as deliver:
+                bridge.work()
+                self.assertEqual(deliver.call_count, 1)
+                self.assertEqual(deliver.call_args.args[-1], 'C:/work/result.png')
+            self.assertEqual(sent, ['Готово'])
+            bridge.db.close()
+
+    def test_outgoing_file_sent_once_with_durable_receipt(self):
+        with tempfile.TemporaryDirectory() as home:
+            path = Path(home, 'result.png'); path.write_bytes(b'PNG')
+            db = sqlite3.connect(':memory:')
+            with patch.object(outgoing, 'upload', return_value=555) as upload:
+                self.assertEqual(outgoing.deliver(db, 'secret', 123, home, 1, str(path)), 555)
+                self.assertEqual(outgoing.deliver(db, 'secret', 123, home, 1, str(path)), 555)
+                self.assertEqual(upload.call_count, 1)
+                self.assertEqual(upload.call_args.args[-1], b'PNG')
+            self.assertEqual(db.execute('SELECT status,message_id FROM outgoing_files').fetchone(), ('sent', 555))
+            db.close()
+
+    def test_unknown_file_delivery_not_repeated(self):
+        with tempfile.TemporaryDirectory() as home:
+            path = Path(home, 'result.txt'); path.write_text('result')
+            db = sqlite3.connect(':memory:')
+            with patch.object(outgoing, 'upload', side_effect=RuntimeError('timeout')) as upload:
+                with self.assertRaises(RuntimeError): outgoing.deliver(db, 'secret', 123, home, 1, str(path))
+                with self.assertRaises(RuntimeError): outgoing.deliver(db, 'secret', 123, home, 1, str(path))
+                self.assertEqual(upload.call_count, 1)
+            db.close()
+
+    def test_file_paths_outside_workspace_and_env_rejected(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as other:
+            outside = Path(other, 'file.txt'); outside.write_text('secret')
+            secret = Path(home, '.env'); secret.write_text('secret')
+            with self.assertRaises(ValueError): outgoing.allowed_file(str(outside), home)
+            with self.assertRaises(ValueError): outgoing.allowed_file(str(secret), home)
+
+    def test_file_directives_and_local_links_hidden_from_public_text(self):
+        text, paths = outgoing.split_files('Готово\nMEDIA: C:/work/avatar.png\n[Скачать](C:/work/avatar.png)')
+        self.assertEqual(paths, ['C:/work/avatar.png'])
+        self.assertNotIn('C:/', text)
+        self.assertNotIn('MEDIA:', text)
+        self.assertNotIn('C:/', outgoing.public_preview('Готово\nMEDIA: C:/work/partial'))
+
     def test_work_passes_image_and_caption_to_codex_and_only_sends_result(self):
         with tempfile.TemporaryDirectory() as home:
             Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')

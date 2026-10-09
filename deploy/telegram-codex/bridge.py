@@ -12,6 +12,7 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from streaming import LiveReply, run_codex
 from attachments import AttachmentError, prepare, select_attachment
+from outgoing import deliver, split_files
 
 
 def authorized(message, owner):
@@ -122,7 +123,12 @@ class Bridge:
                         'и существенные ограничения; не повторяй весь ход работы. Не читай токены, '
                         'файлы секретов Telegram-моста и не меняй его доступ. Если разрешений '
                         'не хватает, сообщи точно, не обходи ограничения. Не выполняй параллельно '
-                        'другую задачу пользователя.\n\nЗадача:\n' + prompt)
+                        'другую задачу пользователя. '
+                        'Отправка готовых файлов в Telegram подключена: сохраняй результаты в общей '
+                        'рабочей папке и в самом конце окончательного ответа укажи каждый файл отдельной '
+                        'строкой MEDIA: полный_абсолютный_путь. Мост прикрепит эти файлы к чату. '
+                        'Не давай локальные ссылки вместо вложения и не утверждай, что файл уже отправлен: '
+                        'подтверждение доставки получает мост после ответа.\n\nЗадача:\n' + prompt)
         status = 'failed'
         live = LiveReply(self.api, int(self.get('owner')))
         try:
@@ -145,8 +151,18 @@ class Bridge:
             answer = 'Задача остановилась: ' + type(error).__name__ + '. Повторных действий не выполнял.'
         with self.db:
             self.db.execute('UPDATE jobs SET status=?,result=? WHERE id=?', (status, answer, job_id))
+        visible, files = split_files(answer)
+        if status == 'completed':
+            for file in files:
+                try:
+                    deliver(self.db, self.token, int(self.get('owner')), self.workspace, job_id, file)
+                except (ValueError, RuntimeError) as error:
+                    visible += '\n\n' + str(error)
+                    with self.db:
+                        self.db.execute("UPDATE jobs SET status='file_delivery_issue' WHERE id=?", (job_id,))
         try:
-            live.finish(answer)
+            final_text = visible or ('Готово: результат прикреплён.' if files else answer)
+            live.finish(final_text)
         except RuntimeError:
             with self.db:
                 self.db.execute("UPDATE jobs SET status='delivery_unknown' WHERE id=?", (job_id,))
