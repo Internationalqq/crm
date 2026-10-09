@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 import json
 import subprocess
+import time
 
 spec = importlib.util.spec_from_file_location('bridge', Path(__file__).with_name('bridge.py'))
 module = importlib.util.module_from_spec(spec)
@@ -12,6 +13,32 @@ spec.loader.exec_module(module)
 
 
 class AccessTests(unittest.TestCase):
+    def test_russian_before_pairing_does_not_crash_or_run(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('pairing', 'abcdef')
+            bridge.set('pairing_expires', time.time() + 60)
+            bridge.send = lambda text: None
+            message = {'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}, 'text': 'Проверь, как чеки попадают в CRM'}
+            bridge.accept({'update_id': 1, 'message': message})
+            self.assertIsNone(bridge.get('owner'))
+            self.assertEqual(bridge.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 0)
+            message['text'] = '/start abcdef'
+            bridge.accept({'update_id': 2, 'message': message})
+            self.assertEqual(bridge.get('owner'), '123')
+            bridge.db.close()
+
+    def test_plain_start_explains_pairing_without_granting_access(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            with patch.object(bridge, 'api', return_value={}) as api:
+                bridge.accept({'update_id': 1, 'message': {'text': '/start', 'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}})
+                self.assertEqual(api.call_args[0][0], 'sendMessage')
+            self.assertIsNone(bridge.get('owner'))
+            bridge.db.close()
+
     def test_private_owner_only(self):
         message = {'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}
         self.assertTrue(module.authorized(message, 123))

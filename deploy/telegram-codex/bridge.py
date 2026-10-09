@@ -64,12 +64,15 @@ class Bridge:
         if not owner:
             pairing = self.get('pairing')
             if (message.get('chat', {}).get('type') == 'private'
-                    and pairing and secrets.compare_digest(text, '/start ' + pairing)
+                    and pairing and secrets.compare_digest(text.encode('utf-8'), ('/start ' + pairing).encode('utf-8'))
                     and time.time() < float(self.get('pairing_expires', '0'))
                     and message.get('from', {}).get('id') == message.get('chat', {}).get('id')):
                 self.set('owner', message['from']['id'])
                 self.set('pairing', '')
                 self.send('Подключено ✅ Пиши задачу текстом. Это отдельный постоянный разговор Codex с проектом CRM. /status — состояние. Фото и голосовые пока не подключены.')
+            elif text == '/start' and message.get('chat', {}).get('type') == 'private':
+                self.api('sendMessage', {'chat_id': message['chat']['id'],
+                                        'text': 'Для привязки отправь /start и одноразовый код из чата Codex. Без кода задачи не выполняются.'})
             return
         if not authorized(message, int(owner)):
             return
