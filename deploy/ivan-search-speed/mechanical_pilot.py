@@ -63,6 +63,18 @@ def captured_title(fallback,elements):
     return windows[0] if len(windows)==1 else fallback
 
 
+def translation_close(elements):
+    windows=[e for e in elements if e['role']=='AXWindow']
+    if len(windows)!=1 or windows[0]['label']!='Перевести эту страницу?':return None
+    if not any(e['role']=='AXButton' and e['label']=='Параметры перевода' for e in elements):return None
+    if len([e for e in elements if e['role']=='AXRadioButton'])!=2:return None
+    buttons=[e for e in elements if e['role']=='AXButton' and e['label']=='Закрыть']
+    if len(buttons)!=1:return None
+    x,y,w,h=windows[0].get('bounds',[0,0,0,0]);bx,by,bw,bh=buttons[0].get('bounds',[0,0,0,0])
+    if min(w,h,bw,bh)<=0 or not (x<=bx and y<=by and bx+bw<=x+w and by+bh<=y+h):return None
+    return buttons[0]['index']
+
+
 def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=time.sleep):
     deadline=clock()+timeout
     while True:
@@ -139,13 +151,17 @@ def main():
 
     def capture():
         nonlocal serial
-        c = timed('capture', lambda: b.capture(mode='ax', app='Google Chrome'))
-        es = [vars(e) for e in c.elements]
-        c.window_title=captured_title(c.window_title,es)
-        serial += 1
-        save(out/f'{run_tag}-{serial}-ax.json', {'title': c.window_title, 'elements': es, 'at': time.time()})
-        (out/f'{run_tag}-{serial}.png').write_bytes(base64.b64decode(c.png_b64))
-        return c, es
+        for attempt in range(2):
+            c = timed('capture', lambda: b.capture(mode='ax', app='Google Chrome'))
+            es = [vars(e) for e in c.elements]
+            c.window_title=captured_title(c.window_title,es)
+            serial += 1
+            save(out/f'{run_tag}-{serial}-ax.json', {'title': c.window_title, 'elements': es, 'at': time.time()})
+            (out/f'{run_tag}-{serial}.png').write_bytes(base64.b64decode(c.png_b64))
+            close=translation_close(es)
+            if close is None:return c,es
+            if attempt:raise RuntimeError('Observed Chrome translation popup did not close')
+            timed('close_observed_translation_popup',lambda:b.click(element=close))
 
     def key(keys):
         timed(keys, lambda: b.key(keys))

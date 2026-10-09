@@ -9,6 +9,16 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_only_proven_translation_popup_close_is_selected(self):
+        elements=[{'role':'AXWindow','label':'Перевести эту страницу?','bounds':[100,100,340,87]},
+                  {'role':'AXButton','label':'Параметры перевода'},
+                  {'role':'AXRadioButton','label':'английский'},
+                  {'role':'AXRadioButton','label':'русский'},
+                  {'role':'AXButton','label':'Закрыть','index':4,'bounds':[390,112,28,32]}]
+        self.assertEqual(pilot.translation_close(elements),4)
+        self.assertIsNone(pilot.translation_close([{**elements[0],'label':'Войти'},*elements[1:]]))
+        self.assertIsNone(pilot.translation_close(elements+[elements[-1]]))
+        self.assertIsNone(pilot.translation_close([*elements[:-1],{**elements[-1],'bounds':[900,112,28,32]}]))
     def test_navigation_timeout_is_bounded_and_success_returns_fresh_capture(self):
         now=[0];calls=[]
         def sleep(seconds):now[0]+=seconds
