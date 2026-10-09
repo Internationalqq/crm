@@ -77,6 +77,9 @@ class AccessTests(unittest.TestCase):
                 self.assertEqual(command[-1], '-')
                 self.assertIn('hello', kwargs['input'])
                 self.assertNotIn('hello', command)
+                self.assertEqual(command[1:3], ['-C', home])
+                self.assertIn('--skip-git-repo-check', command)
+                self.assertIn('универсальный помощник', kwargs['input'])
                 kwargs['stdout'].write(json.dumps({'type': 'thread.started', 'thread_id': 'thread-1'}) + '\n')
                 Path(home, 'answer-7.txt').write_text('готово', encoding='utf-8')
                 return subprocess.CompletedProcess(command, 0)
@@ -86,6 +89,27 @@ class AccessTests(unittest.TestCase):
                 self.assertEqual(run.call_count, 1)
             self.assertEqual(bridge.get('thread'), 'thread-1')
             self.assertEqual(sent, ['готово'])
+            bridge.db.close()
+
+    def test_crm_is_optional_context_and_resume_keeps_general_root(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex', 'C:/CRM')
+            bridge.set('owner', 123)
+            bridge.set('thread', 'existing-thread')
+            bridge.db.execute("INSERT INTO jobs VALUES (8,'Напиши письмо','queued',NULL)")
+            bridge.db.commit()
+            bridge.send = lambda text: None
+            def execute(command, **kwargs):
+                self.assertEqual(command[:7], ['codex', '-C', home, '--add-dir', 'C:/CRM', 'exec', 'resume'])
+                self.assertIn('existing-thread', command)
+                self.assertIn('Если задача касается CRM', kwargs['input'])
+                self.assertIn('Не считай каждую задачу связанной с CRM', kwargs['input'])
+                Path(home, 'answer-8.txt').write_text('Письмо', encoding='utf-8')
+                return subprocess.CompletedProcess(command, 0)
+            with patch.object(module.subprocess, 'run', side_effect=execute):
+                bridge.work()
+            self.assertEqual(bridge.db.execute('SELECT status FROM jobs').fetchone()[0], 'completed')
             bridge.db.close()
 
 

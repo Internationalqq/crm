@@ -1,7 +1,6 @@
 """Private, single-owner Telegram text interface to a persistent Codex CLI thread."""
 import argparse
 import json
-import os
 from pathlib import Path
 import secrets
 import sqlite3
@@ -18,8 +17,9 @@ def authorized(message, owner):
 
 
 class Bridge:
-    def __init__(self, home, workspace, codex):
+    def __init__(self, home, workspace, codex, crm=None):
         self.home, self.workspace, self.codex = Path(home), workspace, codex
+        self.crm = crm
         self.token = (self.home / 'bot-token.txt').read_text(encoding='utf-8-sig').strip()
         self.db = sqlite3.connect(self.home / 'state.sqlite')
         self.db.executescript('''
@@ -69,7 +69,7 @@ class Bridge:
                     and message.get('from', {}).get('id') == message.get('chat', {}).get('id')):
                 self.set('owner', message['from']['id'])
                 self.set('pairing', '')
-                self.send('Подключено ✅ Пиши задачу текстом. Это отдельный постоянный разговор Codex с проектом CRM. /status — состояние. Фото и голосовые пока не подключены.')
+                self.send('Подключено ✅ Пиши любую задачу текстом. Это постоянный разговор Codex; CRM открою по задаче. /status — состояние. Фото и голосовые пока не подключены.')
             elif text == '/start' and message.get('chat', {}).get('type') == 'private':
                 self.api('sendMessage', {'chat_id': message['chat']['id'],
                                         'text': 'Для привязки отправь /start и одноразовый код из чата Codex. Без кода задачи не выполняются.'})
@@ -103,14 +103,23 @@ class Bridge:
         output = self.home / ('answer-' + str(job_id) + '.txt')
         events = self.home / ('events-' + str(job_id) + '.jsonl')
         thread = self.get('thread')
-        command = [self.codex, 'exec']
+        command = [self.codex, '-C', self.workspace]
+        if self.crm:
+            command += ['--add-dir', self.crm]
+        command += ['exec']
         if thread:
             command += ['resume', thread]
         else:
             command += ['--sandbox', 'workspace-write']
-        command += ['-c', 'approval_policy="never"', '--json', '-o', str(output), '-']
-        instructions = ('Ты работаешь по личному поручению владельца через Telegram в проекте CRM PM.bi. '
-                        'Отвечай кратко по-русски. Соблюдай AGENTS.md проекта. Не читай токены, '
+        command += ['--skip-git-repo-check', '-c', 'approval_policy="never"', '--json', '-o', str(output), '-']
+        instructions = ('Ты универсальный помощник Codex по личным поручениям владельца через Telegram. '
+                        'Задачи могут касаться любых тем: вопросы, поиск, тексты, файлы, код, агенты и проекты. '
+                        'Рабочая папка общего назначения: ' + self.workspace + '. '
+                        'Выбирай контекст по текущей задаче и истории разговора. '
+                        'Не считай каждую задачу связанной с CRM и не исследуй её без необходимости. '
+                        + ('Проект CRM PM.bi расположен в ' + self.crm + '. Если задача касается CRM, '
+                           'сначала прочитай его AGENTS.md и следуй применимым инструкциям. ' if self.crm else '')
+                        + 'Отвечай кратко по-русски. Не читай токены, '
                         'файлы секретов Telegram-моста и не меняй его доступ. Если разрешений '
                         'не хватает, сообщи точно, не обходи ограничения. Не выполняй параллельно '
                         'другую задачу пользователя.\n\nЗадача:\n' + prompt)
@@ -165,6 +174,7 @@ def main():
     parser.add_argument('--home', required=True)
     parser.add_argument('--workspace', required=True)
     parser.add_argument('--codex', required=True)
+    parser.add_argument('--crm', help='Known CRM project to open only for relevant tasks')
     parser.add_argument('--pair', action='store_true')
     args = parser.parse_args()
     import msvcrt
@@ -174,7 +184,7 @@ def main():
     lock.flush()
     lock.seek(0)
     msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-    bridge = Bridge(args.home, args.workspace, args.codex)
+    bridge = Bridge(args.home, args.workspace, args.codex, args.crm)
     if args.pair and not bridge.get('owner'):
         code = secrets.token_hex(12)
         bridge.set('pairing', code)
