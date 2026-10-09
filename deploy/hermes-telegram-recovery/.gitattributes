@@ -1,0 +1,2 @@
+# Blank context lines in unified diffs contain a required single space.
+reconnect.patch whitespace=-blank-at-eol
