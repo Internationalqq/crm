@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 import unittest
 from types import SimpleNamespace
+import tempfile
+import json
 
 sp = importlib.util.spec_from_file_location('pilot', Path(__file__).with_name('mechanical_pilot.py'))
 pilot = importlib.util.module_from_spec(sp)
@@ -9,6 +11,24 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_cleanup_inventory_excludes_unfinished_and_blocked_positions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder);(base/'mechanical-pilot-20261009').mkdir()
+            work=base/'mechanical-pipeline-20261009';(work/'packets').mkdir(parents=True)
+            (work/'packets/batch-0001.review.json').write_text(json.dumps({'items':[{'position':77}]}))
+            for n,status in [(77,'read'),(78,'read'),(79,'blocked_source')]:
+                raw=work/'raw'/str(n);raw.mkdir(parents=True)
+                (raw/'ai-source-1.json').write_text(json.dumps({'status':status,'title':'Product'+str(n)+' - Google Chrome','url':'https://shop.ru/'+str(n)}))
+            self.assertEqual(pilot.cleanup_targets(base),{'Product77':{'https://shop.ru/77'}})
+    def test_cleanup_only_saved_url_without_challenge_or_unfinished_form(self):
+        targets={'Product':{'https://shop.ru/product'}}
+        self.assertTrue(pilot.close_is_safe('Product','https://shop.ru/product',[],targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/other',[],targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXTextArea','label':'draft'}],targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXHeading','label':'Access Denied'}],targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXTextField','label':'name','value':'John'}],targets))
+        self.assertTrue(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',[],{'Search':{'query:exact'}}))
+        self.assertFalse(pilot.close_is_safe('Search','https://evilgoogle.com/search?q=exact',[],{'Search':{'query:exact'}}))
     def test_only_proven_translation_popup_close_is_selected(self):
         elements=[{'role':'AXWindow','label':'Перевести эту страницу?','bounds':[100,100,340,87]},
                   {'role':'AXButton','label':'Параметры перевода'},

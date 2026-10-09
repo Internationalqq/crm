@@ -84,6 +84,44 @@ def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=t
         sleep(.5)
 
 
+def cleanup_targets(base):
+    targets={}
+    work=base/'mechanical-pipeline-20261009'
+    done={i['position'] for f in (work/'packets').glob('batch-????.review.json') for i in json.loads(f.read_text())['items']}
+    for root in [base/'mechanical-pilot-20261009',work/'raw']:
+        for folder in root.iterdir():
+            if not folder.is_dir() or not folder.name.isdigit():continue
+            n=int(folder.name)
+            if (root==work/'raw' and n not in done) or (root!=work/'raw' and n not in range(66,73)):continue
+            for f in folder.glob('*source-*.json'):
+                d=json.loads(f.read_text())
+                if d.get('status','read')!='read' or not primary_url(d.get('url','')) or not d.get('title'):continue
+                title=d['title'].removesuffix(' - Google Chrome')
+                targets.setdefault(title,set()).add(d['url'])
+            for name in ['discovery.json','organic-discovery.json']:
+                f=folder/name
+                if f.exists():
+                    d=json.loads(f.read_text())
+                    if d.get('title') and d.get('query'):targets.setdefault(d['title'].removesuffix(' - Google Chrome'),set()).add('query:'+d['query'])
+    return targets
+
+
+def close_is_safe(title,address,elements,targets):
+    from urllib.parse import urlsplit,parse_qs
+    if any(e.get('role') in ('AXDialog','AXSheet','AXTextArea') for e in elements):return False
+    for e in elements:
+        if e.get('role')=='AXTextField' and 'Адресная' not in e.get('label',''):
+            value=e.get('value',e.get('attributes',{}).get('value'))
+            if value is None or str(value).strip():return False
+    u=urlsplit(address)
+    if re.search(r'captcha|/login|/signin|/auth',address,re.I):return False
+    text='\n'.join(e.get('label','') for e in elements if e.get('role') in ('AXHeading','AXStaticText'))
+    if re.search(r'подтвердите[\s\S]{0,80}(?:человек|робот)|unusual traffic|Access Denied|403 Forbidden',text,re.I):return False
+    wanted=targets.get(title,set())
+    if primary_url(address) and address in wanted:return True
+    return u.hostname in ('www.google.com','google.com') and u.path=='/search' and any('query:'+q in wanted for q in parse_qs(u.query).get('q',[]))
+
+
 def observed_link(elements, label):
     matches = [e for e in elements if e['role']=='AXLink' and e['label']==label]
     if len(matches)>1 and len({tuple(e.get('bounds',[])) for e in matches})==1:
@@ -96,7 +134,8 @@ def observed_link(elements, label):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('mode', choices=['discover', 'organic', 'read','review'])
+    p.add_argument('mode', choices=['discover', 'organic', 'read','review','cleanup'])
+    p.add_argument('--cleanup-preview',action='store_true')
     p.add_argument('position', type=int, choices=range(1,214))
     p.add_argument('--pipeline', action='store_true')
     p.add_argument('--labels', nargs='*', default=[])
@@ -208,10 +247,48 @@ def main():
         if not c.window_title.startswith(query[:100]):raise RuntimeError('Wrong discovery page')
         return c,es
 
+    def tabs_snapshot():
+        capture()
+        raw=timed('cleanup_tab_snapshot',lambda:b.call_tool('get_window_state',{'pid':b._active_pid,'window_id':b._active_window_id,'max_depth':25,'max_elements':15000,'include_screenshot':False}))
+        native=(raw.get('structuredContent') or {}).get('elements') or []
+        b._snapshot_tokens={e['element_index']:e['element_token'] for e in native if e.get('element_token')}
+        return [e for e in native if e['role']=='AXRadioButton']
+
+    def close_saved_source(record):
+        title=record['title'].removesuffix(' - Google Chrome')
+        tabs=tabs_snapshot();same=[t for t in tabs if t.get('label')==title]
+        if len(tabs)<=1 or len(same)!=1 or any(x in json.dumps(same[0],ensure_ascii=False).lower() for x in ['pinned','закреп']):return False
+        c,es=capture();address=url();c,es=capture()
+        if c.window_title.removesuffix(' - Google Chrome')!=title or not close_is_safe(title,address,es,{title:{record['url']}}):return False
+        audit_path=out/'tab-cleanup.json';audit=json.loads(audit_path.read_text()) if audit_path.exists() else {'closed':[]}
+        audit['closing']={'title':title,'url':address,'reason':'Own source read and saved; no unfinished form'};save(audit_path,audit)
+        key('cmd+w');capture();after=tabs_snapshot()
+        if len(after)!=len(tabs)-1:raise RuntimeError('Saved source close not confirmed')
+        audit['closed'].append(audit.pop('closing'));audit['tabs_after']=len(after);save(audit_path,audit);return True
+
     try:
         b.start()
         capture()
-        if args.mode == 'review':
+        if args.mode == 'cleanup':
+            targets=cleanup_targets(BASE);audit={'closed':[],'preserved':[],'started_at':time.time()}
+            tabs=tabs_snapshot();audit['tabs_before']=len(tabs)
+            save(out/'cleanup-inventory.json',{'targets':{k:sorted(v) for k,v in targets.items()},'tabs':tabs})
+            if args.cleanup_preview:
+                print(json.dumps({'tabs':len(tabs),'matched':sum(e.get('label') in targets for e in tabs)},ensure_ascii=False));return
+            while len(tabs)>1:
+                eligible=[e for e in tabs if e.get('label') in targets and sum(t.get('label')==e.get('label') for t in tabs)==1 and not any(x in json.dumps(e.get('attributes',{}),ensure_ascii=False).lower() for x in ['pinned','закреп']) and e.get('label') not in audit['preserved']]
+                if not eligible:break
+                tab=eligible[0];title=tab['label'];timed('select_completed_own_tab',lambda:b.click(element=tab['element_index']))
+                c,es=capture();address=url();c,es=capture()
+                wanted=targets[title]
+                if c.window_title.removesuffix(' - Google Chrome')!=title or not close_is_safe(title,address,es,targets):audit['preserved'].append(title);tabs=tabs_snapshot();continue
+                before=len(tabs);audit['closing']={'title':title,'url':address,'reason':'Own captured source/list; reviewed position; saved evidence; no unfinished input'};save(out/'tab-cleanup.json',audit)
+                key('cmd+w');capture();tabs=tabs_snapshot()
+                if len(tabs)!=before-1 or any(e.get('label')==title for e in tabs):raise RuntimeError('Tab close not confirmed')
+                audit['closed'].append(audit.pop('closing'));audit['tabs_after']=len(tabs);save(out/'tab-cleanup.json',audit)
+                print(json.dumps({'closed':len(audit['closed']),'remaining':len(tabs),'title':title},ensure_ascii=False),flush=True)
+            audit.update(finished_at=time.time(),tabs_after=len(tabs));save(out/'tab-cleanup.json',audit)
+        elif args.mode == 'review':
             f=out/f'ai-source-{args.source}.json'
             if not f.exists():f=out/f'source-{args.source}.json'
             previous=json.loads(f.read_text())
@@ -335,8 +412,10 @@ def main():
                 record.update(url=address,title=c.window_title,source_label=label,at=time.time(),snapshot_file=f'{run_tag}-{serial}-ax.json')
                 save(out/f'{args.stage}-source-{n}.json',record)
                 print(json.dumps({'source':n,**record},ensure_ascii=False),flush=True)
-                # Preserve this own page for review; return to the AI list.
-                if args.stage=='organic' and record.get('status')!='blocked_source':key('cmd+[');capture()
+                # Reviewer reads saved evidence; completed source tabs can close.
+                closed=close_saved_source(record) if record.get('status','read')=='read' else False
+                if closed:select_discovery()
+                elif args.stage=='organic' and record.get('status')!='blocked_source':key('cmd+[');capture()
                 elif args.stage=='organic':select_discovery()
                 else:select_discovery()
     except Exception as exc:
