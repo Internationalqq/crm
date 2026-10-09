@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 import secrets
 import sqlite3
-import subprocess
 import time
 import urllib.error
 import urllib.request
+from streaming import LiveReply, run_codex
 
 
 def authorized(message, owner):
@@ -101,15 +101,6 @@ class Bridge:
         output = self.home / ('answer-' + str(job_id) + '.txt')
         events = self.home / ('events-' + str(job_id) + '.jsonl')
         thread = self.get('thread')
-        command = [self.codex, '-C', self.workspace]
-        if self.crm:
-            command += ['--add-dir', self.crm]
-        command += ['exec']
-        if thread:
-            command += ['resume', thread]
-        else:
-            command += ['--sandbox', 'workspace-write']
-        command += ['--skip-git-repo-check', '-c', 'approval_policy="never"', '--json', '-o', str(output), '-']
         instructions = ('Ты универсальный помощник Codex по личным поручениям владельца через Telegram. '
                         'Задачи могут касаться любых тем: вопросы, поиск, тексты, файлы, код, агенты и проекты. '
                         'Рабочая папка общего назначения: ' + self.workspace + '. '
@@ -117,32 +108,26 @@ class Bridge:
                         'Не считай каждую задачу связанной с CRM и не исследуй её без необходимости. '
                         + ('Проект CRM PM.bi расположен в ' + self.crm + '. Если задача касается CRM, '
                            'сначала прочитай его AGENTS.md и следуй применимым инструкциям. ' if self.crm else '')
-                        + 'Отвечай кратко по-русски. Не читай токены, '
+                        + 'Отвечай кратко по-русски. По ходу работы давай короткие полезные обновления '
+                        'обычным языком. В окончательном ответе оставляй краткий результат, проверки '
+                        'и существенные ограничения; не повторяй весь ход работы. Не читай токены, '
                         'файлы секретов Telegram-моста и не меняй его доступ. Если разрешений '
                         'не хватает, сообщи точно, не обходи ограничения. Не выполняй параллельно '
                         'другую задачу пользователя.\n\nЗадача:\n' + prompt)
         status = 'failed'
+        live = LiveReply(self.api, int(self.get('owner')))
         try:
-            with events.open('w', encoding='utf-8') as stream:
-                result = subprocess.run(command, input=instructions, text=True, encoding='utf-8',
-                                        cwd=self.workspace, stdout=stream, stderr=subprocess.DEVNULL,
-                                        timeout=1800, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            for line in events.read_text(encoding='utf-8').splitlines():
-                event = json.loads(line)
-                if event.get('type') == 'thread.started':
-                    self.set('thread', event['thread_id'])
-            answer = output.read_text(encoding='utf-8').strip() if output.exists() else ''
-            if result.returncode == 0 and answer:
-                status = 'completed'
-            else:
-                answer = 'Задача остановилась. Автоматически повторять действия не буду; нужна проверка ошибки Codex.'
+            answer = run_codex(self.codex, self.workspace, self.crm, thread, instructions, events,
+                               lambda value: self.set('thread', value), live.feed)
+            output.write_text(answer, encoding='utf-8')
+            status = 'completed'
         except Exception as error:
             self.set('halted', '1')
             answer = 'Задача остановилась: ' + type(error).__name__ + '. Повторных действий не выполнял.'
         with self.db:
             self.db.execute('UPDATE jobs SET status=?,result=? WHERE id=?', (status, answer, job_id))
         try:
-            self.send(answer)
+            live.finish(answer)
         except RuntimeError:
             with self.db:
                 self.db.execute("UPDATE jobs SET status='delivery_unknown' WHERE id=?", (job_id,))

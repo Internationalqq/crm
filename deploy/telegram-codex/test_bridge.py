@@ -4,8 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import json
-import subprocess
 import time
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
 
 spec = importlib.util.spec_from_file_location('bridge', Path(__file__).with_name('bridge.py'))
 module = importlib.util.module_from_spec(spec)
@@ -13,6 +14,35 @@ spec.loader.exec_module(module)
 
 
 class AccessTests(unittest.TestCase):
+    def test_live_text_edits_one_message_then_replaces_with_summary(self):
+        calls = []
+        clock = [10]
+        def api(method, payload):
+            calls.append((method, payload))
+            return {'message_id': 42}
+        live = module.LiveReply(api, 123, lambda: clock[0])
+        live.feed({'method': 'item/started', 'params': {'item': {'type': 'agentMessage', 'id': 'a'}}})
+        live.feed({'method': 'item/agentMessage/delta', 'params': {'itemId': 'a', 'delta': 'Проверяю'}})
+        live.feed({'method': 'item/reasoning/textDelta', 'params': {'delta': 'SECRET'}})
+        live.feed({'method': 'item/commandExecution/outputDelta', 'params': {'delta': 'terminal'}})
+        live.feed({'method': 'item/agentMessage/delta', 'params': {'itemId': 'a', 'delta': ' файлы'}})
+        clock[0] += 3
+        live.feed({'method': 'item/agentMessage/delta', 'params': {'itemId': 'a', 'delta': '.'}})
+        live.finish('Готово: проверено.')
+        self.assertEqual([method for method, _ in calls], ['sendMessage', 'editMessageText', 'editMessageText'])
+        self.assertEqual(calls[-1][1]['text'], 'Готово: проверено.')
+        self.assertEqual(calls[-1][1]['message_id'], 42)
+        self.assertNotIn('SECRET', str(calls))
+        self.assertNotIn('terminal', str(calls))
+
+    def test_unknown_preview_delivery_never_sends_duplicate(self):
+        def fail(method, payload):
+            raise RuntimeError('network')
+        live = module.LiveReply(fail, 123)
+        live.publish('Текст')
+        with self.assertRaises(RuntimeError):
+            live.finish('Итог')
+
     def test_russian_before_pairing_does_not_crash_or_run(self):
         with tempfile.TemporaryDirectory() as home:
             Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
@@ -73,18 +103,14 @@ class AccessTests(unittest.TestCase):
             bridge.db.execute("INSERT INTO jobs VALUES (7,'hello','queued',NULL)")
             bridge.db.commit()
             sent = []
-            bridge.send = sent.append
-            def execute(command, **kwargs):
-                self.assertEqual(command[-1], '-')
-                self.assertIn('hello', kwargs['input'])
-                self.assertNotIn('hello', command)
-                self.assertEqual(command[1:3], ['-C', home])
-                self.assertIn('--skip-git-repo-check', command)
-                self.assertIn('универсальный помощник', kwargs['input'])
-                kwargs['stdout'].write(json.dumps({'type': 'thread.started', 'thread_id': 'thread-1'}) + '\n')
-                Path(home, 'answer-7.txt').write_text('готово', encoding='utf-8')
-                return subprocess.CompletedProcess(command, 0)
-            with patch.object(module.subprocess, 'run', side_effect=execute) as run:
+            bridge.api = lambda method, payload: sent.append(payload['text']) or {'message_id': 1}
+            def execute(codex, workspace, crm, thread, prompt, events, on_thread, on_event):
+                self.assertEqual(workspace, home)
+                self.assertIn('hello', prompt)
+                self.assertIn('универсальный помощник', prompt)
+                on_thread('thread-1')
+                return 'готово'
+            with patch.object(module, 'run_codex', side_effect=execute) as run:
                 bridge.work()
                 bridge.work()
                 self.assertEqual(run.call_count, 1)
@@ -100,15 +126,13 @@ class AccessTests(unittest.TestCase):
             bridge.set('thread', 'existing-thread')
             bridge.db.execute("INSERT INTO jobs VALUES (8,'Напиши письмо','queued',NULL)")
             bridge.db.commit()
-            bridge.send = lambda text: None
-            def execute(command, **kwargs):
-                self.assertEqual(command[:7], ['codex', '-C', home, '--add-dir', 'C:/CRM', 'exec', 'resume'])
-                self.assertIn('existing-thread', command)
-                self.assertIn('Если задача касается CRM', kwargs['input'])
-                self.assertIn('Не считай каждую задачу связанной с CRM', kwargs['input'])
-                Path(home, 'answer-8.txt').write_text('Письмо', encoding='utf-8')
-                return subprocess.CompletedProcess(command, 0)
-            with patch.object(module.subprocess, 'run', side_effect=execute):
+            bridge.api = lambda method, payload: {'message_id': 1}
+            def execute(codex, workspace, crm, thread, prompt, events, on_thread, on_event):
+                self.assertEqual((workspace, crm, thread), (home, 'C:/CRM', 'existing-thread'))
+                self.assertIn('Если задача касается CRM', prompt)
+                self.assertIn('Не считай каждую задачу связанной с CRM', prompt)
+                return 'Письмо'
+            with patch.object(module, 'run_codex', side_effect=execute):
                 bridge.work()
             self.assertEqual(bridge.db.execute('SELECT status FROM jobs').fetchone()[0], 'completed')
             bridge.db.close()
