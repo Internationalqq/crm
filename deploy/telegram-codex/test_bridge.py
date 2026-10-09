@@ -18,6 +18,70 @@ import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_late_steering_is_preserved_for_next_turn(self):
+        from control import Controls
+        control = Controls(lambda x: None)
+        control.active = True
+        control.accept('Позднее уточнение', 77)
+        remaining = control.finish()
+        self.assertEqual(remaining, [{'kind': 'steer', 'text': 'Позднее уточнение', 'update_id': 77}])
+        self.assertFalse(control.active)
+
+    def test_polling_can_interrupt_worker_without_sqlite_thread_violation(self):
+        import threading
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.db.execute("INSERT INTO jobs VALUES (70,'task','queued',NULL)"); bridge.db.commit()
+            bridge.api = lambda method, payload: {'message_id': 1}
+            ready = threading.Event()
+            def execute(*args, **kwargs):
+                ready.set()
+                value = kwargs['controls'].queue.get(timeout=5)
+                self.assertEqual(value, {'kind': 'stop'})
+                return 'Остановлено'
+            with patch.object(module, 'run_codex', side_effect=execute):
+                thread = threading.Thread(target=bridge.work_in_thread)
+                thread.start(); self.assertTrue(ready.wait(5))
+                bridge.accept({'update_id': 71, 'message': {'text': '/stop', 'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}})
+                thread.join(5); self.assertFalse(thread.is_alive())
+            self.assertEqual(bridge.db.execute('SELECT status FROM jobs WHERE id=70').fetchone()[0], 'completed')
+            bridge.db.close()
+
+    def test_controls_stop_steer_question_and_scoped_approval(self):
+        from control import Controls
+        sent = []
+        control = Controls(sent.append)
+        control.active = True
+        self.assertTrue(control.accept('Уточнение'))
+        self.assertEqual(list(control.drain()), [{'kind': 'steer', 'text': 'Уточнение'}])
+        control.request({'id': 4, 'method': 'item/tool/requestUserInput', 'params': {'questions': [{'id': 'date', 'question': 'Дата?'}]}})
+        control.accept('Завтра')
+        self.assertEqual(list(control.drain())[0]['result'], {'answers': {'date': {'answers': ['Завтра']}}})
+        control.request({'id': 5, 'method': 'item/fileChange/requestApproval', 'params': {'reason': 'Создать файл'}})
+        control.accept('/approve')
+        self.assertEqual(list(control.drain())[0]['result'], {'decision': 'accept'})
+        control.accept('/stop')
+        self.assertEqual(list(control.drain()), [{'kind': 'stop'}])
+        control.finish()
+        self.assertFalse(control.accept('Новая задача'))
+
+    def test_owner_controls_are_deduplicated_and_foreign_input_ignored(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.controls.active = True
+            update = {'update_id': 90, 'message': {'text': 'Уточни', 'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}}
+            bridge.accept(update); bridge.accept(update)
+            self.assertEqual(len(list(bridge.controls.drain())), 1)
+            update['update_id'] = 91; update['message']['from']['id'] = 456
+            bridge.accept(update)
+            self.assertEqual(list(bridge.controls.drain()), [])
+            self.assertEqual(bridge.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 0)
+            bridge.db.close()
+
     def test_completed_job_attaches_file_and_removes_local_path_from_reply(self):
         with tempfile.TemporaryDirectory() as home:
             Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
@@ -238,7 +302,7 @@ class AccessTests(unittest.TestCase):
             bridge.db.commit()
             sent = []
             bridge.api = lambda method, payload: sent.append(payload['text']) or {'message_id': 1}
-            def execute(codex, workspace, crm, thread, prompt, events, on_thread, on_event):
+            def execute(codex, workspace, crm, thread, prompt, events, on_thread, on_event, **options):
                 self.assertEqual(workspace, home)
                 self.assertIn('hello', prompt)
                 self.assertIn('универсальный помощник', prompt)
@@ -261,7 +325,7 @@ class AccessTests(unittest.TestCase):
             bridge.db.execute("INSERT INTO jobs VALUES (8,'Напиши письмо','queued',NULL)")
             bridge.db.commit()
             bridge.api = lambda method, payload: {'message_id': 1}
-            def execute(codex, workspace, crm, thread, prompt, events, on_thread, on_event):
+            def execute(codex, workspace, crm, thread, prompt, events, on_thread, on_event, **options):
                 self.assertEqual((workspace, crm, thread), (home, 'C:/CRM', 'existing-thread'))
                 self.assertIn('Если задача касается CRM', prompt)
                 self.assertIn('Не считай каждую задачу связанной с CRM', prompt)

@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import time
 import sys
+import threading
 import urllib.error
 import urllib.request
 # Bundled Python enables safe_path; load only our explicitly installed sibling module.
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from streaming import LiveReply, run_codex
 from attachments import AttachmentError, prepare, select_attachment
 from outgoing import deliver, split_files
+from control import Controls
 
 
 def authorized(message, owner):
@@ -26,8 +28,12 @@ class Bridge:
         self.home, self.workspace, self.codex = Path(home), workspace, codex
         self.crm = crm
         self.token = (self.home / 'bot-token.txt').read_text(encoding='utf-8-sig').strip()
-        self.db = sqlite3.connect(self.home / 'state.sqlite')
+        self.connections = threading.local()
+        self.controls = Controls(self.send)
+        self.worker = None
         self.db.executescript('''
+            CREATE TABLE IF NOT EXISTS received (id INTEGER PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS control_updates (id INTEGER PRIMARY KEY, prompt TEXT, received_at REAL);
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY, prompt TEXT, status TEXT, result TEXT);
@@ -35,6 +41,12 @@ class Bridge:
         ''')
         self.db.execute("UPDATE jobs SET status='interrupted' WHERE status='running'")
         self.db.commit()
+
+    @property
+    def db(self):
+        if not hasattr(self.connections, 'db'):
+            self.connections.db = sqlite3.connect(self.home / 'state.sqlite', timeout=30)
+        return self.connections.db
 
     def get(self, key, default=None):
         row = self.db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
@@ -82,11 +94,22 @@ class Bridge:
             return
         if not authorized(message, int(owner)):
             return
+        with self.db:
+            fresh = self.db.execute('INSERT OR IGNORE INTO received VALUES (?)', (update['update_id'],)).rowcount
+        if not fresh:
+            return
         attachment = select_attachment(message)
         if text == '/status':
             counts = dict(self.db.execute('SELECT status,count(*) FROM jobs GROUP BY status'))
             state = 'Работа приостановлена после сбоя.' if self.get('halted') else 'Codex подключён.'
             self.send(state + ' Задачи: ' + json.dumps(counts, ensure_ascii=False))
+        elif text == '/resume':
+            self.set('halted', '')
+            self.send('Связь восстановлена. Пришли продолжение задачи: история сохранена, неизвестные отправки не повторяются автоматически.')
+        elif not attachment and self.controls.accept(text, update['update_id']):
+            with self.db:
+                self.db.execute('INSERT OR IGNORE INTO control_updates VALUES (?, ?, ?)',
+                                (update['update_id'], text, time.time()))
         elif text.startswith('/start'):
             self.send('На связи. Пришли текст, фото, документ или голосовое с задачей.')
         elif not text and not attachment:
@@ -106,6 +129,7 @@ class Bridge:
         if not row:
             return
         job_id, prompt = row
+        self.controls.active = True
         with self.db:
             self.db.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
         output = self.home / ('answer-' + str(job_id) + '.txt')
@@ -115,6 +139,7 @@ class Bridge:
                         'Задачи могут касаться любых тем: вопросы, поиск, тексты, файлы, код, агенты и проекты. '
                         'Рабочая папка общего назначения: ' + self.workspace + '. '
                         'Выбирай контекст по текущей задаче и истории разговора. '
+                        'Сначала прочитай PROJECTS.md в общей папке, если он существует. '
                         'Не считай каждую задачу связанной с CRM и не исследуй её без необходимости. '
                         + ('Проект CRM PM.bi расположен в ' + self.crm + '. Если задача касается CRM, '
                            'сначала прочитай его AGENTS.md и следуй применимым инструкциям. ' if self.crm else '')
@@ -139,7 +164,9 @@ class Bridge:
                 instructions += note
                 if not prompt:
                     instructions += '\nЕсли для выполнения задачи не хватает контекста, задай один короткий вопрос.'
-            options = {'extra_inputs': inputs} if inputs else {}
+            options = {'controls': self.controls}
+            if inputs:
+                options['extra_inputs'] = inputs
             answer = run_codex(self.codex, self.workspace, self.crm, thread, instructions, events,
                                lambda value: self.set('thread', value), live.feed, **options)
             output.write_text(answer, encoding='utf-8')
@@ -151,6 +178,11 @@ class Bridge:
             answer = 'Задача остановилась: ' + type(error).__name__ + '. Повторных действий не выполнял.'
         with self.db:
             self.db.execute('UPDATE jobs SET status=?,result=? WHERE id=?', (status, answer, job_id))
+        for action in self.controls.finish():
+            if action['kind'] == 'steer' and 'update_id' in action:
+                with self.db:
+                    self.db.execute('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, NULL)',
+                                    (action['update_id'], action['text'], 'queued'))
         visible, files = split_files(answer)
         if status == 'completed':
             for file in files:
@@ -167,23 +199,36 @@ class Bridge:
             with self.db:
                 self.db.execute("UPDATE jobs SET status='delivery_unknown' WHERE id=?", (job_id,))
 
+    def work_in_thread(self):
+        try:
+            self.work()
+        except Exception as error:
+            self.controls.finish()
+            self.set('halted', '1')
+            print('worker failure: ' + type(error).__name__, flush=True)
+        finally:
+            self.db.close()
+            del self.connections.db
+
     def run(self):
         info = self.api('getWebhookInfo', {})
         if info.get('url'):
-            raise RuntimeError('Existing webhook: stop without replacing it')
+            raise SystemExit(10)
         print('ready', flush=True)
         while True:
             try:
                 updates = self.api('getUpdates', {'offset': int(self.get('offset', '0')),
-                                                  'timeout': 20, 'allowed_updates': ['message']})
+                                                  'timeout': 2, 'allowed_updates': ['message']})
                 for update in updates:
                     self.accept(update)
                     self.set('offset', update['update_id'] + 1)
-                self.work()
+                if self.worker is None or not self.worker.is_alive():
+                    self.worker = threading.Thread(target=self.work_in_thread, daemon=True)
+                    self.worker.start()
             except RuntimeError as error:
                 print(str(error), flush=True)
                 if 'HTTP 401' in str(error) or 'HTTP 409' in str(error):
-                    raise SystemExit(1)
+                    raise SystemExit(10)
                 time.sleep(10)
 
 

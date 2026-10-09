@@ -54,7 +54,7 @@ class LiveReply:
 
 
 def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, on_event,
-              timeout=1800, sandbox='workspace-write', extra_inputs=None):
+              timeout=1800, sandbox='workspace-write', extra_inputs=None, controls=None):
     command = [codex, 'app-server']
     process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, text=True, encoding='utf-8',
@@ -71,11 +71,24 @@ def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, 
     send({'id': 0, 'method': 'initialize', 'params': {'clientInfo': {
         'name': 'pm_telegram_codex', 'version': '1.0.0'}}})
     final = ''
+    turn_id = None
+    rpc_id = 100
+    stopping = False
     completed = False
     deadline = time.monotonic() + timeout
     try:
         with events_path.open('w', encoding='utf-8') as log:
             while not completed:
+                if controls and turn_id:
+                    for action in controls.drain():
+                        rpc_id += 1
+                        if action['kind'] == 'response':
+                            send({'id': action['id'], 'result': action['result']})
+                        elif action['kind'] == 'stop':
+                            stopping = True
+                            send({'id': rpc_id, 'method': 'turn/interrupt', 'params': {'threadId': thread_id, 'turnId': turn_id}})
+                        elif action['kind'] == 'steer' and not stopping:
+                            send({'id': rpc_id, 'method': 'turn/steer', 'params': {'threadId': thread_id, 'expectedTurnId': turn_id, 'input': [{'type': 'text', 'text': action['text']}]}})
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError('Codex turn timeout')
@@ -93,7 +106,7 @@ def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, 
                         raise RuntimeError('Codex RPC rejected')
                     if event['id'] == 0:
                         send({'method': 'initialized', 'params': {}})
-                        params = {'cwd': workspace, 'sandbox': sandbox, 'approvalPolicy': 'never'}
+                        params = {'cwd': workspace, 'sandbox': sandbox, 'approvalPolicy': 'on-request' if controls else 'never'}
                         if crm:
                             params['config'] = {'sandbox_workspace_write.writable_roots': [crm]}
                         if thread_id:
@@ -105,17 +118,28 @@ def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, 
                         send({'id': 2, 'method': 'turn/start', 'params': {
                             'threadId': thread_id, 'input': [{'type': 'text', 'text': prompt}] + (extra_inputs or [])}})
                 elif 'id' in event and 'method' in event:
-                    # No interactive approval bypass: a required client action stops the job.
+                    if controls:
+                        result = controls.request(event)
+                        if result is None:
+                            continue
+                        if 'unsupported' not in result:
+                            send({'id': event['id'], 'result': result})
+                            continue
+                    # Unsupported requests fail closed.
                     send({'id': event['id'], 'error': {'code': -32601, 'message': 'Interactive action unavailable'}})
                     raise RuntimeError('Codex requires an interactive action')
                 else:
                     on_event(event)
                     params = event.get('params', {})
+                    if event.get('method') == 'turn/started':
+                        turn_id = params['turn']['id']
                     if event.get('method') == 'item/completed':
                         item = params.get('item', {})
                         if item.get('type') == 'agentMessage':
                             final = item.get('text', '')
                     if event.get('method') == 'turn/completed':
+                        if stopping and params.get('turn', {}).get('status') == 'interrupted':
+                            return 'Остановлено. Уже выполненные действия сохранены.'
                         if params.get('turn', {}).get('status') != 'completed':
                             raise RuntimeError('Codex turn did not complete')
                         completed = True
