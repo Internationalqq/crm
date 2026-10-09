@@ -228,11 +228,11 @@ def record_verified(workspace, pending):
         data.update({field: count, 'updated_at': now()})
         save(path, data)
     benchmark = workspace / 'speed-benchmark-20261008/optimized.jsonl'
-    entries = [json.loads(line) for line in benchmark.read_text().splitlines() if line.strip()] if benchmark.exists() else []
+    entries = [json.loads(line) for line in benchmark.read_text(encoding='utf-8').split('\n') if line.strip()] if benchmark.exists() else []
     if not any(r['seller_id'] == pending['seller_id'] for r in entries):
         entries.append({**pending, 'status': 'sent_verified'})
         tmp = benchmark.with_name(benchmark.name + '.tmp')
-        tmp.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in entries))
+        tmp.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in entries), encoding='utf-8')
         os.replace(tmp, benchmark)
     return count
 

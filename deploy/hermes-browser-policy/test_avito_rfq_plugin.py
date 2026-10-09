@@ -92,6 +92,12 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(result['status'], 'needs_inspection')
         self.assertEqual(run.call_count, 1)
 
+    def test_unicode_separator_in_seller_description_is_not_a_json_boundary(self):
+        data = {'status': 'review_candidates', 'description': 'Габионы. \u2028Производство'}
+        done = subprocess.CompletedProcess([], 0, 'notice\n' + json.dumps(data, ensure_ascii=False) + '\n', '')
+        with patch.object(plugin.subprocess, 'run', return_value=done):
+            self.assertEqual(json.loads(plugin.handle({'step':'scan','lock_file':'turn.json'})), data)
+
     def test_overlapping_send_enters_helper_only_once_and_releases(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Event

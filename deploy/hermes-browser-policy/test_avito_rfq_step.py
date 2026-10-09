@@ -143,7 +143,7 @@ class GuardTests(unittest.TestCase):
                 csv.DictWriter(stream, fields).writeheader()
             for filename in ['state.json', 'result.json']:
                 (root / filename).write_text(json.dumps({'monitor_recoveries': ['old'], 'tab_cleanup': ['old']}))
-            pending = {'seller_id': 'abc', 'chat_url': 'chat', 'text': 'RFQ',
+            pending = {'seller_id': 'abc', 'supplier': 'Seller\u2028name', 'chat_url': 'chat', 'text': 'RFQ',
                        'verified_at': '2026-10-08T13:00:00Z', 'evidence_path': 'evidence.png'}
             self.assertEqual(rfq.record_verified(root, pending), 1)
             self.assertEqual(rfq.record_verified(root, pending), 1)
@@ -152,7 +152,9 @@ class GuardTests(unittest.TestCase):
             state = json.loads((root / 'state.json').read_text())
             self.assertEqual(state['monitor_recoveries'], ['old'])
             self.assertEqual(state['tab_cleanup'], ['old'])
-            self.assertEqual(len((root / 'speed-benchmark-20261008/optimized.jsonl').read_text().splitlines()), 1)
+            entries = (root / 'speed-benchmark-20261008/optimized.jsonl').read_text(encoding='utf-8').strip().split('\n')
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(json.loads(entries[0])['supplier'], 'Seller\u2028name')
             with self.assertRaisesRegex(ValueError, 'Conflicting'):
                 rfq.record_verified(root, {**pending, 'text': 'different'})
 

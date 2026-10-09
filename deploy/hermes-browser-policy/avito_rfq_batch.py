@@ -12,6 +12,7 @@ import io
 import json
 import re
 import time
+from urllib.parse import urlsplit
 
 SEARCH = 'https://www.avito.ru/all/remont_i_stroitelstvo?q=габионы'
 REFUSALS = ('Доступ ограничен', 'Чат в другом профиле', 'Подтвердите, что',
@@ -35,12 +36,28 @@ def guard(snapshot, rfq):
 
 
 def signature(card):
-    return tuple(norm(card.get(k, '')) for k in ('title', 'supplier', 'description', 'seller_context'))
+    return tuple(norm(card.get(k, '')) for k in ('title', 'supplier', 'description', 'seller_context')) + (listing_id(card.get('listing_url', '')),)
+
+
+def listing_id(url):
+    parsed = urlsplit(url)
+    match = re.search(r'_(\d+)$', parsed.path)
+    return match[1] if parsed.hostname == 'www.avito.ru' and match else ''
 
 
 def read_ledger(rfq):
     with (rfq.WORKSPACE / 'avito_outreach.csv').open(encoding='utf-8', newline='') as stream:
         return list(csv.DictReader(stream))
+
+
+def recorded_name(card, rows):
+    name, context = norm(card['supplier']), norm(card['seller_context'])
+    for row in rows:
+        recorded = norm(row['supplier'])
+        base, comma, place = recorded.partition(', ')
+        if name == recorded or (comma and name == base and place and re.search(r'(?<!\w)' + re.escape(place) + r'(?!\w)', context)):
+            return True
+    return False
 
 
 def search_loaded(snapshot, rfq, allow_chat=False):
@@ -84,8 +101,11 @@ def search_cards(snapshot):
         descriptions = [e['label'] for e in elements if e['role'] == 'AXStaticText'
                         and e.get('label') and len(e['label']) > 100 and e['bounds'][0] == x
                         and y < e['bounds'][1] < bottom]
+        urls = {e['label'] for e in elements if e['role'] == 'AXImage' and listing_id(e.get('label', ''))
+                and e['bounds'][0] < x and abs(e['bounds'][1] - y) < 8}
         cards.append({'title': title, 'supplier': names[0], 'description': ' '.join(descriptions),
                       'seller_context': link['label'],
+                      'listing_url': next(iter(urls)) if len(urls) == 1 else '',
                       'button': button['index']})
     return cards
 
@@ -96,7 +116,7 @@ def require_empty_chat(snapshot, candidate, text, rfq):
     headings = [e for e in snapshot['elements'] if e['role'] == 'AXHeading']
     seller = [e for e in headings if norm(e.get('label', '')) == norm(candidate['supplier'])]
     suggestion = [e for e in snapshot['elements'] if e.get('label') == 'Спросите у продавца']
-    if len(seller) != 1 or not suggestion:
+    if len(seller) != 1:
         raise ValueError('Loaded empty chat not proved; model must inspect')
     if not any(norm(candidate['title']) in norm(s) for s in rfq.labels(snapshot)):
         raise ValueError('Listing changed; model must inspect')
@@ -106,7 +126,9 @@ def require_empty_chat(snapshot, candidate, text, rfq):
     left = editor['bounds'][0] - 40
     right = editor['bounds'][0] + editor['bounds'][2] + 50
     top = seller[0]['bounds'][1] + 60
-    bottom = min(e['bounds'][1] for e in suggestion)
+    # Avito also renders a loaded empty chat with only its response-time
+    # illustration; suggested questions are optional in that layout.
+    bottom = min(e['bounds'][1] for e in suggestion) if suggestion else editor['bounds'][1]
     center = [e.get('label', '') for e in rfq.history_elements(snapshot) if e.get('bounds')
               and left <= e['bounds'][0] <= right and top <= e['bounds'][1] < bottom]
     markers = ('Отвечает ', 'Пользователь редко отвечает на сообщения', 'Чат создан.')
@@ -154,7 +176,13 @@ class Native:
         snap = self.capture()
         address = next(e for e in snap['elements'] if e['role'] == 'AXComboBox' and e.get('label') == 'Найдите в Google или введите адрес')
         self.action(action='set_value', element=address['index'], value=SEARCH)
-        self.action(action='key', keys='return')
+        # AX set_value does not guarantee keyboard focus. Confirm the value
+        # and use the freshly exposed Go control instead of a blind Return.
+        snap = self.capture()
+        go = [e for e in snap['elements'] if e['role'] == 'AXButton' and e.get('label') == 'Перейти по введённому адресу']
+        if SEARCH not in self.rfq.labels(snap) or len(go) != 1:
+            raise ValueError('Entered address or Go control not confirmed; inspect before navigation')
+        self.action(action='click', element=go[0]['index'], delivery_mode='foreground')
         snap = self.wait(lambda s: search_loaded(s, self.rfq))
         # Same-URL navigation can restore an old scroll position. Reset the
         # observed document, without assuming keyboard focus in page content.
@@ -174,7 +202,9 @@ class Native:
         return self.capture()
 
     def page_down(self):
-        return self.scroll(self.capture(), 'down', 3)
+        # Native amount=3 moves only ~90px: repeatedly recapturing the same card
+        # dominated the live scan. 12 keeps overlap for whole cards (~360px).
+        return self.scroll(self.capture(), 'down', 12)
 
     def open_chat(self, card):
         snap = self.capture()
@@ -192,10 +222,24 @@ class Native:
         if len(links) != 1:
             raise ValueError('Full chat control ambiguous')
         self.action(action='click', element=links[0]['index'], delivery_mode='foreground')
-        return self.wait(lambda s: 'Перспективная Методика' in self.rfq.labels(s)
-                         and any(e['role'] == 'AXHeading' and norm(e.get('label', '')) == norm(card['supplier']) for e in s['elements'])
-                         and any(e['role'] == 'AXTextArea' for e in s['elements'])
-                         and 'Спросите у продавца' in self.rfq.labels(s))
+        recorded = {r['seller_id'] for r in read_ledger(self.rfq)}
+        def ready(s):
+            if not (any(e['role'] == 'AXHeading' and norm(e.get('label', '')) == norm(card['supplier']) for e in s['elements'])
+                    and any(e['role'] == 'AXTextArea' for e in s['elements'])):
+                return False
+            try:
+                identity = self.rfq.chat_identity(s)
+            except ValueError:
+                return False
+            # A recorded seller can be skipped before loading their old history.
+            if identity['seller_id'] in recorded:
+                return True
+            try:
+                require_empty_chat(s, card, json.loads((self.rfq.WORKSPACE / 'task.json').read_text(encoding='utf-8'))['request_text'], self.rfq)
+                return True
+            except ValueError:
+                return False
+        return self.wait(ready)
 
     def back(self, card):
         snap = self.capture()
@@ -254,11 +298,15 @@ def run(args, rfq, call, account_verified):
             raise ValueError('Campaign limit reached')
         if args.step == 'scan':
             seen = {norm(r['supplier']) for r in rows}; cards = []
+            seen_listings = {listing_id(r.get('listing_url', '')) for r in rows} - {''}
             snap = ui.search()
             for page in range(30):
                 for card in search_cards(snap):
-                    if norm(card['supplier']) not in seen:
+                    if (norm(card['supplier']) not in seen and not recorded_name(card, rows)
+                            and (not listing_id(card['listing_url']) or listing_id(card['listing_url']) not in seen_listings)):
                         seen.add(norm(card['supplier']))
+                        if listing_id(card['listing_url']):
+                            seen_listings.add(listing_id(card['listing_url']))
                         cards.append({k: v for k, v in card.items() if k != 'button'} | {'page': page})
                         if len(cards) >= target:
                             break
@@ -283,7 +331,14 @@ def run(args, rfq, call, account_verified):
             raise ValueError('This batch was already attempted; inspect its saved result, never replay')
         result.update(status='running', plan_sha256=digest, started_at=rfq.now())
         rfq.save(result_path, result)
-        snap = ui.search(); page = 0
+        # A short scan often ends with all approved candidates still on
+        # screen. Recheck all approved evidence locally instead of reloading
+        # and retracing the entire search just to reach the same card.
+        visible = {signature(c) for c in search_cards(initial)} if search_loaded(initial, rfq) else set()
+        if all(signature(c) in visible for c in plan['candidates']):
+            snap, page = initial, max(c['page'] for c in plan['candidates'])
+        else:
+            snap, page = ui.search(), 0
         for candidate in plan['candidates']:
             recipient_start = time.monotonic()
             while page < candidate['page']:
@@ -303,7 +358,7 @@ def run(args, rfq, call, account_verified):
                                             listing_url=None, reviewed_image_sha256=None, approved_plan_sha256=None)
                 with redirect_stdout(output):
                     rfq.main(submit, machine_candidate=candidate)
-                sent = json.loads(output.getvalue().strip().splitlines()[-1])
+                sent = json.loads(output.getvalue().strip().split('\n')[-1])
                 if sent.get('status') != 'sent_verified':
                     raise ValueError('Delivery unknown; inspect actual result, no next seller')
                 result['samples'].append({**sent, 'open_through_delivery_seconds': time.monotonic() - recipient_start})

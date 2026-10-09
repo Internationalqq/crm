@@ -24,6 +24,7 @@ def search_snapshot(cards):
     for i, c in enumerate(cards):
         y = 180 + i * 250
         elements.extend([
+            element('AXImage', c.get('listing_url', 'https://www.avito.ru/city/remont_i_stroitelstvo/gabion_' + str(100 + i)), 80+i, [638, y, 236, 236]),
             element('AXHeading', c['title'], 10 + i, [890, y, 350, 22]),
             element('AXLink', c['supplier'] + ' Рейтинг 5,0 · 10 отзывов', 20 + i, [1387, y, 226, 99]),
             element('AXStaticText', c['supplier'], 30 + i, [1390, y + 58, 213, 20]),
@@ -49,6 +50,14 @@ def chat_snapshot(card, history=None):
 
 
 class ParserTests(unittest.TestCase):
+    def test_name_with_city_matches_only_when_the_card_confirms_city(self):
+        rows = [{'supplier': 'евгений, Красноярск'}]
+        card = {'supplier': 'евгений', 'seller_context': 'Красноярск, проспект Мира, 10 евгений Рейтинг 4,9'}
+        self.assertTrue(batch.recorded_name(card, rows))
+        self.assertFalse(batch.recorded_name(dict(card, seller_context='Москва'), rows))
+        self.assertFalse(batch.recorded_name(dict(card, seller_context='Красноярский край'), rows))
+        self.assertFalse(batch.recorded_name(dict(card, seller_context='Томск'), [{'supplier':'евгений, Омск'}]))
+
     def test_only_visible_relevant_cards_in_display_order(self):
         cards = [dict(title='Камень для габионов', supplier='Stone'),
                  dict(title='Габионы сварные', supplier='New'),
@@ -71,6 +80,16 @@ class ParserTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Listing changed'):
             batch.require_empty_chat(chat_snapshot(card), dict(card, title='Другой габион'), 'RFQ', rfq)
 
+    def test_response_time_empty_state_needs_no_suggested_questions(self):
+        card = dict(title='Габионы', supplier='Seller')
+        snap = chat_snapshot(card)
+        snap['elements'] = [e for e in snap['elements'] if e.get('label') != 'Спросите у продавца']
+        batch.require_empty_chat(snap, card, 'RFQ', rfq)
+        # An editor and spinner alone still do not prove an empty loaded chat.
+        snap['elements'] = [e for e in snap['elements'] if not e.get('label', '').startswith('Отвечает')]
+        with self.assertRaisesRegex(ValueError, 'not provably empty'):
+            batch.require_empty_chat(snap, card, 'RFQ', rfq)
+
     def test_machine_review_stops_on_existing_draft_or_block(self):
         card = dict(title='Габионы', supplier='Seller')
         for extra in (element('AXStaticText', 'Доступ ограничен: проблема с IP'),
@@ -91,12 +110,19 @@ class NativeTests(unittest.TestCase):
         self.actions = []
         self.enterContext(patch.object(rfq, 'check_turn', return_value={'ticket': 'own'}))
         self.enterContext(patch.object(batch.time, 'sleep'))
+        self.enterContext(patch.object(batch, 'read_ledger', return_value=[]))
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.enterContext(patch.object(rfq, 'WORKSPACE', Path(temp.name)))
+        (rfq.WORKSPACE / 'task.json').write_text('{"request_text":"RFQ"}')
         self.ui = batch.Native(rfq, self.call, Path('turn.json'))
 
     def call(self, args):
         if args['action'] == 'capture':
             return json.dumps(self.snap)
         self.actions.append(args)
+        if args['action'] == 'set_value':
+            self.snap['elements'].extend([element('AXStaticText', args['value']),
+                                         element('AXButton', 'Перейти по введённому адресу', 901)])
         if args['action'] == 'scroll' and args['direction'] == 'up':
             next(e for e in self.snap['elements'] if e.get('label') == '«Габионы»: объявления')['bounds'][1] = 120
         return json.dumps({'ok': True})
@@ -109,10 +135,17 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(len(scrolls), 2)
         self.assertTrue(all(a['element'] == 37 and a['direction'] == 'up' for a in scrolls))
         self.assertEqual(sum(a['action'] == 'set_value' for a in self.actions), 1)
+        self.assertIn(dict(app='Firefox', action='click', element=901, delivery_mode='foreground'), self.actions)
+        self.assertFalse(any(a['action'] == 'key' for a in self.actions))
+
+    def test_unconfirmed_address_never_navigates_or_retypes(self):
+        with patch.object(self.ui, 'call', side_effect=lambda args: json.dumps(self.snap) if args['action']=='capture' else json.dumps({'ok': True})):
+            with self.assertRaisesRegex(ValueError, 'address or Go'):
+                self.ui.search()
 
     def test_scroll_uses_document_not_keyboard_focus(self):
         self.ui.page_down()
-        self.assertEqual(self.actions, [dict(app='Firefox', action='scroll', direction='down', amount=3, element=37)])
+        self.assertEqual(self.actions, [dict(app='Firefox', action='scroll', direction='down', amount=12, element=37)])
 
     def test_changed_card_stops_before_click(self):
         for change in (dict(supplier='Other'), dict(description='A different offer'), dict(seller_context='Another city')):
@@ -129,7 +162,7 @@ class NativeTests(unittest.TestCase):
         ready = {'elements': [element('AXLink', 'Открыть сообщения во весь экран', 89),
                               element('AXHeading', self.card['supplier']), element('AXTextArea', 'Сообщение')]}
         loading = chat_snapshot(self.card)
-        loading['elements'] = [e for e in loading['elements'] if e.get('label') != 'Спросите у продавца']
+        loading['elements'] = [e for e in loading['elements'] if e.get('label') != 'Спросите у продавца' and not e.get('label', '').startswith('Отвечает')]
         with patch.object(self.ui, 'capture', side_effect=[self.snap, stale, connecting, ready, loading, chat_snapshot(self.card)]):
             result = self.ui.open_chat(self.card)
         self.assertEqual(rfq.chat_identity(result)['seller_id'], 'Seller')
@@ -142,6 +175,15 @@ class NativeTests(unittest.TestCase):
             result = self.ui.back(self.card)
         self.assertTrue(batch.search_loaded(result, rfq))
         self.assertEqual([a['element'] for a in self.actions], [99])
+
+    def test_recorded_seller_needs_no_empty_history_marker(self):
+        ready = {'elements': [element('AXLink', 'Открыть сообщения во весь экран', 89),
+                              element('AXHeading', self.card['supplier']), element('AXTextArea', 'Сообщение')]}
+        old = chat_snapshot(self.card, 'An old reply')
+        old['elements'] = [e for e in old['elements'] if e.get('label') != 'Спросите у продавца']
+        with patch.object(batch, 'read_ledger', return_value=[{'seller_id': 'Seller'}]), patch.object(self.ui, 'capture', side_effect=[self.snap, ready, old]):
+            self.ui.open_chat(self.card)
+        self.assertEqual([a['element'] for a in self.actions], [60,89])
 
     def test_back_collapses_only_completed_sellers_restored_empty_widget(self):
         chat = chat_snapshot(self.card)
@@ -233,6 +275,7 @@ class BatchTests(unittest.TestCase):
         self.assertEqual((result['status'], result['completed'], self.backs), ('complete', 3, 3))
         self.assertEqual(self.sent, ['New0', 'New1', 'New2'])
         self.assertEqual(len(self.rows), 30)
+        self.assertEqual(self.search_calls, 1, 'Visible approved candidate must not reload and retrace search')
         before = (self.out / 'mechanical-result.json').read_bytes()
         self.execute('run_batch', plan['plan_sha256'])
         self.assertEqual(len(self.sent), 3)
@@ -268,6 +311,17 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(result['status'], 'needs_inspection')
         self.assertEqual(p.read_text(), '{"status":"send_unknown"}')
         self.assertEqual(self.search_calls, 0)
+
+    def test_scan_skips_recorded_listing_despite_changed_display_name(self):
+        old_read = batch.read_ledger
+        def with_listing(r):
+            rows = old_read(r)
+            rows[0]['listing_url'] = 'https://www.avito.ru/city/remont_i_stroitelstvo/gabion_100?tracking=old'
+            rows[0]['supplier'] = 'New0, City'
+            return rows
+        with patch.object(batch, 'read_ledger', side_effect=with_listing):
+            result = self.execute('scan')
+        self.assertEqual([c['supplier'] for c in result['candidates']], ['New1','New2'])
 
     def test_unknown_delivery_stops_without_next_recipient_or_back(self):
         plan = self.execute('scan'); self.unknown = True

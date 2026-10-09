@@ -123,7 +123,9 @@ def guarded_step(args):
         completed = subprocess.run(command, cwd=WORKSPACE, capture_output=True,
                                    text=True, timeout=600 if step in ('scan', 'run_batch') else 110, check=False)
         # cua-driver may print its version notice before the helper JSON.
-        lines = [line for line in completed.stdout.splitlines() if line.startswith('{')]
+        # Seller text can contain U+2028: JSON permits it inside strings, but
+        # splitlines() treats it as a separator and truncates the JSON record.
+        lines = [line for line in completed.stdout.split('\n') if line.startswith('{')]
         if not lines:
             raise ValueError('No helper result; inspect saved pending state, do not replay')
         result = json.loads(lines[-1])
