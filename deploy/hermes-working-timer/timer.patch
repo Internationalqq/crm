@@ -1,0 +1,49 @@
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -14890,7 +14890,12 @@
+         # Failed runs skip cleanup so the bubbles remain as breadcrumbs.
+         _cleanup_progress = bool(
+             resolve_display_setting(user_config, platform_key, "cleanup_progress")
++        )
++        _working_timer = source.platform == Platform.TELEGRAM and bool(
++            resolve_display_setting(user_config, platform_key, "working_timer", False)
+         )
++        if _working_timer:
++            _cleanup_progress = True
+         _cleanup_adapter = self.adapters.get(source.platform) if _cleanup_progress else None
+         if _cleanup_adapter is not None and (
+             type(_cleanup_adapter).delete_message is BasePlatformAdapter.delete_message
+@@ -16685,6 +16690,24 @@
+         _notify_start = time.time()
+ 
+         async def _notify_long_running():
++            if _working_timer:
++                from gateway.working_timer import working_timer
++                _timer_adapter = self.adapters.get(source.platform)
++                if not _timer_adapter:
++                    return
++                def _timer_current():
++                    try:
++                        _exec = _executor_task
++                    except NameError:
++                        _exec = None
++                    return _run_still_current() and (_exec is None or not _exec.done())
++                await working_timer(
++                    _timer_adapter, source.chat_id,
++                    _non_conversational_metadata(_status_thread_metadata, platform=source.platform),
++                    _timer_current, _cleanup_msg_ids,
++                    interval=1 if source.chat_type == "dm" else 3,
++                )
++                return
+             if _NOTIFY_INTERVAL is None:
+                 return  # Notifications disabled (gateway_notify_interval: 0)
+             _notify_adapter = self.adapters.get(source.platform)
+@@ -17355,7 +17378,7 @@
+             and _cleanup_msg_ids
+             and session_key
+             and isinstance(response, dict)
+-            and not response.get("failed")
++            and (not response.get("failed") or _working_timer)
+             and hasattr(_cleanup_adapter, "register_post_delivery_callback")
+         ):
+             _ids_snapshot = list(_cleanup_msg_ids)
