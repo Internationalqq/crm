@@ -1,0 +1,10 @@
+{
+  "plugins/platforms/telegram/adapter.py": {
+    "before": "b7422078b317b3fe58523a76ed8191688143f9edc46e2f2e85e68a18f4329c1d",
+    "after": "4708c5e48090269f6e795468ccaa78d0928f1337d5330a2a8956605611af9e50"
+  },
+  "tests/gateway/test_telegram_network_reconnect.py": {
+    "before": "0917d964c3fb1347f040d411e227832501fb3d4f4f12850b8686e9a8860d7768",
+    "after": "86770fee5d2e2675b1659bddcf275ee1750fee410b76d4622c3a27c09e96c955"
+  }
+}
