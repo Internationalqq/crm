@@ -25,7 +25,7 @@ class LiveReply:
         elif method == 'item/agentMessage/delta' and params.get('itemId') == self.item_id:
             self.text += params.get('delta', '')
             visible = public_preview(self.text)
-            if visible.strip() and not self.disabled and (self.message_id is None or self.clock() - self.updated_at >= 2):
+            if visible.strip() and not self.disabled and (self.message_id is None or self.clock() - self.updated_at >= 1):
                 self.publish(visible[-1700:] + ' ▍')
 
     def publish(self, text):
