@@ -36,7 +36,8 @@ scripts/run_tests.sh tests/gateway/test_telegram_network_reconnect.py tests/gate
 verified recovery, simultaneous reconnects, cancelling stale probes and avoiding
 overlapping network/conflict recovery. Full Hermes suite was not run.
 
-Live Anya restart completed and Telegram commands registered successfully.
+Eleven existing idle profile gateways were restarted through their existing
+launchd services. Anya registered Telegram commands successfully.
 However, incoming polling still intermittently raises `RemoteProtocolError`,
 including with a separate fresh HTTP client while the gateway was stopped.
 Short getMe/getWebhookInfo requests succeeded. A controlled repeat of existing
@@ -45,6 +46,9 @@ finance job `04982daf75be` also failed before its first tool on a provider
 prove the underlying network/remote-service failure is resolved. No VPN,
 account, model, provider or global permissions were changed.
 
-The existing daily finance schedule remains unchanged. The repeat explicitly
-targeted the missed 8 October period without replacing the stored job prompt.
-No finance workbook delivery is claimed.
+The existing daily finance schedule and recipient remain unchanged. The repeat
+explicitly targeted the missed 8 October period. A pending-recovery checkpoint
+was saved in Anya's group-finance workspace, and the existing job prompt now
+requires checking that pending period before deciding there is nothing new to
+send. This prevents the next daily run from silently losing yesterday's work.
+No new cron job was created. No finance workbook delivery is claimed.
