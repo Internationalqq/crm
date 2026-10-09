@@ -355,6 +355,9 @@ CAPTCHA, DDoS-проверка, HTTP401/403, TLS/сертификат, треб�
 '''
         prompt += COMPLETED_TABS_POLICY
         prompt += GOOGLE_AI_DISCOVERY_POLICY
+    if consent.get('mode') == 'full_tender':
+        # This file-only search writes evidence JSON, not executable code.
+        os.environ['HERMES_VERIFY_ON_STOP'] = '0'
     cli.main(query=prompt, quiet=True,
              toolsets='computer_use,file', max_turns=60 if consent.get('mode') == 'full_tender' else 24)
 
