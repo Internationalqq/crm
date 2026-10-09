@@ -18,6 +18,18 @@ import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_initial_connection_waits_for_transport_but_stops_on_auth_or_webhook(self):
+        bridge = module.Bridge.__new__(module.Bridge)
+        with patch.object(bridge, 'api', side_effect=[RuntimeError('Telegram transport URLError'), {'url': ''}]) as api, patch.object(module.time, 'sleep') as sleep:
+            bridge.check_webhook()
+            self.assertEqual(api.call_count, 2)
+            sleep.assert_called_once_with(10)
+        for response in (RuntimeError('Telegram HTTP 401'), {'url': 'https://existing.invalid'}):
+            with patch.object(bridge, 'api', side_effect=[response]) as api, patch.object(module.time, 'sleep') as sleep:
+                with self.assertRaises(SystemExit): bridge.check_webhook()
+                self.assertEqual(api.call_count, 1)
+                sleep.assert_not_called()
+
     def test_approval_buttons_are_scoped_and_unrelated_text_does_not_decline(self):
         from control import Controls
         sent = []

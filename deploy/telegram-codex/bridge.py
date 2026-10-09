@@ -230,10 +230,22 @@ class Bridge:
             self.db.close()
             del self.connections.db
 
+    def check_webhook(self):
+        while True:
+            try:
+                info = self.api('getWebhookInfo', {})
+            except RuntimeError as error:
+                if not str(error).startswith('Telegram transport '):
+                    raise SystemExit(10) from None
+                print(str(error), flush=True)
+                time.sleep(10)
+                continue
+            if info.get('url'):
+                raise SystemExit(10)
+            return
+
     def run(self):
-        info = self.api('getWebhookInfo', {})
-        if info.get('url'):
-            raise SystemExit(10)
+        self.check_webhook()
         print('ready', flush=True)
         while True:
             try:
