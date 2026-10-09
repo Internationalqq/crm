@@ -18,9 +18,56 @@ import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_approval_buttons_are_scoped_and_unrelated_text_does_not_decline(self):
+        from control import Controls
+        sent = []
+        control = Controls(lambda text, **kwargs: sent.append((text, kwargs)))
+        control.active = True
+        request = {'id': 7, 'method': 'item/commandExecution/requestApproval', 'params': {'reason': 'SSH check', 'command': 'ssh host hostname', 'availableDecisions': ['accept', 'cancel']}}
+        control.request(request)
+        old_token = control.approval_token
+        self.assertIn('inline_keyboard', sent[0][1]['reply_markup'])
+        control.accept('Я разрешаю делать всё')
+        self.assertEqual(list(control.drain()), [])
+        self.assertIsNotNone(control.pending)
+        self.assertTrue(control.callback('approve:' + old_token))
+        self.assertEqual(list(control.drain()), [{'kind': 'response', 'id': 7, 'result': {'decision': 'accept'}}])
+        control.request(dict(request, id=8))
+        self.assertFalse(control.callback('approve:' + old_token))
+        control.accept('/deny')
+        self.assertEqual(list(control.drain())[0]['result'], {'decision': 'cancel'})
+
+    def test_approve_without_request_is_not_forwarded_as_model_instruction(self):
+        from control import Controls
+        sent = []
+        control = Controls(lambda text, **kwargs: sent.append(text))
+        control.active = True
+        self.assertTrue(control.accept('/approve'))
+        self.assertEqual(list(control.drain()), [])
+        self.assertEqual(len(sent), 1)
+
+    def test_only_owner_can_click_live_approval_button(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            calls = []
+            bridge.api = lambda method, payload: calls.append((method, payload)) or {'message_id': 1}
+            bridge.controls.active = True
+            bridge.controls.request({'id': 7, 'method': 'item/fileChange/requestApproval', 'params': {'reason': 'Write file'}})
+            token = bridge.controls.approval_token
+            update = {'update_id': 77, 'callback_query': {'id': 'cb', 'from': {'id': 456}, 'message': {'chat': {'id': 123, 'type': 'private'}}, 'data': 'approve:' + token}}
+            bridge.accept(update)
+            self.assertEqual(list(bridge.controls.drain()), [])
+            update['callback_query']['from']['id'] = 123
+            bridge.accept(update); bridge.accept(update)
+            self.assertEqual(list(bridge.controls.drain()), [{'kind': 'response', 'id': 7, 'result': {'decision': 'accept'}}])
+            self.assertEqual(sum(method == 'answerCallbackQuery' for method, _ in calls), 1)
+            bridge.db.close()
+
     def test_late_steering_is_preserved_for_next_turn(self):
         from control import Controls
-        control = Controls(lambda x: None)
+        control = Controls(lambda x, **kwargs: None)
         control.active = True
         control.accept('Позднее уточнение', 77)
         remaining = control.finish()
@@ -52,7 +99,7 @@ class AccessTests(unittest.TestCase):
     def test_controls_stop_steer_question_and_scoped_approval(self):
         from control import Controls
         sent = []
-        control = Controls(sent.append)
+        control = Controls(lambda text, **kwargs: sent.append(text))
         control.active = True
         self.assertTrue(control.accept('Уточнение'))
         self.assertEqual(list(control.drain()), [{'kind': 'steer', 'text': 'Уточнение'}])

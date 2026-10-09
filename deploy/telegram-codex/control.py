@@ -1,6 +1,7 @@
 """Owner-scoped, one-turn controls. No approval is remembered for another action."""
 import queue
 import threading
+import secrets
 
 
 class Controls:
@@ -10,6 +11,29 @@ class Controls:
         self.lock = threading.Lock()
         self.pending = None
         self.active = False
+        self.approval_token = None
+
+    def callback(self, value):
+        with self.lock:
+            if not self.pending or not self.approval_token:
+                return False
+            if value not in ('approve:' + self.approval_token, 'deny:' + self.approval_token):
+                return False
+            return self._approval_answer('/approve' if value.startswith('approve:') else '/deny')
+
+    def _approval_answer(self, text):
+        request, questions, _ = self.pending
+        if text not in ('/approve', '/deny'):
+            self.send('Запрос ещё ожидает решения. Нажми «Разрешить» или «Отклонить», либо отправь /approve или /deny. Это касается только показанного действия.')
+            return True
+        decision = 'accept' if text == '/approve' else 'decline'
+        allowed = questions[0].get('allowed')
+        if allowed and decision not in allowed:
+            decision = 'cancel'
+        self.queue.put({'kind': 'response', 'id': request, 'result': {'decision': decision}})
+        self.pending = None
+        self.approval_token = None
+        return True
 
     def accept(self, text, update_id=None):
         with self.lock:
@@ -18,6 +42,8 @@ class Controls:
                     self.queue.put({'kind': 'stop'})
                 return True
             if self.pending:
+                if self.approval_token:
+                    return self._approval_answer(text.strip())
                 request, questions, answers = self.pending
                 question = questions[len(answers)]
                 answers[question['id']] = {'answers': [text]}
@@ -26,6 +52,9 @@ class Controls:
                     self.pending = None
                 else:
                     self.send(questions[len(answers)]['question'])
+                return True
+            if text.strip() in ('/approve', '/deny'):
+                self.send('Сейчас нет ожидающего запроса разрешения. Эта команда не выдаёт доступ ко всем следующим действиям.')
                 return True
             if self.active and text:
                 action = {'kind': 'steer', 'text': text}
@@ -50,10 +79,15 @@ class Controls:
         # Only a plain, scoped decision is accepted; never amend global policies.
         if method in ('item/commandExecution/requestApproval', 'item/fileChange/requestApproval'):
             with self.lock:
-                self.pending = (event['id'], [{'id': 'approval', 'question': ''}], {})
+                self.approval_token = secrets.token_hex(8)
+                token = self.approval_token
+                self.pending = (event['id'], [{'id': 'approval', 'question': '', 'allowed': params.get('availableDecisions')}], {})
             self.send('Нужно разрешение на конкретное действие: ' + str(params.get('reason') or 'выход за доступную рабочую папку')[:1000]
                       + '\nДействие: ' + str(params.get('command') or params.get('grantRoot') or params.get('cwd') or 'см. причину выше')[:1500]
-                      + '\nОтветь /approve или /deny. Разрешение действует только на это действие.')
+                      + '\nРазрешение действует только на это действие. Можно также ответить /approve или /deny.',
+                      reply_markup={'inline_keyboard': [[
+                          {'text': '✅ Разрешить', 'callback_data': 'approve:' + token},
+                          {'text': '❌ Отклонить', 'callback_data': 'deny:' + token}]]})
             return None
         return {'unsupported': True}
 
@@ -63,9 +97,6 @@ class Controls:
                 value = self.queue.get_nowait()
             except queue.Empty:
                 return
-            if value['kind'] == 'response' and 'approval' in value['result'].get('answers', {}):
-                answer = value['result']['answers']['approval']['answers'][0].strip()
-                value['result'] = {'decision': 'accept' if answer == '/approve' else 'decline'}
             yield value
 
     def finish(self):
@@ -73,6 +104,7 @@ class Controls:
         with self.lock:
             self.active = False
             self.pending = None
+            self.approval_token = None
             while not self.queue.empty():
                 remaining.append(self.queue.get_nowait())
         return remaining

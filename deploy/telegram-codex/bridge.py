@@ -71,12 +71,19 @@ class Bridge:
             raise RuntimeError('Telegram request rejected')
         return result['result']
 
-    def send(self, text):
+    def send(self, text, reply_markup=None):
         for offset in range(0, len(text), 3500):
-            self.api('sendMessage', {'chat_id': int(self.get('owner')), 'text': text[offset:offset+3500]})
+            payload = {'chat_id': int(self.get('owner')), 'text': text[offset:offset+3500]}
+            if reply_markup and offset == 0:
+                payload['reply_markup'] = reply_markup
+            self.api('sendMessage', payload)
 
     def accept(self, update):
         message = update.get('message', {})
+        callback = update.get('callback_query')
+        if callback:
+            message = dict(callback.get('message') or {})
+            message['from'] = callback.get('from', {})
         text = message.get('text') or message.get('caption') or ''
         owner = self.get('owner')
         if not owner:
@@ -97,6 +104,11 @@ class Bridge:
         with self.db:
             fresh = self.db.execute('INSERT OR IGNORE INTO received VALUES (?)', (update['update_id'],)).rowcount
         if not fresh:
+            return
+        if callback:
+            accepted = self.controls.callback(callback.get('data', ''))
+            self.api('answerCallbackQuery', {'callback_query_id': callback['id'],
+                     'text': 'Решение передано.' if accepted else 'Этот запрос уже завершён или недействителен.'})
             return
         attachment = select_attachment(message)
         if text == '/status':
@@ -147,7 +159,10 @@ class Bridge:
                         'обычным языком. В окончательном ответе оставляй краткий результат, проверки '
                         'и существенные ограничения; не повторяй весь ход работы. Не читай токены, '
                         'файлы секретов Telegram-моста и не меняй его доступ. Если разрешений '
-                        'не хватает, сообщи точно, не обходи ограничения. Не выполняй параллельно '
+                        'не хватает, сообщи точно, не обходи ограничения. Запросы разрешений обрабатывает '
+                        'мост через кнопки в Telegram и /approve для текущего запроса. Не требуй '
+                        'кнопку в окне Codex. Если запрос уже отклонён, новый запуск требует нового '
+                        'конкретного запроса, а не общего разрешения на всё. Не выполняй параллельно '
                         'другую задачу пользователя. '
                         'Отправка готовых файлов в Telegram подключена: сохраняй результаты в общей '
                         'рабочей папке и в самом конце окончательного ответа укажи каждый файл отдельной '
@@ -223,7 +238,7 @@ class Bridge:
         while True:
             try:
                 updates = self.api('getUpdates', {'offset': int(self.get('offset', '0')),
-                                                  'timeout': 2, 'allowed_updates': ['message']})
+                                                  'timeout': 2, 'allowed_updates': ['message', 'callback_query']})
                 for update in updates:
                     self.accept(update)
                     self.set('offset', update['update_id'] + 1)
