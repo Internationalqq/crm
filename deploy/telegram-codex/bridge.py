@@ -156,6 +156,8 @@ class Bridge:
                         'подтверждение доставки получает мост после ответа.\n\nЗадача:\n' + prompt)
         status = 'failed'
         live = LiveReply(self.api, int(self.get('owner')))
+        self.active_reply = live
+        live.start()
         try:
             inputs = []
             attachment = self.db.execute('SELECT payload FROM attachments WHERE job_id=?', (job_id,)).fetchone()
@@ -207,6 +209,9 @@ class Bridge:
             self.set('halted', '1')
             print('worker failure: ' + type(error).__name__, flush=True)
         finally:
+            if getattr(self, 'active_reply', None):
+                self.active_reply.close()
+                self.active_reply = None
             self.db.close()
             del self.connections.db
 

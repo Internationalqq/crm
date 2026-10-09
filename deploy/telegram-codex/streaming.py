@@ -16,6 +16,37 @@ class LiveReply:
         self.updated_at = 0
         self.disabled = False
         self.send_unknown = False
+        self.started_at = None
+        self.stop_timer = threading.Event()
+        self.timer = None
+        self.publish_lock = threading.RLock()
+
+    def start(self):
+        self.started_at = self.clock()
+        self.tick()
+        def ticker():
+            while not self.stop_timer.wait(1):
+                self.tick()
+        self.timer = threading.Thread(target=ticker, daemon=True)
+        self.timer.start()
+
+    def preview(self):
+        visible = public_preview(self.text)
+        if self.started_at is None:
+            return visible[-1700:] + ' ▍'
+        elapsed = max(0, int(self.clock() - self.started_at))
+        stamp = f'{elapsed // 60}:{elapsed % 60:02d}'
+        return (visible[-1700:] + ' ▍\n\n⏱ ' + stamp) if visible.strip() else ('⏳ Работаю · ' + stamp)
+
+    def tick(self):
+        with self.publish_lock:
+            if not self.stop_timer.is_set() and not self.disabled and (self.message_id is None or self.clock() - self.updated_at >= 1):
+                self.publish(self.preview())
+
+    def close(self):
+        self.stop_timer.set()
+        if self.timer:
+            self.timer.join(timeout=45)
 
     def feed(self, event):
         method, params = event.get('method'), event.get('params', {})
@@ -25,10 +56,15 @@ class LiveReply:
         elif method == 'item/agentMessage/delta' and params.get('itemId') == self.item_id:
             self.text += params.get('delta', '')
             visible = public_preview(self.text)
-            if visible.strip() and not self.disabled and (self.message_id is None or self.clock() - self.updated_at >= 1):
-                self.publish(visible[-1700:] + ' ▍')
+            with self.publish_lock:
+                if visible.strip() and not self.disabled and (self.message_id is None or self.clock() - self.updated_at >= 1):
+                    self.publish(self.preview())
 
     def publish(self, text):
+        with self.publish_lock:
+            self._publish(text)
+
+    def _publish(self, text):
         try:
             if self.message_id is None:
                 self.send_unknown = True
@@ -42,6 +78,7 @@ class LiveReply:
             self.disabled = True
 
     def finish(self, text):
+        self.close()
         if self.send_unknown:
             raise RuntimeError('Preview delivery unknown; do not duplicate')
         # A final edit is attempted even if a preview edit failed; it cannot duplicate a message.

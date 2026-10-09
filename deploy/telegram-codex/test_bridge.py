@@ -95,7 +95,7 @@ class AccessTests(unittest.TestCase):
                 bridge.work()
                 self.assertEqual(deliver.call_count, 1)
                 self.assertEqual(deliver.call_args.args[-1], 'C:/work/result.png')
-            self.assertEqual(sent, ['Готово'])
+            self.assertEqual(sent, ['⏳ Работаю · 0:00', 'Готово'])
             bridge.db.close()
 
     def test_outgoing_file_sent_once_with_durable_receipt(self):
@@ -149,7 +149,7 @@ class AccessTests(unittest.TestCase):
                 bridge.work()
             self.assertEqual(runner.call_args.kwargs['extra_inputs'], inputs)
             self.assertIn('Проверь чек', runner.call_args.args[4])
-            self.assertEqual(sent, ['Проверено'])
+            self.assertEqual(sent, ['⏳ Работаю · 0:00', 'Проверено'])
             bridge.db.close()
 
     def test_voice_failure_does_not_disable_text_tasks(self):
@@ -211,6 +211,25 @@ class AccessTests(unittest.TestCase):
                 note, inputs = attachments.prepare(None, None, home, 12, {'kind': 'voice'})
             self.assertIn('Проверь CRM', note)
             self.assertEqual(inputs, [])
+
+    def test_timer_updates_during_silence_and_final_replaces_same_message(self):
+        calls = []
+        clock = [10]
+        live = module.LiveReply(lambda method, payload: calls.append((method, payload)) or {'message_id': 42}, 123, lambda: clock[0])
+        live.started_at = clock[0]
+        live.tick()
+        self.assertEqual(calls[-1][1]['text'], '⏳ Работаю · 0:00')
+        clock[0] += 65
+        live.tick()
+        self.assertEqual(calls[-1][1]['text'], '⏳ Работаю · 1:05')
+        live.feed({'method': 'item/reasoning/textDelta', 'params': {'delta': 'SECRET'}})
+        live.finish('Готово')
+        clock[0] += 2; live.tick()
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[-1][1]['text'], 'Готово')
+        self.assertEqual(calls[-1][1]['message_id'], 42)
+        self.assertEqual(sum(method == 'sendMessage' for method, _ in calls), 1)
+        self.assertNotIn('SECRET', str(calls))
 
     def test_live_text_edits_one_message_then_replaces_with_summary(self):
         calls = []
@@ -313,7 +332,7 @@ class AccessTests(unittest.TestCase):
                 bridge.work()
                 self.assertEqual(run.call_count, 1)
             self.assertEqual(bridge.get('thread'), 'thread-1')
-            self.assertEqual(sent, ['готово'])
+            self.assertEqual(sent, ['⏳ Работаю · 0:00', 'готово'])
             bridge.db.close()
 
     def test_crm_is_optional_context_and_resume_keeps_general_root(self):
