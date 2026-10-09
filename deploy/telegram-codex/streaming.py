@@ -52,7 +52,7 @@ class LiveReply:
 
 
 def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, on_event,
-              timeout=1800, sandbox='workspace-write'):
+              timeout=1800, sandbox='workspace-write', extra_inputs=None):
     command = [codex, 'app-server']
     process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, text=True, encoding='utf-8',
@@ -101,7 +101,7 @@ def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, 
                         thread_id = event['result']['thread']['id']
                         on_thread(thread_id)
                         send({'id': 2, 'method': 'turn/start', 'params': {
-                            'threadId': thread_id, 'input': [{'type': 'text', 'text': prompt}]}})
+                            'threadId': thread_id, 'input': [{'type': 'text', 'text': prompt}] + (extra_inputs or [])}})
                 elif 'id' in event and 'method' in event:
                     # No interactive approval bypass: a required client action stops the job.
                     send({'id': event['id'], 'error': {'code': -32601, 'message': 'Interactive action unavailable'}})

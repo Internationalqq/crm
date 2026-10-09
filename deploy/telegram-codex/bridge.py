@@ -11,6 +11,7 @@ import urllib.request
 # Bundled Python enables safe_path; load only our explicitly installed sibling module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from streaming import LiveReply, run_codex
+from attachments import AttachmentError, prepare, select_attachment
 
 
 def authorized(message, owner):
@@ -29,6 +30,7 @@ class Bridge:
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY, prompt TEXT, status TEXT, result TEXT);
+            CREATE TABLE IF NOT EXISTS attachments (job_id INTEGER PRIMARY KEY, payload TEXT NOT NULL);
         ''')
         self.db.execute("UPDATE jobs SET status='interrupted' WHERE status='running'")
         self.db.commit()
@@ -62,7 +64,7 @@ class Bridge:
 
     def accept(self, update):
         message = update.get('message', {})
-        text = message.get('text', '')
+        text = message.get('text') or message.get('caption') or ''
         owner = self.get('owner')
         if not owner:
             pairing = self.get('pairing')
@@ -72,25 +74,29 @@ class Bridge:
                     and message.get('from', {}).get('id') == message.get('chat', {}).get('id')):
                 self.set('owner', message['from']['id'])
                 self.set('pairing', '')
-                self.send('Подключено ✅ Пиши любую задачу текстом. Это постоянный разговор Codex; CRM открою по задаче. /status — состояние. Фото и голосовые пока не подключены.')
+                self.send('Подключено ✅ Пришли задачу текстом, голосовым, с фото или файлом. CRM открою по задаче. /status — состояние.')
             elif text == '/start' and message.get('chat', {}).get('type') == 'private':
                 self.api('sendMessage', {'chat_id': message['chat']['id'],
                                         'text': 'Для привязки отправь /start и одноразовый код из чата Codex. Без кода задачи не выполняются.'})
             return
         if not authorized(message, int(owner)):
             return
+        attachment = select_attachment(message)
         if text == '/status':
             counts = dict(self.db.execute('SELECT status,count(*) FROM jobs GROUP BY status'))
             state = 'Работа приостановлена после сбоя.' if self.get('halted') else 'Codex подключён.'
             self.send(state + ' Задачи: ' + json.dumps(counts, ensure_ascii=False))
         elif text.startswith('/start'):
-            self.send('На связи. Пришли задачу текстом.')
-        elif not text:
-            self.send('Пока принимаю задачи текстом. Вложения и голосовые ещё не подключены.')
+            self.send('На связи. Пришли текст, фото, документ или голосовое с задачей.')
+        elif not text and not attachment:
+            self.send('Пришли текст, фото, документ или голосовое. Этот тип сообщения пока не поддерживается.')
         elif len(text) <= 12000:
             with self.db:
                 self.db.execute('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, NULL)',
                                 (update['update_id'], text, 'queued'))
+                if attachment:
+                    self.db.execute('INSERT OR IGNORE INTO attachments VALUES (?, ?)',
+                                    (update['update_id'], json.dumps(attachment)))
 
     def work(self):
         if self.get('halted'):
@@ -120,10 +126,20 @@ class Bridge:
         status = 'failed'
         live = LiveReply(self.api, int(self.get('owner')))
         try:
+            inputs = []
+            attachment = self.db.execute('SELECT payload FROM attachments WHERE job_id=?', (job_id,)).fetchone()
+            if attachment:
+                note, inputs = prepare(self.api, self.token, self.workspace, job_id, json.loads(attachment[0]))
+                instructions += note
+                if not prompt:
+                    instructions += '\nЕсли для выполнения задачи не хватает контекста, задай один короткий вопрос.'
+            options = {'extra_inputs': inputs} if inputs else {}
             answer = run_codex(self.codex, self.workspace, self.crm, thread, instructions, events,
-                               lambda value: self.set('thread', value), live.feed)
+                               lambda value: self.set('thread', value), live.feed, **options)
             output.write_text(answer, encoding='utf-8')
             status = 'completed'
+        except AttachmentError as error:
+            answer = str(error)
         except Exception as error:
             self.set('halted', '1')
             answer = 'Задача остановилась: ' + type(error).__name__ + '. Повторных действий не выполнял.'

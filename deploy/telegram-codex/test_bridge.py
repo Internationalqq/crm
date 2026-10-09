@@ -6,14 +6,94 @@ from unittest.mock import patch
 import json
 import time
 import sys
+import io
 sys.path.insert(0, str(Path(__file__).parent))
 
 spec = importlib.util.spec_from_file_location('bridge', Path(__file__).with_name('bridge.py'))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+import attachments
 
 
 class AccessTests(unittest.TestCase):
+    def test_work_passes_image_and_caption_to_codex_and_only_sends_result(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.db.execute("INSERT INTO jobs VALUES (22,'Проверь чек','queued',NULL)")
+            bridge.db.execute('INSERT INTO attachments VALUES (?,?)', (22, json.dumps({'kind': 'image', 'file_id': 'image'})))
+            bridge.db.commit()
+            sent = []
+            bridge.api = lambda method, payload: sent.append(payload['text']) or {'message_id': 1}
+            inputs = [{'type': 'localImage', 'path': 'receipt.jpg'}]
+            with patch.object(module, 'prepare', return_value=('Attached receipt', inputs)), patch.object(module, 'run_codex', return_value='Проверено') as runner:
+                bridge.work()
+            self.assertEqual(runner.call_args.kwargs['extra_inputs'], inputs)
+            self.assertIn('Проверь чек', runner.call_args.args[4])
+            self.assertEqual(sent, ['Проверено'])
+            bridge.db.close()
+
+    def test_voice_failure_does_not_disable_text_tasks(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.db.execute("INSERT INTO jobs VALUES (23,'','queued',NULL)")
+            bridge.db.execute('INSERT INTO attachments VALUES (?,?)', (23, json.dumps({'kind': 'voice', 'file_id': 'voice'})))
+            bridge.db.commit()
+            bridge.api = lambda method, payload: {'message_id': 1}
+            with patch.object(module, 'prepare', side_effect=module.AttachmentError('Mac unavailable')):
+                bridge.work()
+            self.assertIsNone(bridge.get('halted'))
+            self.assertEqual(bridge.db.execute('SELECT status FROM jobs').fetchone()[0], 'failed')
+            bridge.db.close()
+
+    def test_attachment_with_caption_is_queued_once_without_ack(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.send = lambda text: self.fail('No receipt acknowledgement expected')
+            update = {'update_id': 10, 'message': {'caption': 'Что на фото?', 'photo': [{'file_id': 'photo', 'width': 100, 'height': 100}], 'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}}
+            bridge.accept(update); bridge.accept(update)
+            self.assertEqual(bridge.db.execute('SELECT count(*) FROM attachments').fetchone()[0], 1)
+            self.assertEqual(bridge.db.execute('SELECT prompt FROM jobs').fetchone()[0], 'Что на фото?')
+            bridge.db.close()
+
+    def test_unknown_user_attachment_is_not_downloaded_or_queued(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test', encoding='utf-8')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.accept({'update_id': 11, 'message': {'voice': {'file_id': 'voice'}, 'chat': {'type': 'private', 'id': 999}, 'from': {'id': 999}}})
+            self.assertEqual(bridge.db.execute('SELECT count(*) FROM attachments').fetchone()[0], 0)
+            bridge.db.close()
+
+    def test_photo_download_has_fixed_local_name_and_native_image_input(self):
+        with tempfile.TemporaryDirectory() as home:
+            with patch.object(attachments.urllib.request, 'urlopen', return_value=io.BytesIO(b'fake image')):
+                note, inputs = attachments.prepare(lambda *args: {'file_path': 'photos/file.jpg'}, 'secret', home, 12,
+                                                   {'kind': 'image', 'file_id': 'f', 'file_name': '../../photo.jpg'})
+            self.assertEqual(inputs, [{'type': 'localImage', 'path': str(Path(home)/'TelegramInbox/12.jpg')}])
+            self.assertNotIn('secret', note)
+
+    def test_oversized_and_traversal_files_are_refused(self):
+        with tempfile.TemporaryDirectory() as home:
+            with self.assertRaises(attachments.AttachmentError):
+                attachments.download(lambda *args: self.fail('Must reject before API'), 'secret', home, 12,
+                                     {'kind': 'document', 'file_id': 'f', 'file_size': attachments.MAX_BYTES + 1})
+            with self.assertRaises(attachments.AttachmentError):
+                attachments.download(lambda *args: {'file_path': '../secret.txt'}, 'secret', home, 12,
+                                     {'kind': 'document', 'file_id': 'f'})
+
+    def test_voice_transcript_becomes_task_without_public_echo(self):
+        with tempfile.TemporaryDirectory() as home:
+            with patch.object(attachments, 'download', return_value=Path(home)/'12.ogg'), patch.object(attachments, 'transcribe', return_value='Проверь CRM'):
+                note, inputs = attachments.prepare(None, None, home, 12, {'kind': 'voice'})
+            self.assertIn('Проверь CRM', note)
+            self.assertEqual(inputs, [])
+
     def test_live_text_edits_one_message_then_replaces_with_summary(self):
         calls = []
         clock = [10]
