@@ -5,8 +5,11 @@ from pathlib import Path
 import secrets
 import sqlite3
 import time
+import sys
 import urllib.error
 import urllib.request
+# Bundled Python enables safe_path; load only our explicitly installed sibling module.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from streaming import LiveReply, run_codex
 
 
