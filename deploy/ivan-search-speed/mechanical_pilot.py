@@ -75,6 +75,17 @@ def translation_close(elements):
     return buttons[0]['index']
 
 
+def notification_close(elements):
+    windows=[e for e in elements if e['role']=='AXWindow']
+    if len(windows)!=1 or not re.fullmatch(r'Сайт [\w.-]+ запрашивает следующее разрешение: Показ уведомлений',windows[0]['label']):return None
+    if {e['label'] for e in elements if e['role']=='AXButton'}!={'Закрыть','Блокировать','Разрешить'}:return None
+    buttons=[e for e in elements if e['role']=='AXButton' and e['label']=='Закрыть']
+    if len(buttons)!=1:return None
+    x,y,w,h=windows[0].get('bounds',[0,0,0,0]);bx,by,bw,bh=buttons[0].get('bounds',[0,0,0,0])
+    if min(w,h,bw,bh)<=0 or not (x<=bx and y<=by and bx+bw<=x+w and by+bh<=y+h):return None
+    return buttons[0]['index']
+
+
 def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=time.sleep):
     deadline=clock()+timeout
     while True:
@@ -106,20 +117,70 @@ def cleanup_targets(base):
     return targets
 
 
+def with_native_field_values(elements,native):
+    fields={(e.get('element_index'),e.get('role'),e.get('label')):e for e in native}
+    result=[{**e,'value':fields.get((e.get('index'),e.get('role'),e.get('label')),{}).get('value')}
+            if e.get('role') in ('AXTextField','AXTextArea') else e for e in elements]
+    seen={(e.get('index'),e.get('role'),e.get('label')) for e in elements}
+    result += [{**e,'index':e['element_index']} for e in native
+               if e.get('role') in ('AXTextField','AXTextArea','AXDialog','AXSheet','AXHeading','AXStaticText')
+               and (e.get('element_index'),e.get('role'),e.get('label')) not in seen]
+    return result
+
+
+def cleanup_scan_args(name,args):
+    if name=='get_window_state' and 'max_depth' not in args:
+        return {**args,'max_depth':12,'max_elements':3000}
+    return args
+
+
+def verified_closed_tabs(before,title,snapshot):
+    # AX tab strip can lag content once; verify again without another close action.
+    for _ in range(2):
+        tabs=snapshot()
+        if len(tabs)==before-1 and not any(e.get('label')==title for e in tabs):return tabs
+    raise RuntimeError('Tab close not confirmed')
+
+
+def native_browser_tabs(elements):
+    windows={e.get('element_index') for e in elements if e.get('role')=='AXWindow' and e.get('label','').endswith(' - Google Chrome')}
+    tabs=[e for e in elements if e.get('role')=='AXRadioButton' and e.get('parent_index') in windows
+          and e.get('depth')==2 and not e.get('in_web_content')]
+    if not tabs:raise RuntimeError('Native Chrome tab inventory unavailable; cleanup not confirmed')
+    return tabs
+
+
+def cleanup_candidates(tabs,targets,preserved):
+    return [e for e in tabs if e.get('label') in targets
+            and sum(t.get('label')==e.get('label') for t in tabs)==1 and not e.get('pinned')
+            and not any(x in json.dumps(e.get('attributes',{}),ensure_ascii=False).lower() for x in ['pinned','закреп'])
+            and e.get('label') not in preserved]
+
+
 def close_is_safe(title,address,elements,targets):
     from urllib.parse import urlsplit,parse_qs
-    if any(e.get('role') in ('AXDialog','AXSheet','AXTextArea') for e in elements):return False
+    u=urlsplit(address);wanted=targets.get(title,set())
+    owned_search=u.hostname in ('www.google.com','google.com') and u.path=='/search' and any('query:'+q in wanted for q in parse_qs(u.query).get('q',[]))
+    if any(e.get('role') in ('AXDialog','AXSheet') for e in elements):return False
+    for e in elements:
+        if e.get('role')=='AXTextArea':
+            value=e.get('value')
+            empty_next_question=e.get('label')=='Задайте вопрос' and value in ('','Задайте вопрос')
+            saved_query=e.get('label') in ('Поиск','Найти') and 'query:'+str(value) in wanted
+            if not owned_search or not (empty_next_question or saved_query):return False
     for e in elements:
         if e.get('role')=='AXTextField' and 'Адресная' not in e.get('label',''):
             value=e.get('value',e.get('attributes',{}).get('value'))
-            if value is None or str(value).strip():return False
-    u=urlsplit(address)
+            # Chrome AX reports these observed empty catalogue search placeholders as values.
+            search_placeholder=e.get('label') in ('Поиск','Поиск по сайту','Поиск товаров',
+                'Введите название, категорию или артикул','600+ брендов, 70 000 позиций') and value==e.get('label')
+            saved_query=owned_search and e.get('label') in ('Поиск','Найти') and 'query:'+str(value) in wanted
+            if value is None or (str(value).strip() and not search_placeholder and not saved_query):return False
     if re.search(r'captcha|/login|/signin|/auth',address,re.I):return False
     text='\n'.join(e.get('label','') for e in elements if e.get('role') in ('AXHeading','AXStaticText'))
-    if re.search(r'подтвердите[\s\S]{0,80}(?:человек|робот)|unusual traffic|Access Denied|403 Forbidden',text,re.I):return False
-    wanted=targets.get(title,set())
+    if re.search(r'подтвердите[\s\S]{0,80}(?:человек|робот)|unusual traffic|Access Denied|401 Unauthorized|403 Forbidden|ERR_CERT_|ERR_SSL_|доступ ограничен',text,re.I):return False
     if primary_url(address) and address in wanted:return True
-    return u.hostname in ('www.google.com','google.com') and u.path=='/search' and any('query:'+q in wanted for q in parse_qs(u.query).get('q',[]))
+    return owned_search
 
 
 def observed_link(elements, label):
@@ -198,9 +259,11 @@ def main():
             save(out/f'{run_tag}-{serial}-ax.json', {'title': c.window_title, 'elements': es, 'at': time.time()})
             (out/f'{run_tag}-{serial}.png').write_bytes(base64.b64decode(c.png_b64))
             close=translation_close(es)
+            action='close_observed_translation_popup'
+            if close is None:close=notification_close(es);action='dismiss_observed_notification_request'
             if close is None:return c,es
-            if attempt:raise RuntimeError('Observed Chrome translation popup did not close')
-            timed('close_observed_translation_popup',lambda:b.click(element=close))
+            if attempt:raise RuntimeError('Observed Chrome popup did not close')
+            timed(action,lambda:b.click(element=close))
 
     def key(keys):
         timed(keys, lambda: b.key(keys))
@@ -252,39 +315,58 @@ def main():
         raw=timed('cleanup_tab_snapshot',lambda:b.call_tool('get_window_state',{'pid':b._active_pid,'window_id':b._active_window_id,'max_depth':25,'max_elements':15000,'include_screenshot':False}))
         native=(raw.get('structuredContent') or {}).get('elements') or []
         b._snapshot_tokens={e['element_index']:e['element_token'] for e in native if e.get('element_token')}
-        return [e for e in native if e['role']=='AXRadioButton']
+        return native_browser_tabs(native)
+
+    def cleanup_fields(es):
+        raw=timed('cleanup_field_values',lambda:b.call_tool('get_window_state',{'pid':b._active_pid,'window_id':b._active_window_id,'max_depth':25,'max_elements':15000,'include_screenshot':False}))
+        native=(raw.get('structuredContent') or {}).get('elements') or []
+        if not native:raise RuntimeError('Native cleanup field inventory unavailable')
+        return with_native_field_values(es,native)
 
     def close_saved_source(record):
         title=record['title'].removesuffix(' - Google Chrome')
         tabs=tabs_snapshot();same=[t for t in tabs if t.get('label')==title]
-        if len(tabs)<=1 or len(same)!=1 or any(x in json.dumps(same[0],ensure_ascii=False).lower() for x in ['pinned','закреп']):return False
-        c,es=capture();address=url();c,es=capture()
+        if len(tabs)<=1 or len(same)!=1 or same[0].get('pinned') or any(x in json.dumps(same[0].get('attributes',{}),ensure_ascii=False).lower() for x in ['pinned','закреп']):return False
+        c,es=capture();address=url();c,es=capture();es=cleanup_fields(es)
         if c.window_title.removesuffix(' - Google Chrome')!=title or not close_is_safe(title,address,es,{title:{record['url']}}):return False
         audit_path=out/'tab-cleanup.json';audit=json.loads(audit_path.read_text()) if audit_path.exists() else {'closed':[]}
         audit['closing']={'title':title,'url':address,'reason':'Own source read and saved; no unfinished form'};save(audit_path,audit)
-        key('cmd+w');capture();after=tabs_snapshot()
-        if len(after)!=len(tabs)-1:raise RuntimeError('Saved source close not confirmed')
+        key('cmd+w');capture();after=verified_closed_tabs(len(tabs),title,tabs_snapshot)
         audit['closed'].append(audit.pop('closing'));audit['tabs_after']=len(after);save(audit_path,audit);return True
 
     try:
         b.start()
+        if args.mode=='cleanup':
+            session_call=b._session.call_tool
+            b._session.call_tool=lambda name,params,**kw:session_call(name,cleanup_scan_args(name,params),**kw)
         capture()
         if args.mode == 'cleanup':
-            targets=cleanup_targets(BASE);audit={'closed':[],'preserved':[],'started_at':time.time()}
-            tabs=tabs_snapshot();audit['tabs_before']=len(tabs)
+            targets=cleanup_targets(BASE);audit_path=out/'tab-cleanup.json'
+            audit=json.loads(audit_path.read_text()) if audit_path.exists() else {'closed':[],'preserved':[],'started_at':time.time()}
+            tabs=tabs_snapshot();audit.setdefault('tabs_before',len(tabs))
+            if 'closing' in audit:
+                if len(tabs)!=audit.get('tabs_after',audit['tabs_before'])-1 or any(e.get('label')==audit['closing']['title'] for e in tabs):raise RuntimeError('Pending close cannot be verified; no repeated close')
+                audit['closed'].append(audit.pop('closing'));audit['tabs_after']=len(tabs);save(audit_path,audit)
             save(out/'cleanup-inventory.json',{'targets':{k:sorted(v) for k,v in targets.items()},'tabs':tabs})
             if args.cleanup_preview:
                 print(json.dumps({'tabs':len(tabs),'matched':sum(e.get('label') in targets for e in tabs)},ensure_ascii=False));return
+            audit.pop('finished_at',None);audit['resumed_at']=time.time();save(audit_path,audit)
             while len(tabs)>1:
-                eligible=[e for e in tabs if e.get('label') in targets and sum(t.get('label')==e.get('label') for t in tabs)==1 and not any(x in json.dumps(e.get('attributes',{}),ensure_ascii=False).lower() for x in ['pinned','закреп']) and e.get('label') not in audit['preserved']]
+                eligible=cleanup_candidates(tabs,targets,audit['preserved'])
+                if not eligible:
+                    tabs=tabs_snapshot();eligible=cleanup_candidates(tabs,targets,audit['preserved'])
                 if not eligible:break
                 tab=eligible[0];title=tab['label'];timed('select_completed_own_tab',lambda:b.click(element=tab['element_index']))
-                c,es=capture();address=url();c,es=capture()
+                try:
+                    c,es=capture();address=url();c,es=capture();es=cleanup_fields(es)
+                except RuntimeError as exc:
+                    if 'AX tree walk' not in str(exc) or 'timed out' not in str(exc):raise
+                    audit['preserved'].append(title);audit.setdefault('preserved_reasons',{})[title]=str(exc)
+                    save(audit_path,audit);tabs=tabs_snapshot();continue
                 wanted=targets[title]
-                if c.window_title.removesuffix(' - Google Chrome')!=title or not close_is_safe(title,address,es,targets):audit['preserved'].append(title);tabs=tabs_snapshot();continue
+                if c.window_title.removesuffix(' - Google Chrome')!=title or not close_is_safe(title,address,es,targets):audit['preserved'].append(title);save(audit_path,audit);tabs=tabs_snapshot();continue
                 before=len(tabs);audit['closing']={'title':title,'url':address,'reason':'Own captured source/list; reviewed position; saved evidence; no unfinished input'};save(out/'tab-cleanup.json',audit)
-                key('cmd+w');capture();tabs=tabs_snapshot()
-                if len(tabs)!=before-1 or any(e.get('label')==title for e in tabs):raise RuntimeError('Tab close not confirmed')
+                key('cmd+w');capture();tabs=verified_closed_tabs(before,title,tabs_snapshot)
                 audit['closed'].append(audit.pop('closing'));audit['tabs_after']=len(tabs);save(out/'tab-cleanup.json',audit)
                 print(json.dumps({'closed':len(audit['closed']),'remaining':len(tabs),'title':title},ensure_ascii=False),flush=True)
             audit.update(finished_at=time.time(),tabs_after=len(tabs));save(out/'tab-cleanup.json',audit)

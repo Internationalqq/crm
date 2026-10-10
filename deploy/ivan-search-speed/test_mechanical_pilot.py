@@ -11,6 +11,62 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_cleanup_candidates_preserve_duplicates_pinned_and_saved_exclusions(self):
+        tabs=[{'label':'ready','pinned':False},{'label':'duplicate'},{'label':'duplicate'},
+              {'label':'pin','pinned':True},{'label':'form'},{'label':'unknown'}]
+        targets={k:set() for k in ['ready','duplicate','pin','form']}
+        self.assertEqual(pilot.cleanup_candidates(tabs,targets,['form']),[tabs[0]])
+    def test_cleanup_bounded_identity_scan_keeps_explicit_full_field_checks(self):
+        params={'pid':1,'window_id':2}
+        self.assertEqual(pilot.cleanup_scan_args('get_window_state',params),{**params,'max_depth':12,'max_elements':3000})
+        self.assertEqual(params,{'pid':1,'window_id':2})
+        full={**params,'max_depth':25,'max_elements':15000}
+        self.assertIs(pilot.cleanup_scan_args('get_window_state',full),full)
+        self.assertIs(pilot.cleanup_scan_args('click',params),params)
+        native=[{'element_index':98,'role':'AXTextArea','label':'draft','value':'unfinished'}]
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',pilot.with_native_field_values([],native),{'Product':{'https://shop.ru/product'}}))
+    def test_tab_count_ignores_product_radios_and_unknown_popovers(self):
+        window={'element_index':0,'role':'AXWindow','label':'Product - Google Chrome'}
+        tab={'element_index':310,'role':'AXRadioButton','parent_index':0,'depth':2,'label':'Saved source'}
+        page={'element_index':90,'role':'AXRadioButton','parent_index':7,'depth':4,'in_web_content':True,'label':'Blue'}
+        self.assertEqual(pilot.native_browser_tabs([window,tab,page]),[tab])
+        with self.assertRaises(RuntimeError):pilot.native_browser_tabs([{**window,'label':'Unknown popup'},tab])
+        self.assertEqual(len(pilot.native_browser_tabs([window,{**tab,'pinned':True}])),1)
+    def test_close_verification_waits_for_stale_strip_but_rejects_missing_proof(self):
+        stale=[{'label':'owned'},{'label':'other'}];fresh=[{'label':'other'}]
+        captures=iter([stale,fresh])
+        self.assertEqual(pilot.verified_closed_tabs(2,'owned',lambda:next(captures)),fresh)
+        for wrong in [stale,[{'label':'owned'}],[]]:
+            with self.assertRaises(RuntimeError):pilot.verified_closed_tabs(2,'owned',lambda:wrong)
+    def test_completed_google_query_can_close_but_next_question_draft_cannot(self):
+        targets={'Search':{'query:exact'}}
+        elements=[{'role':'AXTextField','label':'Поиск','value':'exact'},
+                  {'role':'AXTextArea','label':'Задайте вопрос','value':'Задайте вопрос'}]
+        self.assertTrue(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',elements,targets))
+        for value in [None,'new question draft']:
+            self.assertFalse(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',[elements[0],{**elements[1],'value':value}],targets))
+        self.assertFalse(pilot.close_is_safe('Search','https://www.google.com/search?q=other',elements,targets))
+        self.assertFalse(pilot.close_is_safe('Search','https://evilgoogle.com/search?q=exact',elements,targets))
+        self.assertTrue(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',[{'role':'AXTextArea','label':'Найти','value':'exact'}],targets))
+        self.assertFalse(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',[{'role':'AXTextArea','label':'Найти','value':'new query draft'}],targets))
+    def test_notification_dismiss_only_exact_bounded_close_not_permission_choice(self):
+        es=[{'role':'AXWindow','label':'Сайт www.vseinstrumenti.ru запрашивает следующее разрешение: Показ уведомлений','bounds':[121,105,320,178]},
+            {'role':'AXButton','label':'Закрыть','index':2,'bounds':[401,125,24,22]},
+            {'role':'AXButton','label':'Блокировать'},{'role':'AXButton','label':'Разрешить'}]
+        self.assertEqual(pilot.notification_close(es),2)
+        self.assertIsNone(pilot.notification_close([{**es[0],'label':'Вход'},*es[1:]]))
+        self.assertIsNone(pilot.notification_close([es[0],{**es[1],'bounds':[999,125,24,22]},*es[2:]]))
+        self.assertIsNone(pilot.notification_close(es+[es[1]]))
+    def test_cleanup_native_values_keep_unknown_and_filled_forms_protected(self):
+        targets={'Product':{'https://shop.ru/product'}}
+        fields=[{'index':26,'role':'AXTextField','label':'Введите название, категорию или артикул','attributes':{}}]
+        native=[{'element_index':26,'role':'AXTextField','label':fields[0]['label'],'value':fields[0]['label']}]
+        safe=pilot.with_native_field_values(fields,native)
+        self.assertTrue(pilot.close_is_safe('Product','https://shop.ru/product',safe,targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',fields,targets))
+        for changed in [{'value':'draft'},{'element_index':27},{'label':'Other field'}]:
+            self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',pilot.with_native_field_values(fields,[{**native[0],**changed}]),targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXTextField','label':'name','value':'name'}],targets))
     def test_cleanup_inventory_excludes_unfinished_and_blocked_positions(self):
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder);(base/'mechanical-pilot-20261009').mkdir()
@@ -26,6 +82,8 @@ class ExtractionTests(unittest.TestCase):
         self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/other',[],targets))
         self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXTextArea','label':'draft'}],targets))
         self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXHeading','label':'Access Denied'}],targets))
+        for blocked in ['401 Unauthorized','ERR_CERT_AUTHORITY_INVALID','Доступ ограничен']:
+            self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXHeading','label':blocked}],targets))
         self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXTextField','label':'name','value':'John'}],targets))
         self.assertTrue(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',[],{'Search':{'query:exact'}}))
         self.assertFalse(pilot.close_is_safe('Search','https://evilgoogle.com/search?q=exact',[],{'Search':{'query:exact'}}))

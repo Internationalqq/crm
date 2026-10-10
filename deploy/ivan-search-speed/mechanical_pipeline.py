@@ -117,10 +117,10 @@ def review_queue(work,deadline,stop,finished,execute=run_child):
     state.update(status='finished' if finished.is_set() and not stop.is_set() and not pending else 'stopped',finished_at=time.time());save(statepath,state)
 
 
-def produce(work,positions,rows,deadline,stop):
+def produce(work,positions,rows,deadline,stop,max_new_positions=None):
     packets=work/'packets';statepath=work/'producer-state.json'
     ready={i['position'] for f in packets.glob('batch-????.json') for i in json.loads(f.read_text())['items']}
-    number=max([int(f.stem.split('-')[1]) for f in packets.glob('batch-????.json')]+[0]);batch=[]
+    number=max([int(f.stem.split('-')[1]) for f in packets.glob('batch-????.json')]+[0]);batch=[];new_positions=0
     state={'status':'running','collected_positions':len(ready),'total':len(positions),'pid':os.getpid()}
     def flush():
         nonlocal number,batch
@@ -129,6 +129,7 @@ def produce(work,positions,rows,deadline,stop):
     try:
         for n in positions:
             if n in ready:continue
+            if max_new_positions is not None and new_positions>=max_new_positions:break
             if (work/'stop-request').exists():stop.set()
             if stop.is_set() or time.time()>deadline-60:break
             raw=work/'raw'/str(n);raw.mkdir(parents=True,exist_ok=True)
@@ -159,7 +160,7 @@ def produce(work,positions,rows,deadline,stop):
                     save(marker,{'finished_at':time.time()})
                 if stop.is_set() or (work/'stop-request').exists():break
                 save(raw/'collected.json',{'finished_at':time.time(),'position':n})
-            batch.append(packet_item(raw,n,rows[n-1]));state['collected_positions']+=1
+            batch.append(packet_item(raw,n,rows[n-1]));state['collected_positions']+=1;new_positions+=1
             state.update(status='running',finished_at=time.time());save(statepath,state)
             if len(batch)==5:flush()
             stop.wait(2)
@@ -170,8 +171,12 @@ def produce(work,positions,rows,deadline,stop):
 
 
 def main():
+    import argparse
     import fcntl
     global STOP_EVENT
+    parser=argparse.ArgumentParser();parser.add_argument('--max-new-positions',type=int)
+    args=parser.parse_args()
+    if args.max_new_positions is not None and args.max_new_positions<1:parser.error('Position limit must be positive')
     WORK.mkdir(exist_ok=True)
     with (WORK/'pipeline.lock').open('w') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -194,7 +199,7 @@ def main():
                 review_queue(WORK,deadline,stop,finished)
         reviewer=threading.Thread(target=locked_review,name='ivan-review')
         reviewer.start()
-        try:produce(WORK,consent['positions'],source['positions'],deadline,stop)
+        try:produce(WORK,consent['positions'],source['positions'],deadline,stop,args.max_new_positions)
         finally:finished.set();reviewer.join()
 
 

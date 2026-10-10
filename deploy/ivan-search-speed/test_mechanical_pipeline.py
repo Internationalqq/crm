@@ -12,6 +12,23 @@ pipeline=importlib.util.module_from_spec(spec);spec.loader.exec_module(pipeline)
 
 
 class PipelineTests(unittest.TestCase):
+    def test_finite_test_skips_ready_items_preserves_total_and_flushes_for_review(self):
+        class FastStop(threading.Event):
+            def wait(self,timeout=None):return False
+        with tempfile.TemporaryDirectory() as folder:
+            w=Path(folder);(w/'packets').mkdir();rows=[{'position_key':str(n),'name':'item','quantity':'1','unit':'шт'} for n in range(1,9)]
+            pipeline.save(w/'packets/batch-0001.json',{'items':[{'position':1}]})
+            called=[]
+            def collect(command,log,timeout):
+                called.append(int(command[3]));log.write_text('')
+                if command[2] in ('discover','organic'):
+                    pipeline.save(log.parent/('discovery.json' if command[2]=='discover' else 'organic-discovery.json'),{'elements':[]})
+                return 0
+            with patch.object(pipeline,'run_child',collect):pipeline.produce(w,list(range(1,9)),rows,time.time()+120,FastStop(),2)
+            state=json.loads((w/'producer-state.json').read_text())
+            self.assertEqual((state['status'],state['collected_positions'],state['total']),('stopped',3,8))
+            self.assertEqual(set(called),{2,3});self.assertFalse((w/'raw/4').exists())
+            self.assertEqual([i['position'] for i in json.loads((w/'packets/batch-0002.json').read_text())['items']],[2,3])
     def packet(self):
         return {'items':[{'position':1,'position_key':'key','sources':[{'source_id':'ai-source-1.json','status':'read',
             'candidates':[{'price_minor':12345}]}]}]}
