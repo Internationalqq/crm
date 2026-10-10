@@ -208,8 +208,11 @@ def close_is_safe(title,address,elements,targets):
             # Chrome AX reports these observed empty catalogue search placeholders as values.
             search_placeholder=e.get('label') in ('Поиск','Поиск по сайту','Поиск товаров',
                 'Введите название, категорию или артикул','600+ брендов, 70 000 позиций') and value==e.get('label')
+            search_placeholder=search_placeholder or (bool(re.fullmatch(r'Поиск среди [\d\s\u00a0]+ товаров',e.get('label',''))) and value in ('',e.get('label')))
+            catalogue_quantity=e.get('label') in ('1','Количество') and str(value)=='1' and any(
+                x.get('role')=='AXButton' and x.get('label') in ('Добавить в корзину','В корзину') for x in elements)
             saved_query=owned_search and e.get('label') in ('Поиск','Найти') and 'query:'+str(value) in wanted
-            if value is None or (str(value).strip() and not search_placeholder and not saved_query):return False
+            if value is None or (str(value).strip() and not search_placeholder and not saved_query and not catalogue_quantity):return False
     if re.search(r'captcha|/login|/signin|/auth',address,re.I):return False
     text='\n'.join(e.get('label','') for e in elements if e.get('role') in ('AXHeading','AXStaticText'))
     if re.search(r'подтвердите[\s\S]{0,80}(?:человек|робот)|unusual traffic|Access Denied|401 Unauthorized|403 Forbidden|ERR_CERT_|ERR_SSL_|доступ ограничен',text,re.I):return False

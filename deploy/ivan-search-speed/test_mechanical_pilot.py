@@ -134,6 +134,13 @@ class ExtractionTests(unittest.TestCase):
         self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{'role':'AXTextField','label':'name','value':'John'}],targets))
         self.assertTrue(pilot.close_is_safe('Search','https://www.google.com/search?q=exact',[],{'Search':{'query:exact'}}))
         self.assertFalse(pilot.close_is_safe('Search','https://evilgoogle.com/search?q=exact',[],{'Search':{'query:exact'}}))
+    def test_empty_catalogue_search_and_default_cart_quantity_are_not_drafts(self):
+        targets={'Product':{'https://shop.ru/product'}}
+        es=[{'role':'AXTextField','label':'Поиск среди 13\u00a0236\u00a0440 товаров','value':'Поиск среди 13\u00a0236\u00a0440 товаров'},
+            {'role':'AXTextField','label':'1','value':'1'}, {'role':'AXButton','label':'Добавить в корзину'}]
+        self.assertTrue(pilot.close_is_safe('Product','https://shop.ru/product',es,targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[es[0],{**es[1],'value':'5'},es[2]],targets))
+        self.assertFalse(pilot.close_is_safe('Product','https://shop.ru/product',[{**es[0],'value':'typed query'},*es[1:]],targets))
     def test_only_proven_translation_popup_close_is_selected(self):
         elements=[{'role':'AXWindow','label':'Перевести эту страницу?','bounds':[100,100,340,87]},
                   {'role':'AXButton','label':'Параметры перевода'},
