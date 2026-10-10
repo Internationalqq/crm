@@ -1,5 +1,14 @@
 # Проверка рефакторинга CRM
 
+## 10 октября — восстановление истории инвентаря
+
+Точечная миграция на копии production: inventory/balances, invariants4таблиц,
+repeat/reopen PASS. Production backup/integrity/FK; 2needs_review6строк;
+повтор backfill вернул те же4/5, stock/finance/estimate строки неизменны.
+Edge390/768/1280 production: overflow=false/pageerror=[], tools3позиции4шт,
+source открывается, оригиналы и вопросы видны. Field intake + оба warehouse
+frontend PASS; полный suite не запускался. [Доказательства](PROJECT_INVENTORY_BACKFILL_2026-10-10.md).
+
 ## 10 октября — склад объекта и группа Финансиста
 
 Уточнение значка и состояния «На складе»: изолированные 9/27/20/12/11 Python

@@ -2,7 +2,7 @@
     'use strict';
     var P=window.PMBI=window.PMBI || {};
     var esc=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
-    var labels={report:'Дневной отчёт',receipt:'Получено на склад',expected:'Ожидаемая поставка',purchase:'Покупка · ждём доставку'};
+    var labels={report:'Дневной отчёт',receipt:'Получено на склад',expected:'Ожидаемая поставка',purchase:'Покупка'};
     var icons={report:'clipboard-list',receipt:'package-check',expected:'truck',purchase:'shopping-cart'};
     function icon(name){return '<i data-lucide="'+name+'" aria-hidden="true"></i>';}
     var errors={unresolved_questions:'Сначала уточните вопросы к записи.',possible_duplicate_check_required:'Похожая запись уже учтена. Сравните исходники.',revision_conflict:'Запись уже изменена. Обновите список.',location_required:'Укажите место хранения.',project_required:'Выберите объект.',actual_receipt_evidence_required:'Нужна цитата о фактическом получении материалов.',planned_delivery_is_not_stock:'Ожидаемую поставку нельзя провести как приход.',fact_evidence_required:'Цитата должна точно совпадать с исходным сообщением.',material_project_or_unit_mismatch:'Материал или единица не соответствует объекту.',bad_quantity:'Укажите положительное количество.',finance_link_forbidden:'Связь со счётом доступна сотруднику с доступом к финансам.'};
