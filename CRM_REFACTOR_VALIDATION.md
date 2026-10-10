@@ -751,3 +751,5 @@ warehouse_print_frontend_tests.js, warehouse_control_frontend_tests.js, warehous
 Production c42645f: SHA-256 двух assets совпал; API200, ошибок JS нет; размеры 390/768/1280 и повторная печать PASS. PDF7A4: все93названия и повторные заголовки PASS, все страницы просмотрены визуально. Backup warehouse-print-20261010; миграций нет.
 
 Печать без вкладки: warehouse_print (включая lifecycle), warehouse_control, warehouse_submission PASS. 390/768/1280, одна вкладка, повтор, CSS, URL/scroll/focus и обработка ошибки — PASS; afterprint управляемый, системный диалог/принтер не проверены.
+
+Production c5d737a: совпадение assets, рабочий объект10, одна вкладка, три размера, два запуска, управляемый afterprint/ошибка, URL/scroll/focus PASS; ошибок JS нет. Ограничение проверки системного диалога сохраняется.
