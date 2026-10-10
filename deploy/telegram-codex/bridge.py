@@ -15,7 +15,7 @@ from streaming import LiveReply, run_codex
 from attachments import AttachmentError, prepare, select_attachment
 from outgoing import deliver, split_files
 from control import Controls
-from formatting import message_chunks
+from formatting import TELEGRAM_STYLE, message_chunks
 from forwarding import WAIT_SECONDS, entry, is_forward, prompt as batch_prompt
 
 
@@ -215,6 +215,7 @@ class Bridge:
                         'Не считай каждую задачу связанной с CRM и не исследуй её без необходимости. '
                         + ('Проект CRM PM.bi расположен в ' + self.crm + '. Если задача касается CRM, '
                            'сначала прочитай его AGENTS.md и следуй применимым инструкциям. ' if self.crm else '')
+                        + TELEGRAM_STYLE
                         + 'Отвечай кратко по-русски. По ходу работы давай короткие полезные обновления '
                         'обычным языком. В окончательном ответе оставляй краткий результат, проверки '
                         'и существенные ограничения; не повторяй весь ход работы. Не читай токены, '
