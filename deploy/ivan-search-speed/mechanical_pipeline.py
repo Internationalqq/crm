@@ -30,21 +30,23 @@ def packet_item(raw,n,row):
     files+=sorted(raw.glob('organic-source-*.json'))
     for f in files:
         data=json.loads(f.read_text());candidates=[]
-        for i,c in enumerate(data.get('candidates',[])[:24]):
+        for i,c in enumerate(data.get('candidates',[])):
             candidates.append({'candidate_index':i,'price_minor':minor(c['price_rub']),
                 'evidence':c['evidence'][:250],'context':c['context'][:350],
                 'unit':c.get('unit'),'flags':c.get('flags',[])})
         sources.append({'source_id':f.name,'url':data.get('url'),
-            'status':data.get('status','read'),'headings':data.get('headings',[])[:8],
-            'relevant_text':data.get('relevant_text',[])[:35],'candidates':candidates,
+            'status':data.get('status','read'),'headings':data.get('headings',[]),
+            'page_text':data.get('page_text',''),
+            'relevant_text':data.get('relevant_text',[]),'candidates':candidates,
             'note':data.get('note') or data.get('reason') or '',
             'snapshot_file':data.get('snapshot_file')})
-    plan={'ai_requested':5,'organic_requested':3,'source_status_counts':{}}
+    organic=raw/'organic-discovery.json'
+    plan={'ai_requested':5,'organic_requested':json.loads(organic.read_text()).get('organic_requested',3) if organic.exists() else 5,'source_status_counts':{}}
     for s in sources:plan['source_status_counts'][s['status']]=plan['source_status_counts'].get(s['status'],0)+1
     return {'position':n,'position_key':row['position_key'],'name':row['name'],
         'quantity':row['quantity'],'unit':row['unit'],'specification':row.get('specification'),
         'region':'Рыбинск','sources':sources,'source_plan':plan,
-        'candidates_truncated':any(len(json.loads(f.read_text()).get('candidates',[]))>24 for f in files)}
+        'candidates_truncated':False}
 
 
 def validate_review(packet,response):
@@ -117,7 +119,7 @@ def review_queue(work,deadline,stop,finished,execute=run_child):
     state.update(status='finished' if finished.is_set() and not stop.is_set() and not pending else 'stopped',finished_at=time.time());save(statepath,state)
 
 
-def produce(work,positions,rows,deadline,stop,max_new_positions=None):
+def produce(work,positions,rows,deadline,stop,max_new_positions=None,per_position=False):
     packets=work/'packets';statepath=work/'producer-state.json'
     ready={i['position'] for f in packets.glob('batch-????.json') for i in json.loads(f.read_text())['items']}
     number=max([int(f.stem.split('-')[1]) for f in packets.glob('batch-????.json')]+[0]);batch=[];new_positions=0
@@ -127,18 +129,27 @@ def produce(work,positions,rows,deadline,stop,max_new_positions=None):
         if batch:
             number+=1;packet=packets/f'batch-{number:04}.json'
             last=batch[-1]['position'];save(packet,{'created_at':time.time(),'items':batch});batch=[]
-            # Durable evidence lets Ivan review while native cleanup runs.
+            if per_position:
+                review_end=min(deadline,time.time()+900)
+                while not packet.with_suffix('.review.json').exists():
+                    if packet.with_suffix('.failed.json').exists():raise RuntimeError('Position review failed; no next position')
+                    if stop.is_set() or time.time()>=review_end:raise TimeoutError('Position review unfinished; no next position')
+                    stop.wait(1)
+            # Per-position mode waits for the durable review before native cleanup.
             cleanup_at=time.time();cleanup={'started_at':cleanup_at,'position':last}
             try:
                 if stop.is_set() or deadline-time.time()<60:
                     cleanup['status']='deferred'
                 else:
                     log=packet.with_suffix('.cleanup.log')
-                    code=run_child([PYTHON,str(BASE/'mechanical_pilot.py'),'cleanup',str(last),'--pipeline','--cleanup-collected'],log,min(300,deadline-time.time()))
+                    command=[PYTHON,str(BASE/'mechanical_pilot.py'),'cleanup',str(last),'--pipeline','--cleanup-collected']
+                    if per_position:command.append('--cleanup-position')
+                    code=run_child(command,log,min(300,deadline-time.time()))
                     cleanup.update(status='completed' if code==0 and 'waiting_for_browser' not in log.read_text() else 'deferred',exit_code=code)
             except Exception as exc:
                 cleanup.update(status='needs_attention',error=str(exc)[:500])
             cleanup.update(finished_at=time.time());save(packet.with_suffix('.cleanup.json'),cleanup)
+            if per_position and cleanup['status']!='completed':raise RuntimeError('Position cleanup unfinished; no next position')
     try:
         for n in positions:
             if n in ready:continue
@@ -175,7 +186,7 @@ def produce(work,positions,rows,deadline,stop,max_new_positions=None):
                 save(raw/'collected.json',{'finished_at':time.time(),'position':n})
             batch.append(packet_item(raw,n,rows[n-1]));state['collected_positions']+=1;new_positions+=1
             state.update(status='running',finished_at=time.time());save(statepath,state)
-            if len(batch)==5:flush()
+            if len(batch)==(1 if per_position else 5):flush()
             stop.wait(2)
         flush()
         state.update(status='finished' if state['collected_positions']==len(positions) else 'stopped',finished_at=time.time());save(statepath,state)
@@ -212,7 +223,7 @@ def main():
                 review_queue(WORK,deadline,stop,finished)
         reviewer=threading.Thread(target=locked_review,name='ivan-review')
         reviewer.start()
-        try:produce(WORK,consent['positions'],source['positions'],deadline,stop,args.max_new_positions)
+        try:produce(WORK,consent['positions'],source['positions'],deadline,stop,args.max_new_positions,per_position=True)
         finally:finished.set();reviewer.join()
 
 

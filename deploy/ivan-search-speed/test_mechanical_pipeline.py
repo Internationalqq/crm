@@ -12,6 +12,41 @@ pipeline=importlib.util.module_from_spec(spec);spec.loader.exec_module(pipeline)
 
 
 class PipelineTests(unittest.TestCase):
+    def test_per_position_waits_for_review_and_stops_after_cleanup_failure(self):
+        class FastStop(threading.Event):
+            def wait(self,timeout=None):return False
+        with tempfile.TemporaryDirectory() as folder:
+            w=Path(folder);(w/'packets').mkdir();rows=[]
+            for n in [1,2]:
+                raw=w/'raw'/str(n);raw.mkdir(parents=True)
+                pipeline.save(raw/'collected.json',{'position':n})
+                rows.append({'position_key':str(n),'name':'item','quantity':'1','unit':'шт'})
+            original=pipeline.save;calls=[]
+            def reviewed_save(path,value):
+                original(path,value)
+                if path.parent==w/'packets' and path.suffix=='.json' and 'items' in value:
+                    original(path.with_suffix('.review.json'),{'items':value['items']})
+            def cleanup(command,log,timeout):
+                self.assertTrue((w/'packets/batch-0001.review.json').exists())
+                self.assertIn('--cleanup-position',command);calls.append(command)
+                raise TimeoutError('AX timeout')
+            with patch.object(pipeline,'save',reviewed_save),patch.object(pipeline,'run_child',cleanup):
+                pipeline.produce(w,[1,2],rows,time.time()+120,FastStop(),2,per_position=True)
+            self.assertEqual(len(calls),1)
+            self.assertFalse((w/'packets/batch-0002.json').exists())
+            self.assertEqual(json.loads((w/'producer-state.json').read_text())['status'],'needs_attention')
+
+    def test_packet_keeps_all_saved_candidates_and_text(self):
+        with tempfile.TemporaryDirectory() as folder:
+            raw=Path(folder)
+            offers=[{'price_rub':i+1,'evidence':'price','context':'work'} for i in range(30)]
+            pipeline.save(raw/'ai-source-1.json',{'candidates':offers,'page_text':'complete captured text'})
+            pipeline.save(raw/'organic-discovery.json',{'organic_requested':5})
+            item=pipeline.packet_item(raw,1,{'position_key':'k','name':'item','quantity':1,'unit':'шт'})
+            self.assertEqual(len(item['sources'][0]['candidates']),30)
+            self.assertEqual(item['sources'][0]['page_text'],'complete captured text')
+            self.assertEqual(item['source_plan']['organic_requested'],5)
+            self.assertFalse(item['candidates_truncated'])
     def test_packet_is_durable_before_cleanup_and_cleanup_failure_preserves_collection(self):
         class FastStop(threading.Event):
             def wait(self,timeout=None):return False

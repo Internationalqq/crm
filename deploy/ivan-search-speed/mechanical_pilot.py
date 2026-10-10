@@ -62,7 +62,7 @@ def extract(elements):
             candidates.append({'price_rub': amount, 'evidence': line,
                                'context': nearby, 'unit': 'шт' if re.search(r'(?:за|/)\s*шт\.?', nearby, re.I) else None,
                                'flags':flags,'status': 'unreviewed_candidate'})
-    return {'candidates': candidates, 'headings': [e['label'] for e in elements if e.get('role') == 'AXHeading'],
+    return {'candidates': candidates, 'page_text':'\n'.join(lines), 'headings': [e['label'] for e in elements if e.get('role') == 'AXHeading'],
             'relevant_text': [line for line in lines if re.search(r'артикул|модель|ндс|налич|под заказ|цена|руб|₽|БОН|TRASSIR|DuoStation', line, re.I)][:90]}
 
 
@@ -116,7 +116,7 @@ def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=t
         sleep(.5)
 
 
-def cleanup_targets(base,collected=False):
+def cleanup_targets(base,collected=False,position=None):
     targets={}
     work=base/'mechanical-pipeline-20261009'
     done={i['position'] for f in (work/'packets').glob('batch-????.review.json') for i in json.loads(f.read_text())['items']}
@@ -128,6 +128,7 @@ def cleanup_targets(base,collected=False):
         for folder in root.iterdir():
             if not folder.is_dir() or not folder.name.isdigit():continue
             n=int(folder.name)
+            if position is not None and n!=position:continue
             if (root==work/'raw' and n not in done) or (root!=work/'raw' and n not in range(66,73)):continue
             for f in folder.glob('*source-*.json'):
                 d=json.loads(f.read_text())
@@ -155,7 +156,7 @@ def with_native_field_values(elements,native):
 
 def cleanup_scan_args(name,args):
     if name=='get_window_state' and 'max_depth' not in args:
-        return {**args,'max_depth':12,'max_elements':3000}
+        return {**args,'max_depth':3,'max_elements':3000}
     return args
 
 
@@ -231,6 +232,7 @@ def main():
     p.add_argument('mode', choices=['discover', 'organic', 'read','review','cleanup'])
     p.add_argument('--cleanup-preview',action='store_true')
     p.add_argument('--cleanup-collected',action='store_true')
+    p.add_argument('--cleanup-position',action='store_true')
     p.add_argument('position', type=int, choices=range(1,214))
     p.add_argument('--pipeline', action='store_true')
     p.add_argument('--labels', nargs='*', default=[])
@@ -348,7 +350,7 @@ def main():
 
     def tabs_snapshot():
         capture()
-        raw=timed('cleanup_tab_snapshot',lambda:b.call_tool('get_window_state',{'pid':b._active_pid,'window_id':b._active_window_id,'max_depth':25,'max_elements':15000,'include_screenshot':False}))
+        raw=timed('cleanup_tab_snapshot',lambda:b.call_tool('get_window_state',{'pid':b._active_pid,'window_id':b._active_window_id,'max_depth':3,'max_elements':15000,'include_screenshot':False}))
         native=(raw.get('structuredContent') or {}).get('elements') or []
         b._snapshot_tokens={e['element_index']:e['element_token'] for e in native if e.get('element_token')}
         return native_browser_tabs(native)
@@ -378,7 +380,7 @@ def main():
         capture()
         if args.mode == 'cleanup':
             assert not args.cleanup_collected or args.pipeline, 'Collected cleanup requires existing pipeline consent'
-            targets=cleanup_targets(BASE,args.cleanup_collected);audit_path=out/'tab-cleanup.json'
+            targets=cleanup_targets(BASE,args.cleanup_collected,args.position if args.cleanup_position else None);audit_path=out/'tab-cleanup.json'
             audit=json.loads(audit_path.read_text()) if audit_path.exists() else {'closed':[],'preserved':[],'started_at':time.time()}
             tabs=tabs_snapshot();audit.setdefault('tabs_before',len(tabs))
             if 'closing' in audit:
@@ -449,7 +451,7 @@ def main():
                 m=re.search(r'https://([^\s/›]+)',link['label'])
                 if m and m.group(1).removeprefix('www.') not in domains:
                     domains.add(m.group(1).removeprefix('www.'));distinct.append(link)
-            save(discovery_file,{'query':query,'title':c.window_title,'links':distinct[:3],'elements':es})
+            save(discovery_file,{'query':query,'title':c.window_title,'links':distinct[:5],'elements':es,'organic_requested':5})
             print(json.dumps({'position':args.position,'organic_links':[(e['index'],e['label']) for e in links],
                               'headings':[(e['index'],e['label']) for e in headings]},ensure_ascii=False))
         elif args.mode == 'discover':

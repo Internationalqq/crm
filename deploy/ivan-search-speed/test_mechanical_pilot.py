@@ -63,7 +63,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(pilot.cleanup_candidates(tabs,targets,['form']),[tabs[0]])
     def test_cleanup_bounded_identity_scan_keeps_explicit_full_field_checks(self):
         params={'pid':1,'window_id':2}
-        self.assertEqual(pilot.cleanup_scan_args('get_window_state',params),{**params,'max_depth':12,'max_elements':3000})
+        self.assertEqual(pilot.cleanup_scan_args('get_window_state',params),{**params,'max_depth':3,'max_elements':3000})
         self.assertEqual(params,{'pid':1,'window_id':2})
         full={**params,'max_depth':25,'max_elements':15000}
         self.assertIs(pilot.cleanup_scan_args('get_window_state',full),full)
@@ -121,6 +121,8 @@ class ExtractionTests(unittest.TestCase):
                 raw=work/'raw'/str(n);raw.mkdir(parents=True)
                 (raw/'ai-source-1.json').write_text(json.dumps({'status':status,'title':'Product'+str(n)+' - Google Chrome','url':'https://shop.ru/'+str(n)}))
             self.assertEqual(pilot.cleanup_targets(base),{'Product77':{'https://shop.ru/77'}})
+            self.assertEqual(pilot.cleanup_targets(base,position=78),{})
+            self.assertEqual(pilot.cleanup_targets(base,position=77),{'Product77':{'https://shop.ru/77'}})
     def test_cleanup_only_saved_url_without_challenge_or_unfinished_form(self):
         targets={'Product':{'https://shop.ru/product'}}
         self.assertTrue(pilot.close_is_safe('Product','https://shop.ru/product',[],targets))
