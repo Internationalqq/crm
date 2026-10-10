@@ -1508,8 +1508,44 @@ body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-m
 }
 
 body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-main {
-    display: block;
+    display: grid;
+    grid-template-columns: minmax(230px, .65fr) minmax(0, 1.65fr);
+    gap: 24px;
+    align-items: start;
     width: 100%;
+}
+
+.project-inventory-column { min-width: 0; }
+.project-inventory-materials { container: inventory-materials / inline-size; }
+.project-inventory-heading { display: flex; align-items: center; gap: 8px; padding: 14px 8px 8px; }
+.project-inventory-heading h3 { margin: 0; font-size: 16px; }
+.project-inventory-heading svg { width: 18px; height: 18px; color: var(--color-accent); }
+.project-inventory-hint { margin: 0 8px 12px; color: var(--color-text-secondary); font-size: 12px; }
+.project-inventory-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 16px 8px; border-bottom: 1px solid var(--color-border); }
+.project-inventory-item > div:first-child { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.project-inventory-item strong { overflow-wrap: anywhere; font-size: 14px; }
+.project-inventory-item > b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.project-inventory-item .badge { white-space: normal; }
+.project-inventory-item > button, .project-inventory-item > small, .project-inventory-source { grid-column: 1 / -1; justify-self: start; }
+.project-inventory-item > small { color: var(--color-text-secondary); }
+.project-inventory-source { width: 100%; overflow-wrap: anywhere; }
+.project-inventory-source[hidden] { display: none; }
+.project-inventory-empty { padding: 24px 8px; display: grid; justify-items: start; gap: 12px; font-size: 13px; }
+.project-inventory-empty > svg { width: 28px; height: 28px; color: var(--color-text-secondary); }
+.project-inventory-empty p { margin: 0; color: var(--color-text-secondary); line-height: 1.6; }
+
+@media (max-width: 900px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-main { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+}
+
+@container inventory-materials (max-width: 760px) {
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-register-head { display: none; }
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-card { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px 8px; }
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-select,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-title,
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-status { grid-column: 1 / -1; }
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-material-cell > span { display: block; font-size: 11px; }
+    body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-tools { grid-template-columns: minmax(0, 1fr); }
 }
 
 body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-stock-card {

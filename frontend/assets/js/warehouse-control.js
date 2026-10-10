@@ -318,7 +318,7 @@
     }
 
     function materialsTable(payload) {
-        if (!(payload.materials || []).length) return '<section class="warehouse-control-card"><div class="warehouse-control-empty"><i data-lucide="package-open"></i><b>Материалов пока нет</b><span>Они появятся здесь после добавления в смету объекта.</span></div></section>';
+        if (!(payload.materials || []).length) return '<section class="warehouse-control-card"><div class="warehouse-control-empty"><i data-lucide="package-open"></i><b>Позиций в смете пока нет</b><span>Приходы из Telegram показаны выше. План закупки появится после добавления материалов в смету объекта.</span></div></section>';
         var sources = groupedMaterials(payload.materials);
         var rowIndex = 0;
         var groupedRows = sources.map(function (source) {
@@ -425,16 +425,35 @@
     }
 
     function render(payload) {
+        var materials = Object.assign({}, payload, {materials: (payload.materials || []).filter(function (i) { return i.itemKind !== 'tool'; })});
         return '<section class="warehouse-control-workspace">' +
-            '<div class="warehouse-control-head"><div><h3>Материалы</h3><p>Нужно, заказано, привезено, потрачено и остаток — в одном реестре.</p></div>' + controlActions(payload) + '</div>' +
+            '<div class="warehouse-control-head"><div><h3>Склад объекта</h3><p>Инструменты и материалы · покупка отдельно от доставки.</p></div>' + controlActions(materials) + '</div>' +
             inventorySummary(payload) +
-            '<div class="warehouse-control-main">' + materialsTable(payload) + '</div>' +
-            controlDialog('movement', 'Новая операция', 'Заказ, приход или расход материала.', stockMovementForm(payload), false) +
+            '<div class="warehouse-control-main"><section class="project-inventory-column"><header class="project-inventory-heading"><i data-lucide="wrench"></i><h3>Инструменты</h3></header><p class="project-inventory-hint">Что есть на объекте и что ещё ждём.</p>' + toolsInventory(payload) + '</section>' +
+            '<section class="project-inventory-column project-inventory-materials"><header class="project-inventory-heading"><i data-lucide="package"></i><h3>Материалы</h3></header>' + incomingInventory(payload, 'material') + materialsTable(materials) + '</section></div>' +
+            controlDialog('movement', 'Новая операция', 'Заказ, приход или расход материала.', stockMovementForm(materials), false) +
             controlDialog('work-fact', 'Выполненная работа', 'Укажите объём — связанные материалы спишутся автоматически.', factForm(payload), false) +
-            controlDialog('norms', 'Нормы списания', 'Свяжите работу с материалом и задайте расход на единицу.', normSetup(payload), true) +
+            controlDialog('norms', 'Нормы списания', 'Свяжите работу с материалом и задайте расход на единицу.', normSetup(materials), true) +
             controlDialog('correction', 'Исправить количество', 'Отмените ошибочную ручную запись — итог и остаток пересчитаются автоматически.', '<div data-stock-correction-body></div>', false) +
             controlDialog('history', 'История', 'Все движения материалов и выполненные работы.', movementHistory(payload) + factsHistory(payload), true) +
         '</section>';
+    }
+
+    function incomingInventory(payload, kind) {
+        var labels = {on_site: 'На объекте', purchased: 'Куплено · ждём доставку', expected: 'Ожидаем поставку'};
+        return (payload.inventory || []).filter(function (i) { return i.itemKind === kind; }).map(function (item) {
+            return '<article class="project-inventory-item"><div><strong>' + escapeHtml(item.title) + '</strong><span class="badge ' + (item.status === 'on_site' ? 'success' : '') + '">' + labels[item.status] + '</span></div><b>' + escapeHtml(quantity(item.quantity) + ' ' + item.unit) + '</b>' +
+                '<button type="button" class="ghost compact" aria-expanded="false" data-inventory-source="' + escapeHtml(item.eventId) + '"><i data-lucide="message-square"></i>Из Telegram</button></article>';
+        }).join('');
+    }
+
+    function toolsInventory(payload) {
+        var tools = (payload.materials || []).filter(function (i) { return i.itemKind === 'tool'; });
+        var html = incomingInventory(payload, 'tool');
+        html += tools.map(function (item) {
+            return '<article class="project-inventory-item"><div><strong>' + escapeHtml(item.title) + '</strong><span class="badge ' + (item.stockBalanceQty > 0 ? 'success' : '') + '">' + (item.stockBalanceQty > 0 ? 'На объекте' : 'Нет на объекте') + '</span></div><b>' + escapeHtml(quantity(item.stockBalanceQty) + ' ' + item.unit) + '</b><small>Передано со склада / учёт объекта</small></article>';
+        }).join('');
+        return html || '<div class="project-inventory-empty"><i data-lucide="wrench"></i><b>Инструментов пока нет</b><p>Напишите финансисту в Telegram название, количество и объект. Укажите: купили или уже привезли.</p><a class="ghost compact" href="/app/warehouse">Передать со склада компании</a></div>';
     }
 
     function syncProjectMaterials(projectId, payload) {
@@ -494,12 +513,28 @@
         if (!panel || !state.selectedProject || Number(state.selectedProject.id) !== Number(projectId)) return;
         removeDialogPortal();
         safeReplaceChildren(panel, render(payload));
-        if (PMBI.fieldIntake) PMBI.fieldIntake.append(panel, payload.projectId || state.selectedProjectId, 'stock');
+        if (PMBI.fieldIntake) PMBI.fieldIntake.append(panel, payload.projectId || state.selectedProjectId, 'deliveries');
         bindPanel(panel, projectId, payload);
         refreshLucideIcons(panel);
     }
 
     function bindPanel(panel, projectId, payload) {
+        qsa('[data-inventory-source]', panel).forEach(function (button) {
+            button.addEventListener('click', async function () {
+                var existing = button.parentElement.querySelector('.project-inventory-source');
+                if (existing) { existing.hidden = !existing.hidden; button.setAttribute('aria-expanded', String(!existing.hidden)); return; }
+                button.disabled = true;
+                try {
+                    var item = await api('/api/field-intake/' + button.dataset.inventorySource);
+                    var body = (item.item.sources || []).map(function (source) {
+                        return '<div class="field-source"><b>' + escapeHtml(source.sender_name || 'Участник') + '</b><p>' + escapeHtml(source.text || source.transcript) + '</p>' + (source.media || []).map(function (file) { return '<a target="_blank" rel="noopener" href="' + escapeHtml(file.view_url) + '">' + escapeHtml(file.name) + '</a>'; }).join(' ') + '</div>';
+                    }).join('');
+                    button.insertAdjacentHTML('afterend', '<div class="project-inventory-source">' + body + '</div>');
+                    button.setAttribute('aria-expanded', 'true');
+                } catch (error) { showAppNotice('Не удалось открыть исходное сообщение.', 'error'); }
+                finally { button.disabled = false; }
+            });
+        });
         var dialogReturnFocus = null;
         var dialogNodes = qsa('[data-warehouse-dialog]', panel);
         var dialogByName = {};
@@ -563,7 +598,7 @@
         var refresh = qs('[data-warehouse-control-refresh]', panel);
         if (refresh) refresh.onclick = function () { load(projectId, true); };
 
-        var materials = payload.materials || [];
+        var materials = (payload.materials || []).filter(function (item) { return item.itemKind !== 'tool'; });
         var inventorySearch = qs('[data-warehouse-material-filter]', panel);
         var activeInventoryFilter = 'all';
         function filterInventory() {

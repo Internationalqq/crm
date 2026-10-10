@@ -19,6 +19,10 @@ def config():
     except (ValueError,OSError):return {}
 
 
+def groups(cfg):
+    return {str(g) for g in [cfg.get('group_id'), *cfg.get('group_ids', [])] if g}
+
+
 def folder():
     p=PROFILE/'workspace/daily-reports/crm-outbox';p.mkdir(parents=True,exist_ok=True);return p
 
@@ -38,7 +42,7 @@ def db():
 
 def api(path,data=None):
     cfg=config()
-    if not cfg.get('group_id'):raise ValueError('group_not_connected')
+    if not groups(cfg):raise ValueError('group_not_connected')
     if cfg.get('relay_url')!='http://127.0.0.1:18878/':raise ValueError('unexpected_relay')
     req=urllib.request.Request(cfg['relay_url'],data=json.dumps({'namespace':'field','path':path,'data':data,'token':cfg['token']}).encode(),headers={'Content-Type':'application/json'})
     with urllib.request.urlopen(req,timeout=30) as r:value=json.load(r)
@@ -51,7 +55,7 @@ def api(path,data=None):
 
 
 def flush():
-    if not config().get('group_id') or not LOCK.acquire(False):return
+    if not groups(config()) or not LOCK.acquire(False):return
     try:
         with db() as con:
             for row in con.execute("SELECT * FROM sources WHERE crm_id IS NULL AND (error IS NULL OR error NOT LIKE 'HTTP4%') ORDER BY updated_at LIMIT 20").fetchall():
@@ -103,14 +107,14 @@ def enqueue(args):
     with db() as con:
         r=con.execute('SELECT * FROM sources WHERE source=?',(source,)).fetchone()
         if not r:raise ValueError('unknown_source')
-        if json.loads(r['payload'])['chat_id']!=str(config().get('group_id')):raise ValueError('wrong_group')
+        if json.loads(r['payload'])['chat_id'] not in groups(config()):raise ValueError('wrong_group')
         con.execute('INSERT INTO operations(source,op_key,payload,generation) VALUES(?,?,?,1) ON CONFLICT(source,op_key) DO UPDATE SET payload=excluded.payload,generation=operations.generation+1,synced=0,error=NULL,result=NULL',(source,key,json.dumps(payload,ensure_ascii=False)));con.commit()
     WAKE.set();return {'status':'queued','source':source,'operation':key,'instruction':'Check status. queued is not CRM completion. HTTP409 requires get/refetch and clarification, never blind retry.'}
 
 
 def capture(event=None,**kwargs):
-    cfg=config();source=getattr(event,'source',None);group=str(cfg.get('group_id') or '')
-    if not group or Path(os.environ.get('HERMES_HOME',''))!=PROFILE or getattr(getattr(source,'platform',None),'value',None)!='telegram' or str(getattr(source,'chat_id',''))!=group or getattr(event,'internal',False):return None
+    cfg=config();source=getattr(event,'source',None);group=str(getattr(source,'chat_id',''))
+    if group not in groups(cfg) or Path(os.environ.get('HERMES_HOME',''))!=PROFILE or getattr(getattr(source,'platform',None),'value',None)!='telegram' or getattr(event,'internal',False):return None
     raw=getattr(event,'raw_message',None);sender=getattr(raw,'from_user',None)
     if not sender or getattr(sender,'is_bot',True):return None
     from gateway.platforms.base import get_image_cache_dir,get_document_cache_dir,get_audio_cache_dir
@@ -139,7 +143,7 @@ def capture(event=None,**kwargs):
     with db() as con:
         con.execute('INSERT OR IGNORE INTO sources VALUES(?,?,NULL,NULL,?)',(key,json.dumps(payload,ensure_ascii=False),time.time()));con.commit()
     WAKE.set()
-    note='\n[Field CRM source: '+key+'. Original saved locally, CRM delivery pending. Use field_crm projects/recent/context, then extract with stable event_key per fact. For voice copy the actual successful transcript first; never invent unheard content. REPORT DATE: explicit «отчёт за 7 октября» otherwise ORIGINAL sent day Asia/Yekaterinburg, never today from processing. Report, actual receipt, expected delivery are separate events. Require project/location/quantity/unit and verbatim fact quote for stock. Unknowns -> questions, apply=false. Known unambiguous facts -> apply=true. Photos replying to an existing report: attach_to that verified event id. Same invoice does not mean same payment; do not change payments. Check status before saying saved/applied. Read the field workflow.]'
+    note='\n[Field CRM source: '+key+'. Original saved locally, CRM delivery pending. Use field_crm projects/recent/context, then extract with stable event_key per fact. For voice copy the actual successful transcript first; never invent unheard content. REPORT DATE: explicit «отчёт за 7 октября» otherwise ORIGINAL sent day Asia/Yekaterinburg, never today from processing. Report, actual receipt, expected delivery and purchase are separate events. Purchase means bought, NOT received. Every inventory line uses item_type=tool or material, title, qty, unit. Require project/location/quantity/unit and verbatim fact quote. Receipt linked to a known purchase uses data.purchase_event_id; check exact names/units and remaining quantity. Unknowns -> questions, apply=false. Known unambiguous facts -> apply=true. Photos replying to an existing report: attach_to that verified event id. Do not change payments. Check status before saying saved/applied. Read the field workflow.]'
     return {'action':'rewrite','text':(event.text or '')+note}
 
 
@@ -149,7 +153,7 @@ def tool(args,**kwargs):
         if action=='status':
             WAKE.set()
             with db() as con:
-                result={'connected':bool(config().get('group_id')),'sources':[dict(r) for r in con.execute('SELECT source,crm_id,error,updated_at FROM sources ORDER BY updated_at DESC LIMIT 30')], 'operations':[dict(r) for r in con.execute('SELECT source,op_key,synced,result,error FROM operations ORDER BY rowid DESC LIMIT 30')]}
+                result={'connected':bool(groups(config())),'sources':[dict(r) for r in con.execute('SELECT source,crm_id,error,updated_at FROM sources ORDER BY updated_at DESC LIMIT 30')], 'operations':[dict(r) for r in con.execute('SELECT source,op_key,synced,result,error FROM operations ORDER BY rowid DESC LIMIT 30')]}
         elif action=='source':
             with db() as con:
                 row=con.execute('SELECT * FROM sources WHERE source=?',(args.get('source'),)).fetchone()
@@ -170,10 +174,10 @@ def register(ctx):
     global STARTED
     if Path(os.environ.get('HERMES_HOME',''))!=PROFILE:return
     ctx.register_hook('pre_gateway_dispatch',capture)
-    ctx.register_tool(name='field_crm',toolset='field_crm',handler=tool,schema={'name':'field_crm','description':'Assigned daily-report group: durable original/voice transcription, daily log, actual material receipt, future delivery. No payments or automatic material consumption. Unknowns remain questions. Tool result queued needs status synced and applied evidence.', 'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['status','source','projects','recent','context','get','extract']},'id':{'type':'integer'},'source':{'type':'string'},'source_refs':{'type':'array','items':{'type':'string'}},'transcript':{'type':'string','description':'Exact successful speech transcription, before saving events; immutable.'},'attach_to':{'type':'integer'},'revision':{'type':'integer'},'apply':{'type':'boolean'},'event':{'type':'object','description':'event_key stable, revision when editing, kind report/receipt/expected, project_id integer/null, location company/project/unknown, title, event_date ISO for delivery only, data: questions[], work_done/workers_count/workforce/equipment_entries/equipment/blockers/next_steps for report; lines[{title,qty decimal string,unit,sku,estimate_item_id nullable}], fact_quote exact source, date_quote for delivery date, finance_entry_id only verified invoice, delivery_status partial/complete for receipt. Do not infer VAT, payment, hours, objects or quantities.'}},'required':['action']}})
+    ctx.register_tool(name='field_crm',toolset='field_crm',handler=tool,schema={'name':'field_crm','description':'Assigned groups: durable original/voice transcription, daily log, tool/material purchase, actual receipt and future delivery. No payments or automatic material consumption. Unknowns remain questions. Tool result queued needs status synced and applied evidence.', 'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['status','source','projects','recent','context','get','extract']},'id':{'type':'integer'},'source':{'type':'string'},'source_refs':{'type':'array','items':{'type':'string'}},'transcript':{'type':'string','description':'Exact successful speech transcription, before saving events; immutable.'},'attach_to':{'type':'integer'},'revision':{'type':'integer'},'apply':{'type':'boolean'},'event':{'type':'object','description':'event_key stable, revision when editing, kind report/receipt/expected/purchase, project_id integer/null, location company/project/unknown, title, event_date ISO for delivery only, data: questions[], work_done/workers_count/workforce/equipment_entries/equipment/blockers/next_steps for report; lines[{title,qty decimal string,unit,item_type tool|material,sku,estimate_item_id nullable}], purchase_event_id nullable, fact_quote exact source, date_quote for delivery date, finance_entry_id only verified invoice, delivery_status partial/complete for receipt. Do not infer VAT, payment, hours, objects or quantities.'}},'required':['action']}})
     if STARTED:return
     STARTED=True
-    (folder()/'runtime.json').write_text(json.dumps({'pid':os.getpid(),'registered_at':time.time(),'plugin_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'connected':bool(config().get('group_id'))}))
+    (folder()/'runtime.json').write_text(json.dumps({'pid':os.getpid(),'registered_at':time.time(),'plugin_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'connected':bool(groups(config()))}))
     def worker():
         while True:
             try:flush()

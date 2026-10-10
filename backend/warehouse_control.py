@@ -318,7 +318,10 @@ def _float(value: object, default: float = 0.0) -> float:
 
 
 def _kind(value: object) -> str:
-    return "work" if str(value or "").strip().lower() in {"work", "works", "работа", "работы"} else "material"
+    kind = str(value or "").strip().lower()
+    if kind in {"tool", "инструмент", "инструменты"}:
+        return "tool"
+    return "work" if kind in {"work", "works", "работа", "работы"} else "material"
 
 
 def _iso_date(value: object) -> str:
@@ -602,23 +605,25 @@ def build_warehouse_control(con: sqlite3.Connection, project_id: int) -> dict:
     ]
 
     active_norm_work_ids = {int(norm["workItemId"]) for norm in norms if norm["isActive"] and norm["workItemId"]}
-    risk_materials = [item for item in material_payload if item["unaccountedQty"] > 0]
-    planned_materials = [item for item in material_payload if item["plannedQty"] > 0]
+    consumables = [item for item in material_payload if item['itemKind'] != 'tool']
+    risk_materials = [item for item in consumables if item["unaccountedQty"] > 0]
+    planned_materials = [item for item in consumables if item["plannedQty"] > 0]
     return {
         "works": works,
         "materials": material_payload,
+        "inventory": _incoming_inventory(con, project_id),
         "norms": norms,
         "facts": facts,
         "movements": movements,
         "summary": {
-            "materialsCount": len(material_payload),
+            "materialsCount": len(consumables),
             "fullyReceivedMaterials": sum(
                 1 for item in planned_materials if item["receivedQty"] >= item["plannedQty"]
             ),
             "needReceiptMaterials": sum(
                 1 for item in planned_materials if item["receivedQty"] < item["plannedQty"]
             ),
-            "inStockMaterials": sum(1 for item in material_payload if item["stockBalanceQty"] > 0),
+            "inStockMaterials": sum(1 for item in consumables if item["stockBalanceQty"] > 0),
             "worksCount": len(works),
             "configuredWorks": len(active_norm_work_ids),
             "factsCount": sum(1 for fact in facts if fact["entryKind"] == "fact" and not fact["isReversed"]),
@@ -626,6 +631,13 @@ def build_warehouse_control(con: sqlite3.Connection, project_id: int) -> dict:
             "overrunWorks": sum(1 for work in works if work["overrunQty"] > 0),
         },
     }
+
+
+def _incoming_inventory(con, project_id):
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='field_events'").fetchone():
+        return []
+    from field_intake import project_inventory
+    return project_inventory(con, project_id)
 
 
 def upsert_work_material_norm(

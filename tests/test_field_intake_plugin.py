@@ -56,6 +56,15 @@ class PluginTests(unittest.TestCase):
         e.source.chat_id='-10';self.assertIsNone(plugin.capture(e))
         (self.root/'field-crm.json').write_text('{}');self.assertIsNone(plugin.capture(self.event()))
         with patch.object(plugin,'api') as api:plugin.flush();api.assert_not_called()
+
+    def test_finance_group_enabled_without_changing_primary_report_group(self):
+        (self.root/'field-crm.json').write_text(json.dumps({'group_id':'-20','group_ids':['-finance']}))
+        finance_event=self.event();finance_event.source.chat_id='-finance'
+        self.assertIn('-finance:17',plugin.capture(finance_event)['text'])
+        self.assertIn('-20:17',plugin.capture(self.event())['text'])
+        foreign=self.event();foreign.source.chat_id='-foreign'
+        self.assertIsNone(plugin.capture(foreign))
+        with plugin.db() as con:self.assertEqual(con.execute('SELECT count(*) FROM sources').fetchone()[0],2)
     def test_extraction_survives_reopen_and_lost_apply_ack(self):
         plugin.capture(self.event())
         plugin.enqueue({'source':'-20:17','transcript':'Отчёт за 7 октября. 30 пластин.', 'apply':True,

@@ -16,7 +16,7 @@ const server = read('backend/server.py');
 const backend = read('backend/warehouse_control.py');
 
 assert.match(projectsPage, /data-tab="warehouse-control"/);
-assert.match(projectsPage, /data-tab="warehouse-control"[^>]*><i data-lucide="boxes"[^>]*><\/i><span>Материалы<\/span><\/button>/);
+assert.match(projectsPage, /data-tab="warehouse-control"[^>]*><i data-lucide="boxes"[^>]*><\/i><span>Склад<\/span><\/button>/);
 assert.match(projectsPage, /data-panel="warehouse-control"/);
 assert.match(router, /warehouse_control:\s*'\/assets\/js\/warehouse-control\.js/);
 assert.match(router, /projects:\s*\[[^\]]*'warehouse_control'/);
@@ -34,10 +34,9 @@ assert.match(moduleSource, /Записать движение/);
 assert.match(moduleSource, /Заказали/);
 assert.match(moduleSource, /Привезли/);
 assert.match(moduleSource, /Потратили/);
-assert.match(moduleSource, /Нужно, заказано, привезено, потрачено и остаток — в одном реестре/);
+assert.match(moduleSource, /Инструменты и материалы · покупка отдельно от доставки/);
 assert.match(moduleSource, /Нужно по смете/);
 for (const removedInventoryHeading of [
-    'Склад объекта',
     'Учёт по позициям',
     'Материалы на объекте',
     'Одна строка показывает план, движение и фактический остаток материала.',
@@ -78,7 +77,8 @@ assert.match(moduleSource, /Math\.round\(suggestion \* 1000\) \/ 1000/);
 assert.match(moduleSource, /function clearStockMoveDraft\(\)/);
 assert.match(moduleSource, /data-warehouse-dialog-open="movement"/);
 assert.match(moduleSource, /data-warehouse-dialog="' \+ escapeHtml\(name\) \+ '" hidden/);
-assert.match(moduleSource, /'<div class="warehouse-control-main">' \+ materialsTable\(payload\) \+ '<\/div>'/);
+assert.match(moduleSource, /toolsInventory\(payload\)/);
+assert.match(moduleSource, /materialsTable\(materials\)/);
 assert.match(moduleSource, /openWarehouseDialog\('movement', null, false\)/);
 assert.match(moduleSource, /Все операции по складу/);
 assert.match(moduleSource, /warehouse_return_from_project/);
@@ -99,7 +99,7 @@ assert.match(css, /\.warehouse-material-progress-track/);
 assert.match(css, /@keyframes warehouse-card-in/);
 assert.match(css, /\.warehouse-control-secondary/);
 assert.match(css, /\.warehouse-control-fact\.is-reversal/);
-assert.match(objectControlCss, /\.warehouse-control-main \{[\s\S]*?display: block;/);
+assert.match(objectControlCss, /\.warehouse-control-main \{[\s\S]*?display: grid;/);
 assert.match(objectControlCss, /\.warehouse-control-dialog \{[\s\S]*?position: fixed;/);
 assert.match(objectControlCss, /\.warehouse-control-stock-card \{[\s\S]*?width: 100%;/);
 assert.match(objectControlCss, /Material lifecycle: visually separate order, delivery and usage/);
@@ -211,7 +211,7 @@ const rendered = browserWindow.PMBI.warehouseControl.render({
 });
 assert.match(rendered, /Лампочка/);
 assert.match(rendered, /Кабель/);
-assert.doesNotMatch(rendered, /Склад объекта|Учёт по позициям|Материалы на объекте|warehouse-control-inventory-head|data-warehouse-visible-count/);
+assert.doesNotMatch(rendered, /Учёт по позициям|Материалы на объекте|warehouse-control-inventory-head|data-warehouse-visible-count/);
 const registerHead = rendered.match(/<div class="warehouse-material-register-head"[\s\S]*?<\/div>/)[0];
 assert.doesNotMatch(registerHead, /Действия/);
 assert.equal((rendered.match(/<strong>Электрика<\/strong>/g) || []).length, 1, 'Repeated section title must render once per source');
@@ -332,3 +332,16 @@ const reportUseRendered = browserWindow.PMBI.warehouseControl.render({
 assert.doesNotMatch(reportUseRendered, /data-stock-correction-open/, 'Daily report movements must not be exposed as manual corrections');
 
 console.log('warehouse control frontend checks passed');
+
+const separated = browserWindow.PMBI.warehouseControl.render({
+    materials: [{id:91,title:'Tool-only',itemKind:'tool',unit:'шт',stockBalanceQty:1},
+                {id:92,title:'Material-only',itemKind:'material',unit:'м',plannedQty:4}],
+    inventory: [{eventId:10,itemKind:'tool',title:'Purchased-only',unit:'шт',quantity:2,status:'purchased'}],
+    summary: {},
+});
+const toolsColumn = separated.slice(separated.indexOf('project-inventory-column'),separated.indexOf('project-inventory-materials'));
+assert.match(toolsColumn, /Tool-only/);
+assert.match(toolsColumn, /Purchased-only/);
+assert.match(toolsColumn, /Куплено · ждём доставку/);
+assert.doesNotMatch(toolsColumn, /Material-only/);
+assert.doesNotMatch(separated.slice(separated.indexOf('project-inventory-materials')), /Tool-only|Purchased-only/);

@@ -58,6 +58,17 @@ def settings():
     except (OSError,ValueError): return {}
 
 
+def groups(cfg):
+    return {str(g) for g in [cfg.get('group_id'), *cfg.get('group_ids', [])] if g}
+
+
+def line_kind(line):
+    kind = line.get('item_type', 'material')
+    if kind not in {'material', 'tool'}:
+        raise ValueError('bad_item_type')
+    return kind
+
+
 def integration(handler):
     cfg=settings(); token=str(cfg.get('token') or '')
     if len(token)>=32 and hmac.compare_digest(str(handler.headers.get('Authorization','')), 'Bearer '+token):
@@ -108,7 +119,8 @@ def media_path(sha):
 
 
 def ingest(con,data,cfg):
-    if not cfg.get('group_id') or str(data.get('chat_id'))!=str(cfg['group_id']):raise PermissionError('wrong_group')
+    group = str(data.get('chat_id'))
+    if group not in groups(cfg):raise PermissionError('wrong_group')
     message_id=str(data.get('message_id') or '')
     if not message_id or len(message_id)>100:raise ValueError('message_id_required')
     sent=int(data.get('sent_at') or 0)
@@ -130,12 +142,12 @@ def ingest(con,data,cfg):
         elif hashlib.sha256(target.read_bytes()).hexdigest()!=sha:raise ValueError('original_integrity_error')
         media.append({'sha256':sha,'name':name,'ext':ext,'size':len(raw)})
     signature=hashlib.sha256(json.dumps([sent,text,transcript,media],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-    old=con.execute('SELECT * FROM field_messages WHERE chat_id=? AND message_id=?',(cfg['group_id'],message_id)).fetchone()
+    old=con.execute('SELECT * FROM field_messages WHERE chat_id=? AND message_id=?',(group,message_id)).fetchone()
     if old:
         if old['content_hash']!=signature:raise ValueError('source_changed_original_preserved')
         return old['id']
     cur=con.execute('INSERT INTO field_messages(chat_id,message_id,sent_at,sender_id,sender_name,text,transcript,reply_to,media_json,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-        (cfg['group_id'],message_id,sent,str(data.get('sender_id') or '')[:100],str(data.get('sender_name') or '')[:200],text,transcript,str(data.get('reply_to') or '') or None,json.dumps(media,ensure_ascii=False),signature,finance.now_ts()))
+        (group,message_id,sent,str(data.get('sender_id') or '')[:100],str(data.get('sender_name') or '')[:200],text,transcript,str(data.get('reply_to') or '') or None,json.dumps(media,ensure_ascii=False),signature,finance.now_ts()))
     return cur.lastrowid
 
 
@@ -173,7 +185,7 @@ def duplicate_events(con,row):
         same_media=bool(hashes & {f['sha256'] for m in other_sources for f in json.loads(m['media_json'])})
         od=json.loads(other['data_json'])
         def material_signature(data):
-            try:return sorted((str(l.get('title','')).strip().casefold(),str(l.get('unit','')).strip().casefold(),str(quantity(l.get('qty')).normalize())) for l in data.get('lines',[]))
+            try:return sorted((line_kind(l),str(l.get('title','')).strip().casefold(),str(l.get('unit','')).strip().casefold(),str(quantity(l.get('qty')).normalize())) for l in data.get('lines',[]))
             except (ValueError,TypeError):return None
         same_data=(row['event_date']==other['event_date'] and row['location']==other['location'] and
                    (bool(material_signature(detail)) and material_signature(detail)==material_signature(od) if row['kind']!='report' else detail.get('work_done')==od.get('work_done')))
@@ -183,7 +195,7 @@ def duplicate_events(con,row):
 
 def save_event(con,data,project_ids,cfg=None):
     mid=data.get('message_id');primary=message(con,mid)
-    if cfg and primary['chat_id']!=str(cfg.get('group_id')):raise PermissionError('wrong_group')
+    if cfg and primary['chat_id'] not in groups(cfg):raise PermissionError('wrong_group')
     ids=sorted(set([mid]+data.get('source_ids',[])))
     if len(ids)>20:raise ValueError('too_many_sources')
     sources=[message(con,i) for i in ids]
@@ -193,7 +205,7 @@ def save_event(con,data,project_ids,cfg=None):
     old=con.execute('SELECT * FROM field_events WHERE message_id=? AND event_key=?',(mid,key)).fetchone()
     if old and old['project_id'] and old['project_id'] not in project_ids:raise PermissionError('project_forbidden')
     kind=data.get('kind');project=data.get('project_id') or None;location=data.get('location','unknown')
-    if kind not in {'report','receipt','expected'}:raise ValueError('bad_kind')
+    if kind not in {'report','receipt','expected','purchase'}:raise ValueError('bad_kind')
     if project and (type(project) is not int or project not in project_ids):raise PermissionError('project_forbidden')
     for ident in ids:
         assigned=[r[0] for r in con.execute('SELECT e.project_id FROM field_events e JOIN field_event_sources s ON s.event_id=e.id WHERE s.message_id=? AND e.project_id IS NOT NULL AND e.id!=?',(ident,old['id'] if old else -1))]
@@ -201,7 +213,7 @@ def save_event(con,data,project_ids,cfg=None):
     if location not in {'company','project','unknown'}:raise ValueError('bad_location')
     detail=data.get('data',{})
     if not isinstance(detail,dict) or len(json.dumps(detail))>160000:raise ValueError('bad_event_data')
-    if set(detail)-{'questions','work_done','workers_count','workforce','equipment_entries','equipment','blockers','next_steps','fact_quote','date_quote','report_date_quote','date_issue','lines','finance_entry_id','delivery_status'}:raise ValueError('unsupported_event_field')
+    if set(detail)-{'questions','work_done','workers_count','workforce','equipment_entries','equipment','blockers','next_steps','fact_quote','date_quote','report_date_quote','date_issue','lines','finance_entry_id','delivery_status','purchase_event_id'}:raise ValueError('unsupported_event_field')
     detail=dict(detail);detail.pop('date_issue',None)
     questions=detail.get('questions',[])
     if not isinstance(questions,list) or any(not isinstance(x,str) for x in questions):raise ValueError('bad_questions')
@@ -295,8 +307,27 @@ def apply_event(con,row,actor,confirm_distinct=False):
         if not fact or fact not in text:raise ValueError('fact_evidence_required')
         if row['kind']=='expected' and (not detail.get('date_quote') or detail['date_quote'] not in text):raise ValueError('delivery_date_needs_clarification')
         if row['kind']=='receipt':
-            if re.search(r'пришл[юё]|приед[еу]|ожида|планир|будет|будут|не\s+(?:приех|приш|поступ|получ|прин|достав)',fact,re.I):raise ValueError('planned_delivery_is_not_stock')
-            if not re.search(r'\b(?:приехал\w*|пришл[аио]\w*|поступил\w*|получил\w*|принял\w*|принят\w*|доставил\w*|доставлен\w*|завез[лё]\w*)\b',fact,re.I):raise ValueError('actual_receipt_evidence_required')
+            if re.search(r'пришл[юё]|приед[еу]|ожида|планир|будет|будут|не\s+(?:приех|прив[её]з|зав[её]з|приш|поступ|получ|прин|достав)',fact,re.I):raise ValueError('planned_delivery_is_not_stock')
+            if not re.search(r'\b(?:приехал\w*|привезл\w*|привёз|привез[её]н\w*|пришл[аио]\w*|поступил\w*|получил\w*|принял\w*|принят\w*|доставил\w*|доставлен\w*|завезл\w*|завёз|завез[её]н\w*)\b',fact,re.I):raise ValueError('actual_receipt_evidence_required')
+        if row['kind']=='purchase':
+            if row['event_date']>today_iso() or re.search(r'\b(?:не\s+(?:куп|закуп|приобр)|купим|купить|планир)',fact,re.I) or not re.search(r'\b(?:купил\w*|куплен\w*|закупил\w*|приобр[её]л\w*)\b',fact,re.I):
+                raise ValueError('actual_purchase_evidence_required')
+        purchase_id=detail.get('purchase_event_id')
+        if purchase_id:
+            if type(purchase_id) is not int:raise ValueError('purchase_link_mismatch')
+            purchase=con.execute("SELECT * FROM field_events WHERE id=? AND kind='purchase' AND status='applied' AND project_id IS ? AND location=?",(purchase_id,project,row['location'])).fetchone()
+            if row['kind']!='receipt' or not purchase:raise ValueError('purchase_link_mismatch')
+            purchased=json.loads(purchase['data_json'])['lines']
+            delivered=[]
+            for previous in con.execute("SELECT data_json FROM field_events WHERE kind='receipt' AND status='applied' AND project_id IS ?",(project,)):
+                prior=json.loads(previous['data_json'])
+                if prior.get('purchase_event_id')==purchase_id:delivered.extend(prior['lines'])
+            signature=lambda l:(line_kind(l),str(l.get('title','')).strip().casefold(),str(l.get('unit','')).strip())
+            for line in lines:
+                key=signature(line)
+                total=sum((quantity(l['qty']) for l in purchased if signature(l)==key),Decimal(0))
+                used=sum((quantity(l['qty']) for l in delivered+lines if signature(l)==key),Decimal(0))
+                if used>total:raise ValueError('receipt_exceeds_purchase')
         linked=detail.get('finance_entry_id')
         if linked:
             invoice=con.execute("SELECT id FROM finance_entries WHERE id=? AND project_id=? AND direction='expense' AND status!='cancelled'",(linked,project)).fetchone()
@@ -305,22 +336,24 @@ def apply_event(con,row,actor,confirm_distinct=False):
             con.execute('UPDATE field_events SET finance_entry_id=? WHERE id=?',(linked,row['id']))
         for n,line in enumerate(lines):
             title=str(line.get('title') or '').strip();unit=str(line.get('unit') or '').strip();qty=quantity(line.get('qty'))
+            item_type=line_kind(line)
             if not title or not unit or len(title)>500 or len(unit)>30:raise ValueError('material_title_unit_required')
-            if row['kind']=='expected':continue
+            if row['kind'] in {'expected','purchase'}:continue
             move=None;item=None
             if row['location']=='company':
                 # Do not use the manual form's fuzzy matching or overwrite a unit.
                 sku=str(line.get('sku') or '')[:100]
-                target=next((r for r in warehouse.warehouse_item_rows(con) if r['item_type']=='material' and r['name'].casefold()==title.casefold() and r['unit']==unit and str(r['sku'] or '')==sku),None)
+                target=next((r for r in warehouse.warehouse_item_rows(con) if r['item_type']==item_type and r['name'].casefold()==title.casefold() and r['unit']==unit and str(r['sku'] or '')==sku),None)
                 if target:
                     item=target['id'];con.execute('UPDATE warehouse_items SET qty=qty+?,updated_at=? WHERE id=?',(float(qty),now,item))
                 else:
-                    item=con.execute("INSERT INTO warehouse_items(item_type,category,name,sku,unit,qty,condition_status,created_at,updated_at) VALUES('material','Материалы',?,?,?,?, 'new',?,?)",(title,sku,unit,float(qty),now,now)).lastrowid
+                    item=con.execute("INSERT INTO warehouse_items(item_type,category,name,sku,unit,qty,condition_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",(item_type,'Инструмент' if item_type=='tool' else 'Материалы',title,sku,unit,float(qty),'Новый' if item_type=='tool' else 'new',now,now)).lastrowid
             else:
                 estimate=line.get('estimate_item_id') or None
                 if estimate:
                     material=con.execute('SELECT * FROM estimate_items WHERE id=? AND project_id=? AND COALESCE(is_deleted,0)=0',(estimate,project)).fetchone()
-                    if not material or warehouse.resolved_estimate_item_kind(material)!='material' or material['unit']!=unit:raise ValueError('material_project_or_unit_mismatch')
+                    resolved_kind='tool' if material and material['item_kind']=='tool' else warehouse.resolved_estimate_item_kind(material) if material else None
+                    if not material or resolved_kind!=item_type or material['unit']!=unit:raise ValueError('material_project_or_unit_mismatch')
                 move=con.execute("INSERT INTO stock_moves(project_id,estimate_item_id,move_type,qty,price,comment,created_by,created_at,source_type,source_id,source_key,material_title_snapshot,material_unit_snapshot) VALUES(?,?,'receipt',?,0,?,?,?,'field_intake',?,?,?,?)",
                     (project,estimate,float(qty),'Приход Telegram за '+row['event_date'],actor,now,row['id'],f"field:{row['id']}:{n}",title,unit)).lastrowid
             con.execute('INSERT INTO field_receipt_lines VALUES(?,?,?,?,?,?,?)',(row['id'],n,title,unit,str(qty),move,item))
@@ -328,18 +361,53 @@ def apply_event(con,row,actor,confirm_distinct=False):
     finance.create_audit(con,actor,'apply_field_event','field_event',row['id'],{'kind':row['kind'],'project_id':project,'event_date':row['event_date'],'cash_posted':False})
 
 
+def project_inventory(con, project_id):
+    """Unbudgeted stock and undelivered purchases, with their original evidence."""
+    events=con.execute("SELECT * FROM field_events WHERE project_id=? AND status='applied' AND location='project' ORDER BY id DESC",(project_id,)).fetchall()
+    received={}
+    for event in events:
+        data=json.loads(event['data_json'])
+        if event['kind']=='receipt' and data.get('purchase_event_id'):
+            for line in data['lines']:
+                key=(data['purchase_event_id'],line_kind(line),line['title'].strip().casefold(),line['unit'].strip())
+                received[key]=received.get(key,Decimal(0))+quantity(line['qty'])
+    result=[]
+    for event in events:
+        data=json.loads(event['data_json'])
+        if event['kind'] not in {'receipt','purchase','expected'}:continue
+        for n,line in enumerate(data.get('lines',[])):
+            kind=line_kind(line)
+            if event['kind']=='receipt' and line.get('estimate_item_id'):continue
+            qty=quantity(line['qty'])
+            status='on_site'
+            if event['kind']=='purchase':
+                key=(event['id'],kind,line['title'].strip().casefold(),line['unit'].strip())
+                # Consume linked receipts once even when the purchase repeats a line.
+                delivered=min(qty,received.get(key,Decimal(0)))
+                received[key]=received.get(key,Decimal(0))-delivered
+                qty-=delivered
+                status='purchased'
+            elif event['kind']=='expected':status='expected'
+            if qty<=0:continue
+            result.append({'eventId':event['id'],'itemKind':kind,'title':line['title'],'unit':line['unit'],
+                           'quantity':float(qty),'status':status,'eventDate':event['event_date']})
+    return result
+
+
 def balances(con,project_ids):
     result=[]
     for r in warehouse.warehouse_item_rows(con):
-        result.append({'project_id':None,'location':'company','location_title':'Склад компании','name':r['name'],'unit':r['unit'],'qty':float(r['qty']),'item_id':r['id']})
+        result.append({'project_id':None,'location':'company','location_title':'Склад компании','name':r['name'],'unit':r['unit'],'qty':float(r['qty']),'item_id':r['id'],'item_type':r['item_type']})
     for pid in project_ids:
         title=con.execute('SELECT title FROM projects WHERE id=?',(pid,)).fetchone()[0]
         rows=con.execute("""SELECT s.estimate_item_id,COALESCE(e.title,NULLIF(s.material_title_snapshot,''),'Без названия') AS title,
             COALESCE(e.unit,NULLIF(s.material_unit_snapshot,''),'') AS unit,
+            COALESCE(NULLIF(e.item_kind,''),json_extract(f.data_json,'$.lines[' || l.line_no || '].item_type'),'material') AS item_type,
             SUM(CASE WHEN s.move_type='receipt' THEN s.qty WHEN s.move_type IN ('use','writeoff') THEN -s.qty ELSE 0 END) AS qty
             FROM stock_moves s LEFT JOIN estimate_items e ON e.id=s.estimate_item_id
-            WHERE s.project_id=? GROUP BY s.estimate_item_id,2,3 HAVING ABS(SUM(CASE WHEN s.move_type='receipt' THEN s.qty WHEN s.move_type IN ('use','writeoff') THEN -s.qty ELSE 0 END))>0.0000001""",(pid,)).fetchall()
-        for r in rows:result.append({'project_id':pid,'location':'project','location_title':title,'name':r['title'],'unit':r['unit'],'qty':r['qty'],'item_id':r['estimate_item_id']})
+            LEFT JOIN field_receipt_lines l ON l.stock_move_id=s.id LEFT JOIN field_events f ON f.id=l.event_id
+            WHERE s.project_id=? GROUP BY s.estimate_item_id,2,3,4 HAVING ABS(SUM(CASE WHEN s.move_type='receipt' THEN s.qty WHEN s.move_type IN ('use','writeoff') THEN -s.qty ELSE 0 END))>0.0000001""",(pid,)).fetchall()
+        for r in rows:result.append({'project_id':pid,'location':'project','location_title':title,'name':r['title'],'unit':r['unit'],'qty':r['qty'],'item_id':r['estimate_item_id'],'item_type':r['item_type']})
     return result
 
 
@@ -360,7 +428,7 @@ def handle(handler,method,path):
             if method=='POST' and transcript:
                 if not cfg:raise PermissionError('integration_required')
                 data=handler.read_json();con.execute('BEGIN IMMEDIATE');m=message(con,int(transcript[1]))
-                if m['chat_id']!=str(cfg.get('group_id')):raise PermissionError('wrong_group')
+                if m['chat_id'] not in groups(cfg):raise PermissionError('wrong_group')
                 value=str(data.get('transcript') or '').strip()
                 if not value or len(value)>60000:raise ValueError('transcript_required')
                 if not any(f['ext'] in {'.ogg','.oga','.mp3','.m4a','.wav','.opus'} for f in json.loads(m['media_json'])):raise ValueError('audio_source_required')
@@ -376,7 +444,7 @@ def handle(handler,method,path):
                 handler.send_json(200,{'materials':materials,'invoices':invoices});return
             if method=='GET' and path=='/api/field-intake':
                 rows=con.execute('SELECT * FROM field_events ORDER BY id DESC LIMIT 500').fetchall()
-                visible=[r for r in rows if (message(con,r['message_id'])['chat_id']==str(cfg.get('group_id')) and (not r['project_id'] or r['project_id'] in pids) if cfg else allowed(handler,user,r['project_id']))]
+                visible=[r for r in rows if (message(con,r['message_id'])['chat_id'] in groups(cfg) and (not r['project_id'] or r['project_id'] in pids) if cfg else allowed(handler,user,r['project_id']))]
                 handler.send_json(200,{'items':[event_payload(con,r,show_finance) for r in visible],'projects':projects,'can_finance':show_finance});return
             if method=='POST' and path=='/api/field-intake/events':
                 data=handler.read_json();con.execute('BEGIN IMMEDIATE')
@@ -407,7 +475,7 @@ def handle(handler,method,path):
             if not row:raise ValueError('event_not_found')
             primary=message(con,row['message_id'])
             if cfg:
-                if primary['chat_id']!=str(cfg.get('group_id')) or (row['project_id'] and row['project_id'] not in pids):raise PermissionError('forbidden')
+                if primary['chat_id'] not in groups(cfg) or (row['project_id'] and row['project_id'] not in pids):raise PermissionError('forbidden')
             elif not allowed(handler,user,row['project_id']):raise PermissionError('forbidden')
             if method=='GET' and not match[2]:handler.send_json(200,{'item':event_payload(con,row,show_finance)});return
             if method!='POST' or match[2] not in {'apply','attach'}:raise PermissionError('forbidden')
