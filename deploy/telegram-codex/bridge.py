@@ -15,6 +15,7 @@ from streaming import LiveReply, run_codex
 from attachments import AttachmentError, prepare, select_attachment
 from outgoing import deliver, split_files
 from control import Controls
+from formatting import message_chunks
 
 
 def authorized(message, owner):
@@ -72,9 +73,9 @@ class Bridge:
         return result['result']
 
     def send(self, text, reply_markup=None):
-        for offset in range(0, len(text), 3500):
-            payload = {'chat_id': int(self.get('owner')), 'text': text[offset:offset+3500]}
-            if reply_markup and offset == 0:
+        for index, chunk in enumerate(message_chunks(text)):
+            payload = {'chat_id': int(self.get('owner')), **chunk}
+            if reply_markup and index == 0:
                 payload['reply_markup'] = reply_markup
             self.api('sendMessage', payload)
 

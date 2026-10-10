@@ -5,6 +5,7 @@ import subprocess
 import threading
 import time
 from outgoing import public_preview
+from formatting import message_chunks
 
 
 class LiveReply:
@@ -60,19 +61,19 @@ class LiveReply:
                 if visible.strip() and not self.disabled and (self.message_id is None or self.clock() - self.updated_at >= 1):
                     self.publish(self.preview())
 
-    def publish(self, text):
+    def publish(self, text, chunk=None):
         with self.publish_lock:
-            self._publish(text)
+            self._publish(chunk if chunk is not None else next(message_chunks(text)))
 
-    def _publish(self, text):
+    def _publish(self, chunk):
         try:
             if self.message_id is None:
                 self.send_unknown = True
-                result = self.api('sendMessage', {'chat_id': self.owner, 'text': text})
+                result = self.api('sendMessage', {'chat_id': self.owner, **chunk})
                 self.message_id = result['message_id']
                 self.send_unknown = False
             else:
-                self.api('editMessageText', {'chat_id': self.owner, 'message_id': self.message_id, 'text': text})
+                self.api('editMessageText', {'chat_id': self.owner, 'message_id': self.message_id, **chunk})
             self.updated_at = self.clock()
         except RuntimeError:
             self.disabled = True
@@ -83,11 +84,12 @@ class LiveReply:
             raise RuntimeError('Preview delivery unknown; do not duplicate')
         # A final edit is attempted even if a preview edit failed; it cannot duplicate a message.
         self.disabled = False
-        self.publish(text[:3500])
+        chunks = iter(message_chunks(text))
+        self.publish('', next(chunks))
         if self.disabled:
             raise RuntimeError('Final delivery unknown')
-        for offset in range(3500, len(text), 3500):
-            self.api('sendMessage', {'chat_id': self.owner, 'text': text[offset:offset+3500]})
+        for chunk in chunks:
+            self.api('sendMessage', {'chat_id': self.owner, **chunk})
 
 
 def run_codex(codex, workspace, crm, thread_id, prompt, events_path, on_thread, on_event,
