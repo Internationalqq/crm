@@ -12,6 +12,7 @@ class Controls:
         self.pending = None
         self.active = False
         self.approval_token = None
+        self.stop_requested = False
 
     def callback(self, value):
         with self.lock:
@@ -38,9 +39,16 @@ class Controls:
     def accept(self, text, update_id=None):
         with self.lock:
             if text.strip().lower() in ('/stop', 'стоп'):
-                if self.active:
+                if self.active and not self.stop_requested:
+                    self.stop_requested = True
+                    self.pending = None
+                    self.approval_token = None
+                    while not self.queue.empty():
+                        self.queue.get_nowait()
                     self.queue.put({'kind': 'stop'})
                 return True
+            if self.stop_requested:
+                return False
             if self.pending:
                 if self.approval_token:
                     return self._approval_answer(text.strip())
@@ -107,4 +115,7 @@ class Controls:
             self.approval_token = None
             while not self.queue.empty():
                 remaining.append(self.queue.get_nowait())
+            if self.stop_requested:
+                remaining = []
+            self.stop_requested = False
         return remaining

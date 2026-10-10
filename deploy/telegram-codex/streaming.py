@@ -9,7 +9,7 @@ from formatting import message_chunks
 
 
 class LiveReply:
-    def __init__(self, api, owner, clock=time.monotonic):
+    def __init__(self, api, owner, clock=time.monotonic, stop_data=None):
         self.api, self.owner, self.clock = api, owner, clock
         self.message_id = None
         self.text = ''
@@ -21,6 +21,7 @@ class LiveReply:
         self.stop_timer = threading.Event()
         self.timer = None
         self.publish_lock = threading.RLock()
+        self.stop_data = stop_data
 
     def start(self):
         self.started_at = self.clock()
@@ -67,6 +68,10 @@ class LiveReply:
 
     def _publish(self, chunk):
         try:
+            chunk = dict(chunk)
+            if self.stop_data:
+                chunk['reply_markup'] = {'inline_keyboard': [] if self.stop_timer.is_set() else [
+                    [{'text': '⏹ Стоп', 'callback_data': self.stop_data}]]}
             if self.message_id is None:
                 self.send_unknown = True
                 result = self.api('sendMessage', {'chat_id': self.owner, **chunk})

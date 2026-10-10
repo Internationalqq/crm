@@ -16,6 +16,7 @@ from attachments import AttachmentError, prepare, select_attachment
 from outgoing import deliver, split_files
 from control import Controls
 from formatting import message_chunks
+from forwarding import WAIT_SECONDS, entry, is_forward, prompt as batch_prompt
 
 
 def authorized(message, owner):
@@ -32,6 +33,7 @@ class Bridge:
         self.connections = threading.local()
         self.controls = Controls(self.send)
         self.worker = None
+        self.active_stop = None
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS received (id INTEGER PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS control_updates (id INTEGER PRIMARY KEY, prompt TEXT, received_at REAL);
@@ -39,6 +41,8 @@ class Bridge:
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY, prompt TEXT, status TEXT, result TEXT);
             CREATE TABLE IF NOT EXISTS attachments (job_id INTEGER PRIMARY KEY, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS forward_batches (
+                job_id INTEGER PRIMARY KEY, updated_at REAL NOT NULL, messages TEXT NOT NULL);
         ''')
         self.db.execute("UPDATE jobs SET status='interrupted' WHERE status='running'")
         self.db.commit()
@@ -107,17 +111,35 @@ class Bridge:
         if not fresh:
             return
         if callback:
-            accepted = self.controls.callback(callback.get('data', ''))
+            data = callback.get('data', '')
+            stopping = data.startswith('stop:')
+            if stopping:
+                accepted = self.controls.active and data == 'stop:' + str(self.active_stop)
+                if accepted:
+                    self.stop_all()
+            else:
+                accepted = self.controls.callback(data)
             self.api('answerCallbackQuery', {'callback_query_id': callback['id'],
-                     'text': 'Решение передано.' if accepted else 'Этот запрос уже завершён или недействителен.'})
+                     'text': ('Останавливаю работу и очередь.' if stopping else 'Решение передано.')
+                     if accepted else 'Этот запрос уже завершён или недействителен.'})
             return
         attachment = select_attachment(message)
+        if not is_forward(message) and not attachment and text.strip().lower() in ('/stop', 'стоп'):
+            self.stop_all()
+            self.send('Останавливаю текущую работу. Ожидающие задачи отменены. Для новой работы пришли новую задачу.')
+            return
+        # Quoted /stop or answers to questions must never operate bridge controls.
+        if (text or attachment) and len(text) <= 12000 and (is_forward(message)
+                or (not text.startswith('/') and self.pending_batch())):
+            self.collect_forward(message, update['update_id'], attachment)
+            return
         if text == '/status':
             counts = dict(self.db.execute('SELECT status,count(*) FROM jobs GROUP BY status'))
             state = 'Работа приостановлена после сбоя.' if self.get('halted') else 'Codex подключён.'
             self.send(state + ' Задачи: ' + json.dumps(counts, ensure_ascii=False))
         elif text == '/resume':
             self.set('halted', '')
+            self.set('paused', '')
             self.send('Связь восстановлена. Пришли продолжение задачи: история сохранена, неизвестные отправки не повторяются автоматически.')
         elif not attachment and self.controls.accept(text, update['update_id']):
             with self.db:
@@ -128,6 +150,7 @@ class Bridge:
         elif not text and not attachment:
             self.send('Пришли текст, фото, документ или голосовое. Этот тип сообщения пока не поддерживается.')
         elif len(text) <= 12000:
+            self.set('paused', '')
             with self.db:
                 self.db.execute('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, NULL)',
                                 (update['update_id'], text, 'queued'))
@@ -135,16 +158,52 @@ class Bridge:
                     self.db.execute('INSERT OR IGNORE INTO attachments VALUES (?, ?)',
                                     (update['update_id'], json.dumps(attachment)))
 
-    def work(self):
-        if self.get('halted'):
-            return
-        row = self.db.execute("SELECT id,prompt FROM jobs WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
-        if not row:
-            return
-        job_id, prompt = row
-        self.controls.active = True
+    def pending_batch(self):
+        return self.db.execute('''SELECT b.job_id FROM forward_batches b JOIN jobs j ON j.id=b.job_id
+            WHERE j.status='collecting' AND b.updated_at>? ORDER BY b.job_id DESC LIMIT 1''',
+            (time.time() - WAIT_SECONDS,)).fetchone()
+
+    def collect_forward(self, message, update_id, attachment):
         with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            row = self.pending_batch()
+            job_id = row[0] if row else update_id
+            if row:
+                messages = json.loads(self.db.execute('SELECT messages FROM forward_batches WHERE job_id=?',
+                                                     (job_id,)).fetchone()[0])
+            else:
+                messages = []
+                self.db.execute('INSERT INTO jobs VALUES (?, ?, ?, NULL)', (job_id, '', 'collecting'))
+            messages.append(entry(message, update_id, attachment))
+            payload = json.dumps(messages, ensure_ascii=False)
+            self.db.execute('INSERT OR REPLACE INTO forward_batches VALUES (?, ?, ?)',
+                            (job_id, time.time(), payload))
+            self.db.execute('UPDATE jobs SET prompt=? WHERE id=?', (batch_prompt() + payload, job_id))
+            self.db.execute("INSERT OR REPLACE INTO settings VALUES ('paused','')")
+
+    def stop_all(self):
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO settings VALUES ('paused','1')")
+            self.db.execute("UPDATE jobs SET status='cancelled' WHERE status IN ('queued','collecting')")
+        self.controls.accept('/stop')
+
+    def work(self):
+        if self.get('halted') or self.get('paused'):
+            return
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            if self.get('paused'):
+                return
+            self.db.execute('''UPDATE jobs SET status='queued' WHERE status='collecting' AND id IN
+                (SELECT job_id FROM forward_batches WHERE updated_at<=?)''', (time.time() - WAIT_SECONDS,))
+            # Keep later ordinary tasks behind a conversation still being collected.
+            row = self.db.execute("SELECT id,prompt,status FROM jobs WHERE status IN ('queued','collecting') ORDER BY id LIMIT 1").fetchone()
+            if not row or row[2] == 'collecting':
+                return
+            job_id, prompt, _ = row
             self.db.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
+            self.controls.active = True
+            self.active_stop = str(job_id)
         output = self.home / ('answer-' + str(job_id) + '.txt')
         events = self.home / ('events-' + str(job_id) + '.jsonl')
         thread = self.get('thread')
@@ -171,7 +230,7 @@ class Bridge:
                         'Не давай локальные ссылки вместо вложения и не утверждай, что файл уже отправлен: '
                         'подтверждение доставки получает мост после ответа.\n\nЗадача:\n' + prompt)
         status = 'failed'
-        live = LiveReply(self.api, int(self.get('owner')))
+        live = LiveReply(self.api, int(self.get('owner')), stop_data='stop:' + self.active_stop)
         self.active_reply = live
         live.start()
         try:
@@ -182,11 +241,26 @@ class Bridge:
                 instructions += note
                 if not prompt:
                     instructions += '\nЕсли для выполнения задачи не хватает контекста, задай один короткий вопрос.'
+            batch = self.db.execute('SELECT messages FROM forward_batches WHERE job_id=?', (job_id,)).fetchone()
+            if batch:
+                for item in json.loads(batch[0]):
+                    if self.controls.stop_requested:
+                        break
+                    if item['attachment']:
+                        try:
+                            note, extra = prepare(self.api, self.token, self.workspace, item['update_id'], item['attachment'])
+                            instructions += '\nВложение из сообщения ' + str(item['update_id']) + ':' + note
+                            inputs.extend(extra)
+                        except AttachmentError as error:
+                            instructions += '\nВложение из сообщения ' + str(item['update_id']) + ' недоступно: ' + str(error)
             options = {'controls': self.controls}
             if inputs:
                 options['extra_inputs'] = inputs
-            answer = run_codex(self.codex, self.workspace, self.crm, thread, instructions, events,
-                               lambda value: self.set('thread', value), live.feed, **options)
+            if self.controls.stop_requested:
+                answer = 'Остановлено. Уже выполненные действия сохранены.'
+            else:
+                answer = run_codex(self.codex, self.workspace, self.crm, thread, instructions, events,
+                                   lambda value: self.set('thread', value), live.feed, **options)
             output.write_text(answer, encoding='utf-8')
             status = 'completed'
         except AttachmentError as error:
