@@ -475,17 +475,27 @@
     }
 
     function openPrint(payload, projectId) {
-        var popup = window.open('', '_blank');
-        if (!popup) { showAppNotice('Разрешите открытие окна печати в браузере и повторите.', 'error'); return; }
-        popup.opener = null;
+        if (document.querySelector('[data-warehouse-print-frame]')) return;
+        var trigger = document.activeElement;
+        var frame = document.createElement('iframe');
+        frame.setAttribute('data-warehouse-print-frame', '');
+        frame.setAttribute('title', 'Печать склада объекта');
+        frame.setAttribute('aria-hidden', 'true');
+        frame.tabIndex = -1;
+        frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;';
         var project = (state.projects || []).find(function (item) { return Number(item.id) === Number(projectId); }) || {};
         var stamp = new Date().toLocaleString('ru-RU', {timeZone: 'Asia/Yekaterinburg', dateStyle: 'long', timeStyle: 'short'});
-        popup.document.open();
-        popup.document.write(printDocument(payload, project.title || ('Объект №' + projectId), stamp));
-        function print() { popup.focus(); popup.print(); }
-        popup.addEventListener('load', print, {once: true});
-        popup.document.close();
-        popup.document.querySelector('[data-print-document]').addEventListener('click', print);
+        function cleanup() {
+            frame.remove();
+            if (trigger && trigger.isConnected) trigger.focus({preventScroll: true});
+        }
+        frame.addEventListener('load', function () {
+            frame.contentWindow.addEventListener('afterprint', cleanup, {once: true});
+            try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+            catch (error) { cleanup(); showAppNotice('Не удалось открыть печать. Повторите попытку.', 'error'); }
+        }, {once: true});
+        frame.srcdoc = printDocument(payload, project.title || ('Объект №' + projectId), stamp);
+        document.body.appendChild(frame);
     }
 
     function toolsInventory(payload) {
