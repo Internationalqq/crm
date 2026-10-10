@@ -18,6 +18,18 @@ import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_card_png_uses_photo_and_oversized_dimensions_use_document(self):
+        import struct
+        response = json.dumps({'ok': True, 'result': {'message_id': 7}}).encode()
+        for dimensions, method, field in [((1600, 1200), 'sendPhoto', 'photo'),
+                                           ((1600, 9000), 'sendDocument', 'document')]:
+            content = b'\x89PNG\r\n\x1a\n' + b'\x00' * 8 + struct.pack('>II', *dimensions)
+            with patch.object(outgoing.urllib.request, 'urlopen', return_value=io.BytesIO(response)) as call:
+                self.assertEqual(outgoing.upload('test', 123, Path('card.png'), content), 7)
+            request = call.call_args.args[0]
+            self.assertTrue(request.full_url.endswith('/' + method))
+            self.assertIn(('name="' + field + '"').encode(), request.data)
+
     def test_initial_connection_waits_for_transport_but_stops_on_auth_or_webhook(self):
         bridge = module.Bridge.__new__(module.Bridge)
         with patch.object(bridge, 'api', side_effect=[RuntimeError('Telegram transport URLError'), {'url': ''}]) as api, patch.object(module.time, 'sleep') as sleep:

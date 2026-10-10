@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import struct
 import urllib.request
 
 
@@ -42,11 +43,16 @@ def allowed_file(value, workspace):
 def upload(token, owner, path, content):
     boundary = 'codex-' + secrets.token_hex(16)
     filename = re.sub(r'[\r\n"\\]', '_', path.name)
+    photo = False
+    if content.startswith(b'\x89PNG\r\n\x1a\n') and len(content) >= 24 and len(content) <= 10 * 1024 * 1024:
+        width, height = struct.unpack('>II', content[16:24])
+        photo = min(width, height) > 0 and width + height <= 10000 and max(width, height) / min(width, height) <= 20
+    field, method = ('photo', 'sendPhoto') if photo else ('document', 'sendDocument')
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n{owner}\r\n'
-            f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="{filename}"\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
             'Content-Type: application/octet-stream\r\n\r\n').encode('utf-8')
     body += content + f'\r\n--{boundary}--\r\n'.encode()
-    request = urllib.request.Request('https://api.telegram.org/bot' + token + '/sendDocument', data=body,
+    request = urllib.request.Request('https://api.telegram.org/bot' + token + '/' + method, data=body,
                                      headers={'Content-Type': 'multipart/form-data; boundary=' + boundary})
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
