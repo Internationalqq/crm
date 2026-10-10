@@ -2,6 +2,12 @@
 
 ## 10 октября — склад объекта и группа Финансиста
 
+Уточнение значка и состояния «На складе»: изолированные 9/27/20/12/11 Python
+и warehouse control/submission frontend PASS. Общая доступность без дублей,
+нулевой остаток, чужой объект и частичная доставка покупка→склад проверены.
+Edge 390/768/1280: overflow=false, pageerror=[], три статуса видны;
+иконка раскрывает/закрывает/повторно открывает источник. Ревью ship.
+
 Изолированная копия %TEMP%/crm-project-inventory-20261010: project inventory,
 field/finance intake, warehouse control, stock move; отдельные frontend warehouse
 control/submission и router. Новые проверки: purchase без stock/payment, partial

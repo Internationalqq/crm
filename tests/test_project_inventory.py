@@ -74,6 +74,37 @@ class ProjectInventoryTests(unittest.TestCase):
         data['chat_id']='-foreign'
         self.assertEqual(self.call('/api/field-intake/import',data).status,403)
 
+    def test_company_availability_tracks_current_stock_without_duplicate_or_project_receipt(self):
+        quote='Привезли инструмент на склад компании'
+        for n in range(2):
+            item=self.draft(self.source(quote,mid='central-'+str(n)),location='company',fact_quote=quote,
+                            lines=[dict(title='Перфоратор',unit='шт',qty='1',item_type='tool')])
+            response=self.call('/api/field-intake/'+str(item['id'])+'/apply',dict(revision=item['revision'],confirm_distinct=True),token=False)
+            self.assertEqual(response.status,200,response.response)
+        with finance.db() as con:
+            stock=con.execute('SELECT id FROM warehouse_items').fetchone()[0]
+            rows=field.project_inventory(con,self.pid)
+            self.assertEqual([(r['status'],r['quantity']) for r in rows],[('on_warehouse',2)])
+            self.assertEqual(field.project_inventory(con,self.pid+999),[])
+            self.assertEqual(con.execute('SELECT count(*) FROM stock_moves').fetchone()[0],0)
+            con.execute('UPDATE warehouse_items SET qty=1 WHERE id=?',(stock,))
+            self.assertEqual(field.project_inventory(con,self.pid)[0]['quantity'],1)
+            con.execute('UPDATE warehouse_items SET qty=0 WHERE id=?',(stock,))
+            self.assertEqual(field.project_inventory(con,self.pid),[])
+
+    def test_project_purchase_can_arrive_at_company_and_partial_delivery_stays_pending(self):
+        purchase=self.purchase()
+        quote='Привезли один перфоратор на склад компании для объекта'
+        receipt=self.draft(self.source(quote,mid='central-linked'),location='company',fact_quote=quote,
+                           purchase_event_id=purchase['id'],lines=[dict(title='Перфоратор',unit='шт',qty='1',item_type='tool')])
+        self.assertEqual(self.apply(receipt).status,200)
+        self.assertEqual(self.apply(receipt).status,200)
+        with finance.db() as con:
+            rows=field.project_inventory(con,self.pid)
+            self.assertEqual({r['status']:r['quantity'] for r in rows},{'on_warehouse':1,'purchased':1})
+            self.assertEqual(con.execute('SELECT count(*) FROM stock_moves').fetchone()[0],0)
+            self.assertEqual(con.execute('SELECT qty FROM warehouse_items').fetchone()[0],1)
+
     def test_invalid_type_ambiguous_purchase_and_wrong_project_do_not_apply(self):
         for n,quote,kind in [(1,'Планируем купить инструмент','tool'),(2,'Купили инструмент','unknown'),(3,'Не закупили инструмент','tool'),(4,'Не приобрели инструмент','tool')]:
             item=self.draft(self.source(quote,mid=str(n)),'purchase',fact_quote=quote,

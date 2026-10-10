@@ -440,10 +440,11 @@
     }
 
     function incomingInventory(payload, kind) {
-        var labels = {on_site: 'На объекте', purchased: 'Куплено · ждём доставку', expected: 'Ожидаем поставку'};
+        var labels = {on_site: 'На объекте', on_warehouse: 'На складе', purchased: 'Куплен · ждём доставку', expected: 'Ожидаем поставку'};
         return (payload.inventory || []).filter(function (i) { return i.itemKind === kind; }).map(function (item) {
-            return '<article class="project-inventory-item"><div><strong>' + escapeHtml(item.title) + '</strong><span class="badge ' + (item.status === 'on_site' ? 'success' : '') + '">' + labels[item.status] + '</span></div><b>' + escapeHtml(quantity(item.quantity) + ' ' + item.unit) + '</b>' +
-                '<button type="button" class="ghost compact" aria-expanded="false" data-inventory-source="' + escapeHtml(item.eventId) + '"><i data-lucide="message-square"></i>Из Telegram</button></article>';
+            var source = '<button type="button" class="project-inventory-telegram" title="Открыть исходное сообщение" aria-label="Исходное сообщение в Telegram: ' + escapeHtml(item.title) + '" aria-expanded="false" data-inventory-source="' + escapeHtml(item.eventId) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.3 17.7 19c-.2 1-1 1.2-1.8.7l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 9-8.1c.4-.4-.1-.6-.6-.3L5.4 12.7.6 11.2c-1-.3-1-1 .2-1.4L19.6 2.6c.9-.3 1.6.2 1.2 1.7Z"/></svg></button>';
+            return '<article class="project-inventory-item"><div><div class="project-inventory-name"><strong>' + escapeHtml(item.title) + '</strong>' + source + '</div><span class="badge ' + (item.status === 'on_site' ? 'success' : '') + '">' + labels[item.status] + '</span></div><b>' + escapeHtml(quantity(item.quantity) + ' ' + item.unit) + '</b>' +
+                (item.status === 'on_warehouse' ? '<small>Доступно на складе компании</small>' : '') + '</article>';
         }).join('');
     }
 
@@ -521,7 +522,8 @@
     function bindPanel(panel, projectId, payload) {
         qsa('[data-inventory-source]', panel).forEach(function (button) {
             button.addEventListener('click', async function () {
-                var existing = button.parentElement.querySelector('.project-inventory-source');
+                var card = button.closest('.project-inventory-item');
+                var existing = card.querySelector('.project-inventory-source');
                 if (existing) { existing.hidden = !existing.hidden; button.setAttribute('aria-expanded', String(!existing.hidden)); return; }
                 button.disabled = true;
                 try {
@@ -529,7 +531,7 @@
                     var body = (item.item.sources || []).map(function (source) {
                         return '<div class="field-source"><b>' + escapeHtml(source.sender_name || 'Участник') + '</b><p>' + escapeHtml(source.text || source.transcript) + '</p>' + (source.media || []).map(function (file) { return '<a target="_blank" rel="noopener" href="' + escapeHtml(file.view_url) + '">' + escapeHtml(file.name) + '</a>'; }).join(' ') + '</div>';
                     }).join('');
-                    button.insertAdjacentHTML('afterend', '<div class="project-inventory-source">' + body + '</div>');
+                    card.insertAdjacentHTML('beforeend', '<div class="project-inventory-source">' + body + '</div>');
                     button.setAttribute('aria-expanded', 'true');
                 } catch (error) { showAppNotice('Не удалось открыть исходное сообщение.', 'error'); }
                 finally { button.disabled = false; }

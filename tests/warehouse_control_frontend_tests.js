@@ -342,6 +342,8 @@ const separated = browserWindow.PMBI.warehouseControl.render({
 const toolsColumn = separated.slice(separated.indexOf('project-inventory-column'),separated.indexOf('project-inventory-materials'));
 assert.match(toolsColumn, /Tool-only/);
 assert.match(toolsColumn, /Purchased-only/);
-assert.match(toolsColumn, /Куплено · ждём доставку/);
+assert.match(toolsColumn, /Куплен · ждём доставку/);
+assert.match(toolsColumn, /class="project-inventory-telegram"[^>]*aria-label="Исходное сообщение в Telegram: Purchased-only"/);
+assert.doesNotMatch(toolsColumn, />Из Telegram</);
 assert.doesNotMatch(toolsColumn, /Material-only/);
 assert.doesNotMatch(separated.slice(separated.indexOf('project-inventory-materials')), /Tool-only|Purchased-only/);

@@ -315,7 +315,7 @@ def apply_event(con,row,actor,confirm_distinct=False):
         purchase_id=detail.get('purchase_event_id')
         if purchase_id:
             if type(purchase_id) is not int:raise ValueError('purchase_link_mismatch')
-            purchase=con.execute("SELECT * FROM field_events WHERE id=? AND kind='purchase' AND status='applied' AND project_id IS ? AND location=?",(purchase_id,project,row['location'])).fetchone()
+            purchase=con.execute("SELECT * FROM field_events WHERE id=? AND kind='purchase' AND status='applied' AND project_id IS ?",(purchase_id,project)).fetchone()
             if row['kind']!='receipt' or not purchase:raise ValueError('purchase_link_mismatch')
             purchased=json.loads(purchase['data_json'])['lines']
             delivered=[]
@@ -362,8 +362,8 @@ def apply_event(con,row,actor,confirm_distinct=False):
 
 
 def project_inventory(con, project_id):
-    """Unbudgeted stock and undelivered purchases, with their original evidence."""
-    events=con.execute("SELECT * FROM field_events WHERE project_id=? AND status='applied' AND location='project' ORDER BY id DESC",(project_id,)).fetchall()
+    """Project stock, undelivered purchases and linked company stock availability."""
+    events=con.execute("SELECT * FROM field_events WHERE project_id=? AND status='applied' AND location IN ('project','company') ORDER BY id DESC",(project_id,)).fetchall()
     received={}
     for event in events:
         data=json.loads(event['data_json'])
@@ -372,11 +372,20 @@ def project_inventory(con, project_id):
                 key=(data['purchase_event_id'],line_kind(line),line['title'].strip().casefold(),line['unit'].strip())
                 received[key]=received.get(key,Decimal(0))+quantity(line['qty'])
     result=[]
+    company_items=set()
     for event in events:
         data=json.loads(event['data_json'])
         if event['kind'] not in {'receipt','purchase','expected'}:continue
         for n,line in enumerate(data.get('lines',[])):
             kind=line_kind(line)
+            if event['kind']=='receipt' and event['location']=='company':
+                stock=con.execute('SELECT w.* FROM field_receipt_lines l JOIN warehouse_items w ON w.id=l.warehouse_item_id WHERE l.event_id=? AND l.line_no=?',(event['id'],n)).fetchone()
+                if not stock or stock['id'] in company_items or stock['qty']<=0:continue
+                company_items.add(stock['id'])
+                # Availability, not a reservation: transfers change this live balance.
+                result.append({'eventId':event['id'],'itemKind':stock['item_type'],'title':stock['name'],'unit':stock['unit'],
+                               'quantity':float(stock['qty']),'status':'on_warehouse','eventDate':event['event_date']})
+                continue
             if event['kind']=='receipt' and line.get('estimate_item_id'):continue
             qty=quantity(line['qty'])
             status='on_site'
