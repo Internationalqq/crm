@@ -420,7 +420,7 @@
             (payload.canRecordFacts ? '<button class="ghost compact" type="button" data-warehouse-dialog-open="work-fact"><i data-lucide="hard-hat"></i><span>Записать работу</span></button>' : '') +
             (payload.canManageNorms ? '<button class="ghost compact" type="button" data-warehouse-dialog-open="norms"><i data-lucide="settings-2"></i><span>Нормы</span></button>' : '') +
             '<button class="ghost compact" type="button" data-warehouse-dialog-open="history"><i data-lucide="history"></i><span>История</span></button>' +
-            '<button class="ghost compact" type="button" data-warehouse-print><i data-lucide="printer"></i><span>Распечатать</span></button>' +
+            '<button class="warehouse-control-print compact" type="button" data-warehouse-print><i data-lucide="printer"></i><span>Распечатать</span></button>' +
             '<button class="ghost compact warehouse-control-refresh" type="button" data-warehouse-control-refresh aria-label="Обновить материалы" title="Обновить"><i data-lucide="refresh-cw"></i></button>' +
         '</div>';
     }

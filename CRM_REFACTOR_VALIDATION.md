@@ -753,3 +753,5 @@ Production c42645f: SHA-256 двух assets совпал; API200, ошибок J
 Печать без вкладки: warehouse_print (включая lifecycle), warehouse_control, warehouse_submission PASS. 390/768/1280, одна вкладка, повтор, CSS, URL/scroll/focus и обработка ошибки — PASS; afterprint управляемый, системный диалог/принтер не проверены.
 
 Production c5d737a: совпадение assets, рабочий объект10, одна вкладка, три размера, два запуска, управляемый afterprint/ошибка, URL/scroll/focus PASS; ошибок JS нет. Ограничение проверки системного диалога сохраняется.
+
+Выделение печати: warehouse_control_frontend PASS; изолированные390/768/1280 без overflow, фон/рамка/hover/видимый значок PASS. Полный suite не запускался.

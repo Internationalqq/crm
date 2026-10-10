@@ -1470,6 +1470,23 @@ body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-h
     height: 15px;
 }
 
+body[data-page="projects"] [data-panel="warehouse-control"] [data-warehouse-print] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 var(--space-3);
+    border: 1px solid #bfd5f2;
+    background: var(--color-surface-accent);
+    color: var(--color-accent-hover);
+    font-weight: 600;
+    transition: background-color .16s ease, border-color .16s ease;
+}
+
+body[data-page="projects"] [data-panel="warehouse-control"] [data-warehouse-print]:hover {
+    border-color: var(--color-accent);
+    background: #dbeafe;
+}
+
 body[data-page="projects"] [data-panel="warehouse-control"] .warehouse-control-refresh {
     width: 36px;
     padding: 0;
