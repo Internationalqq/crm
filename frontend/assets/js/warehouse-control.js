@@ -420,6 +420,7 @@
             (payload.canRecordFacts ? '<button class="ghost compact" type="button" data-warehouse-dialog-open="work-fact"><i data-lucide="hard-hat"></i><span>Записать работу</span></button>' : '') +
             (payload.canManageNorms ? '<button class="ghost compact" type="button" data-warehouse-dialog-open="norms"><i data-lucide="settings-2"></i><span>Нормы</span></button>' : '') +
             '<button class="ghost compact" type="button" data-warehouse-dialog-open="history"><i data-lucide="history"></i><span>История</span></button>' +
+            '<button class="ghost compact" type="button" data-warehouse-print><i data-lucide="printer"></i><span>Распечатать</span></button>' +
             '<button class="ghost compact warehouse-control-refresh" type="button" data-warehouse-control-refresh aria-label="Обновить материалы" title="Обновить"><i data-lucide="refresh-cw"></i></button>' +
         '</div>';
     }
@@ -446,6 +447,45 @@
             return '<article class="project-inventory-item"><div><div class="project-inventory-name"><strong>' + escapeHtml(item.title) + '</strong>' + source + '</div><span class="badge ' + (item.status === 'on_site' ? 'success' : '') + '">' + labels[item.status] + '</span></div><b>' + escapeHtml(quantity(item.quantity) + ' ' + item.unit) + '</b>' +
                 (item.status === 'on_warehouse' ? '<small>Доступно на складе компании</small>' : '') + '</article>';
         }).join('');
+    }
+
+    function printDocument(payload, projectTitle, stamp) {
+        var labels = {on_site: 'На объекте', on_warehouse: 'На складе компании', purchased: 'Куплен · ждём доставку', expected: 'Ожидаем поставку'};
+        function list(kind) {
+            var rows = (payload.inventory || []).filter(function (item) { return item.itemKind === kind; }).map(function (item) {
+                return {title: item.title, qty: item.quantity, unit: item.unit, status: labels[item.status] || item.status};
+            });
+            if (kind === 'tool') (payload.materials || []).filter(function (item) { return item.itemKind === 'tool'; }).forEach(function (item) {
+                rows.push({title: item.title, qty: item.stockBalanceQty, unit: item.unit, status: item.stockBalanceQty > 0 ? 'На объекте' : 'Нет на объекте'});
+            });
+            if (!rows.length) return '<p class="empty">Позиций пока нет.</p>';
+            return '<table class="inventory"><thead><tr><th>Наименование</th><th>Количество</th><th>Статус</th></tr></thead><tbody>' + rows.map(function (item) {
+                return '<tr><td>' + escapeHtml(item.title) + '</td><td class="number">' + escapeHtml(quantity(item.qty) + ' ' + item.unit) + '</td><td>' + escapeHtml(item.status) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        }
+        var materials = (payload.materials || []).filter(function (item) { return item.itemKind !== 'tool'; });
+        var register = materials.length ? '<h3>Материалы по смете</h3><table class="register"><thead><tr><th>Наименование / ед.</th><th>План</th><th>Заказано</th><th>Приход</th><th>Расход</th><th>Остаток</th></tr></thead><tbody>' + materials.map(function (item) {
+            return '<tr><td>' + escapeHtml(item.title) + '<small>' + escapeHtml(item.unit) + ' · ' + escapeHtml(materialState(item)[0]) + '</small></td>' +
+                [item.plannedQty, item.purchasedQty, item.receivedQty, Number(item.factUsedQty || 0) + Number(item.manualUsedQty || 0), item.stockBalanceQty].map(function (value) { return '<td class="number">' + escapeHtml(quantity(value)) + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table>' : '';
+        return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escapeHtml('Склад — ' + projectTitle) + '</title><link rel="stylesheet" href="/assets/css/warehouse-print.css"></head><body>' +
+            '<div class="print-toolbar"><button type="button" data-print-document><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 8V3h12v5M6 17H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/></svg>Печать / сохранить PDF</button></div>' +
+            '<header><span class="brand">PM.bi</span><h1>Склад объекта</h1><p class="project">' + escapeHtml(projectTitle) + '</p><p class="stamp">Сформировано: ' + escapeHtml(stamp) + '</p></header>' +
+            '<h2>Инструменты</h2>' + list('tool') + '<h2>Материалы</h2>' + list('material') + register + '</body></html>';
+    }
+
+    function openPrint(payload, projectId) {
+        var popup = window.open('', '_blank');
+        if (!popup) { showAppNotice('Разрешите открытие окна печати в браузере и повторите.', 'error'); return; }
+        popup.opener = null;
+        var project = (state.projects || []).find(function (item) { return Number(item.id) === Number(projectId); }) || {};
+        var stamp = new Date().toLocaleString('ru-RU', {timeZone: 'Asia/Yekaterinburg', dateStyle: 'long', timeStyle: 'short'});
+        popup.document.open();
+        popup.document.write(printDocument(payload, project.title || ('Объект №' + projectId), stamp));
+        function print() { popup.focus(); popup.print(); }
+        popup.addEventListener('load', print, {once: true});
+        popup.document.close();
+        popup.document.querySelector('[data-print-document]').addEventListener('click', print);
     }
 
     function toolsInventory(payload) {
@@ -520,6 +560,7 @@
     }
 
     function bindPanel(panel, projectId, payload) {
+        qs('[data-warehouse-print]', panel).addEventListener('click', function () { openPrint(payload, projectId); });
         qsa('[data-inventory-source]', panel).forEach(function (button) {
             button.addEventListener('click', async function () {
                 var card = button.closest('.project-inventory-item');
@@ -1116,4 +1157,5 @@
     module.focusMaterial = focusMaterial;
     module.patchPosition = patchPosition;
     module.render = render;
+    module.printDocument = printDocument;
 })(window);

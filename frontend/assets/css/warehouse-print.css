@@ -1,0 +1,41 @@
+/* Standalone warehouse sheet, shared by preview and A4 printing. */
+:root { color-scheme: light; }
+body { max-width: 900px; margin: 0 auto; padding: 32px; font: 13px/1.45 Arial, sans-serif; color: #172033; background: #fff; }
+header { padding-bottom: 18px; border-bottom: 2px solid #172033; }
+.brand { color: #2459b8; font-weight: 700; font-size: 16px; }
+h1 { margin: 8px 0; font-size: 26px; line-height: 1.15; }
+.project { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.stamp { margin: 8px 0 0; color: #526071; font-size: 11px; }
+h2 { margin: 26px 0 10px; font-size: 18px; break-after: avoid; }
+h3 { margin: 20px 0 8px; font-size: 14px; break-after: avoid; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; }
+thead { display: table-header-group; }
+th { padding: 8px; border-bottom: 2px solid #66758b; background: #f0f3f8; text-align: left; font-size: 11px; }
+td { padding: 9px 8px; border-bottom: 1px solid #d9dee7; vertical-align: top; overflow-wrap: anywhere; }
+tr { break-inside: avoid; }
+.inventory th:first-child { width: 55%; }
+.inventory th:nth-child(2) { width: 18%; }
+.register th:first-child { width: 45%; }
+.register { font-size: 11px; }
+.register th { padding-inline: 5px; font-size: 10px; }
+.number { font-variant-numeric: tabular-nums; }
+td small { display: block; margin-top: 4px; color: #526071; font-size: 10px; }
+.empty { color: #526071; }
+.print-toolbar { margin-bottom: 24px; }
+.print-toolbar button { display: inline-flex; align-items: center; gap: 9px; padding: 11px 16px; border: 0; border-radius: 9px; background: #2459b8; color: #fff; font: 600 14px Arial, sans-serif; cursor: pointer; }
+.print-toolbar svg { width: 20px; height: 20px; }
+.print-toolbar button:focus-visible { outline: 2px solid #172033; outline-offset: 3px; }
+@page { size: A4 portrait; margin: 14mm; }
+@media print {
+    body { max-width: none; padding: 0; font-size: 10pt; }
+    .print-toolbar { display: none; }
+    header { padding-bottom: 12px; }
+    h1 { font-size: 22pt; }
+    h2 { margin-top: 20px; font-size: 14pt; }
+    th { background: none; }
+}
+@media screen and (max-width: 600px) {
+    body { padding: 18px; }
+    .inventory th:first-child { width: 46%; }
+    .inventory th:nth-child(2) { width: 22%; }
+}
