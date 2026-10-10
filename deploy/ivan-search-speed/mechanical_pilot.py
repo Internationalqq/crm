@@ -175,6 +175,14 @@ def native_browser_tabs(elements):
     return tabs
 
 
+def own_discovery_tab(elements,title):
+    tabs=[e for e in elements if e.get('role')=='AXRadioButton' and e.get('depth')==2
+          and not e.get('in_web_content') and e.get('label')==title.removesuffix(' - Google Chrome')]
+    selected=[e for e in tabs if e.get('selected') is True]
+    if len(selected)==1:return selected[0]
+    return tabs[0] if len(tabs)==1 else None
+
+
 def cleanup_candidates(tabs,targets,preserved):
     return [e for e in tabs if e.get('label') in targets
             and sum(t.get('label')==e.get('label') for t in tabs)==1 and not e.get('pinned')
@@ -322,7 +330,8 @@ def main():
         native=(raw.get('structuredContent') or {}).get('elements') or []
         save(out/'tab-strip.json',{'query':query,'tabs':[e for e in native if e['role']=='AXRadioButton']})
         b._snapshot_tokens={e['element_index']:e['element_token'] for e in native if e.get('element_token')}
-        tabs = [e for e in native if e['role']=='AXRadioButton' and e.get('label','').startswith(query)]
+        discovery=json.loads(discovery_file.read_text())
+        tabs = [e for e in native if e.get('role')=='AXRadioButton' and e.get('depth')==2 and e.get('label')==discovery['title'].removesuffix(' - Google Chrome')]
         if not tabs and args.stage=='organic':
             from urllib.parse import quote_plus
             key('cmd+t');capture();key('cmd+l');c,es=capture()
@@ -330,8 +339,9 @@ def main():
             timed('restore_own_organic_list',lambda:b.set_value(address,element=field(es,'Адресная строка')))
             capture();key('return');time.sleep(1)
             return capture()
-        if len(tabs)!=1:raise RuntimeError('Exact own AI tab unavailable')
-        timed('select_own_ai_tab',lambda:b.click(element=tabs[0]['element_index']))
+        tab=own_discovery_tab(native,discovery['title'])
+        if tab is None:raise RuntimeError('Exact own discovery tab unavailable or ambiguous')
+        timed('select_own_ai_tab',lambda:b.click(element=tab['element_index']))
         c,es=capture()
         if not c.window_title.startswith(query[:100]):raise RuntimeError('Wrong discovery page')
         return c,es

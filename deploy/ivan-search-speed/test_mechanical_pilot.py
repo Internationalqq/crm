@@ -12,6 +12,14 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_duplicate_discovery_requires_one_selected_exact_native_tab(self):
+        title='query - Поиск в Google';tabs=[{'role':'AXRadioButton','depth':2,'label':title,'selected':False,'element_index':1},
+                                            {'role':'AXRadioButton','depth':2,'label':title,'selected':True,'element_index':2}]
+        self.assertEqual(pilot.own_discovery_tab(tabs,title+' - Google Chrome')['element_index'],2)
+        self.assertIsNone(pilot.own_discovery_tab([{**e,'selected':False} for e in tabs],title))
+        self.assertIsNone(pilot.own_discovery_tab([{**e,'selected':True} for e in tabs],title))
+        self.assertIsNone(pilot.own_discovery_tab([{**tabs[1],'depth':8}],title))
+        self.assertIsNone(pilot.own_discovery_tab([{**tabs[1],'label':title+' extra'}],title))
     def test_omnibox_before_proven_translation_returns_popup_without_skipping_guard(self):
         spec=importlib.util.spec_from_file_location('popup_wrapper',Path(__file__).with_name('ivan_pilot_session.py'))
         wrapper=importlib.util.module_from_spec(spec);spec.loader.exec_module(wrapper)
