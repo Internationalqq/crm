@@ -12,6 +12,22 @@ pipeline=importlib.util.module_from_spec(spec);spec.loader.exec_module(pipeline)
 
 
 class PipelineTests(unittest.TestCase):
+    def test_packet_is_durable_before_cleanup_and_cleanup_failure_preserves_collection(self):
+        class FastStop(threading.Event):
+            def wait(self,timeout=None):return False
+        with tempfile.TemporaryDirectory() as directory:
+            w=Path(directory);(w/'packets').mkdir();raw=w/'raw/1';raw.mkdir(parents=True)
+            pipeline.save(raw/'collected.json',{'position':1});called=[]
+            def cleanup(command,log,timeout):
+                self.assertTrue((w/'packets/batch-0001.json').exists())
+                self.assertEqual(command[2:4],['cleanup','1']);self.assertIn('--cleanup-collected',command)
+                called.append(command);raise TimeoutError('cleanup timed out')
+            rows=[{'position_key':'1','name':'item','quantity':'1','unit':'шт'}]
+            with patch.object(pipeline,'run_child',cleanup):pipeline.produce(w,[1],rows,time.time()+120,FastStop(),1)
+            self.assertEqual(len(called),1)
+            self.assertEqual(json.loads((w/'producer-state.json').read_text())['status'],'finished')
+            self.assertEqual(json.loads((w/'packets/batch-0001.cleanup.json').read_text())['status'],'needs_attention')
+            self.assertTrue((raw/'collected.json').exists())
     def test_finite_test_skips_ready_items_preserves_total_and_flushes_for_review(self):
         class FastStop(threading.Event):
             def wait(self,timeout=None):return False

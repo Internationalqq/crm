@@ -11,6 +11,17 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_batch_cleanup_requires_durable_packet_and_collected_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            b=Path(directory);w=b/'mechanical-pipeline-20261009';(w/'packets').mkdir(parents=True)
+            (b/'mechanical-pilot-20261009').mkdir()
+            for n in [78,79]:
+                raw=w/'raw'/str(n);raw.mkdir(parents=True)
+                pilot.save(raw/'ai-source-1.json',{'title':f'item{n} - Google Chrome','url':f'https://shop.ru/{n}','status':'read'})
+            pilot.save(w/'packets/batch-0001.json',{'items':[{'position':78},{'position':79}]})
+            pilot.save(w/'raw/78/collected.json',{'position':78})
+            self.assertEqual(pilot.cleanup_targets(b),{})
+            self.assertEqual(pilot.cleanup_targets(b,True),{'item78':{'https://shop.ru/78'}})
     def test_block_detection_ignores_background_tabs_but_preserves_real_denials(self):
         background=[{'role':'AXRadioButton','label':'Доступ ограничен: проблема с IP'},
                     {'role':'AXMenuItem','label':'403 Forbidden'},

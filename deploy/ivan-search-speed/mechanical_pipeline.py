@@ -125,7 +125,20 @@ def produce(work,positions,rows,deadline,stop,max_new_positions=None):
     def flush():
         nonlocal number,batch
         if batch:
-            number+=1;save(packets/f'batch-{number:04}.json',{'created_at':time.time(),'items':batch});batch=[]
+            number+=1;packet=packets/f'batch-{number:04}.json'
+            last=batch[-1]['position'];save(packet,{'created_at':time.time(),'items':batch});batch=[]
+            # Durable evidence lets Ivan review while native cleanup runs.
+            cleanup_at=time.time();cleanup={'started_at':cleanup_at,'position':last}
+            try:
+                if stop.is_set() or deadline-time.time()<60:
+                    cleanup['status']='deferred'
+                else:
+                    log=packet.with_suffix('.cleanup.log')
+                    code=run_child([PYTHON,str(BASE/'mechanical_pilot.py'),'cleanup',str(last),'--pipeline','--cleanup-collected'],log,min(300,deadline-time.time()))
+                    cleanup.update(status='completed' if code==0 and 'waiting_for_browser' not in log.read_text() else 'deferred',exit_code=code)
+            except Exception as exc:
+                cleanup.update(status='needs_attention',error=str(exc)[:500])
+            cleanup.update(finished_at=time.time());save(packet.with_suffix('.cleanup.json'),cleanup)
     try:
         for n in positions:
             if n in ready:continue

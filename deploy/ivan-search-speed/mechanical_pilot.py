@@ -107,10 +107,14 @@ def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=t
         sleep(.5)
 
 
-def cleanup_targets(base):
+def cleanup_targets(base,collected=False):
     targets={}
     work=base/'mechanical-pipeline-20261009'
     done={i['position'] for f in (work/'packets').glob('batch-????.review.json') for i in json.loads(f.read_text())['items']}
+    if collected:
+        done.update(i['position'] for f in (work/'packets').glob('batch-????.json')
+                    for i in json.loads(f.read_text())['items']
+                    if (work/'raw'/str(i['position'])/'collected.json').exists())
     for root in [base/'mechanical-pilot-20261009',work/'raw']:
         for folder in root.iterdir():
             if not folder.is_dir() or not folder.name.isdigit():continue
@@ -209,6 +213,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('mode', choices=['discover', 'organic', 'read','review','cleanup'])
     p.add_argument('--cleanup-preview',action='store_true')
+    p.add_argument('--cleanup-collected',action='store_true')
     p.add_argument('position', type=int, choices=range(1,214))
     p.add_argument('--pipeline', action='store_true')
     p.add_argument('--labels', nargs='*', default=[])
@@ -353,7 +358,8 @@ def main():
             b._session.call_tool=lambda name,params,**kw:session_call(name,cleanup_scan_args(name,params),**kw)
         capture()
         if args.mode == 'cleanup':
-            targets=cleanup_targets(BASE);audit_path=out/'tab-cleanup.json'
+            assert not args.cleanup_collected or args.pipeline, 'Collected cleanup requires existing pipeline consent'
+            targets=cleanup_targets(BASE,args.cleanup_collected);audit_path=out/'tab-cleanup.json'
             audit=json.loads(audit_path.read_text()) if audit_path.exists() else {'closed':[],'preserved':[],'started_at':time.time()}
             tabs=tabs_snapshot();audit.setdefault('tabs_before',len(tabs))
             if 'closing' in audit:
@@ -377,7 +383,7 @@ def main():
                     save(audit_path,audit);tabs=tabs_snapshot();continue
                 wanted=targets[title]
                 if c.window_title.removesuffix(' - Google Chrome')!=title or not close_is_safe(title,address,es,targets):audit['preserved'].append(title);save(audit_path,audit);tabs=tabs_snapshot();continue
-                before=len(tabs);audit['closing']={'title':title,'url':address,'reason':'Own captured source/list; reviewed position; saved evidence; no unfinished input'};save(out/'tab-cleanup.json',audit)
+                before=len(tabs);audit['closing']={'title':title,'url':address,'reason':'Own captured source/list; completed saved position; no unfinished input'};save(out/'tab-cleanup.json',audit)
                 key('cmd+w');capture();tabs=verified_closed_tabs(before,title,tabs_snapshot)
                 audit['closed'].append(audit.pop('closing'));audit['tabs_after']=len(tabs);save(out/'tab-cleanup.json',audit)
                 print(json.dumps({'closed':len(audit['closed']),'remaining':len(tabs),'title':title},ensure_ascii=False),flush=True)
@@ -505,7 +511,7 @@ def main():
                 save(out/f'{args.stage}-source-{n}.json',record)
                 print(json.dumps({'source':n,**record},ensure_ascii=False),flush=True)
                 # Reviewer reads saved evidence; completed source tabs can close.
-                if record.get('status','read')=='read':close_saved_source(record)
+                if not args.pipeline and record.get('status','read')=='read':close_saved_source(record)
                 # The next iteration binds a fresh discovery capture once.
                 # Preserve skipped sources and unfinished forms in place.
     except Exception as exc:
