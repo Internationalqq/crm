@@ -757,3 +757,5 @@ Production c5d737a: совпадение assets, рабочий объект10, 
 Выделение печати: warehouse_control_frontend PASS; изолированные390/768/1280 без overflow, фон/рамка/hover/видимый значок PASS. Полный suite не запускался.
 
 Production65b9f81: три assets совпали,390/768/1280, фон/рамка/hover PASS; ошибок JS нет.
+
+Печать/кэш: primed-cache upgrade воспроизвёл старую вкладку и подтвердил новую цепочку URL, iframe/cleanup/цвет в одной сессии PASS. Router5/5 и warehouse_print lifecycle PASS. Полный suite/принтер не запускались.

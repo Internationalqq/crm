@@ -20,7 +20,7 @@
         planning: '/assets/js/planning.js?v=20260913-design-c965f07b',
         procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1-foreman-flow-1-warehouse-modal-a11y-2-safe-supplier-url-3-modal-listener-4-modal-focus-5-warehouse-error-retry-6-procurement-evidence-personal-2',
         estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260913-design-c965f07b',
-        warehouse_control: '/assets/js/warehouse-control.js?v=20260824-object-inventory-register-2-dialogs-3-portal-a11y-4-order-semantics-5-foreman-flow-6-position-editor-1-material-flow-7-inventory-head-cleanup-8-material-section-groups-9-row-click-10-row-actions-removed-11-modal-icons-12-fill-max-13-stock-move-reversal-14-procurement-evidence-personal-2-material-use-correction-1-20261007-field-intake-1',
+        warehouse_control: '/assets/js/warehouse-control.js?v=20261010-warehouse-inline-print-2',
         economics_management: '/assets/js/economics-management.js?v=20260821-economics-workspace-1-crm-skeletons-1-finance-workspace-1',
         report_dictation: '/assets/js/report-dictation.js?v=20261007-field-intake-1',
         operations: '/assets/js/operations.js?v=20261007-field-intake-1'
