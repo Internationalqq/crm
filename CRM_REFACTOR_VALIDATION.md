@@ -7,6 +7,8 @@
 нулевой остаток, чужой объект и частичная доставка покупка→склад проверены.
 Edge 390/768/1280: overflow=false, pageerror=[], три статуса видны;
 иконка раскрывает/закрывает/повторно открывает источник. Ревью ship.
+c9030c2 Linux: 9/27/20/12/11 PASS. Production: API200/401 без сессии,
+assets совпадают, integrity/FK и исходные количества 84 таблиц сохранены.
 
 Изолированная копия %TEMP%/crm-project-inventory-20261010: project inventory,
 field/finance intake, warehouse control, stock move; отдельные frontend warehouse
