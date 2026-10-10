@@ -11,6 +11,16 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_block_detection_ignores_background_tabs_but_preserves_real_denials(self):
+        background=[{'role':'AXRadioButton','label':'Доступ ограничен: проблема с IP'},
+                    {'role':'AXMenuItem','label':'403 Forbidden'},
+                    {'role':'AXHeading','label':'Бортовой камень'}]
+        self.assertFalse(pilot.active_page_blocked('https://smeta.ai/item','Бортовой камень - Google Chrome',background))
+        for role,label in [('AXHeading','Доступ ограничен'),('AXStaticText','403 Forbidden'),('AXCheckBox','Я не робот')]:
+            self.assertTrue(pilot.active_page_blocked('https://shop.ru/item','Product',background+[{'role':role,'label':label}]))
+        self.assertTrue(pilot.active_page_blocked('https://shop.ru/item','shop.ru: ошибка сети - Google Chrome',background))
+        for address in ['https://shop.ru/captcha','https://shop.ru/login','https://www.google.com/sorry/index']:
+            self.assertTrue(pilot.active_page_blocked(address,'Product',background))
     def test_cleanup_candidates_preserve_duplicates_pinned_and_saved_exclusions(self):
         tabs=[{'label':'ready','pinned':False},{'label':'duplicate'},{'label':'duplicate'},
               {'label':'pin','pinned':True},{'label':'form'},{'label':'unknown'}]

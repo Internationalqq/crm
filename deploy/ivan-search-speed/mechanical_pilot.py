@@ -25,6 +25,18 @@ def primary_url(value):
     except ValueError:return False
 
 
+def active_page_blocked(address,title,elements):
+    """Inspect the active document, excluding background tab and menu labels."""
+    from urllib.parse import urlsplit
+    u=urlsplit(address)
+    if re.search(r'captcha|/login|/signin|/auth',u.path,re.I):return True
+    if u.hostname in ('google.com','www.google.com') and u.path.startswith('/sorry'):return True
+    text='\n'.join(e.get('label','') for e in elements
+                   if e.get('role') in ('AXStaticText','AXHeading','AXCheckBox','AXWebArea'))
+    return bool(re.search(r'подтвердите[\s\S]{0,80}(?:человек|робот)|я не робот|unusual traffic|ERR_[A-Z_]+|доступ ограничен|Access Denied|401 Unauthorized|403 Forbidden',text,re.I)
+                or re.search(r'ошибка сети|сайт недоступен|не удается получить доступ|This site can.t be reached',title,re.I))
+
+
 def extract(elements):
     """Return candidates with literal evidence, never infer a unit or a match."""
     lines = []
@@ -475,19 +487,17 @@ def main():
                 except RuntimeError as exc:
                     save(target,{'source_label':label,'status':'unverified_address','candidates':[],
                                  'reason':str(exc),'snapshot_file':f'{run_tag}-{serial}-ax.json'})
-                    select_discovery()
                     continue
                 from urllib.parse import urlsplit
                 if not primary_url(address):
                     save(target,{'source_label':label,'url':address,'status':'unverified_primary_url',
                                  'candidates':[],'note':'Google redirect/wrapper is not accepted as a primary URL.'})
-                    select_discovery()
                     continue
                 deadline=time.monotonic()+10
                 while True:
                     c,es=capture();record=extract(es)
-                    text='\n'.join(e['label'] for e in es)
-                    if 'captcha' in urlsplit(address).path.lower() or re.search(r'подтвердите[\s\S]{0,80}(?:человек|робот)|unusual traffic|ERR_CERT_|ERR_CONNECTION_|доступ ограничен|Access Denied|403 Forbidden',text,re.I):
+                    text='\n'.join(e.get('label','') for e in es if e.get('role') in ('AXStaticText','AXHeading','AXCheckBox','AXWebArea'))
+                    if active_page_blocked(address,c.window_title,es):
                         record={'candidates':[],'status':'blocked_source','evidence':text[:2000],'no_retry':True};break
                     if record['candidates'] or record['headings'] or time.monotonic()>=deadline:break
                     time.sleep(1)
@@ -495,11 +505,9 @@ def main():
                 save(out/f'{args.stage}-source-{n}.json',record)
                 print(json.dumps({'source':n,**record},ensure_ascii=False),flush=True)
                 # Reviewer reads saved evidence; completed source tabs can close.
-                closed=close_saved_source(record) if record.get('status','read')=='read' else False
-                if closed:select_discovery()
-                elif args.stage=='organic' and record.get('status')!='blocked_source':key('cmd+[');capture()
-                elif args.stage=='organic':select_discovery()
-                else:select_discovery()
+                if record.get('status','read')=='read':close_saved_source(record)
+                # The next iteration binds a fresh discovery capture once.
+                # Preserve skipped sources and unfinished forms in place.
     except Exception as exc:
         save(out/'error.json',{'error':str(exc),'at':time.time()})
         print(json.dumps({'error':str(exc)},ensure_ascii=False));raise
