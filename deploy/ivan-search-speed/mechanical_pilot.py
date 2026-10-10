@@ -98,6 +98,15 @@ def notification_close(elements):
     return buttons[0]['index']
 
 
+def known_native_popup(elements):
+    adapted=[]
+    for e in elements:
+        frame=e.get('frame') or {}
+        adapted.append({**e,'index':e.get('element_index'),'label':e.get('label') or '',
+                        'bounds':[frame.get(k,0) for k in ('x','y','w','h')]})
+    return translation_close(adapted) is not None or notification_close(adapted) is not None
+
+
 def wait_source_navigation(capture,query,timeout=10,clock=time.monotonic,sleep=time.sleep):
     deadline=clock()+timeout
     while True:
@@ -241,7 +250,7 @@ def main():
     wrapper = importlib.util.module_from_spec(sp)
     sp.loader.exec_module(wrapper)
     original = CuaDriverBackend._select_content_window
-    CuaDriverBackend._select_content_window = lambda self, ws: wrapper.select_chrome_content(ws, lambda cs: original(self, cs))
+    CuaDriverBackend._select_content_window = lambda self, ws: wrapper.select_chrome_content(ws, lambda cs: original(self, cs),known_popup=known_native_popup)
     if args.pipeline:
         from browser_turn_queue import acquire_turn
         held=acquire_turn(browser_lock,Path(browser_lock.__file__).parent/'state','commercial')

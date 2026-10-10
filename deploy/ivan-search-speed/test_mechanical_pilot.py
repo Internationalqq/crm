@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 import tempfile
 import json
+from unittest.mock import patch
 
 sp = importlib.util.spec_from_file_location('pilot', Path(__file__).with_name('mechanical_pilot.py'))
 pilot = importlib.util.module_from_spec(sp)
@@ -11,6 +12,21 @@ sp.loader.exec_module(pilot)
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_omnibox_before_proven_translation_returns_popup_without_skipping_guard(self):
+        spec=importlib.util.spec_from_file_location('popup_wrapper',Path(__file__).with_name('ivan_pilot_session.py'))
+        wrapper=importlib.util.module_from_spec(spec);spec.loader.exec_module(wrapper)
+        native=[{'role':'AXWindow','label':'Перевести эту страницу?','frame':{'x':100,'y':100,'w':340,'h':87}},
+                {'role':'AXButton','label':'Параметры перевода'},
+                {'role':'AXRadioButton','label':'английский'},{'role':'AXRadioButton','label':'русский'},
+                {'role':'AXButton','label':'Закрыть','element_index':4,'frame':{'x':390,'y':112,'w':28,'h':32}}]
+        windows=[{'window_id':1,'pid':9},{'window_id':2,'pid':9}]
+        def select(ws):return ws[0],{'structuredContent':{'elements':native if ws[0]['window_id']==2 else []}}
+        with patch.object(wrapper,'chrome_help_strip',return_value=False),patch.object(wrapper,'chrome_find_popup',return_value=False),patch.object(wrapper,'chrome_omnibox_popup',side_effect=lambda w,s:w['window_id']==1):
+            with self.assertRaises(RuntimeError):wrapper.select_chrome_content(windows,select)
+            chosen,_=wrapper.select_chrome_content(windows,select,pilot.known_native_popup);self.assertEqual(chosen['window_id'],2)
+            native[0]['label']='Войти'
+            with self.assertRaises(RuntimeError):wrapper.select_chrome_content(windows,select,pilot.known_native_popup)
+        self.assertFalse(pilot.known_native_popup(native))
     def test_batch_cleanup_requires_durable_packet_and_collected_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             b=Path(directory);w=b/'mechanical-pipeline-20261009';(w/'packets').mkdir(parents=True)

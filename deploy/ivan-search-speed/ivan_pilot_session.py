@@ -197,7 +197,7 @@ def chrome_pointer_args(action, args):
     return result
 
 
-def select_chrome_content(windows, select):
+def select_chrome_content(windows, select, known_popup=None):
     """Skip at most two observed Chrome overlays, proving tooltip identity.
 
     Screenshot pixel sizes change with display scaling. The empty hover
@@ -216,6 +216,9 @@ def select_chrome_content(windows, select):
             if not skipped:
                 return selected, state
             elements = (state.get('structuredContent') or {}).get('elements') or []
+            # Return a proven popup for normal capture/dismissal, never skip it.
+            if not strips and known_popup is not None and known_popup(elements):
+                return selected, state
             main = any(e.get('role') == 'AXWindow' and 'Google Chrome' in e.get('label', '') for e in elements)
             help_frames = [e.get('frame') or {} for e in elements if e.get('role') == 'AXHelpTag']
             def matches(bounds, frame):
