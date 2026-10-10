@@ -755,3 +755,5 @@ Production c42645f: SHA-256 двух assets совпал; API200, ошибок J
 Production c5d737a: совпадение assets, рабочий объект10, одна вкладка, три размера, два запуска, управляемый afterprint/ошибка, URL/scroll/focus PASS; ошибок JS нет. Ограничение проверки системного диалога сохраняется.
 
 Выделение печати: warehouse_control_frontend PASS; изолированные390/768/1280 без overflow, фон/рамка/hover/видимый значок PASS. Полный suite не запускался.
+
+Production65b9f81: три assets совпали,390/768/1280, фон/рамка/hover PASS; ошибок JS нет.

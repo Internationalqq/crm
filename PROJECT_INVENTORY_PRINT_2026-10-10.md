@@ -27,3 +27,5 @@
 ## Мягкое выделение кнопки
 
 Исходный HEAD708c8e2, tracked diff чистый. По просьбе пользователя кнопка получила мягкий синий фон, рамку, синий принтер и подпись; hover чуть насыщеннее. Для компонента заменён ghost класс (его общие important-правила подавляли цвет) на warehouse-control-print; новых important нет. Изолированный браузер390/768/1280 без переполнения, обычный/hover цвет и визуальные кадры проверены; warehouse_control_frontend PASS. Самопроверка: обработчик/API/документ печати не изменены. Полный suite не запускался. Артефакты highlight-print-button-{390,768,1280}.png и print-highlight-results.json. Выпуск — следующий шаг.
+
+Выделение опубликовано65b9f81. Backup /opt/crm-backups/warehouse-print-highlight-20261010/frontend-before.tar.gz. Production SHA-256 трёх assets совпали;390/768/1280 без overflow, обычный и hover цвета верны, ошибок JS нет. Проверка production-print-highlight-results.json; пакет завершён.
