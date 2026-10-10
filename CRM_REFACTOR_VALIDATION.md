@@ -759,3 +759,5 @@ Production c5d737a: совпадение assets, рабочий объект10, 
 Production65b9f81: три assets совпали,390/768/1280, фон/рамка/hover PASS; ошибок JS нет.
 
 Печать/кэш: primed-cache upgrade воспроизвёл старую вкладку и подтвердил новую цепочку URL, iframe/cleanup/цвет в одной сессии PASS. Router5/5 и warehouse_print lifecycle PASS. Полный suite/принтер не запускались.
+
+Production e5251f8: новая цепочка loader URL, SHA-256 пяти assets, одна вкладка, повтор/cleanup/state и390/768/1280 PASS; ошибок JS нет.
