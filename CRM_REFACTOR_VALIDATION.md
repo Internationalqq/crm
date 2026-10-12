@@ -765,3 +765,5 @@ Production e5251f8: новая цепочка loader URL, SHA-256 пяти asset
 ### 12 октября — учёт трактора
 
 56 изолированных Python-проверок (tractor15 с9 общими finance fixture, field21, field_plugin6, transport6, tractor_plugin2, auth_request_cache6) PASS. Router5/5, tractor и field_frontend PASS. Браузер390/768/1280 +создание/reload/cancel/source/empty PASS; три потерянных ответа после commit не создают дублей, исходное действие/поля фиксируются. Полный CRM suite и физический трактор не проверялись. Независимый reviewer — ship. [Отчёт](TRACTOR_ACCOUNTING_2026-10-12.md).
+
+Production a1ee704: Linux tractor15 PASS, прежние зависимости сохранены,401/6assets/3размера/UI/FK/счётчики PASS. Бот getMe/getChat/administrator, gateway connected, plugin runtime и context3объекта PASS. Живые message/voice ещё не прогонялись. Pip-audit exit1:2прежние PyJWT advisory, подробнее в отчёте.
