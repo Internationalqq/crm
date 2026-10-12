@@ -769,3 +769,5 @@ Production e5251f8: новая цепочка loader URL, SHA-256 пяти asset
 Production a1ee704: Linux tractor15 PASS, прежние зависимости сохранены,401/6assets/3размера/UI/FK/счётчики PASS. Бот getMe/getChat/administrator, gateway connected, plugin runtime и context3объекта PASS. Живые message/voice ещё не прогонялись. Pip-audit exit1:2прежние PyJWT advisory, подробнее в отчёте.
 
 ПТО фото: field25 +plugin6 +frontend PASS. Реальная изолированная копия:2отчёта и2фото, повтор/FK/суммы PASS. Дата только отдельной первой строкой с годом, конфликт блокирует apply. Полный suite не запускался.
+
+Production ПТО efc9623: Linuxfield25 PASS, reports15/16 даты10/11, photos0/2, повторattach бездублей,2view200иdecode PASS. Веткаfinance/stock/originals неизменна, FKclean. PTOconnected, runtime PIDсовпадает. Полныйsuite не запускался.
