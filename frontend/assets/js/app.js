@@ -709,6 +709,7 @@
     };
 
     function initPage() {
+        if (page === 'tractor' && PMBI.tractor) PMBI.tractor.mount(qs('[data-tractor]'));
         qsa('[data-finance-intake-nav]').forEach(function (node) { node.hidden = !canSeeFinances(); });
         if (page === 'finances' && PMBI.financeIntake) PMBI.financeIntake.mount(qs('[data-finance-intake]'));
         if (PMBI.fieldIntake) {
@@ -14065,6 +14066,7 @@ function renderLogsDayView(project, logs) {
         var labels = {
             dashboard: 'Панель',
             daily_tasks: 'Задачи сотрудников',
+            tractor: 'Учёт трактора',
             projects: state.selectedProject && state.selectedProject.title ? state.selectedProject.title : 'Объекты',
             autobot: 'AutoBot',
             schedule: 'График работ',

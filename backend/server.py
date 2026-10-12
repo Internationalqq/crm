@@ -405,6 +405,7 @@ APP_PAGES["/app/suppliers"] = ("suppliers", "Контрагенты")
 
 APP_PAGES["/app/autobot"] = ("autobot", "AutoBot")
 APP_PAGES["/app/finances"] = ("finances", "Финансы")
+APP_PAGES["/app/tractor"] = ("tractor", "Учёт трактора")
 
 DIRECTOR_ACTION_BLOCK_RE = re.compile(
     r"<(?P<tag>section|button)\b(?=[^>]*\sdata-director-action\b)[\s\S]*?</(?P=tag)>",
@@ -4614,6 +4615,8 @@ def init_db() -> None:
         ensure_finance_intake_schema(con)
         from field_intake import ensure_schema as ensure_field_intake_schema
         ensure_field_intake_schema(con)
+        from tractor import ensure_schema as ensure_tractor_schema
+        ensure_tractor_schema(con)
         ensure_sqlite_indexes(con)
         con.commit()
         report_sqlite_foreign_key_violations(con)
@@ -5585,6 +5588,9 @@ class PMBIHandler(BaseHTTPRequestHandler):
             elif path == '/api/field-intake' or path.startswith('/api/field-intake/'):
                 from field_intake import handle as handle_field_intake
                 handle_field_intake(self, method, path)
+            elif path == '/api/tractor' or path.startswith('/api/tractor/'):
+                from tractor import handle as handle_tractor
+                handle_tractor(self, method, path)
             elif is_agent_market_proxy_route(method, path):
                 self.proxy_agent_market_request(method, path)
             elif method == "POST" and path == "/api/auth/login":

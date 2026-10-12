@@ -39,4 +39,14 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(calls[0].full_url,'https://crm.example/api/finance-intake/2/draft')
         self.assertEqual(calls[0].get_method(),'POST')
 
+    def test_tractor_can_only_import_drafts_and_read_object_context(self):
+        calls=[]
+        def open(req,timeout):
+            calls.append(req);r=io.BytesIO(b'{"id":1}');r.status=200;return r
+        self.assertEqual(m.proxy({'namespace':'tractor','path':'/import','data':{},'token':'x'*40},open)['status'],200)
+        self.assertEqual(calls[0].full_url,'http://127.0.0.1:8080/api/tractor/import')
+        for path in ['/entries/1','/name','/1/confirm','/../tractor','']:
+            self.assertEqual(m.proxy({'namespace':'tractor','path':path,'data':{},'token':'x'*40},open)['status'],403)
+        self.assertEqual(m.proxy({'namespace':'tractor','path':'/context','token':'x'*40},open)['status'],200)
+
 if __name__=='__main__':unittest.main()

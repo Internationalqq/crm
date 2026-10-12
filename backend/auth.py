@@ -975,6 +975,9 @@ def redact_procurement_prices(value: object, user: dict | None) -> object:
 
 
 def user_can_open(user: dict, path: str) -> bool:
+    if path == '/app/tractor':
+        from tractor import can_use
+        return can_use(user)
     if path in PUBLIC_STATIC_PATHS:
         return True
     if user_is_guest(user):

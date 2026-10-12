@@ -1,0 +1,5 @@
+name: tractor-crm-intake
+version: 1.0.0
+description: Tractor-only evidence and draft ledger in its own Telegram group
+hooks:
+  - pre_gateway_dispatch

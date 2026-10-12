@@ -17,7 +17,10 @@ def proxy(envelope, opener=urllib.request.urlopen, base_url='http://127.0.0.1:80
     path = envelope.get('path')
     data = envelope.get('data')
     namespace=envelope.get('namespace','finance')
-    if namespace=='field':
+    if namespace=='tractor':
+        if not ((path=='/context' and data is None) or (path=='/import' and isinstance(data,dict))):
+            return {'status':403,'payload':{'error':'transport_scope_forbidden'}}
+    elif namespace=='field':
         permitted=isinstance(path,str) and ((data is None and re.fullmatch(r'(?:|/projects|/context/\d+|/\d+)',path)) or
                     (isinstance(data,dict) and re.fullmatch(r'/(?:import|events|\d+/(?:apply|attach)|messages/\d+/transcript)',path)))
         if not permitted:return {'status':403,'payload':{'error':'transport_scope_forbidden'}}
@@ -31,7 +34,8 @@ def proxy(envelope, opener=urllib.request.urlopen, base_url='http://127.0.0.1:80
     token = envelope.get('token')
     if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}',token):
         return {'status':401,'payload':{'error':'invalid_integration_token'}}
-    req = urllib.request.Request(base_url + '/api/'+namespace+'-intake' + path,
+    api_prefix = '/api/tractor' if namespace=='tractor' else '/api/'+namespace+'-intake'
+    req = urllib.request.Request(base_url + api_prefix + path,
         data=json.dumps(data).encode() if data is not None else None,
         headers={'Content-Type':'application/json','Authorization':'Bearer '+token})
     try:

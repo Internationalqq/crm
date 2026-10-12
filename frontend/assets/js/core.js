@@ -1045,9 +1045,10 @@
         var permissions = currentPermissions();
         if (isGuestRole()) return ['projects'];
         if (permissions.fullAccess) {
-            return ['dashboard', 'daily_tasks', 'projects', 'finances', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'users'];
+            return ['dashboard', 'daily_tasks', 'projects', 'finances', 'tractor', 'autobot', 'companies', 'schedule', 'logs', 'warehouse', 'suppliers', 'users'];
         }
         var modules = Array.isArray(permissions.modules) ? permissions.modules.slice() : [];
+        if (['admin','main_admin','director','financier','accountant'].some(hasRole) && modules.indexOf('tractor') === -1) modules.push('tractor');
         if (canSeeFinances() && modules.indexOf('finances') === -1) modules.push('finances');
         if (modules.indexOf('users') === -1) modules.push('users');
         return modules;

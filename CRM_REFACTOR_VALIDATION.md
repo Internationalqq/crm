@@ -761,3 +761,7 @@ Production65b9f81: три assets совпали,390/768/1280, фон/рамка/
 Печать/кэш: primed-cache upgrade воспроизвёл старую вкладку и подтвердил новую цепочку URL, iframe/cleanup/цвет в одной сессии PASS. Router5/5 и warehouse_print lifecycle PASS. Полный suite/принтер не запускались.
 
 Production e5251f8: новая цепочка loader URL, SHA-256 пяти assets, одна вкладка, повтор/cleanup/state и390/768/1280 PASS; ошибок JS нет.
+
+### 12 октября — учёт трактора
+
+56 изолированных Python-проверок (tractor15 с9 общими finance fixture, field21, field_plugin6, transport6, tractor_plugin2, auth_request_cache6) PASS. Router5/5, tractor и field_frontend PASS. Браузер390/768/1280 +создание/reload/cancel/source/empty PASS; три потерянных ответа после commit не создают дублей, исходное действие/поля фиксируются. Полный CRM suite и физический трактор не проверялись. Независимый reviewer — ship. [Отчёт](TRACTOR_ACCOUNTING_2026-10-12.md).
