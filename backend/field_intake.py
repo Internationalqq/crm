@@ -92,10 +92,20 @@ def local_day(timestamp):
     return datetime.fromtimestamp(timestamp,timezone(timedelta(hours=5))).date()
 
 
+def report_date_heading(text):
+    """A complete date on its own first line is an explicit report heading."""
+    first=str(text or '').strip().splitlines()
+    match=re.fullmatch(r'(\d{1,2})[./](\d{1,2})[./](20\d{2}|\d{2})',first[0].strip()) if first else None
+    if not match:return None
+    day,month,year=map(int,match.groups())
+    return date(year+2000 if year<100 else year,month,day)
+
+
 def report_day(text, sent_at):
     """Only an explicit report date overrides the original message's local day."""
     base=local_day(sent_at)
-    found=[]
+    heading=report_date_heading(text)
+    found=[heading] if heading else []
     # The installed Russian STT sometimes drops т in «отчёт»; keep date evidence.
     report_word=r'(?:отч[её]т|оч[её]т)'
     pattern=report_word+r'\s+за\s+(\d{1,2})\s+(%s)(?:\s+(20\d{2}))?' % '|'.join(MONTHS)
@@ -221,8 +231,12 @@ def save_event(con,data,project_ids,cfg=None):
     if kind=='report':
         quote=str(detail.get('report_date_quote') or '')
         if quote and quote not in text:raise ValueError('date_evidence_required')
-        if quote and not re.search(r'(?:отч[её]т|оч[её]т)\s+за\b',quote,re.I):raise ValueError('report_date_needs_clarification')
-        try:day=report_day(quote or source_text([primary]),primary['sent_at'])
+        heading_sources=[source_text([s]) for s in sources if quote and source_text([s]).strip() and source_text([s]).strip().splitlines()[0].strip()==quote.strip() and report_date_heading(source_text([s]))]
+        heading_quote=bool(heading_sources)
+        if quote and not re.search(r'(?:отч[её]т|оч[её]т)\s+за\b',quote,re.I) and not heading_quote:raise ValueError('report_date_needs_clarification')
+        try:
+            for source in heading_sources:report_day(source,primary['sent_at'])
+            day=report_day(quote or source_text([primary]),primary['sent_at'])
         except ValueError:
             day=local_day(primary['sent_at']).isoformat()
             detail['date_issue']='Дата отчёта требует уточнения: укажите «отчёт за ДД месяц ГГГГ».'

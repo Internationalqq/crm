@@ -45,6 +45,44 @@ class FieldTests(unittest.TestCase):
             with self.assertRaises(ValueError):field.report_day('Отчёт за 7',ts)
             with self.assertRaises(ValueError):field.report_day('Отчёт за 7 ноября',ts)
 
+    def test_report_heading_date_accepts_full_year_and_short_year_only_first_line(self):
+        ts=int(datetime(2026,10,12,8,tzinfo=timezone.utc).timestamp())
+        with patch.object(field,'today_iso',return_value='2026-10-12'):
+            self.assertEqual(field.report_day('10.10.26\nСварка опор',ts),'2026-10-10')
+            self.assertEqual(field.report_day('11.10.2026\nПланировка',ts),'2026-10-11')
+            self.assertEqual(field.report_day('Получили материал по накладной 10.10.2026',ts),'2026-10-12')
+            self.assertEqual(field.report_day('Фото\n11.10.2026',ts),'2026-10-12')
+            with self.assertRaises(ValueError):field.report_day('13.10.2026\nРабота',ts)
+            with self.assertRaises(ValueError):field.report_day('10.10.26\nОтчёт за 11 октября',ts)
+
+    def test_report_heading_quote_saved_applied_and_photo_attached_once(self):
+        from PIL import Image
+        ts=int(datetime(2026,10,12,8,tzinfo=timezone.utc).timestamp())
+        with patch.object(field,'today_iso',return_value='2026-10-12'):
+            r=self.call('/api/field-intake/import',dict(chat_id='-10',message_id='headed',sent_at=ts,text='11.10.2026\nСварка опор',media=[]))
+            a=self.draft(r.response['message_id'],'report',report_date_quote='11.10.2026',work_done='Сварка опор',workers_count=1,workforce=[{'role':'Сварщик','count':1,'hours':7,'names':['Стас']}])
+            self.assertEqual(a['event_date'],'2026-10-11');self.assertEqual(self.apply(a).status,200)
+            stream=io.BytesIO();Image.new('RGB',(10,10),'red').save(stream,'PNG')
+            photo=self.source('добавь фото в отчет за 11.10',mid='headed-photo',media=[dict(filename='photo.png',content_base64=base64.b64encode(stream.getvalue()).decode())])
+            args={'source_ids':[photo],'revision':a['revision']}
+            self.assertEqual(self.call('/api/field-intake/'+str(a['id'])+'/attach',args).status,200)
+            self.assertEqual(self.call('/api/field-intake/'+str(a['id'])+'/attach',args).status,200)
+            with finance.db() as con:
+                self.assertEqual(con.execute('SELECT count(*) FROM daily_logs').fetchone()[0],1)
+                self.assertEqual(con.execute('SELECT count(*) FROM daily_log_photos').fetchone()[0],1)
+
+    def test_conflicting_heading_and_body_cannot_be_applied_via_quote(self):
+        mid=self.source('10.10.26\nОтчёт за 11 октября. Сварка опор')
+        with patch.object(field,'today_iso',return_value='2026-10-12'):
+            a=self.draft(mid,'report',report_date_quote='10.10.26',work_done='Сварка опор',workers_count=1)
+            self.assertIn('date_issue',a['data'])
+            self.assertEqual(self.apply(a).status,409)
+
+    def test_bare_quote_from_middle_of_source_cannot_override_date(self):
+        mid=self.source('Фото накладной 11.10.2026')
+        r=self.call('/api/field-intake/events',{'message_id':mid,'event_key':'report-head','kind':'report','project_id':self.pid,'location':'project','title':'Report','data':{'report_date_quote':'11.10.2026','work_done':'Работы','questions':[]}})
+        self.assertEqual(r.status,409)
+
     def test_unclear_date_is_retained_for_review_then_resolved_by_reply(self):
         mid=self.source('Отчёт за 5. Сделали 30 пластин.')
         a=self.draft(mid,'report',work_done='Сделали 30 пластин')
