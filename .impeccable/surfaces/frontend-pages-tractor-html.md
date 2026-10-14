@@ -47,3 +47,7 @@ Production a1ee704: production-1280.png показывает полный sideba
 STORY: заполненные факты сразу в журнале; площадки/месяцы как рабочая таблица Excel, уточнение только неполных/спорных сообщений. FIRST VIEWPORT: кнопки Все/База/Дегтярка, месяц/площадка, три точных итога, скрываемые расчёты; таблицы по месяцам с одной строкой день+площадка. Простой не добавляет часы, неизвестные цены отмечаются явно. Mobile labeled rows, детали дня раскрываются inline; полная карточка/источник/история/отмена остаются.
 
 Proof: outputs/tractor-journal-20261014/journal-1280/768/390.png на копии пользовательского XLSX, browser-preview.json. Save populated work→downtime, reload, filters, grouped sources PASS. Независимый finish-review fix→ship, F1refreshcontrol resolved на всех трёх повторных capture. Public DESIGN.md не меняется. Production screenshot/проверка — после выпуска.
+
+## Выравнивание таблицы — 2026-10-14
+
+По скриншоту пользователя колонки теперь принадлежат colgroup, единицы ч/л/₽ одной строкой под заголовками. Удалены широкие thwidthправила; дата/площадка слева, числа справа, footer сохраняет общую сетку. Proof outputs/tractor-align-20261014/journal-{1280,768,390}.png, filteredAugustfullpage и browser-preview.json. Independentnarrowreviewship:headers/footers/mobileпроверены. ПубличныйDESIGN неизменен.
