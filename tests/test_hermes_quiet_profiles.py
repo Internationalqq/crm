@@ -8,6 +8,7 @@ class QuietProfileTests(unittest.TestCase):
   m.quiet_config(c)
   self.assertEqual(c['telegram']['allowed_chats'],['-10']);self.assertEqual(c['security']['approval_mode'],'ask');self.assertEqual(c['display']['platforms']['discord'],{'streaming':True})
   self.assertEqual(c['display']['platforms']['telegram'],m.QUIET)
+  self.assertFalse(c['display']['busy_ack_enabled']);self.assertFalse(c['display']['busy_ack_detail']);self.assertFalse(c['cron']['wrap_response'])
  def test_env_repeat_preserves_other_settings(self):
   original='EXISTING_SETTING=keep\nexport HERMES_GATEWAY_BUSY_ACK_ENABLED=true\n'
   changed=m.quiet_env(original);self.assertEqual(m.quiet_env(changed),changed);self.assertIn('EXISTING_SETTING=keep',changed)

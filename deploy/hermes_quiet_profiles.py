@@ -13,6 +13,8 @@ ENV_KEYS = ('HERMES_GATEWAY_BUSY_ACK_ENABLED','HERMES_TELEGRAM_APPROVAL_RESULT_E
 
 def quiet_config(config):
     display=config.setdefault('display',{})
+    display.update({'busy_ack_enabled':False,'busy_ack_detail':False,'long_running_notifications':False})
+    config.setdefault('cron',{})['wrap_response']=False
     display.setdefault('platforms',{}).setdefault('telegram',{}).update(QUIET)
     return config
 
