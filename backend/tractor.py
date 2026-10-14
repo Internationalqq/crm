@@ -12,7 +12,7 @@ import field_intake
 from auth import user_has_any_role, user_is_guest
 from business_time import today_iso
 
-KINDS = {'work', 'fuel', 'maintenance', 'transport', 'expense', 'income'}
+KINDS = {'work', 'fuel', 'maintenance', 'transport', 'expense', 'income', 'downtime'}
 ROLES = {'main_admin', 'admin', 'director', 'financier', 'accountant'}
 
 
@@ -93,6 +93,11 @@ def normalize(con, raw, draft=False):
         if not draft and not hours:
             raise ValueError('Укажите отработанные часы')
         amount = int((hours * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    elif kind == 'downtime':
+        if hours or litres or rate or amount:
+            raise ValueError('Для простоя часы работы и денежные суммы не заполняются')
+        if not draft and not description:
+            raise ValueError('Укажите причину простоя')
     elif not draft and not amount and not (kind == 'fuel' and litres):
         raise ValueError('Укажите сумму')
     work_id = raw.get('work_id') or None
@@ -178,6 +183,10 @@ def update(con, ident, raw, revision, actor, action='save', reason='', confirm_d
 def payload(con, row):
     result = dict(row); result.pop('request_key'); result['data']=json.loads(result.pop('data_json'))
     result['history']=[dict(r) for r in con.execute('SELECT action,reason,created_at FROM tractor_audit WHERE entry_id=? ORDER BY id',(row['id'],))]
+    result['needs_clarification']=None
+    if row['status']=='draft':
+        attention=[h['reason'] for h in result['history'] if h['action']=='attention']
+        result['needs_clarification']=attention[-1] if attention else 'Заполните недостающие данные и запишите в журнал'
     result['source']=None
     if row['source_id']:
         m=field_intake.message(con,row['source_id'])
@@ -206,6 +215,7 @@ def handle(handler, method, path):
                 if not integration:raise PermissionError('integration_required')
                 if not isinstance(data,dict) or not isinstance(data.get('message'),dict):raise ValueError('message_required')
                 mid=field_intake.ingest(con,data['message'],cfg)
+                if 'needs_clarification' in data and type(data['needs_clarification']) is not bool:raise ValueError('Некорректная пометка уточнения')
                 record=data.get('record',{})
                 if not isinstance(record,dict):raise ValueError('record_required')
                 record=dict(record)
@@ -213,7 +223,19 @@ def handle(handler, method, path):
                 old=con.execute('SELECT * FROM tractor_entries WHERE source_id=?',(mid,)).fetchone()
                 if old and json.loads(old['data_json'])!=normalize(con,record,draft=True):raise ValueError('Источник уже сохранён с другими данными. Исправьте запись в CRM')
                 ident=old['id'] if old else create(con,record,'telegram-message:'+str(mid),None,mid)
-                con.commit();handler.send_json(200,{'id':ident,'status':'draft' if not old else con.execute('SELECT status FROM tractor_entries WHERE id=?',(ident,)).fetchone()[0]});return
+                if not old and cfg.get('auto_post',True):
+                    reason='Уточните вид, место и описание факта'
+                    if data.get('needs_clarification') is True:
+                        reason='В сообщении несколько фактов или есть неоднозначные данные'
+                    elif record.get('kind') and record.get('location') and str(record.get('description') or '').strip():
+                        try:
+                            update(con,ident,record,1,None,'confirm',operation_key='telegram-auto:'+str(mid))
+                            reason=None
+                        except ValueError as error:
+                            reason=str(error)
+                    if reason:audit(con,ident,'attention',reason,None)
+                item=payload(con,con.execute('SELECT * FROM tractor_entries WHERE id=?',(ident,)).fetchone())
+                con.commit();handler.send_json(200,{'id':ident,'status':item['status'],'needs_clarification':item['needs_clarification']});return
             if method=='GET' and path=='/api/tractor':
                 rows=sorted(con.execute('SELECT * FROM tractor_entries').fetchall(),key=lambda r:(json.loads(r['data_json'])['date'],r['id']),reverse=True)
                 projects=[dict(r) for r in con.execute('SELECT id,title FROM projects ORDER BY title')]

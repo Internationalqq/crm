@@ -50,7 +50,7 @@ def flush():
                         if hashlib.sha256(raw).hexdigest()!=f['sha256']:raise ValueError('original_integrity_error')
                         media.append({'filename':f['name'],'content_base64':base64.b64encode(raw).decode()})
                     args=json.loads(row['extraction']);message['media']=media;message['transcript']=args.get('transcript','')
-                    result=api('/import',{'message':message,'record':args['record']})
+                    result=api('/import',{'message':message,'record':args['record'],**({'needs_clarification':True} if args.get('needs_clarification') is True else {})})
                     con.execute('UPDATE sources SET crm_id=? WHERE source=?',(result['id'],row['source']))
                     con.execute("UPDATE operations SET synced=1,result=?,error=NULL WHERE source=? AND op_key='tractor' AND generation=?",(json.dumps(result),row['source'],row['generation']))
                 except Exception as e:
@@ -65,7 +65,7 @@ def capture(event):
     if result:
         original=result['text'].split('\n[Field CRM source:',1)[0]
         key=str(event.source.chat_id)+':'+str(event.message_id)
-        return {'action':'rewrite','text':original+'\n[Tractor CRM source: '+key+'. Read plugins/tractor-crm-intake/WORKFLOW.md. Use tractor_crm context and extract. Save ONLY a draft; never claim confirmed or paid. Exact original/voice evidence, hours, litres and money only from source; ask about unknowns. Check status synced=1 before saying saved to CRM.]'}
+        return {'action':'rewrite','text':original+'\n[Tractor CRM source: '+key+'. Read plugins/tractor-crm-intake/WORKFLOW.md. Use tractor_crm context and extract. Complete single facts enter the journal automatically; ambiguous or multiple facts must set needs_clarification=true. Never claim paid without explicit receipt evidence. Exact original/voice evidence, hours, litres and money only from source; ask about unknowns. Check status synced=1 before saying saved to CRM.]'}
 
 
 def tool(args,**kwargs):
@@ -73,12 +73,13 @@ def tool(args,**kwargs):
         action=args.get('action')
         if action=='context':result=api('/context')
         elif action=='extract':
+            if 'needs_clarification' in args and type(args['needs_clarification']) is not bool:raise ValueError('clarification_flag_required')
             key=args.get('source');record=args.get('record')
             if not isinstance(key,str) or not isinstance(record,dict) or len(json.dumps(args))>180000:raise ValueError('source_record_required')
             with source.db() as con:
                 row=con.execute('SELECT * FROM sources WHERE source=?',(key,)).fetchone()
                 if not row or json.loads(row['payload'])['chat_id'] not in source.groups(config()):raise ValueError('unknown_source')
-                payload=json.dumps({'record':record,'transcript':args.get('transcript','')},sort_keys=True,ensure_ascii=False)
+                payload=json.dumps({'record':record,'transcript':args.get('transcript',''),**({'needs_clarification':True} if args.get('needs_clarification') is True else {})},sort_keys=True,ensure_ascii=False)
                 old=con.execute("SELECT * FROM operations WHERE source=? AND op_key='tractor'",(key,)).fetchone()
                 if old and old['synced']:
                     if old['payload']!=payload:raise ValueError('already_synced_edit_in_crm')
@@ -102,7 +103,7 @@ def register(ctx):
     global STARTED
     if Path(os.environ.get('HERMES_HOME',''))!=PROFILE:return
     ctx.register_hook('pre_gateway_dispatch',capture)
-    ctx.register_tool(name='tractor_crm',toolset='tractor_crm',handler=tool,schema={'name':'tractor_crm','description':'Own tractor group: original evidence to CRM draft. No automatic confirmation/payment. Durable outbox and idempotent original.', 'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['context','source','extract','status']},'source':{'type':'string'},'transcript':{'type':'string'},'record':{'type':'object','description':'kind work/fuel/maintenance/transport/expense/income, date ISO from message day or explicit fact; location project/external/company, project_id integer from context for our site, external exact customer/address for outside site, description, hours/litres/rate/amount decimal strings RUB (not kopecks). income only explicit received payment, not invoice. Missing facts may remain zero/null in draft. Never invent VAT, money, hours or object.'}},'required':['action']}})
+    ctx.register_tool(name='tractor_crm',toolset='tractor_crm',handler=tool,schema={'name':'tractor_crm','description':'Own tractor group: original evidence to CRM journal. Complete single facts auto-record; unknowns stay for clarification. No project finance posting. Durable outbox and idempotent original.', 'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['context','source','extract','status']},'source':{'type':'string'},'transcript':{'type':'string'},'needs_clarification':{'type':'boolean','description':'True for multiple facts, uncertain interpretation or missing evidence; prevents automatic recording.'},'record':{'type':'object','description':'kind work/fuel/maintenance/transport/expense/income/downtime, date ISO from message day or explicit fact; location project/external/company, project_id integer from context for our site, external exact customer/address for outside site, description, hours/litres/rate/amount decimal strings RUB (not kopecks). income only explicit received payment, not invoice. Missing facts may remain zero/null in draft. Never invent VAT, money, hours or object.'}},'required':['action']}})
     if STARTED:return
     STARTED=True
     (folder()/'runtime.json').write_text(json.dumps({'pid':os.getpid(),'registered_at':time.time(),'connected':bool(source.groups(config()))}))

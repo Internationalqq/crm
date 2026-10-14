@@ -14,14 +14,14 @@
     var scriptPromises = {};
 
     var SCRIPT_URLS = {
-        tractor: '/assets/js/tractor.js?v=20261012-tractor-1',
-        app: '/assets/js/app.js?v=20261012-tractor-1',
+        tractor: '/assets/js/tractor.js?v=20261014-tractor-journal-1',
+        app: '/assets/js/app.js?v=20261014-tractor-journal-1',
         autobot: '/assets/js/autobot.js?v=20260927-stable-scroll-1',
         daily_tasks: '/assets/js/daily-tasks.js?v=20260913-design-c965f07b',
         planning: '/assets/js/planning.js?v=20260913-design-c965f07b',
         procurement: '/assets/js/procurement.js?v=20260821-quantity-normalization-1-crm-skeletons-1-foreman-flow-1-warehouse-modal-a11y-2-safe-supplier-url-3-modal-listener-4-modal-focus-5-warehouse-error-retry-6-procurement-evidence-personal-2',
         estimate_reconciliation: '/assets/js/estimate-reconciliation.js?v=20260913-design-c965f07b',
-        warehouse_control: '/assets/js/warehouse-control.js?v=20261012-tractor-1',
+        warehouse_control: '/assets/js/warehouse-control.js?v=20261014-tractor-journal-1',
         economics_management: '/assets/js/economics-management.js?v=20260821-economics-workspace-1-crm-skeletons-1-finance-workspace-1',
         report_dictation: '/assets/js/report-dictation.js?v=20261007-field-intake-1',
         operations: '/assets/js/operations.js?v=20261007-field-intake-1'

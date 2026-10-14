@@ -34,6 +34,11 @@ class TractorPluginTests(unittest.TestCase):
         self.assertEqual(seen[0],seen[1])
         with self.p.source.db() as con:self.assertEqual(con.execute('SELECT synced FROM operations').fetchone()[0],1)
         self.assertEqual(json.loads(self.p.tool(args))['id'],1)
+        # Historical delivered payloads did not have the optional false flag.
+        self.assertEqual(json.loads(self.p.tool({**args,'needs_clarification':False}))['id'],1)
+        con=self.p.source.db()
+        try:self.assertNotIn('needs_clarification',json.loads(con.execute('SELECT payload FROM operations').fetchone()[0]))
+        finally:con.close()
         args['record']['hours']='5';self.assertIn('already_synced',json.loads(self.p.tool(args))['error'])
     def test_http4_stops_and_error_does_not_leak_secrets(self):
         self.p.capture(self.event());self.p.tool({'action':'extract','source':'-5295304684:1','record':{}})

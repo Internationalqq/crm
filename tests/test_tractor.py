@@ -77,4 +77,37 @@ class TractorTests(unittest.TestCase):
         body['record']['hours']='5'
         self.assertEqual(self.call('/api/tractor/import',body,True,False).status,409)
 
+    def test_complete_telegram_fact_auto_records_repeat_and_duplicate(self):
+        msg={'chat_id':'-10','message_id':'auto-fuel','sent_at':finance.now_ts(),'text':'Дегтярка: заправили 30 литров','media':[{'filename':'receipt.pdf','content_base64':base64.b64encode(b'%PDF-unique-autofuel').decode()}]}
+        body={'message':msg,'record':{'kind':'fuel','location':'external','external':'Дегтярка','litres':'30','description':'Заправили 30 литров'}}
+        first=self.call('/api/tractor/import',body,True,False)
+        self.assertEqual(first.status,200,first.response);self.assertEqual(first.response['status'],'confirmed')
+        repeat=self.call('/api/tractor/import',body,True,False);self.assertEqual(repeat.response,first.response)
+        with finance.db() as con:self.assertEqual(con.execute("SELECT count(*) FROM tractor_audit WHERE action='confirm'").fetchone()[0],1)
+        body['message']['message_id']='auto-fuel-copy'
+        duplicate=self.call('/api/tractor/import',body,True,False)
+        self.assertEqual(duplicate.response['status'],'draft');self.assertIn('чек уже есть',duplicate.response['needs_clarification'])
+        items=self.call('/api/tractor').response['items'];self.assertTrue(items[0]['needs_clarification'])
+        with finance.db() as con:self.assertEqual(con.execute('SELECT count(*) FROM finance_entries').fetchone()[0],0)
+
+    def test_ambiguous_and_missing_fact_stay_for_clarification(self):
+        def body(mid,record,**extras):return {'message':{'chat_id':'-10','message_id':mid,'sent_at':finance.now_ts(),'text':'Исходные факты'},'record':record,**extras}
+        record={'kind':'work','location':'external','external':'Частный участок','hours':'5','description':'Работал 5 часов'}
+        ambiguous=self.call('/api/tractor/import',body('ambiguous-fact',record,needs_clarification=True),True,False)
+        self.assertEqual(ambiguous.response['status'],'draft')
+        incomplete=self.call('/api/tractor/import',body('missing-site',{**record,'external':''}),True,False)
+        self.assertEqual(incomplete.response['status'],'draft');self.assertIn('площадку',incomplete.response['needs_clarification'])
+        complete=self.call('/api/tractor/import',body('hours-only-rate-unknown',record),True,False)
+        self.assertEqual(complete.response['status'],'confirmed')
+        current=next(i for i in self.call('/api/tractor').response['items'] if i['id']==complete.response['id'])
+        self.assertEqual(current['data']['amount_cents'],0);self.assertEqual(current['data']['hours'],'5')
+
+    def test_downtime_is_recorded_without_work_or_money(self):
+        a=self.draft('downtime-operation',kind='downtime',hours='0',rate='0',description='Ждал фильтр')
+        result=self.confirm(a);self.assertEqual(result.status,200,result.response)
+        self.assertEqual(result.response['item']['data']['hours'],'0')
+        with finance.db() as con:
+            for fields in [{'hours':'1'},{'amount':'100'},{'rate':'10'},{'litres':'1'}]:
+                with self.assertRaises(ValueError):tractor.normalize(con,{'kind':'downtime','description':'Причина',**fields},False)
+
 if __name__=='__main__':unittest.main()

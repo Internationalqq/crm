@@ -41,3 +41,9 @@ Document-pass по готовому коду и существующим док�
 ## Final production evidence
 
 Production a1ee704: production-1280.png показывает полный sidebar224px и заметный пункт трактора;390/768 без overflow. Раннее обрезание условного desktop-снимка не подтверждено в рабочей CRM и не исправлялось глобальным CSS. Диалог, текст и footer действий доступны. Последний capture/network round подтвердил фильтры/проверку/reload/cancel и фиксированный retry; глобальные PRODUCT/DESIGN не менялись. Независимый code/UI reviewer — ship.
+
+## Уточнение пользователя — 2026-10-14
+
+STORY: заполненные факты сразу в журнале; площадки/месяцы как рабочая таблица Excel, уточнение только неполных/спорных сообщений. FIRST VIEWPORT: кнопки Все/База/Дегтярка, месяц/площадка, три точных итога, скрываемые расчёты; таблицы по месяцам с одной строкой день+площадка. Простой не добавляет часы, неизвестные цены отмечаются явно. Mobile labeled rows, детали дня раскрываются inline; полная карточка/источник/история/отмена остаются.
+
+Proof: outputs/tractor-journal-20261014/journal-1280/768/390.png на копии пользовательского XLSX, browser-preview.json. Save populated work→downtime, reload, filters, grouped sources PASS. Независимый finish-review fix→ship, F1refreshcontrol resolved на всех трёх повторных capture. Public DESIGN.md не меняется. Production screenshot/проверка — после выпуска.
