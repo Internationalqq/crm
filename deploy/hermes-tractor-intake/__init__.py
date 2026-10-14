@@ -60,8 +60,8 @@ def flush():
     finally:LOCK.release()
 
 
-def capture(event):
-    result=source.capture(event)
+def capture(event=None,**kwargs):
+    result=source.capture(event,**kwargs)
     if result:
         original=result['text'].split('\n[Field CRM source:',1)[0]
         key=str(event.source.chat_id)+':'+str(event.message_id)

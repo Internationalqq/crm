@@ -21,7 +21,7 @@ class TractorPluginTests(unittest.TestCase):
     def event(self):
         return NS(source=NS(chat_id='-5295304684',platform=NS(value='telegram')),internal=False,raw_message=NS(from_user=NS(id=1,is_bot=False,full_name='Driver'),date=datetime.now(timezone.utc),text='Трактор 4 часа'),media_urls=[],text='Трактор 4 часа',message_id='1')
     def test_scope_capture_outbox_lost_response_retry_and_frozen_delivered(self):
-        event=self.event();self.assertIn('Tractor CRM source:',self.p.capture(event)['text'])
+        event=self.event();self.assertIn('Tractor CRM source:',self.p.capture(event=event,gateway=NS(),session_store=NS())['text'])
         event.source.chat_id='-5589110678';self.assertIsNone(self.p.capture(event))
         args={'action':'extract','source':'-5295304684:1','record':{'kind':'work','hours':'4'}}
         self.assertTrue(json.loads(self.p.tool(args))['queued'])
