@@ -9,3 +9,5 @@
 Перед выпуском: независимое code/visualreview, сохранить прежние assets как rollback, commit/push/frontendpublish без изменения backend/runtime/БД, проверить актуальные hashes и production390/768/1280.
 
 Независимое narrowcode/visualreview:ship, blockingregressionsнет. Все390/768/1280 и full-pagefilteredAugust/footer проверены; заголовки, суммы, footerиmobileподписи ровные. Общийконтроль всехпродуктовыхсценариев этимревью не заявляется.
+
+Выпущенacc682e, frontendbindподхватилизменения безперезапускаbackend/сменыобраза/зависимостей. Резерв5прежнихфайлов /opt/crm-backups/tractor-align-20261014. Production4publicassetSHAсовпали сcommit; новаяcacheцепочкаработает. Browser390/768/1280document/headeroverflowнет, filters/details/reloadPASS, JSerrors0; скриншотыjournal*.png теперьproduction.127историческихconfirmed прочитаны, данныенеизменялись. ОбщийPython/CRM suite не запускался; затронутыеJSнаборыPASS. Пакетзавершён.
