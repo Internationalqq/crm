@@ -11,3 +11,11 @@ Workflow/SOUL/AGENTS: сначала сохранить, затем коротк
 Проверки: backendтракторповтор/частичность/clockinterval/duplicate/роль/financeisolation; pluginтранспорт; JScontract. Независимое ревью. Productionслойнад прежнимruntimeбезсменызависимостей и профильtractorприidle. Рабочиегруппы не засорятьсинтетическимипостами; остальныеагенты не менять.
 
 ИзолированнаякопиярабочейБД:128→6ч/object10/confirmed, повторидентичен, соседниеданные/FK/integrityunchanged. Backend19PASS (10тракторсценариев+9fixture), plugin2PASS, JStractorPASS/router5PASS. ПолныйCRM suite не запускался. Независимыйreview обнаружилдваP2: устаревшийtoolописаниеблокировки и рискelapsedfallbackпри прямо указанномbreak. Toolописаниеисправлено; explicitbreak guard охватываетисходныйtext/transcript+description, sanitizedописание не обходитего. Приunknownhours+явномbreak исходник записываетсясразу, но backendнеподставляетложные6ч; агентможет вычислить часы появномуbreak вrawhours. Regression покрываетtext иvoice, записьнеблокируется.
+
+## Выпуск и результат
+
+Опубликован08d1e5c, Linuxcandidate19backendPASS, runtimeзависимостиидентичныпредыдущим. Productionentry128 записан6часов/project10/date2026-10-13/statusconfirmed; повторнеизменен, исходноеfieldmessage59 ивсясоседняяБД неизменны, integrity/FKok. Резерв /opt/crm-backups/tractor-direct-20261014/before.sqlite3 иcrm-crm:rollback-tractor-direct-20261014. Остальные записи/финансы/материалы не мигрировались.
+
+Профильtractor: backup/SOUL/AGENTS/плагин/WORKFLOWобновленыприidle; source/extractionpayloadoutboxнеизменны, толькоcachedresult128 теперьconfirmed. ProductionAPI/UI: №1286чobject10,sourceсохранён, фильтрГусиха+октябрь/повторноеоткрытиекарточкиPASS, JSerrors0, attentiongateнет. Liveсинтетическихсообщений неотправляли; новыйреальныйпостпосленовойполитикиещёнеиспытан. Прежниеquietнастройкивсехагентовсохранены.
+
+Независимоеfocusedreviewship послеисправленийP2, remainingblockersнет.19backend/2plugin/JStractor/router5PASS, полныйCRM suite не запускался. Пакетзавершён: допвопрос больше не являетсяусловиемсохранения, обязательнойручнойпроверки нет.
