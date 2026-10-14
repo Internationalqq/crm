@@ -8,7 +8,7 @@ class TractorTests(unittest.TestCase):
     setUp=Fixture.setUp
     tearDown=Fixture.tearDown
     def call(self,path,data=None,token=False,user=True):
-        (finance.DATA_DIR/'tractor-integration.json').write_text(json.dumps({**self.cfg,'enabled':True}))
+        (finance.DATA_DIR/'tractor-integration.json').write_text(json.dumps({**self.cfg,'enabled':True,'auto_post':getattr(self,'auto_post',True)}))
         if data is not None and '/entries/' in path:
             self.op_counter=getattr(self,'op_counter',0)+1
             data.setdefault('operation_key','test-operation:'+str(self.op_counter))
@@ -44,6 +44,7 @@ class TractorTests(unittest.TestCase):
         a=self.draft();self.assertEqual(self.call('/api/tractor/entries',{'request_key':'operation-1','data':{**tractor.raw_data(a['data']),'hours':'5'}}).status,409)
         with finance.db() as con:self.assertEqual(con.execute('SELECT count(*) FROM finance_entries').fetchone()[0],0)
     def test_telegram_original_group_draft_repeat_and_duplicate_check(self):
+        self.auto_post=False
         message={'chat_id':'-10','message_id':'t1','sent_at':finance.now_ts(),'text':'Заправили трактор 30л, 2000р','media':[{'filename':'receipt.pdf','content_base64':base64.b64encode(b'%PDF-test-tractor').decode()}]}
         body={'message':message,'record':{'kind':'fuel','litres':'30','amount':'2000'}}
         a=self.call('/api/tractor/import',body,True,False);self.assertEqual(a.status,200,a.response)
@@ -83,20 +84,21 @@ class TractorTests(unittest.TestCase):
         first=self.call('/api/tractor/import',body,True,False)
         self.assertEqual(first.status,200,first.response);self.assertEqual(first.response['status'],'confirmed')
         repeat=self.call('/api/tractor/import',body,True,False);self.assertEqual(repeat.response,first.response)
-        with finance.db() as con:self.assertEqual(con.execute("SELECT count(*) FROM tractor_audit WHERE action='confirm'").fetchone()[0],1)
+        with finance.db() as con:self.assertEqual(con.execute("SELECT count(*) FROM tractor_audit WHERE action='record'").fetchone()[0],1)
         body['message']['message_id']='auto-fuel-copy'
         duplicate=self.call('/api/tractor/import',body,True,False)
-        self.assertEqual(duplicate.response['status'],'draft');self.assertIn('чек уже есть',duplicate.response['needs_clarification'])
-        items=self.call('/api/tractor').response['items'];self.assertTrue(items[0]['needs_clarification'])
+        self.assertEqual(duplicate.response['status'],'cancelled');self.assertEqual(duplicate.response['duplicate_of'],first.response['id'])
+        self.assertEqual(self.call('/api/tractor/import',body,True,False).response,duplicate.response)
+        items=self.call('/api/tractor').response['items'];self.assertIsNone(items[0]['needs_clarification'])
         with finance.db() as con:self.assertEqual(con.execute('SELECT count(*) FROM finance_entries').fetchone()[0],0)
 
-    def test_ambiguous_and_missing_fact_stay_for_clarification(self):
+    def test_followup_questions_and_missing_fields_do_not_block_recording(self):
         def body(mid,record,**extras):return {'message':{'chat_id':'-10','message_id':mid,'sent_at':finance.now_ts(),'text':'Исходные факты'},'record':record,**extras}
         record={'kind':'work','location':'external','external':'Частный участок','hours':'5','description':'Работал 5 часов'}
         ambiguous=self.call('/api/tractor/import',body('ambiguous-fact',record,needs_clarification=True),True,False)
-        self.assertEqual(ambiguous.response['status'],'draft')
+        self.assertEqual(ambiguous.response['status'],'confirmed')
         incomplete=self.call('/api/tractor/import',body('missing-site',{**record,'external':''}),True,False)
-        self.assertEqual(incomplete.response['status'],'draft');self.assertIn('площадку',incomplete.response['needs_clarification'])
+        self.assertEqual(incomplete.response['status'],'confirmed');self.assertIsNone(incomplete.response['needs_clarification'])
         complete=self.call('/api/tractor/import',body('hours-only-rate-unknown',record),True,False)
         self.assertEqual(complete.response['status'],'confirmed')
         current=next(i for i in self.call('/api/tractor').response['items'] if i['id']==complete.response['id'])
@@ -109,5 +111,26 @@ class TractorTests(unittest.TestCase):
         with finance.db() as con:
             for fields in [{'hours':'1'},{'amount':'100'},{'rate':'10'},{'litres':'1'}]:
                 with self.assertRaises(ValueError):tractor.normalize(con,{'kind':'downtime','description':'Причина',**fields},False)
+
+    def test_time_interval_records_without_break_question_and_replays(self):
+        msg={'chat_id':'-10','message_id':'shift','sent_at':finance.now_ts(),'text':'13.10 Сергей 11:00-17:00'}
+        body={'message':msg,'record':{'kind':'work','hours':'0','description':'Сергей 11:00-17:00'},'needs_clarification':True}
+        a=self.call('/api/tractor/import',body,True,False);self.assertEqual(a.response['status'],'confirmed')
+        self.assertEqual(self.call('/api/tractor/import',body,True,False).response,a.response)
+        current=next(i for i in self.call('/api/tractor').response['items'] if i['id']==a.response['id'])
+        self.assertEqual(float(current['data']['hours']),6);self.assertEqual(current['data']['amount_cents'],0)
+        self.assertEqual(tractor.interval_hours('9:00–19:00'),'10.00');self.assertEqual(tractor.interval_hours('23:00-01:00'),'2.00')
+        self.assertIsNone(tractor.interval_hours('11:00-17:00 и 9:00-19:00'))
+        self.assertIsNone(tractor.interval_hours('11:00-17:00, перерыв 1 час'))
+        body['message']['message_id']='explicit-break';body['message']['text']='Сергей 11:00-17:00, перерыв 1 час'
+        saved=self.call('/api/tractor/import',body,True,False);self.assertEqual(saved.response['status'],'confirmed')
+        current=next(i for i in self.call('/api/tractor').response['items'] if i['id']==saved.response['id'])
+        self.assertEqual(float(current['data']['hours']),0)
+        self.assertIn('перерыв 1 час',current['source']['text'])
+        body['message'].update(message_id='voice-explicit-break',text='',transcript='Сергей 11:00-17:00, перерыв 1 час')
+        voice=self.call('/api/tractor/import',body,True,False);self.assertEqual(voice.response['status'],'confirmed')
+        current=next(i for i in self.call('/api/tractor').response['items'] if i['id']==voice.response['id'])
+        self.assertEqual(float(current['data']['hours']),0)
+        self.assertIn('перерыв 1 час',current['source']['transcript'])
 
 if __name__=='__main__':unittest.main()

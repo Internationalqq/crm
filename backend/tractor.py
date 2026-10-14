@@ -165,19 +165,36 @@ def update(con, ident, raw, revision, actor, action='save', reason='', confirm_d
                     raise ValueError('Сначала отмените связанные оплаты')
         status = 'cancelled'; data = json.loads(row['data_json'])
     else:
-        if action not in {'save','confirm'} or row['status'] != 'draft':
+        if action not in {'save','confirm','record'} or row['status'] != 'draft':
             raise ValueError('Подтверждённую запись можно только отменить')
-        data = normalize(con, raw, draft=action=='save')
-        if action=='confirm' and row['source_id'] and not confirm_duplicate:
-            hashes={x['sha256'] for x in json.loads(field_intake.message(con,row['source_id'])['media_json'])}
-            for other in con.execute("SELECT m.media_json FROM tractor_entries e JOIN field_messages m ON m.id=e.source_id WHERE e.status='confirmed' AND e.id!=?", (ident,)):
-                if hashes & {x['sha256'] for x in json.loads(other[0])}:
-                    raise ValueError('Этот чек уже есть в учёте. Проверьте дубликат и подтвердите отдельно')
-        status = 'confirmed' if action=='confirm' else 'draft'
+        data = normalize(con, raw, draft=action in {'save','record'})
+        if action in {'confirm','record'} and not confirm_duplicate and receipt_duplicate(con,row):
+            raise ValueError('Этот чек уже есть в учёте. Проверьте дубликат и подтвердите отдельно')
+        status = 'confirmed' if action in {'confirm','record'} else 'draft'
     con.execute('UPDATE tractor_entries SET data_json=?,status=?,revision=revision+1,updated_at=? WHERE id=?', (json.dumps(data,ensure_ascii=False),status,finance.now_ts(),ident))
     audit(con, ident, action, reason.strip(), actor)
     if operation_key is not None:
         con.execute('INSERT INTO tractor_operations VALUES(?,?,?)',(operation_key,ident,fingerprint))
+
+
+def receipt_duplicate(con,row):
+    if not row['source_id']:return None
+    hashes={x['sha256'] for x in json.loads(field_intake.message(con,row['source_id'])['media_json'])}
+    for other in con.execute("SELECT e.id,m.media_json FROM tractor_entries e JOIN field_messages m ON m.id=e.source_id WHERE e.status='confirmed' AND e.id!=?",(row['id'],)):
+        if hashes & {x['sha256'] for x in json.loads(other['media_json'])}:return other['id']
+    return None
+
+
+def has_explicit_break(text):
+    return bool(re.search(r'\b(?:перерыв\w*|обед\w*)[^\n.;]{0,24}?\d+(?:[.,]\d+)?\s*(?:ч(?:ас\w*)?|мин\w*)\b',str(text or ''),re.I))
+
+
+def interval_hours(text):
+    if has_explicit_break(text):return None
+    intervals=re.findall(r'(?<!\d)([01]?\d|2[0-3]):([0-5]\d)\s*[-–—]\s*([01]?\d|2[0-3]):([0-5]\d)(?!\d)',str(text or ''))
+    if len(intervals)!=1:return None
+    h1,m1,h2,m2=map(int,intervals[0]);minutes=(h2*60+m2-h1*60-m1)%1440
+    return str((Decimal(minutes)/60).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP)) if minutes else None
 
 
 def payload(con, row):
@@ -220,22 +237,27 @@ def handle(handler, method, path):
                 if not isinstance(record,dict):raise ValueError('record_required')
                 record=dict(record)
                 record.setdefault('date',field_intake.local_day(data['message']['sent_at']).isoformat())
+                if record.get('kind')=='work' and not number(record.get('hours'),24):
+                    source_text='\n'.join(str(data['message'].get(k) or '') for k in ('text','transcript'))
+                    duration=None if has_explicit_break(source_text+'\n'+str(record.get('description') or '')) else interval_hours(source_text) or interval_hours(record.get('description'))
+                    if duration:record['hours']=duration
                 old=con.execute('SELECT * FROM tractor_entries WHERE source_id=?',(mid,)).fetchone()
                 if old and json.loads(old['data_json'])!=normalize(con,record,draft=True):raise ValueError('Источник уже сохранён с другими данными. Исправьте запись в CRM')
                 ident=old['id'] if old else create(con,record,'telegram-message:'+str(mid),None,mid)
+                duplicate=None
+                if old and old['status']=='cancelled':
+                    cancellation=con.execute("SELECT reason FROM tractor_audit WHERE entry_id=? AND action='cancel' ORDER BY id DESC LIMIT 1",(ident,)).fetchone()
+                    marker=re.fullmatch(r'Повтор уже учтённого чека №(\d+)',cancellation[0]) if cancellation else None
+                    if marker:duplicate=int(marker[1])
                 if not old and cfg.get('auto_post',True):
-                    reason='Уточните вид, место и описание факта'
-                    if data.get('needs_clarification') is True:
-                        reason='В сообщении несколько фактов или есть неоднозначные данные'
-                    elif record.get('kind') and record.get('location') and str(record.get('description') or '').strip():
-                        try:
-                            update(con,ident,record,1,None,'confirm',operation_key='telegram-auto:'+str(mid))
-                            reason=None
-                        except ValueError as error:
-                            reason=str(error)
-                    if reason:audit(con,ident,'attention',reason,None)
+                    row=con.execute('SELECT * FROM tractor_entries WHERE id=?',(ident,)).fetchone()
+                    duplicate=receipt_duplicate(con,row)
+                    if duplicate:
+                        update(con,ident,record,1,None,'cancel',reason='Повтор уже учтённого чека №'+str(duplicate),operation_key='telegram-auto:'+str(mid))
+                    else:
+                        update(con,ident,record,1,None,'record',operation_key='telegram-auto:'+str(mid))
                 item=payload(con,con.execute('SELECT * FROM tractor_entries WHERE id=?',(ident,)).fetchone())
-                con.commit();handler.send_json(200,{'id':ident,'status':item['status'],'needs_clarification':item['needs_clarification']});return
+                con.commit();handler.send_json(200,{'id':ident,'status':item['status'],'needs_clarification':item['needs_clarification'],'duplicate_of':duplicate});return
             if method=='GET' and path=='/api/tractor':
                 rows=sorted(con.execute('SELECT * FROM tractor_entries').fetchall(),key=lambda r:(json.loads(r['data_json'])['date'],r['id']),reverse=True)
                 projects=[dict(r) for r in con.execute('SELECT id,title FROM projects ORDER BY title')]
