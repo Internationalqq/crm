@@ -21,3 +21,15 @@ Backend18 PASS (9сценариев трактора +9finance fixture); plugin2
 Аудит замороженных зависимостей перед выпуском exit1: существующие PyJWT PYSEC-2026-4141/PYSEC-2026-4183; runtime не обновляется в этом пакете. Требует отдельного изменения auth-зависимости с тестами, reviewdate2026-10-21. Новых зависимостей/интеграций/ролей нет.
 
 Linux candidate backend18 PASS. Проверка живого runtime обнаружила ранее существовавший транспортный дефект: Hermes invokes pre_gateway_dispatch с event/gateway/session_store, обёртка тракторного capture принимала толькоevent. Поэтому реальные сообщения могли пройти в беседу без source/outbox. Исправлено capture(event=None,**kwargs), общий источник/allowlist не менялись; тест теперь использует точную форму callback, plugin2WindowsPASS, независимое focused reviewship. Будет установлен вместе с профилем при выпуске, живое синтетическое сообщение в группу не отправляется.
+
+## Выпуск
+
+Опубликован код1123006 (UI/auto-post b4a3316 + hookfix). Runtime собран поверх crm-crm:rollback-tractor-journal-20261014; pipfreeze идентичен. Linuxcandidatebackend18/plugin2 PASS. Контейнер пересоздан без обновления зависимостей; посторонний pmbi-autobot-mail сохранён (composeorphanwarning не удаляли).
+
+Production history: changed127, повтор changed0;127confirmed,4downtime,743ч,1730.53л,5929900коп, integrityok/FKclean, соседние таблицы идентичны. Резерв /opt/crm-backups/tractor-journal-20261014/before.sqlite3 и исходный манифест. Для отката статусов/видов только этих127нужна проверка текущихревизий/новыхсвязанныхоплат и отдельная обратная транзакция с аудитом; нельзя восстановить весь backup поверх дальнейшей работы.
+
+Production browser API127confirmed,401anonymous;390/768/1280 безoverflow/JSerrors, Дегтярка+август172ч/560л, groupeddaydetails/reload PASS. Скриншоты journal-{1280,768,390}.png теперь production. Дополнительная условная запись в production не создавалась.
+
+Mac profiletractor обновлён SOUL/AGENTS/plugin/WORKFLOW, backup /Users/egor/.hermes/profiles/tractor/backups/tractor-journal-20261014. Обновление выполнено при active_agents0. Первое создание backupdir потребовало parents=True, исправлено до изменения профиля. После restart PID52914, Telegram connected/noerror, active_agents0. Реальный scopedcontext черезrelay3проекта/дата2026-10-14 успешно прочитан, установленная hooksignature принимает дополнительные kwargs. В выводе проверки были исторические сетевые/Chatnotfounderrors из старого launchd.log; актуальный gateway послеrestart connected без них. Новое реальное сообщение после исправления hook ещё не поступило/не проверено; синтетические сообщения в беседу не отправляли.
+
+Остаток данных:22неоднозначныестроки исходного Excel по-прежнему не превращены в операции, недатированные397часов не распределены по дням. Месячные суммы/расчёты прибыли не становятся оплатами по догадке. Пакет интерфейса и автозаписи завершён; следующая проверка эксплуатации — настоящее сообщение с площадкой/датой/фактом.
