@@ -18,6 +18,29 @@ import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_ivan_batch_sends_only_final_summary(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.db.execute('INSERT INTO jobs VALUES (?,?,?,NULL)',
+                              (-1, '[IVAN_SEARCH_BATCH_FINAL_ONLY]\nSearch assigned50', 'queued'))
+            bridge.db.commit()
+            calls=[]
+            bridge.api=lambda method,payload: calls.append((method,payload)) or {'message_id':9}
+            def run(*args, **kwargs):
+                self.assertEqual(calls, [])
+                callback=args[7]
+                callback({'method':'item/started','params':{'item':{'type':'agentMessage','id':'a'}}})
+                callback({'method':'item/agentMessage/delta','params':{'itemId':'a','delta':'Intermediate'}})
+                self.assertEqual(calls, [])
+                return 'Final summary'
+            with patch.object(module,'run_codex',side_effect=run):bridge.work()
+            self.assertEqual([x[0] for x in calls],['sendMessage'])
+            self.assertEqual(calls[0][1]['text'],'Final summary')
+            self.assertEqual(bridge.db.execute('SELECT status FROM jobs WHERE id=-1').fetchone()[0],'completed')
+            bridge.db.close()
+
     def test_card_png_uses_photo_and_oversized_dimensions_use_document(self):
         import struct
         response = json.dumps({'ok': True, 'result': {'message_id': 7}}).encode()

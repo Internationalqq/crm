@@ -233,7 +233,9 @@ class Bridge:
         status = 'failed'
         live = LiveReply(self.api, int(self.get('owner')), stop_data='stop:' + self.active_stop)
         self.active_reply = live
-        live.start()
+        quiet_batch = prompt.startswith('[IVAN_SEARCH_BATCH_FINAL_ONLY]\n')
+        if not quiet_batch:
+            live.start()
         try:
             inputs = []
             attachment = self.db.execute('SELECT payload FROM attachments WHERE job_id=?', (job_id,)).fetchone()
@@ -261,7 +263,8 @@ class Bridge:
                 answer = 'Остановлено. Уже выполненные действия сохранены.'
             else:
                 answer = run_codex(self.codex, self.workspace, self.crm, thread, instructions, events,
-                                   lambda value: self.set('thread', value), live.feed, **options)
+                                   lambda value: self.set('thread', value),
+                                   (lambda event: None) if quiet_batch else live.feed, **options)
             output.write_text(answer, encoding='utf-8')
             status = 'completed'
         except AttachmentError as error:
