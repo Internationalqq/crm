@@ -18,6 +18,30 @@ import sqlite3
 
 
 class AccessTests(unittest.TestCase):
+    def test_halted_bridge_acknowledges_owner_message_without_running_model(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, 'bot-token.txt').write_text('test')
+            bridge = module.Bridge(home, home, 'codex')
+            bridge.set('owner', 123)
+            bridge.set('halted', '1')
+            sent = []
+            bridge.send = sent.append
+            update = {'update_id': 500, 'message': {'text': 'Ну че там',
+                      'chat': {'type': 'private', 'id': 123}, 'from': {'id': 123}}}
+            with patch.object(module, 'run_codex') as run:
+                bridge.accept(update)
+                bridge.accept(update)
+                bridge.work()
+                run.assert_not_called()
+            self.assertEqual(len(sent), 1)
+            self.assertIn('приостановлены', sent[0])
+            self.assertEqual(bridge.db.execute('SELECT status FROM jobs WHERE id=500').fetchone()[0], 'queued')
+            bridge.accept({'update_id': 501, 'message': {'text': 'task',
+                          'chat': {'type': 'private', 'id': 456}, 'from': {'id': 456}}})
+            self.assertEqual(len(sent), 1)
+            self.assertEqual(bridge.get('halted'), '1')
+            bridge.db.close()
+
     def test_ivan_batch_sends_only_final_summary(self):
         with tempfile.TemporaryDirectory() as home:
             Path(home, 'bot-token.txt').write_text('test')

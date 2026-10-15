@@ -157,6 +157,9 @@ class Bridge:
                 if attachment:
                     self.db.execute('INSERT OR IGNORE INTO attachments VALUES (?, ?)',
                                     (update['update_id'], json.dumps(attachment)))
+            if self.get('halted'):
+                self.send('Сообщение получил и сохранил. Автоматические ответы этого подключения '
+                          'пока приостановлены. Для ответа сейчас напиши в открытый чат Codex.')
 
     def pending_batch(self):
         return self.db.execute('''SELECT b.job_id FROM forward_batches b JOIN jobs j ON j.id=b.job_id
