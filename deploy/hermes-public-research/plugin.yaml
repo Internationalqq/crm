@@ -1,0 +1,4 @@
+name: public-research
+version: 1.0.0
+description: Read public HTTPS evidence without desktop interaction or shell commands.
+entrypoint: __init__.py
