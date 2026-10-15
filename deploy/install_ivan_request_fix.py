@@ -5,6 +5,7 @@ import py_compile
 import shutil
 import yaml
 from hermes_kanban_compact import patch_source
+from hermes_research_artifacts import patch_source as patch_verification
 
 
 def main():
@@ -20,6 +21,12 @@ def main():
     py_compile.compile(str(temp), doraise=True)
     shutil.copy2(source / 'hermes_kanban_compact.py', root / 'tools/kanban_compact_policy.py')
     temp.replace(target)
+    verification = root / 'agent/verification_stop.py'
+    if not (backup / 'verification_stop.py').exists():shutil.copy2(verification, backup / 'verification_stop.py')
+    shutil.copy2(source / 'hermes_research_artifacts.py', root / 'agent/research_artifact_policy.py')
+    staged = verification.with_suffix('.py.staged')
+    staged.write_text(patch_verification(verification.read_text()))
+    py_compile.compile(str(staged), doraise=True); staged.replace(verification)
     plugin = profile / 'plugins/public-research'
     if plugin.exists() and not (backup / 'public-research').exists():shutil.copytree(plugin, backup / 'public-research')
     shutil.copytree(source / 'hermes-public-research', plugin, dirs_exist_ok=True)
