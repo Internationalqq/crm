@@ -37,7 +37,54 @@ def db():
     con=sqlite3.connect(folder()/'queue.sqlite3',timeout=15,factory=Connection);con.row_factory=sqlite3.Row
     con.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,payload TEXT NOT NULL,crm_id INTEGER,error TEXT,updated_at REAL NOT NULL)')
     con.execute('CREATE TABLE IF NOT EXISTS operations(source TEXT NOT NULL,op_key TEXT NOT NULL,payload TEXT NOT NULL,generation INTEGER NOT NULL,synced INTEGER NOT NULL DEFAULT 0,result TEXT,error TEXT,PRIMARY KEY(source,op_key))')
+    con.execute('CREATE TABLE IF NOT EXISTS source_outcomes(source TEXT PRIMARY KEY,outcome TEXT NOT NULL,reason TEXT NOT NULL,event_id INTEGER,updated_at REAL NOT NULL)')
     return con
+
+
+def coverage(con):
+    """Durable inbox coverage, including messages which never reached extract."""
+    sources=con.execute('SELECT * FROM sources ORDER BY updated_at').fetchall()
+    operations=con.execute('SELECT * FROM operations').fetchall()
+    results={};referenced={}
+    for operation in operations:
+        result=json.loads(operation['result'] or '{}').get('item',{})
+        state=('error' if operation['error'] else 'queued' if not operation['synced'] else
+               'applied' if result.get('status')=='applied' else 'needs_clarification')
+        entry={'state':state,'event_id':result.get('id'),'error':operation['error']}
+        results.setdefault(operation['source'],[]).append(entry)
+        for ref in json.loads(operation['payload']).get('source_refs',[]):referenced.setdefault(ref,[]).append(entry)
+    notes={r['source']:dict(r) for r in con.execute('SELECT * FROM source_outcomes')}
+    entries=[]
+    for row in sources:
+        entries.append({'source':row['source'],'crm_id':row['crm_id'],'delivery_error':row['error'],
+                        'operations':results.get(row['source'],[]),'used_by':referenced.get(row['source'],[]),
+                        'classification':notes.get(row['source']),
+                        'unclassified':row['source'] not in results and row['source'] not in referenced and row['source'] not in notes})
+    def priority(entry):
+        if entry['unclassified']:return 0
+        if entry['delivery_error'] or any(x['state']!='applied' for x in entry['operations']+entry['used_by']):return 1
+        if (entry['classification'] or {}).get('outcome') in {'error','needs_clarification'}:return 1
+        return 2
+    ordered=sorted(entries,key=priority)
+    return {'total':len(entries),'unclassified_total':sum(x['unclassified'] for x in entries),
+            'items':ordered[:200],'omitted':max(0,len(entries)-200)}
+
+
+def classify(args):
+    source=args.get('source');outcome=args.get('outcome');reason=str(args.get('reason') or '').strip()
+    if outcome not in {'no_event','duplicate','needs_clarification','error'} or not reason or len(reason)>2000:raise ValueError('classification_reason_required')
+    with db() as con:
+        row=con.execute('SELECT * FROM sources WHERE source=?',(source,)).fetchone()
+        if not row or json.loads(row['payload'])['chat_id'] not in groups(config()):raise ValueError('unknown_source')
+        ident=args.get('id')
+        if outcome=='duplicate':
+            if type(ident) is not int or ident<=0:raise ValueError('duplicate_event_id_required')
+            item=api('/'+str(ident))['item']
+            if item.get('status')!='applied':raise ValueError('duplicate_target_not_applied')
+        else:ident=None
+        con.execute('INSERT INTO source_outcomes VALUES(?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET outcome=excluded.outcome,reason=excluded.reason,event_id=excluded.event_id,updated_at=excluded.updated_at',
+                    (source,outcome,reason,ident,time.time()))
+    return {'source':source,'outcome':outcome,'reason':reason,'event_id':ident,'instruction':'Classification does not post inventory. Do not classify an unresolved factual receipt as no_event.'}
 
 
 def api(path,data=None):
@@ -115,6 +162,7 @@ def enqueue(args):
 def capture(event=None,**kwargs):
     cfg=config();source=getattr(event,'source',None);group=str(getattr(source,'chat_id',''))
     if group not in groups(cfg) or Path(os.environ.get('HERMES_HOME',''))!=PROFILE or getattr(getattr(source,'platform',None),'value',None)!='telegram' or getattr(event,'internal',False):return None
+    if getattr(event,'_field_crm_captured',False):return None
     raw=getattr(event,'raw_message',None);sender=getattr(raw,'from_user',None)
     if not sender or getattr(sender,'is_bot',True):return None
     from gateway.platforms.base import get_image_cache_dir,get_document_cache_dir,get_audio_cache_dir
@@ -143,7 +191,8 @@ def capture(event=None,**kwargs):
     with db() as con:
         con.execute('INSERT OR IGNORE INTO sources VALUES(?,?,NULL,NULL,?)',(key,json.dumps(payload,ensure_ascii=False),time.time()));con.commit()
     WAKE.set()
-    note='\n[Field CRM source: '+key+'. Original saved locally, CRM delivery pending. Use field_crm projects/recent/context, then extract with stable event_key per fact. For voice copy the actual successful transcript first; never invent unheard content. REPORT DATE: explicit «отчёт за 7 октября» or complete date on its own first line (11.10.2026 / 10.10.26), otherwise ORIGINAL sent day Asia/Yekaterinburg, never today from processing. Report, actual receipt, expected delivery and purchase are separate events. Purchase means bought, NOT received. Every inventory line uses item_type=tool or material, title, qty, unit. Require project/location/quantity/unit and verbatim fact quote. Receipt linked to a known purchase uses data.purchase_event_id; check exact names/units and remaining quantity. Unknowns -> questions, apply=false. Known unambiguous facts -> apply=true. Photos replying to an existing report: attach_to that verified event id. Do not change payments. Check status before saying saved/applied. Read the field workflow.]'
+    event._field_crm_captured=True
+    note='\n[Field CRM source: '+key+'. Original saved locally, CRM delivery pending. Use field_crm projects/recent/context, then extract with stable event_key per fact. For voice copy the actual successful transcript first; never invent unheard content. REPORT DATE: explicit «отчёт за 7 октября» or complete date on its own first line (11.10.2026 / 10.10.26), otherwise ORIGINAL sent day Asia/Yekaterinburg, never today from processing. Report, actual receipt, expected delivery and purchase are separate events. Purchase means bought, NOT received. Every inventory line uses item_type=tool or material, title, qty, unit. Require project/location/quantity/unit and verbatim fact quote. Receipt linked to a known purchase uses data.purchase_event_id; check exact names/units and remaining quantity. Unknowns -> questions, apply=false. Known unambiguous facts -> apply=true. Photos replying to an existing report: attach_to that verified event id. Do not change payments. Check status.coverage before finishing: unclassified originals are unfinished work. A confirmation must update/apply its original draft with source_refs, never only acknowledge in text. Preserve partial extraction/checkpoint on interruption. Classify no-event/duplicate only with a specific reason; duplicate requires verified applied event ID. Check status before saying saved/applied. Read the field workflow.]'
     return {'action':'rewrite','text':(event.text or '')+note}
 
 
@@ -154,6 +203,8 @@ def tool(args,**kwargs):
             WAKE.set()
             with db() as con:
                 result={'connected':bool(groups(config())),'sources':[dict(r) for r in con.execute('SELECT source,crm_id,error,updated_at FROM sources ORDER BY updated_at DESC LIMIT 30')], 'operations':[dict(r) for r in con.execute('SELECT source,op_key,synced,result,error FROM operations ORDER BY rowid DESC LIMIT 30')]}
+                result['coverage']=coverage(con)
+        elif action=='classify':result=classify(args)
         elif action=='source':
             with db() as con:
                 row=con.execute('SELECT * FROM sources WHERE source=?',(args.get('source'),)).fetchone()
@@ -174,7 +225,8 @@ def register(ctx):
     global STARTED
     if Path(os.environ.get('HERMES_HOME',''))!=PROFILE:return
     ctx.register_hook('pre_gateway_dispatch',capture)
-    ctx.register_tool(name='field_crm',toolset='field_crm',handler=tool,schema={'name':'field_crm','description':'Assigned groups: durable original/voice transcription, daily log, tool/material purchase, actual receipt and future delivery. No payments or automatic material consumption. Unknowns remain questions. Tool result queued needs status synced and applied evidence.', 'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['status','source','projects','recent','context','get','extract']},'id':{'type':'integer'},'source':{'type':'string'},'source_refs':{'type':'array','items':{'type':'string'}},'transcript':{'type':'string','description':'Exact successful speech transcription, before saving events; immutable.'},'attach_to':{'type':'integer'},'revision':{'type':'integer'},'apply':{'type':'boolean'},'event':{'type':'object','description':'event_key stable, revision when editing, kind report/receipt/expected/purchase, project_id integer/null, location company/project/unknown, title, event_date ISO for delivery only, data: questions[], work_done/workers_count/workforce/equipment_entries/equipment/blockers/next_steps for report; workforce MUST be array [{role,count,hours,names:[]}], equipment_entries array [{name,count,hours}], never a string; report_date_quote exact «отчёт за…» or complete standalone FIRST-LINE date with year; lines[{title,qty decimal string,unit,item_type tool|material,sku,estimate_item_id nullable}], purchase_event_id nullable, fact_quote exact source, date_quote for delivery date, finance_entry_id only verified invoice, delivery_status partial/complete for receipt. Do not infer VAT, payment, hours, objects or quantities.'}},'required':['action']}})
+    ctx.register_hook('gateway_message_received',capture)
+    ctx.register_tool(name='field_crm',toolset='field_crm',handler=tool,schema={'name':'field_crm','description':'Assigned groups: durable original/voice transcription, daily log, tool/material purchase, actual receipt and future delivery. No payments or automatic material consumption. Unknowns remain questions. Tool result queued needs status synced and applied evidence.', 'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['status','source','projects','recent','context','get','extract','classify']},'id':{'type':'integer'},'source':{'type':'string'},'outcome':{'type':'string','enum':['no_event','duplicate','needs_clarification','error']},'reason':{'type':'string','description':'Exact reason; duplicate requires id of a verified applied event. Classification never posts stock.'},'source_refs':{'type':'array','items':{'type':'string'}},'transcript':{'type':'string','description':'Exact successful speech transcription, before saving events; immutable.'},'attach_to':{'type':'integer'},'revision':{'type':'integer'},'apply':{'type':'boolean'},'event':{'type':'object','description':'event_key stable, revision when editing, kind report/receipt/expected/purchase, project_id integer/null, location company/project/unknown, title, event_date ISO for delivery only, data: questions[], work_done/workers_count/workforce/equipment_entries/equipment/blockers/next_steps for report; workforce MUST be array [{role,count,hours,names:[]}], equipment_entries array [{name,count,hours}], never a string; report_date_quote exact «отчёт за…» or complete standalone FIRST-LINE date with year; lines[{title,qty decimal string,unit,item_type tool|material,sku,estimate_item_id nullable}], purchase_event_id nullable, fact_quote exact source, date_quote for delivery date, finance_entry_id only verified invoice, delivery_status partial/complete for receipt. Do not infer VAT, payment, hours, objects or quantities.'}},'required':['action']}})
     if STARTED:return
     STARTED=True
     (folder()/'runtime.json').write_text(json.dumps({'pid':os.getpid(),'registered_at':time.time(),'plugin_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'connected':bool(groups(config()))}))

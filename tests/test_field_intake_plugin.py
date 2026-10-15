@@ -97,5 +97,63 @@ class PluginTests(unittest.TestCase):
         with patch.object(plugin,'api',side_effect=api):plugin.flush()
         self.assertEqual(calls[-1],('/6/attach',{'source_ids':[7],'revision':2}));self.assertNotIn('/events',[c[0] for c in calls])
 
+    def test_ingress_and_gateway_hooks_capture_original_only_once(self):
+        event=self.event()
+        first=plugin.capture(event)
+        self.assertIsNone(plugin.capture(event))
+        self.assertIn('Field CRM source: -20:17',first['text'])
+        second=self.event();second.message_id='18';second.raw_message.voice=None
+        second.raw_message.text='Да, всё верно';second.media_urls=[];second.text='Да, всё верно'
+        plugin.capture(second)
+        with plugin.db() as con:
+            self.assertEqual(con.execute('SELECT count(*) FROM sources').fetchone()[0],2)
+            self.assertEqual(json.loads(con.execute('SELECT payload FROM sources WHERE source=?',('-20:18',)).fetchone()[0])['text'],'Да, всё верно')
+
+    def test_coverage_keeps_unextracted_and_failed_sources_visible_after_reopen(self):
+        plugin.capture(self.event())
+        with plugin.db() as con:
+            self.assertEqual(plugin.coverage(con)['unclassified_total'],1)
+        plugin.enqueue({'source':'-20:17','event':{'event_key':'receipt-1'},'apply':False})
+        with plugin.db() as con:
+            item=plugin.coverage(con)['items'][0]
+            self.assertFalse(item['unclassified']);self.assertEqual(item['operations'][0]['state'],'queued')
+            con.execute("UPDATE operations SET error='HTTP409:bad_quantity'")
+        with plugin.db() as con:
+            self.assertEqual(plugin.coverage(con)['items'][0]['operations'][0]['state'],'error')
+
+    def test_classification_never_posts_stock_and_duplicate_needs_applied_target(self):
+        plugin.capture(self.event())
+        with patch.object(plugin,'api') as api:
+            plugin.classify({'source':'-20:17','outcome':'no_event','reason':'Вопрос о статусе, нового факта нет.'})
+            api.assert_not_called()
+        with patch.object(plugin,'api',return_value={'item':{'status':'needs_review'}}):
+            with self.assertRaisesRegex(ValueError,'duplicate_target_not_applied'):
+                plugin.classify({'source':'-20:17','outcome':'duplicate','reason':'Повтор документа','id':8})
+        with patch.object(plugin,'api',return_value={'item':{'status':'applied'}}) as api:
+            plugin.classify({'source':'-20:17','outcome':'duplicate','reason':'Тот же документ и количество','id':8})
+            api.assert_called_once_with('/8')
+        with plugin.db() as con:self.assertEqual(plugin.coverage(con)['items'][0]['classification']['event_id'],8)
+
+    def test_clarification_reference_is_covered_by_original_operation(self):
+        event=self.event();plugin.capture(event)
+        other=self.event();other.message_id='18';plugin.capture(other)
+        plugin.enqueue({'source':'-20:17','source_refs':['-20:18'],'event':{'event_key':'receipt-1'}})
+        with plugin.db() as con:
+            rows=plugin.coverage(con)['items']
+            self.assertEqual(plugin.coverage(con)['unclassified_total'],0)
+            self.assertEqual(rows[1]['used_by'][0]['state'],'queued')
+
+    def test_old_unclassified_source_is_not_hidden_by_200_later_classifications(self):
+        with plugin.db() as con:
+            for i in range(201):
+                key='-20:'+str(i)
+                con.execute('INSERT INTO sources VALUES(?,?,NULL,NULL,?)',(key,json.dumps({'chat_id':'-20'}),i))
+                if i:con.execute('INSERT INTO source_outcomes VALUES(?,?,?,?,?)',(key,'no_event','status only',None,i))
+        with plugin.db() as con:
+            result=plugin.coverage(con)
+            self.assertEqual(result['unclassified_total'],1)
+            self.assertEqual(result['items'][0]['source'],'-20:0')
+            self.assertEqual(result['omitted'],1)
+
 
 if __name__=='__main__':unittest.main()
