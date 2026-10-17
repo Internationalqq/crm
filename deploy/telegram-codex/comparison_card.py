@@ -14,11 +14,21 @@ def create_card(data, output):
         if not isinstance(result, str) or len(result) > 2000:
             raise ValueError('Card fields must be strings of at most 2000 characters.')
         return result
-    regular = 'C:/Windows/Fonts/segoeui.ttf'
-    bold = 'C:/Windows/Fonts/segoeuib.ttf'
-    font = ImageFont.truetype(regular, 28)
-    strong = ImageFont.truetype(bold, 29)
-    heading = ImageFont.truetype(bold, 44)
+    font_pairs = [
+        ('C:/Windows/Fonts/segoeui.ttf', 0, 'C:/Windows/Fonts/segoeuib.ttf', 0),
+        ('/System/Library/Fonts/HelveticaNeue.ttc', 0, '/System/Library/Fonts/HelveticaNeue.ttc', 1),
+        ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 0, '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 0),
+    ]
+    selected = next((pair for pair in font_pairs if Path(pair[0]).is_file() and Path(pair[2]).is_file()), None)
+    if selected is None:
+        raise ValueError('A Cyrillic-capable regular/bold font pair is required')
+    regular, regular_index, bold, bold_index = selected
+    font = ImageFont.truetype(regular, 28, index=regular_index)
+    strong = ImageFont.truetype(bold, 29, index=bold_index)
+    heading = ImageFont.truetype(bold, 44, index=bold_index)
+    for face in (font, strong):
+        if bytes(face.getmask('₽')) == bytes(face.getmask('\u0378')):
+            raise ValueError('Selected font does not render the ruble sign')
     probe = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     def wrap(text, face, width):
         lines = []
